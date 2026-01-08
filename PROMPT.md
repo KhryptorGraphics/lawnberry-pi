@@ -543,9 +543,16 @@ class UltrasonicDriver(HardwareDriver):
 ---
 
 ### BEAD-042: Ultrasonic - Test Script
-**Status**: pending
+**Status**: complete
 **Priority**: medium
 **Description**: Create ultrasonic sensor test script
+**Completed**: 2026-01-08 - Created scripts/test_ultrasonic.py:
+- Test single sensor or all three with --sensor option
+- Continuous monitoring mode with --continuous
+- Voltage divider verification with --verify
+- Color-coded output (green=OK, yellow=warning, red=danger)
+- Health check display with --health
+- Tested in simulation mode successfully
 Create `scripts/test_ultrasonic.py`:
 - Test each sensor individually
 - Verify voltage dividers working (no GPIO damage)
