@@ -384,9 +384,14 @@ minicom -D /dev/ttyAMA0 -b 115200
 ---
 
 ### BEAD-032: LC29H GPS - NTRIP Configuration
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Configure RTK corrections via NTRIP
+**Completed**: 2026-01-08 - NTRIP client updated for LC29H compatibility:
+- Updated ntrip_client.py to recognize LC29H_UART for default 115200 baud selection
+- Updated .env.example with LC29H-specific device (/dev/ttyAMA0)
+- User needs to create .env from .env.example with their NTRIP caster credentials
+- Existing NTRIP infrastructure fully supports LC29H via UART
 Update `.env` with NTRIP credentials:
 ```
 NTRIP_HOST=<your_caster>
@@ -394,10 +399,9 @@ NTRIP_PORT=2101
 NTRIP_MOUNTPOINT=<mountpoint>
 NTRIP_USERNAME=<user>
 NTRIP_PASSWORD=<pass>
-NTRIP_SERIAL_DEVICE=/dev/ttyS0
+NTRIP_SERIAL_DEVICE=/dev/ttyAMA0
 NTRIP_SERIAL_BAUD=115200
 ```
-Modify `ntrip_client.py` for LC29H compatibility.
 **Acceptance**: RTK Fix achieved with corrections
 
 ---

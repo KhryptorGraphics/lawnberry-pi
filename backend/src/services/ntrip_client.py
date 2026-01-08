@@ -75,7 +75,7 @@ class NtripForwarder:
             or os.getenv("GPS_DEVICE")
             or "/dev/ttyAMA0"
         )
-        default_baud = 115200 if gps_mode in {GpsMode.F9P_USB, GpsMode.F9P_UART} else 9600
+        default_baud = 115200 if gps_mode in {GpsMode.F9P_USB, GpsMode.F9P_UART, GpsMode.LC29H_UART} else 9600
         _baud_raw = os.getenv("NTRIP_SERIAL_BAUD", str(default_baud))
         try:
             baudrate = int(str(_baud_raw).strip() or str(default_baud))
