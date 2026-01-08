@@ -120,6 +120,31 @@ class SafetyTriggerManager:
     def clear_high_temp(self) -> None:
         self._clear(InterlockType.HIGH_TEMPERATURE)
 
+    def trigger_ultrasonic_obstacle(
+        self, distance_cm: float, threshold_cm: float, sensor_id: str = "unknown"
+    ) -> bool:
+        """Trigger ultrasonic obstacle interlock.
+
+        Args:
+            distance_cm: Detected distance in centimeters
+            threshold_cm: Minimum safe distance threshold
+            sensor_id: Which sensor triggered (front_left/center/right)
+
+        Returns:
+            True if interlock was activated
+        """
+        if distance_cm <= threshold_cm:
+            self._activate(
+                InterlockType.ULTRASONIC_OBSTACLE,
+                f"Ultrasonic obstacle detected by {sensor_id}",
+                distance_cm,
+            )
+            return True
+        return False
+
+    def clear_ultrasonic_obstacle(self) -> None:
+        self._clear(InterlockType.ULTRASONIC_OBSTACLE)
+
     def list_active(self) -> list[SafetyInterlock]:
         return list(self._active.values())
 

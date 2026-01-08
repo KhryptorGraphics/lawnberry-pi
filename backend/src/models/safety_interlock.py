@@ -12,7 +12,8 @@ class InterlockType(str, Enum):
     GEOFENCE_VIOLATION = "geofence_violation"
     WATCHDOG_TIMEOUT = "watchdog_timeout"
     HIGH_TEMPERATURE = "high_temperature"
-    OBSTACLE_DETECTED = "obstacle_detected"
+    OBSTACLE_DETECTED = "obstacle_detected"  # ToF sensors
+    ULTRASONIC_OBSTACLE = "ultrasonic_obstacle"  # HC-SR04 sensors
 
 
 class InterlockState(str, Enum):

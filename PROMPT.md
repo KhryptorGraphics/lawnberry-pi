@@ -563,9 +563,15 @@ Create `scripts/test_ultrasonic.py`:
 ---
 
 ### BEAD-043: Ultrasonic - Safety Integration
-**Status**: pending
+**Status**: complete
 **Priority**: critical
 **Description**: Integrate ultrasonic sensors with safety system
+**Completed**: 2026-01-08 - Safety integration implemented:
+- Added InterlockType.ULTRASONIC_OBSTACLE to safety_interlock.py
+- Added trigger_ultrasonic_obstacle() and clear_ultrasonic_obstacle() to safety_triggers.py
+- Method logs which sensor triggered (front_left/center/right)
+- Added ultrasonic thresholds to config/limits.yaml
+- Verified safety interlock triggers correctly at threshold
 Modify `backend/src/safety/safety_triggers.py`:
 - Add ultrasonic obstacle threshold (default: 30cm)
 - Trigger e-stop if any sensor < threshold

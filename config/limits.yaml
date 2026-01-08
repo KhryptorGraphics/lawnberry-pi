@@ -11,3 +11,7 @@ watchdog_timeout_ms: 1000
 geofence_buffer_meters: 0.5
 high_temperature_celsius: 80.0
 tof_obstacle_distance_meters: 0.2
+
+# Ultrasonic sensor safety thresholds (HC-SR04)
+ultrasonic_obstacle_distance_cm: 30.0  # Trigger e-stop if any sensor reads below this
+ultrasonic_enabled: true  # Set false to disable ultrasonic safety checks
