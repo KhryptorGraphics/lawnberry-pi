@@ -220,9 +220,14 @@ sudo raspi-config nonint do_camera 0         # Enable camera
 ---
 
 ### BEAD-010: USB Stereo Camera - Detection
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Verify USB stereo camera is detected
+**Completed**: 2026-01-08 - Camera detected and verified:
+- USB: Bus 002 Device 002: ID 32e4:9750 3D USB Camera
+- Video device: /dev/video0
+- Resolution: 2560x960 combined (1280x960 per eye)
+- Test images saved to /tmp/stereo_*.jpg
 ```bash
 # Check USB devices
 lsusb | grep -i "3D USB Camera"
