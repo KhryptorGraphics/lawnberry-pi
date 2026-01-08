@@ -479,9 +479,17 @@ Output: 5V x (2k / 3k) = 3.3V (safe for Pi GPIO)
 ---
 
 ### BEAD-041: Ultrasonic Sensors - Driver Implementation
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Create HC-SR04 driver
+**Completed**: 2026-01-08 - Implemented ultrasonic driver:
+- Created backend/src/drivers/sensors/ultrasonic_driver.py with full async lifecycle
+- UltrasonicReading dataclass with sensor_id, distance_cm, timestamp, valid fields
+- Support for lgpio (Pi 5) and gpiozero (fallback) GPIO backends
+- Simulation mode with noise and occasional obstacle events
+- read_distance() for single sensor, read_all() for all three sensors
+- get_minimum_distance() helper for safety integration
+- Created tests/unit/test_ultrasonic_driver.py with 10 passing tests
 Create `backend/src/drivers/sensors/ultrasonic_driver.py`:
 ```python
 """HC-SR04 Ultrasonic Sensor Driver for LawnBerry Pi."""
