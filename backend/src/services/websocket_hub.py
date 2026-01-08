@@ -95,6 +95,9 @@ class WebSocketHub:
             if hw_cfg and getattr(hw_cfg, "gps_type", None) in {GPSType.ZED_F9P_USB, GPSType.ZED_F9P_UART}:
                 gps_mode = GpsMode.F9P_USB if getattr(hw_cfg, "gps_type", None) == GPSType.ZED_F9P_USB else GpsMode.F9P_UART
                 ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
+            elif hw_cfg and getattr(hw_cfg, "gps_type", None) == GPSType.LC29H_DA:
+                gps_mode = GpsMode.LC29H_UART
+                ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
 
         # Hint GPS device if a common device node is present
         try:
@@ -448,7 +451,19 @@ class WebSocketHub:
                 "tof": telemetry_data["tof"],
                 "source": telemetry_data.get("source", "unknown")
             })
-            
+
+        if "ultrasonic" in telemetry_data:
+            await self.broadcast_to_topic("telemetry.ultrasonic", {
+                "ultrasonic": telemetry_data["ultrasonic"],
+                "source": telemetry_data.get("source", "unknown")
+            })
+
+        if "stereo_camera" in telemetry_data:
+            await self.broadcast_to_topic("telemetry.stereo_camera", {
+                "stereo_camera": telemetry_data["stereo_camera"],
+                "source": telemetry_data.get("source", "unknown")
+            })
+
         if "motor_status" in telemetry_data:
             await self.broadcast_to_topic("telemetry.motors", {
                 "motor_status": telemetry_data["motor_status"],
@@ -778,6 +793,64 @@ class WebSocketHub:
                         "right": {"distance_mm": None, "range_status": None, "signal_strength": None},
                     }
 
+                # Ultrasonic sensors (HC-SR04 array)
+                ultrasonic_iface = getattr(manager, "ultrasonic", None)
+                if ultrasonic_iface is not None:
+                    try:
+                        us_readings = await ultrasonic_iface.read_ultrasonic()
+                        min_dist = ultrasonic_iface.get_minimum_distance()
+                        telemetry["ultrasonic"] = {
+                            "readings": us_readings,
+                            "minimum_distance_cm": min_dist,
+                            "sensor_count": len(us_readings),
+                            "status": str(getattr(ultrasonic_iface, "status", "unknown")),
+                        }
+                    except Exception as exc:
+                        logger.debug("Ultrasonic read failed: %s", exc)
+                        telemetry["ultrasonic"] = {
+                            "readings": [],
+                            "minimum_distance_cm": None,
+                            "sensor_count": 0,
+                            "status": "error",
+                        }
+                else:
+                    telemetry["ultrasonic"] = {
+                        "readings": [],
+                        "minimum_distance_cm": None,
+                        "sensor_count": 0,
+                        "status": "offline",
+                    }
+
+                # Stereo camera metadata (BEAD-051)
+                stereo_iface = getattr(manager, "stereo_camera", None)
+                if stereo_iface is not None:
+                    try:
+                        meta = await stereo_iface.capture_metadata()
+                        telemetry["stereo_camera"] = {
+                            "active": meta is not None,
+                            "frame_count": meta.get("frame_count", 0) if meta else 0,
+                            "width": meta.get("width", 0) if meta else 0,
+                            "height": meta.get("height", 0) if meta else 0,
+                            "status": str(getattr(stereo_iface, "status", "unknown")),
+                        }
+                    except Exception as exc:
+                        logger.debug("Stereo camera metadata failed: %s", exc)
+                        telemetry["stereo_camera"] = {
+                            "active": False,
+                            "frame_count": 0,
+                            "width": 0,
+                            "height": 0,
+                            "status": "error",
+                        }
+                else:
+                    telemetry["stereo_camera"] = {
+                        "active": False,
+                        "frame_count": 0,
+                        "width": 0,
+                        "height": 0,
+                        "status": "offline",
+                    }
+
                 try:
                     from ..services.camera_stream_service import camera_service
                     camera_frame = await camera_service.get_current_frame()
@@ -848,7 +921,34 @@ class WebSocketHub:
                 "signal_strength": 1350 + 90 * math.cos(cycle / 4.0),
             },
         }
-        
+
+        # Simulated ultrasonic data (HC-SR04 array)
+        us_left = 80 + 30 * math.sin(cycle / 8.0)
+        us_center = 120 + 40 * math.cos(cycle / 7.0)
+        us_right = 90 + 25 * math.sin((cycle + 2) / 9.0)
+        # Occasional obstacle simulation
+        if cycle % 50 == 25:
+            us_center = 15.0  # Obstacle detected
+        telemetry["ultrasonic"] = {
+            "readings": [
+                {"sensor_id": "front_left", "distance_cm": round(us_left, 1), "valid": True},
+                {"sensor_id": "front_center", "distance_cm": round(us_center, 1), "valid": True},
+                {"sensor_id": "front_right", "distance_cm": round(us_right, 1), "valid": True},
+            ],
+            "minimum_distance_cm": round(min(us_left, us_center, us_right), 1),
+            "sensor_count": 3,
+            "status": "online",
+        }
+
+        # Simulated stereo camera data
+        telemetry["stereo_camera"] = {
+            "active": True,
+            "frame_count": int(time.time() * 5) % 10000,  # ~5 FPS simulation
+            "width": 2560,
+            "height": 960,
+            "status": "online",
+        }
+
         # Add simulated camera data
         try:
             from ..services.camera_stream_service import camera_service

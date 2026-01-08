@@ -608,9 +608,16 @@ Modify `backend/src/services/sensor_manager.py`:
 ---
 
 ### BEAD-051: Telemetry Integration
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Add new sensors to WebSocket telemetry
+**Completed**: 2026-01-08 - WebSocket telemetry updated:
+- Added ultrasonic telemetry to hardware and simulated paths in _generate_telemetry()
+- Added stereo_camera telemetry to hardware and simulated paths
+- Added telemetry.ultrasonic topic broadcast with readings, min_distance, sensor_count, status
+- Added telemetry.stereo_camera topic broadcast with active, frame_count, width, height, status
+- Updated _ensure_sensor_manager() to handle LC29H_DA GPS type
+- All new sensor data now streams via WebSocket topics
 Modify `backend/src/services/websocket_hub.py`:
 - Add ultrasonic distance streaming
 - Add stereo camera frame metadata
