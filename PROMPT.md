@@ -586,9 +586,18 @@ ultrasonic_enabled: true
 ---
 
 ### BEAD-050: Sensor Manager Integration
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Register all new sensors with SensorManager
+**Completed**: 2026-01-08 - Sensor manager integration implemented:
+- Added UltrasonicSensorInterface with UltrasonicDriver integration
+- Added StereoCameraSensorInterface with StereoCameraDriver integration
+- Updated SensorManager.__init__() to create ultrasonic and stereo_camera instances
+- Updated SensorManager.initialize() to include ultrasonic and stereo_camera
+- Updated get_sensor_status() to include ultrasonic_status and stereo_camera_status
+- Added SensorType.ULTRASONIC and SensorType.STEREO_CAMERA to sensor_data.py enum
+- Updated sensor_health dict in read_all_sensors() for new sensor types
+- LC29H GPS registration verified working via existing GpsModeintegration
 Modify `backend/src/services/sensor_manager.py`:
 - Add UltrasonicSensorInterface
 - Add StereoCameraSensorInterface

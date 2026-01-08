@@ -18,6 +18,8 @@ class SensorType(str, Enum):
     ENVIRONMENTAL = "environmental"
     POWER = "power"
     CAMERA = "camera"
+    ULTRASONIC = "ultrasonic"
+    STEREO_CAMERA = "stereo_camera"
 
 
 class SensorStatus(str, Enum):

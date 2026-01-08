@@ -643,23 +643,141 @@ class PowerSensorInterface:
         return reading
 
 
+class UltrasonicSensorInterface:
+    """HC-SR04 Ultrasonic sensor array interface (BEAD-050)."""
+
+    def __init__(self, coordinator: SensorCoordinator):
+        self.coordinator = coordinator
+        self.last_readings: list[Any] = []
+        self.status = SensorStatus.OFFLINE
+        try:
+            from ..drivers.sensors.ultrasonic_driver import UltrasonicDriver
+
+            self._driver = UltrasonicDriver()
+        except Exception:  # pragma: no cover
+            self._driver = None
+
+    async def initialize(self) -> bool:
+        """Initialize ultrasonic sensors."""
+        try:
+            if self._driver is not None:
+                await self._driver.initialize()
+                await self._driver.start()
+                self.status = SensorStatus.ONLINE
+                return True
+            else:
+                self.status = SensorStatus.ONLINE
+                return True
+        except Exception as e:
+            logger.error(f"Failed to initialize ultrasonic sensors: {e}")
+            self.status = SensorStatus.ERROR
+            return False
+
+    async def read_ultrasonic(self) -> list[dict[str, Any]]:
+        """Read all ultrasonic sensors."""
+        if self.status != SensorStatus.ONLINE:
+            return []
+
+        try:
+            if self._driver is not None:
+                readings = await self._driver.read_all()
+                self.last_readings = [
+                    {
+                        "sensor_id": r.sensor_id,
+                        "distance_cm": r.distance_cm,
+                        "valid": r.valid,
+                        "timestamp": r.timestamp.isoformat() if hasattr(r.timestamp, 'isoformat') else str(r.timestamp),
+                    }
+                    for r in readings
+                ]
+            return self.last_readings
+        except Exception as e:
+            logger.error(f"Ultrasonic reading failed: {e}")
+            self.status = SensorStatus.ERROR
+            return []
+
+    def get_minimum_distance(self) -> float | None:
+        """Return minimum distance from any sensor."""
+        if self._driver is not None:
+            return self._driver.get_minimum_distance()
+        valid = [r["distance_cm"] for r in self.last_readings if r.get("valid")]
+        return min(valid) if valid else None
+
+
+class StereoCameraSensorInterface:
+    """ELP USB Stereo Camera interface (BEAD-050)."""
+
+    def __init__(self, coordinator: SensorCoordinator, config: dict[str, Any] | None = None):
+        self.coordinator = coordinator
+        self.config = config or {}
+        self.status = SensorStatus.OFFLINE
+        self.frame_count = 0
+        try:
+            from ..drivers.sensors.stereo_camera_driver import StereoCameraDriver
+
+            self._driver = StereoCameraDriver(self.config)
+        except Exception:  # pragma: no cover
+            self._driver = None
+
+    async def initialize(self) -> bool:
+        """Initialize stereo camera."""
+        try:
+            if self._driver is not None:
+                await self._driver.initialize()
+                await self._driver.start()
+                self.status = SensorStatus.ONLINE
+                return True
+            else:
+                self.status = SensorStatus.ONLINE
+                return True
+        except Exception as e:
+            logger.error(f"Failed to initialize stereo camera: {e}")
+            self.status = SensorStatus.ERROR
+            return False
+
+    async def capture_metadata(self) -> dict[str, Any] | None:
+        """Capture frame and return metadata (not the actual frame)."""
+        if self.status != SensorStatus.ONLINE:
+            return None
+
+        try:
+            if self._driver is not None:
+                frame = await self._driver.capture()
+                if frame is not None:
+                    self.frame_count += 1
+                    return {
+                        "frame_count": self.frame_count,
+                        "width": frame.combined.shape[1] if frame.combined is not None else 0,
+                        "height": frame.combined.shape[0] if frame.combined is not None else 0,
+                        "left_shape": frame.left.shape if frame.left is not None else None,
+                        "right_shape": frame.right.shape if frame.right is not None else None,
+                    }
+            return None
+        except Exception as e:
+            logger.error(f"Stereo camera capture failed: {e}")
+            return None
+
+
 class SensorManager:
     """Main sensor manager coordinating all sensor interfaces"""
-    
+
     def __init__(
         self,
         gps_mode: GpsMode = GpsMode.NEO8M_UART,
         tof_config: dict | None = None,
         power_config: dict | None = None,
+        stereo_config: dict | None = None,
     ):
         self.coordinator = SensorCoordinator()
-        
+
         # Initialize sensor interfaces
         self.gps = GPSSensorInterface(gps_mode, self.coordinator)
         self.imu = IMUSensorInterface(self.coordinator)
         self.tof = ToFSensorInterface(self.coordinator, tof_config=tof_config)
         self.environmental = EnvironmentalSensorInterface(self.coordinator)
         self.power = PowerSensorInterface(self.coordinator, driver_config=power_config)
+        self.ultrasonic = UltrasonicSensorInterface(self.coordinator)
+        self.stereo_camera = StereoCameraSensorInterface(self.coordinator, config=stereo_config)
         
         self.initialized = False
         self.validation_enabled = True
@@ -667,21 +785,23 @@ class SensorManager:
     async def initialize(self) -> bool:
         """Initialize all sensors"""
         logger.info("Initializing sensor manager")
-        
+
         results = await asyncio.gather(
             self.gps.initialize(),
             self.imu.initialize(),
             self.tof.initialize(),
             self.environmental.initialize(),
             self.power.initialize(),
+            self.ultrasonic.initialize(),
+            self.stereo_camera.initialize(),
             return_exceptions=True
         )
-        
+
         success_count = sum(1 for result in results if result is True)
         total_sensors = len(results)
-        
+
         logger.info(f"Sensor initialization: {success_count}/{total_sensors} successful")
-        
+
         # Consider initialized if at least core sensors are working
         self.initialized = success_count >= 3
         return self.initialized
@@ -716,7 +836,9 @@ class SensorManager:
             SensorType.TOF_LEFT: self.tof.status,
             SensorType.TOF_RIGHT: self.tof.status,
             SensorType.ENVIRONMENTAL: self.environmental.status,
-            SensorType.POWER: self.power.status
+            SensorType.POWER: self.power.status,
+            SensorType.ULTRASONIC: self.ultrasonic.status,
+            SensorType.STEREO_CAMERA: self.stereo_camera.status,
         }
         
         sensor_data = SensorData(
@@ -770,6 +892,8 @@ class SensorManager:
             "tof_status": self.tof.status,
             "environmental_status": self.environmental.status,
             "power_status": self.power.status,
+            "ultrasonic_status": self.ultrasonic.status,
+            "stereo_camera_status": self.stereo_camera.status,
             "active_sensors": list(self.coordinator._active_sensors),
             "validation_enabled": self.validation_enabled
         }
