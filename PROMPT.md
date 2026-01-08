@@ -168,9 +168,10 @@ pip install -e ".[hardware]"
 ---
 
 ### BEAD-002: Install Hardware Dependencies
-**Status**: pending
+**Status**: complete
 **Priority**: critical
 **Description**: Install all required packages for new hardware
+**Completed**: 2026-01-08 - All system packages were already installed. Python packages installed successfully. Enabled system-site-packages in venv for libcamera access. Fixed numpy version to 1.26.4 (project requirement <2.0). Installed opencv-python-headless 4.10.0 for numpy compatibility.
 ```bash
 # System packages
 sudo apt-get update
