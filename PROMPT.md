@@ -242,10 +242,15 @@ v4l2-ctl --list-devices
 ---
 
 ### BEAD-011: USB Stereo Camera - Test Capture
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Test stereo camera frame capture
-Create `scripts/test_stereo_camera.py`:
+**Completed**: 2026-01-08 - Created scripts/test_stereo_camera.py with:
+- Auto-detection of stereo camera device
+- Resolution setting to 2560x960
+- Left/right frame splitting
+- Test image saving
+- Frame rate measurement (5.5 FPS at full res via USB 2.0)
 ```python
 #!/usr/bin/env python3
 """Test ELP-USB960P2CAM-V90 stereo camera capture."""
