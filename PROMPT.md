@@ -428,9 +428,15 @@ gps:
 ---
 
 ### BEAD-040: Ultrasonic Sensors - Wiring Guide
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Document ultrasonic sensor wiring
+**Completed**: 2026-01-08 - Created comprehensive wiring guide at docs/ultrasonic-wiring-guide.md including:
+- GPIO pin assignments for 3x HC-SR04 sensors
+- Voltage divider circuits (5V to 3.3V) with calculations
+- Physical pin reference diagram
+- Installation steps and testing procedures
+- Troubleshooting guide and safety notes
 
 **IMPORTANT**: Wire the sensors AFTER the software is configured and tested in simulation mode.
 
