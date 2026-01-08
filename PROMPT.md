@@ -627,9 +627,17 @@ Modify `backend/src/services/websocket_hub.py`:
 ---
 
 ### BEAD-060: Hardware Self-Test Update
-**Status**: pending
+**Status**: complete
 **Priority**: medium
 **Description**: Update self-test for new hardware
+**Completed**: 2026-01-08 - Hardware self-test updated with all new components:
+- Added gps_probe() for LC29H GPS via serial with NMEA detection and fix quality extraction
+- Added ultrasonic_probe() for HC-SR04 GPIO accessibility test (Pi 5 lgpio support)
+- Added stereo_camera_probe() for ELP USB stereo camera detection with resolution check
+- Added picamera_probe() for Pi Camera 2 detection via rpicam-hello
+- Updated run_selftest() with comprehensive summary including all new sensors
+- Added BNO085 IMU to I2C expected devices
+- Added video group permission check
 Modify `backend/src/services/hw_selftest.py`:
 - Add LC29H GPS connectivity test
 - Add ultrasonic sensor response test
