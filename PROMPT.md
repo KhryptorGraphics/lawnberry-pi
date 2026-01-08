@@ -329,14 +329,16 @@ rpicam-still -o /tmp/picam_test.jpg
 ---
 
 ### BEAD-021: Pi Camera 2 - Integration
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Integrate Pi Camera 2 with existing camera service
-Modify `backend/src/services/camera_stream_service.py` to:
-- Support both USB stereo and Pi Camera 2
-- Add camera selection in hardware.yaml
-- Use picamera2 library for CSI camera
-- Maintain IPC socket streaming interface
+**Completed**: 2026-01-08 - Integration verified:
+- camera_stream_service.py already supports PiCamera2 + OpenCV backends
+- Added camera configuration to config/hardware.yaml:
+  - primary: Pi Camera 2 (picamera2) at 1920x1080@30fps
+  - stereo: USB ELP stereo camera at 2560x960@30fps
+- Verified picamera2 capture works (1920x1080 BGR)
+- Both cameras detected by libcamera
 **Acceptance**: Both cameras selectable via config
 
 ---

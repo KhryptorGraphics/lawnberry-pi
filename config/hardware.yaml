@@ -48,6 +48,23 @@ victron:
 motor_controller: robohat-rp2040
 blade_controller: ibt-4
 
+# Camera configuration
+camera:
+  # Primary camera for navigation (Pi Camera 2 via CSI)
+  primary:
+    type: picamera2      # picamera2 | opencv | simulated
+    width: 1920
+    height: 1080
+    framerate: 30
+  # Stereo camera for depth perception (USB ELP stereo camera)
+  stereo:
+    enabled: true
+    type: usb-stereo     # usb-stereo | simulated
+    device_index: 0      # /dev/video0 typically
+    width: 2560          # Combined stereo width
+    height: 960
+    framerate: 30
+
 # Flat alternatives (uncomment to use):
 # gps_type: zed-f9p-usb
 gps_ntrip_enabled: true   # Set true if RTK corrections are enabled on the ZED-F9P (configured via u-center)
