@@ -67,6 +67,11 @@ class GPSDriver(HardwareDriver):
             for b in (115200, 38400, 9600):
                 if b not in self._baud_candidates:
                     self._baud_candidates.append(b)
+        elif self.cfg.mode == GpsMode.LC29H_UART:
+            # LC29H defaults to 115200 baud
+            for b in (115200, 460800, 9600):
+                if b not in self._baud_candidates:
+                    self._baud_candidates.append(b)
         else:
             for b in (9600, 38400):
                 if b not in self._baud_candidates:
@@ -131,11 +136,11 @@ class GPSDriver(HardwareDriver):
             lat = base_lat + d
             lon = base_lon - d
             self._sim_counter += 1
-            is_f9p = self.cfg.mode in (GpsMode.F9P_USB, GpsMode.F9P_UART)
-            acc = 0.6 if is_f9p else 3.0
-            sats = 18 if is_f9p else 8
-            rtk = "RTK_FIXED" if is_f9p else None
-            hdop = 0.5 if is_f9p else 2.5
+            is_rtk = self.cfg.mode in (GpsMode.F9P_USB, GpsMode.F9P_UART, GpsMode.LC29H_UART)
+            acc = 0.6 if is_rtk else 3.0
+            sats = 18 if is_rtk else 8
+            rtk = "RTK_FIXED" if is_rtk else None
+            hdop = 0.5 if is_rtk else 2.5
             reading = GpsReading(
                 latitude=lat,
                 longitude=lon,

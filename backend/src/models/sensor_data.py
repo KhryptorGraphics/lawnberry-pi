@@ -34,6 +34,7 @@ class GpsMode(str, Enum):
     F9P_USB = "f9p_usb"  # u-blox ZED-F9P via USB with RTK
     F9P_UART = "f9p_uart"  # u-blox ZED-F9P via UART with RTK
     NEO8M_UART = "neo8m_uart"  # u-blox Neo-8M via UART
+    LC29H_UART = "lc29h_uart"  # Quectel LC29H(DA) via UART with RTK
 
 
 class SensorReading(BaseModel):
