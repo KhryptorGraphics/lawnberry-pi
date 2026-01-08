@@ -53,6 +53,7 @@ class GPSType(str, Enum):
     ZED_F9P_USB = "zed-f9p-usb"
     ZED_F9P_UART = "zed-f9p-uart"
     NEO_8M_UART = "neo-8m-uart"
+    LC29H_DA = "lc29h-da"  # Quectel LC29H(DA) via UART with RTK support
 
 
 class IMUType(str, Enum):
@@ -93,11 +94,12 @@ class HardwareConfig(BaseModel):
 
     @field_validator("gps_ntrip_enabled")
     @classmethod
-    def ntrip_requires_zed_f9p(cls, v: bool, info):
+    def ntrip_requires_rtk_gps(cls, v: bool, info):
         if v:
             gps_type = info.data.get("gps_type")
-            if gps_type not in {GPSType.ZED_F9P_USB, GPSType.ZED_F9P_UART}:
-                raise ValueError("NTRIP corrections require ZED-F9P GPS")
+            rtk_capable = {GPSType.ZED_F9P_USB, GPSType.ZED_F9P_UART, GPSType.LC29H_DA}
+            if gps_type not in rtk_capable:
+                raise ValueError("NTRIP corrections require RTK-capable GPS (ZED-F9P or LC29H-DA)")
         return v
 
     @field_validator("motor_controller")

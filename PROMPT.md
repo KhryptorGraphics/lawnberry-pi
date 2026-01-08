@@ -407,20 +407,22 @@ NTRIP_SERIAL_BAUD=115200
 ---
 
 ### BEAD-033: Update Hardware Config for LC29H
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Update hardware configuration
+**Completed**: 2026-01-08 - Hardware configuration updated for LC29H:
+- Added GPSType.LC29H_DA enum to hardware_config.py
+- Updated NTRIP validator to accept LC29H_DA as RTK-capable GPS
+- Updated config/hardware.yaml with LC29H-DA type, /dev/ttyAMA0 device
+- Kept ZED-F9P references for backward compatibility (deprecated but functional)
+- All driver tests passing (9/9)
 Modify `config/hardware.yaml`:
 ```yaml
 gps:
   type: LC29H-DA
-  uart_device: /dev/ttyS0
+  uart_device: /dev/ttyAMA0
   baudrate: 115200
-  ntrip_enabled: true
 ```
-Modify `backend/src/models/hardware_config.py`:
-- Add GPSType.LC29H_DA enum value
-- Remove/deprecate ZED-F9P references
 **Acceptance**: Config loads without errors
 
 ---

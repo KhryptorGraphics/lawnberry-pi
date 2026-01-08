@@ -6,7 +6,9 @@
 # Example nested form used by tests:
 #
 gps:
-  type: ZED-F9P
+  type: LC29H-DA       # Quectel LC29H(DA) HAT via UART at 115200
+  uart_device: /dev/ttyAMA0
+  baudrate: 115200
 imu:
   type: BNO085
 sensors:
@@ -67,7 +69,7 @@ camera:
 
 # Flat alternatives (uncomment to use):
 # gps_type: zed-f9p-usb
-gps_ntrip_enabled: true   # Set true if RTK corrections are enabled on the ZED-F9P (configured via u-center)
+gps_ntrip_enabled: true   # Set true if RTK corrections are enabled (LC29H-DA or ZED-F9P)
 # imu_type: bno085-uart
 # tof_sensors: [left, right]
 # env_sensor: true
