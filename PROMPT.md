@@ -344,16 +344,23 @@ rpicam-still -o /tmp/picam_test.jpg
 ---
 
 ### BEAD-030: LC29H GPS - Hardware Setup
-**Status**: pending
+**Status**: complete
 **Priority**: critical
 **Description**: Configure LC29H(DA) GPS/RTK HAT
+**Completed**: 2026-01-08 - GPS verified working:
+- Device: /dev/ttyAMA0 at 115200 baud
+- Fix Quality: DGPS/RTK (quality 2)
+- Satellites: 19+ visible
+- HDOP: 0.73 (excellent)
+- Masked serial-getty@ttyAMA0 service to free port
+- NMEA sentences: GNGGA, GNRMC, GNGLL, GNVTG, GNGSA, GPGSV, etc.
 ```bash
 # Verify HAT is connected
-ls -la /dev/ttyS0 /dev/ttyAMA0
+ls -la /dev/ttyAMA0  # Note: Pi 5 uses ttyAMA0, not ttyS0
 
 # Test serial communication
 sudo apt-get install -y minicom
-minicom -D /dev/ttyS0 -b 115200
+minicom -D /dev/ttyAMA0 -b 115200
 
 # Should see NMEA sentences: $GNRMC, $GNGGA, etc.
 ```
