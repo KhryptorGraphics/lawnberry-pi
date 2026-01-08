@@ -309,15 +309,20 @@ if __name__ == "__main__":
 ---
 
 ### BEAD-020: Pi Camera 2 - Detection
-**Status**: pending
+**Status**: complete
 **Priority**: high
 **Description**: Verify Raspberry Pi Camera 2 is detected
+**Completed**: 2026-01-08 - Camera detected via rpicam-hello:
+- Model: imx219 (Sony IMX219 8MP sensor)
+- Max resolution: 3280x2464 at 21 fps
+- 1920x1080 at 47 fps, 640x480 at 103 fps
+- Test image captured to /tmp/picam_test.jpg (943KB)
 ```bash
 # Check camera detection
-libcamera-hello --list-cameras
+rpicam-hello --list-cameras  # Note: On Bookworm, use rpicam-* not libcamera-*
 
 # Test capture
-libcamera-still -o /tmp/picam_test.jpg
+rpicam-still -o /tmp/picam_test.jpg
 ```
 **Acceptance**: Camera detected, test image captured
 
