@@ -783,8 +783,9 @@ class MowerDataFrame:
 ---
 
 ### BEAD-103: Perimeter Recording Service
-**Status**: pending
+**Status**: complete
 **Priority**: critical
+**Completed**: 2026-01-08 - Implemented PerimeterRecordingService with MowerDataFrame capture, MessagePack serialization, start/stop/pause/resume API, frame callbacks for real-time streaming.
 **Description**: Record training data during manual mowing sessions
 Create `backend/src/services/perimeter_recorder.py`:
 ```python

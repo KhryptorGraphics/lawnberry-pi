@@ -11,14 +11,17 @@ from .camera_client import CameraClient
 from .ai_service import AIService
 from .telemetry_hub import TelemetryHubService
 from .auth_service import AuthService
+from .perimeter_recorder import PerimeterRecordingService, get_perimeter_recorder
 
 __all__ = [
     "SensorManager",
-    "NavigationService", 
+    "NavigationService",
     "MotorService",
     "PowerService",
     "CameraClient",
     "AIService",
     "TelemetryHubService",
-    "AuthService"
+    "AuthService",
+    "PerimeterRecordingService",
+    "get_perimeter_recorder",
 ]
