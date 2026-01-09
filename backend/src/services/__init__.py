@@ -12,6 +12,7 @@ from .ai_service import AIService
 from .telemetry_hub import TelemetryHubService
 from .auth_service import AuthService
 from .perimeter_recorder import PerimeterRecordingService, get_perimeter_recorder
+from .thor_uploader import ThorUploaderService, get_thor_uploader
 
 __all__ = [
     "SensorManager",
@@ -24,4 +25,6 @@ __all__ = [
     "AuthService",
     "PerimeterRecordingService",
     "get_perimeter_recorder",
+    "ThorUploaderService",
+    "get_thor_uploader",
 ]

@@ -892,8 +892,9 @@ async def list_sessions() -> list[dict]:
 ---
 
 ### BEAD-105: Data Upload to Thor
-**Status**: pending
+**Status**: complete
 **Priority**: high
+**Completed**: 2026-01-08 - Implemented ThorUploaderService with chunked uploads, LZ4 compression, SHA256 verification, persistent queue, progress callbacks, retry with exponential backoff.
 **Description**: Stream recorded data to Thor training server
 Create `backend/src/services/thor_uploader.py`:
 - Async upload over HaLow WiFi
