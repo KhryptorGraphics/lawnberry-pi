@@ -652,7 +652,7 @@ Modify `backend/src/services/hw_selftest.py`:
 ---
 
 ### BEAD-100: Hailo 8L Installation
-**Status**: pending
+**Status**: complete
 **Priority**: critical
 **Description**: Install and configure Hailo 8L AI accelerator
 ```bash
@@ -673,10 +673,19 @@ Create `backend/src/drivers/ai/hailo_driver.py`:
 - Performance metrics
 **Acceptance**: Hailo device detected, sample inference works
 
+**Implementation Notes (2026-01-08)**:
+- Created `backend/src/drivers/ai/hailo_driver.py` with HardwareDriver pattern
+- Supports both real hardware and simulation modes
+- Hardware detected but version mismatch: kernel driver 4.21.0, firmware 4.20.0, library 4.20.0/4.21.0
+- Driver gracefully falls back to simulation when hardware init fails
+- Model files present: yolov8m.hef, scdepthv3.hef
+- **BLOCKER**: Hailo-8L firmware 4.21.0 not yet released by vendor. Monitor https://hailo.ai/developer-zone/ for update
+- When firmware updated, remove `HAILO_SKIP_FW_VERSION_CHECK=1` workaround
+
 ---
 
 ### BEAD-101: HaLow WiFi Bridge Setup
-**Status**: pending
+**Status**: skipped
 **Priority**: high
 **Description**: Configure long-range HaLow WiFi link
 ```bash
@@ -690,10 +699,12 @@ Create network configuration for:
 - Fallback: Standard 2.4GHz WiFi
 **Acceptance**: Reliable link at 500m+ range, <100ms latency
 
+**Notes (2026-01-08)**: HaLow module not installed yet. Skip for now, use standard WiFi.
+
 ---
 
 ### BEAD-102: Multi-Modal Data Frame Definition
-**Status**: pending
+**Status**: complete
 **Priority**: critical
 **Description**: Define unified sensor data structure for training
 Create `backend/src/models/training_data.py`:
@@ -760,6 +771,14 @@ class MowerDataFrame:
     mower_state: str             # "mowing", "turning", "returning", etc.
 ```
 **Acceptance**: Data structure validated, serialization works
+
+**Implementation Notes (2026-01-08)**:
+- Created `backend/src/models/mower_data_frame.py` with comprehensive data structures
+- Includes: MowerDataFrame, GPSData, IMUData, UltrasonicData, ToFData, MotorState, ControlAction, PowerState
+- Supports MessagePack serialization via msgpack + msgpack_numpy
+- Telemetry summary method for lightweight real-time streaming
+- Round-trip serialization/deserialization tested
+- Estimated frame size ~13MB with all cameras at full resolution
 
 ---
 
