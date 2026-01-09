@@ -845,8 +845,9 @@ class PerimeterRecorder:
 ---
 
 ### BEAD-104: Recording API Endpoints
-**Status**: pending
+**Status**: complete
 **Priority**: high
+**Completed**: 2026-01-08 - Created recording router with start/stop/pause/resume, status, sessions CRUD, health endpoint. Integrated with PerimeterRecordingService via dependency injection.
 **Description**: Add REST API for recording control
 Create `backend/src/api/routers/recording.py`:
 ```python
