@@ -1685,14 +1685,15 @@ pytest thor/tests/ -v
 ---
 
 ### BEAD-504: Documentation Update
-**Status**: pending
+**Status**: in_progress
 **Priority**: medium
+**Progress**: 2026-01-09 - Partial completion:
+- [x] Updated `docs/hardware-overview.md` with new sensors (Hailo, stereo camera, LC29H GPS, ultrasonic, etc.)
+- [x] Created `docs/ai-architecture.md` for AI system (architecture diagrams, API docs, VLA specs)
+- [ ] Create `docs/training-guide.md` for model training (requires Thor)
+- [ ] Create `docs/deployment-guide.md` for edge deployment
+- [ ] Update `README.md` with AI capabilities
 **Description**: Update project documentation
-- Update `docs/hardware-overview.md` with new sensors
-- Create `docs/ai-architecture.md` for AI system
-- Create `docs/training-guide.md` for model training
-- Create `docs/deployment-guide.md` for edge deployment
-- Update `README.md` with AI capabilities
 **Acceptance**: Documentation matches implementation
 
 ---
