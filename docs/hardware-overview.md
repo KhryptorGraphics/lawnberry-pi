@@ -436,6 +436,106 @@ The settings service provides profile-based configuration management:
 
 ---
 
+## AI and Advanced Sensor Hardware
+
+### Hailo 8L AI Accelerator
+**Function**: Edge AI inference for autonomous mowing control
+**Specifications**:
+- 13 TOPS INT8 compute performance
+- PCIe/M.2 interface
+- Power consumption: < 5W
+- Supports HEF model format
+
+**Key Responsibilities**:
+- Vision-Language-Action (VLA) model inference
+- Real-time obstacle detection
+- Autonomous steering/throttle prediction
+- Target inference time: < 50ms
+
+### ELP USB Stereo Camera (ELP-USB960P2CAM-V90)
+**Function**: Depth perception and stereo vision for obstacle detection
+**Specifications**:
+- Resolution: 2560x960 combined (1280x960 per eye)
+- Interface: USB 2.0 UVC
+- Vendor ID: 32e4, Product ID: 9750
+- Synchronized shutters (< 1ms difference)
+- Frame rate: Up to 60fps
+
+**Key Responsibilities**:
+- Stereo depth computation
+- Obstacle distance estimation
+- 3D scene understanding
+- Training data collection
+
+### Pi Camera 2 (IMX219)
+**Function**: High-resolution RGB imaging for lawn analysis
+**Specifications**:
+- Sensor: Sony IMX219 8MP
+- Max resolution: 3280x2464 @ 21fps
+- HD mode: 1920x1080 @ 47fps
+- Interface: CSI
+
+**Key Responsibilities**:
+- Lawn condition analysis
+- Color/texture detection
+- HD video streaming
+- Training data capture
+
+### LC29H(DA) GPS/RTK Module
+**Function**: Centimeter-accurate positioning via RTK corrections
+**Specifications**:
+- Interface: UART at 115200 baud
+- Protocol: NMEA + PQTM/PAIR proprietary
+- RTK accuracy: < 1cm with corrections
+- Device: /dev/ttyAMA0 (Pi 5)
+
+**Key Responsibilities**:
+- Real-time position tracking
+- RTK fix status monitoring
+- NTRIP corrections integration
+- Geofence boundary enforcement
+
+### HC-SR04 Ultrasonic Sensors (x3)
+**Function**: Close-range obstacle detection for safety
+**Specifications**:
+- Range: 2cm - 400cm
+- Positions: Front-left, Front-center, Front-right
+- Voltage: 5V power, 3.3V logic (via divider)
+- GPIO: TRIG (4, 27, 11), ECHO (17, 10, 9)
+
+**Key Responsibilities**:
+- Near-field obstacle detection
+- Emergency stop triggering (< 30cm)
+- Safety interlock integration
+- Collision avoidance
+
+### BNO085 IMU
+**Function**: 9-axis orientation and motion sensing
+**Specifications**:
+- Interface: UART4 (GPIO12/13)
+- Axes: 3-axis accelerometer, gyroscope, magnetometer
+- Features: Sensor fusion, game rotation vector
+
+**Key Responsibilities**:
+- Heading/yaw determination
+- Tilt safety detection
+- Dead reckoning support
+- Motion tracking
+
+### VL53L0X ToF Sensors (x2)
+**Function**: Blade height sensing and ground clearance
+**Specifications**:
+- Range: 30mm - 2000mm
+- Addresses: 0x29 (left), 0x30 (right)
+- Interface: I2C
+
+**Key Responsibilities**:
+- Blade height measurement
+- Ground clearance detection
+- Terrain adaptation
+
+---
+
 This hardware overview provides the foundation for understanding how your LawnBerryPi operates. For specific maintenance procedures, see the [Maintenance Guide](maintenance-guide.md). For troubleshooting hardware issues, consult the [Troubleshooting Guide](troubleshooting-guide.md).
 
 For API documentation and operational procedures, see [OPERATIONS.md](OPERATIONS.md). For hardware capabilities and configuration options, see the [Hardware Feature Matrix](hardware-feature-matrix.md).
