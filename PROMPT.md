@@ -679,8 +679,17 @@ Create `backend/src/drivers/ai/hailo_driver.py`:
 - Hardware detected but version mismatch: kernel driver 4.21.0, firmware 4.20.0, library 4.20.0/4.21.0
 - Driver gracefully falls back to simulation when hardware init fails
 - Model files present: yolov8m.hef, scdepthv3.hef
-- **BLOCKER**: Hailo-8L firmware 4.21.0 not yet released by vendor. Monitor https://hailo.ai/developer-zone/ for update
-- When firmware updated, remove `HAILO_SKIP_FW_VERSION_CHECK=1` workaround
+
+**Version Mismatch Resolution (2026-01-08)**:
+- Root cause: Pi kernel (6.12.47) includes Hailo driver 4.21.0, but Pi repo only has 4.20.0 library packages
+- This is a Raspberry Pi packaging issue - the kernel module version is ahead of the userspace packages
+- Clean reinstall via `scripts/fix_hailo_version.sh` doesn't fix it (kernel driver version is kernel-dependent)
+- **Resolution options**:
+  1. Wait for Pi repo to release hailo-all 4.21.0 (recommended, least risky)
+  2. Download HailoRT 4.21.0 from Hailo Developer Zone (requires registration)
+  3. Continue using simulation mode (current state - inference works in software)
+- Driver gracefully falls back to simulation when version mismatch detected
+- `HAILO_SKIP_FW_VERSION_CHECK=1` does not resolve the control protocol mismatch
 
 ---
 
@@ -1481,8 +1490,16 @@ class HailoDistillation:
 ---
 
 ### BEAD-302: Edge Inference Runtime
-**Status**: pending
+**Status**: complete
 **Priority**: critical
+**Completed**: 2026-01-09 - Implemented AIInferenceService with full VLA model support:
+- Created `backend/src/services/ai_inference_service.py` with HardwareDriver pattern
+- Created `backend/src/models/action_prediction.py` with ActionPrediction, InferenceMetrics, AIControlStatus
+- Created `backend/src/api/routers/ai_control.py` with REST API at /api/v2/ai
+- Hailo driver integration with graceful fallback to simulation
+- Preprocessing pipeline for stereo, RGB, and sensor data
+- Postprocessing with confidence scoring and safety overrides
+- 20 unit tests passing in test_ai_inference_service.py
 **Description**: Deploy distilled model to Hailo 8L
 Create `backend/src/services/ai_inference_service.py`:
 ```python
@@ -1539,8 +1556,16 @@ class AIInferenceService:
 ---
 
 ### BEAD-303: Autonomous Control Integration
-**Status**: pending
+**Status**: complete
 **Priority**: critical
+**Completed**: 2026-01-09 - Integrated AI inference with navigation and motor control:
+- Added `NavigationMode.AI` and `NavigationMode.AI_ASSISTED` to navigation_state.py
+- Added `start_ai_navigation()` to enable AI control mode
+- Added `stop_ai_navigation()` to return to manual mode
+- Added `apply_ai_prediction()` to execute AI predictions with confidence thresholds
+- Safety overrides respected (stops when obstacle <30cm)
+- AI predictions converted to motor commands via ActionPrediction.to_motor_commands()
+- Full REST API at /api/v2/ai for enable/disable/status/metrics
 **Description**: Integrate AI inference with motor control
 Modify `backend/src/services/navigation_service.py`:
 - Add AI mode alongside manual/waypoint modes

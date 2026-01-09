@@ -13,9 +13,9 @@ import io
 import time
 import os
 
-from ..services.websocket_hub import websocket_hub
-from ..api.routers.auth import _authorize_websocket, _extract_bearer_token
-from ..services.persistence import persistence
+from ...services.websocket_hub import websocket_hub
+from .auth import _authorize_websocket, _extract_bearer_token
+from ...core.persistence import persistence
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

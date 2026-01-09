@@ -6,8 +6,8 @@ import time
 import os
 import logging
 
-from ..core.globals import _debug_overrides
-from ..services.websocket_hub import websocket_hub
+from ...core.globals import _debug_overrides
+from ...services.websocket_hub import websocket_hub
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -106,7 +106,7 @@ async def get_sensors_health() -> SensorHealthResponse:
 
     try:
         if websocket_hub._sensor_manager is None:
-            from ..services.sensor_manager import SensorManager  # type: ignore
+            from ...services.sensor_manager import SensorManager  # type: ignore
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
 
@@ -115,7 +115,7 @@ async def get_sensors_health() -> SensorHealthResponse:
         status = await sm.get_sensor_status()
         # Map to simple response
         # Map statuses to strings and apply fault injection overrides
-        from ..testing.fault_injector import enabled, any_enabled  # lightweight
+        from ...testing.fault_injector import enabled, any_enabled  # lightweight
         def _as_str(v: object) -> str:
             try:
                 s = str(v)
@@ -171,7 +171,7 @@ async def get_tof_status() -> ToFStatusResponse:
     right_probe: ToFProbe | None = None
     try:
         if websocket_hub._sensor_manager is None:
-            from ..services.sensor_manager import SensorManager  # type: ignore
+            from ...services.sensor_manager import SensorManager  # type: ignore
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -216,7 +216,7 @@ async def get_gps_status() -> GPSSummary:
     sim_mode = os.getenv("SIM_MODE", "0") != "0"
     try:
         if websocket_hub._sensor_manager is None:
-            from ..services.sensor_manager import SensorManager  # type: ignore
+            from ...services.sensor_manager import SensorManager  # type: ignore
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -321,7 +321,7 @@ async def get_rtk_diagnostics() -> RtkDiagnosticsResponse:
 async def get_imu_status() -> IMUSummary:
     try:
         if websocket_hub._sensor_manager is None:
-            from ..services.sensor_manager import SensorManager  # type: ignore
+            from ...services.sensor_manager import SensorManager  # type: ignore
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -343,7 +343,7 @@ async def get_imu_status() -> IMUSummary:
 async def get_env_status() -> EnvSummary:
     try:
         if websocket_hub._sensor_manager is None:
-            from ..services.sensor_manager import SensorManager  # type: ignore
+            from ...services.sensor_manager import SensorManager  # type: ignore
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -374,7 +374,7 @@ async def get_env_status() -> EnvSummary:
 async def get_power_status() -> PowerSummary:
     try:
         if websocket_hub._sensor_manager is None:
-            from ..services.sensor_manager import SensorManager  # type: ignore
+            from ...services.sensor_manager import SensorManager  # type: ignore
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -420,8 +420,8 @@ async def inject_tof(req: InjectToFRequest):
     # Trigger obstacle interlock if threshold breached
     safety_hint = None
     try:
-        from ..core.config_loader import ConfigLoader
-        from ..safety.safety_triggers import get_safety_trigger_manager
+        from ...core.config_loader import ConfigLoader
+        from ...safety.safety_triggers import get_safety_trigger_manager
         limits = ConfigLoader().get()[1]
         safety = get_safety_trigger_manager()
         if safety.trigger_obstacle(req.distance_m, limits.tof_obstacle_distance_meters):
@@ -446,8 +446,8 @@ async def inject_tilt(req: InjectTiltRequest):
     # Determine if tilt exceeds safety threshold and trigger interlock
     over_threshold = False
     try:
-        from ..core.config_loader import ConfigLoader
-        from ..safety.safety_triggers import get_safety_trigger_manager
+        from ...core.config_loader import ConfigLoader
+        from ...safety.safety_triggers import get_safety_trigger_manager
         limits = ConfigLoader().get()[1]
         safety = get_safety_trigger_manager()
         if safety.trigger_obstacle(req.roll_deg, limits.tilt_threshold_degrees) or safety.trigger_obstacle(req.pitch_deg, limits.tilt_threshold_degrees):
