@@ -538,7 +538,99 @@ class NavigationService:
 
         logger.info("Navigation stopped")
         return True
-    
+
+    async def start_ai_navigation(self) -> bool:
+        """Start AI-controlled autonomous navigation.
+
+        Enables the AI inference service to control steering, throttle,
+        and blade based on VLA model predictions.
+
+        Returns:
+            True if AI mode started successfully.
+        """
+        from .ai_inference_service import get_ai_inference_service
+
+        ai_service = get_ai_inference_service()
+
+        # Initialize AI service if needed
+        if not ai_service.initialized:
+            await ai_service.initialize()
+            await ai_service.start()
+
+        # Enable AI control
+        success = await ai_service.enable()
+        if not success:
+            logger.error("Failed to enable AI inference service")
+            return False
+
+        self.navigation_state.navigation_mode = NavigationMode.AI
+        self.navigation_state.target_velocity = 0.6  # Default AI velocity
+        self.navigation_state.operation_start_time = datetime.now(timezone.utc)
+
+        logger.info("Started AI-controlled navigation")
+        return True
+
+    async def stop_ai_navigation(self) -> bool:
+        """Stop AI-controlled navigation and return to manual.
+
+        Returns:
+            True if AI mode stopped successfully.
+        """
+        from .ai_inference_service import get_ai_inference_service
+
+        ai_service = get_ai_inference_service()
+        await ai_service.disable()
+
+        self.navigation_state.navigation_mode = NavigationMode.MANUAL
+        self.navigation_state.target_velocity = 0.0
+
+        # Stop motors
+        try:
+            await self.set_speed(0.0, 0.0)
+        except Exception:
+            pass
+
+        logger.info("Stopped AI navigation, returning to manual mode")
+        return True
+
+    async def apply_ai_prediction(self, prediction: "ActionPrediction") -> bool:
+        """Apply an AI action prediction to motor control.
+
+        Called by the AI inference loop to execute predicted actions.
+        Respects safety overrides and confidence thresholds.
+
+        Args:
+            prediction: ActionPrediction from VLA model.
+
+        Returns:
+            True if prediction was applied successfully.
+        """
+        if self.navigation_state.navigation_mode not in (NavigationMode.AI, NavigationMode.AI_ASSISTED):
+            return False
+
+        # Check confidence threshold
+        if prediction.confidence < 0.5:
+            logger.warning(f"AI prediction confidence too low: {prediction.confidence:.2f}")
+            return False
+
+        # Check for safety override
+        if prediction.safety_override:
+            logger.warning(f"AI prediction has safety override - stopping")
+            await self.set_speed(0.0, 0.0)
+            return True
+
+        # Convert prediction to motor commands
+        motor_commands = prediction.to_motor_commands()
+
+        # Apply scaling based on target velocity
+        scale = self.navigation_state.target_velocity
+        left_speed = motor_commands["left_speed"] * scale
+        right_speed = motor_commands["right_speed"] * scale
+
+        await self.set_speed(left_speed, right_speed)
+
+        return True
+
     async def emergency_stop(self) -> bool:
         """Emergency stop navigation"""
         self.navigation_state.navigation_mode = NavigationMode.EMERGENCY_STOP

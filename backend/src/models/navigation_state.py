@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field, ConfigDict
 class NavigationMode(str, Enum):
     """Navigation operation modes"""
     MANUAL = "manual"
-    AUTO = "auto" 
+    AUTO = "auto"
+    AI = "ai"  # AI-controlled autonomous mode (VLA model)
+    AI_ASSISTED = "ai_assisted"  # AI suggestions with manual override
     RETURN_HOME = "return_home"
     EMERGENCY_STOP = "emergency_stop"
     PAUSED = "paused"
