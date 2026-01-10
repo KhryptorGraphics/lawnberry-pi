@@ -39,7 +39,7 @@ dependencies = [
 hardware = [
     # Adafruit Blinka + CircuitPython VL53L0X for ToF (preferred on Pi)
     "adafruit-blinka>=8.8.0",
-    "adafruit-circuitpython-vl53l0x>=3.7.3",
+    "adafruit-circuitpython-vl53l0x>=3.6.0",
     # GPIO providers (any one is sufficient)
     "lgpio>=0.2.2; platform_machine == 'aarch64' or platform_machine == 'armv7l'",
     "python-periphery>=2.4.1",
