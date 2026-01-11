@@ -1,4 +1,4 @@
-# LawnBerry Pi v2
+# LawnBerry Pi v3
 
 **Professional Autonomous Mowing System with AI-Powered Navigation**
 
