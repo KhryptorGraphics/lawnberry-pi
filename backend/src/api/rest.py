@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Request, status, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
-from typing import Optional, Any, Dict
+from typing import Optional, Any
 import json
 import hashlib
 import logging
@@ -222,7 +222,6 @@ def _client_emergency_active(request: Request | None) -> bool:
 
 
 # Import helper from auth router for session resolution
-from .routers.auth import _resolve_manual_session
 
 
 @router.get("/hardware/robohat")

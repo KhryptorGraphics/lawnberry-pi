@@ -7,18 +7,17 @@ import asyncio
 import logging
 import math
 import os
-from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Tuple, Dict, Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, Optional
 
 from ..models import (
-    NavigationState,
-    Position,
-    Waypoint,
-    Obstacle,
-    CoverageCell,
     NavigationMode,
+    NavigationState,
+    Obstacle,
     PathStatus,
+    Position,
     SensorData,
+    Waypoint,
 )
 from ..nav.path_planner import PathPlanner
 from .robohat_service import get_robohat_service
@@ -34,9 +33,9 @@ class ObstacleDetector:
 
     def __init__(self, safety_distance: float = 1.0):
         self.safety_distance = safety_distance
-        self.detected_obstacles: List[Obstacle] = []
+        self.detected_obstacles: list[Obstacle] = []
 
-    def update_obstacles_from_sensors(self, sensor_data: SensorData) -> List[Obstacle]:
+    def update_obstacles_from_sensors(self, sensor_data: SensorData) -> list[Obstacle]:
         """Update obstacle list from sensor data"""
         obstacles = []
         obstacle_id_counter = 0
@@ -85,27 +84,27 @@ class DeadReckoningSystem:
     """Dead reckoning navigation fallback"""
 
     def __init__(self):
-        self.last_gps_position: Optional[Position] = None
-        self.last_gps_time: Optional[datetime] = None
-        self.estimated_position: Optional[Position] = None
+        self.last_gps_position: Position | None = None
+        self.last_gps_time: datetime | None = None
+        self.estimated_position: Position | None = None
         self.drift_estimate: float = 0.0
         self.active = False
 
     def update_gps_reference(self, gps_position: Position):
         """Update GPS reference for dead reckoning"""
         self.last_gps_position = gps_position
-        self.last_gps_time = datetime.now(timezone.utc)
+        self.last_gps_time = datetime.now(UTC)
         self.estimated_position = gps_position
         self.active = False
         self.drift_estimate = 0.0
 
-    def estimate_position(self, heading: float, distance_traveled: float) -> Optional[Position]:
+    def estimate_position(self, heading: float, distance_traveled: float) -> Position | None:
         """Estimate current position using dead reckoning"""
         if not self.last_gps_position:
             # Initialize a local frame at origin if no GPS reference exists yet.
             # This enables dead-reckoning operation even before first GPS fix.
             self.last_gps_position = Position(latitude=0.0, longitude=0.0, accuracy=10.0)
-            self.last_gps_time = datetime.now(timezone.utc)
+            self.last_gps_time = datetime.now(UTC)
             self.estimated_position = self.last_gps_position
 
         self.active = True
@@ -121,7 +120,7 @@ class DeadReckoningSystem:
         )
 
         # Update drift estimate
-        time_since_gps = (datetime.now(timezone.utc) - self.last_gps_time).total_seconds()
+        time_since_gps = (datetime.now(UTC) - self.last_gps_time).total_seconds()
         self.drift_estimate = min(distance_traveled * 0.05, time_since_gps * 0.1)
 
         return self.estimated_position
@@ -146,7 +145,7 @@ class NavigationService:
 
         # State tracking
         self.total_distance = 0.0
-        self.last_position: Optional[Position] = None
+        self.last_position: Position | None = None
 
     _instance: Optional["NavigationService"] = None
 
@@ -162,9 +161,9 @@ class NavigationService:
         self.navigation_state.navigation_mode = NavigationMode.IDLE
         return True
 
-    async def execute_mission(self, mission: "Mission"):
+    async def execute_mission(self, mission: "Mission"):  # noqa: F821
         """Execute a mission by navigating to each waypoint."""
-        from .mission_service import MissionService, get_mission_service
+        from .mission_service import get_mission_service
 
         mission_service = get_mission_service()
 
@@ -182,7 +181,7 @@ class NavigationService:
         ]
 
         self.navigation_state.current_waypoint_index = 0
-        self.navigation_state.operation_start_time = datetime.now(timezone.utc)
+        self.navigation_state.operation_start_time = datetime.now(UTC)
 
         while self.navigation_state.current_waypoint_index < len(
             self.navigation_state.planned_path
@@ -190,7 +189,7 @@ class NavigationService:
             status = mission_service.mission_statuses.get(mission.id)
             if not status or status.status != "running":
                 logger.warning(
-                    f"Mission {mission.id} interrupted. Status: {status.status if status else 'N/A'}"
+                    f"Mission {mission.id} interrupted. Status: {status.status if status else 'N/A'}"  # noqa: E501
                 )
                 self.navigation_state.path_status = PathStatus.INTERRUPTED
                 self.navigation_state.navigation_mode = NavigationMode.IDLE
@@ -211,9 +210,9 @@ class NavigationService:
             self.navigation_state.navigation_mode = NavigationMode.IDLE
             logger.info(f"Mission {mission.id} completed.")
 
-    async def go_to_waypoint(self, waypoint: "MissionWaypoint"):
+    async def go_to_waypoint(self, waypoint: "MissionWaypoint"):  # noqa: F821
         """Navigate to a single waypoint and block until arrival."""
-        from .mission_service import MissionService, get_mission_service
+        from .mission_service import get_mission_service
 
         mission_service = get_mission_service()
 
@@ -260,7 +259,7 @@ class NavigationService:
                 await self.set_speed(0.0, 0.0)  # Stop at waypoint
                 if self.navigation_state.advance_waypoint():
                     logger.info(
-                        f"Advanced to next waypoint index: {self.navigation_state.current_waypoint_index}"
+                        f"Advanced to next waypoint index: {self.navigation_state.current_waypoint_index}"  # noqa: E501
                     )
                 else:
                     logger.info("Final waypoint in path reached.")
@@ -389,11 +388,11 @@ class NavigationService:
             self.total_distance += distance_increment
 
         self.last_position = current_position
-        self.navigation_state.timestamp = datetime.now(timezone.utc)
+        self.navigation_state.timestamp = datetime.now(UTC)
 
         return self.navigation_state
 
-    async def _update_position(self, sensor_data: SensorData) -> Optional[Position]:
+    async def _update_position(self, sensor_data: SensorData) -> Position | None:
         """Update position using sensor fusion"""
 
         # Primary: GPS position
@@ -408,7 +407,7 @@ class NavigationService:
             # Update dead reckoning reference
             self.dead_reckoning.update_gps_reference(gps_position)
             self.navigation_state.dead_reckoning_active = False
-            self.navigation_state.last_gps_fix = datetime.now(timezone.utc)
+            self.navigation_state.last_gps_fix = datetime.now(UTC)
 
             return gps_position
 
@@ -461,7 +460,7 @@ class NavigationService:
             )
 
     async def plan_path(
-        self, boundaries: List[Position], cutting_pattern: str = "parallel"
+        self, boundaries: list[Position], cutting_pattern: str = "parallel"
     ) -> bool:
         """Plan a mowing path for the given boundaries"""
         logger.info(
@@ -502,7 +501,7 @@ class NavigationService:
 
         # Estimate completion time
         estimated_time_seconds = total_distance / self.cruise_speed
-        self.navigation_state.estimated_completion_time = datetime.now(timezone.utc) + timedelta(
+        self.navigation_state.estimated_completion_time = datetime.now(UTC) + timedelta(
             seconds=estimated_time_seconds
         )
 
@@ -552,7 +551,7 @@ class NavigationService:
 
         self.navigation_state.navigation_mode = NavigationMode.AUTO
         self.navigation_state.path_status = PathStatus.EXECUTING
-        self.navigation_state.operation_start_time = datetime.now(timezone.utc)
+        self.navigation_state.operation_start_time = datetime.now(UTC)
 
         logger.info("Started autonomous navigation")
         return True
@@ -600,7 +599,7 @@ class NavigationService:
 
         self.navigation_state.navigation_mode = NavigationMode.AI
         self.navigation_state.target_velocity = 0.6  # Default AI velocity
-        self.navigation_state.operation_start_time = datetime.now(timezone.utc)
+        self.navigation_state.operation_start_time = datetime.now(UTC)
 
         logger.info("Started AI-controlled navigation")
         return True
@@ -628,7 +627,7 @@ class NavigationService:
         logger.info("Stopped AI navigation, returning to manual mode")
         return True
 
-    async def apply_ai_prediction(self, prediction: "ActionPrediction") -> bool:
+    async def apply_ai_prediction(self, prediction: "ActionPrediction") -> bool:  # noqa: F821
         """Apply an AI action prediction to motor control.
 
         Called by the AI inference loop to execute predicted actions.
@@ -653,7 +652,7 @@ class NavigationService:
 
         # Check for safety override
         if prediction.safety_override:
-            logger.warning(f"AI prediction has safety override - stopping")
+            logger.warning("AI prediction has safety override - stopping")
             await self.set_speed(0.0, 0.0)
             return True
 
@@ -725,17 +724,17 @@ class NavigationService:
         self.navigation_state.home_position = position
         logger.info(f"Home position set to {position.latitude}, {position.longitude}")
 
-    def set_safety_boundaries(self, boundaries: List[List[Position]]):
+    def set_safety_boundaries(self, boundaries: list[list[Position]]):
         """Set safety boundaries that must not be crossed"""
         self.navigation_state.safety_boundaries = boundaries
         logger.info(f"Set {len(boundaries)} safety boundaries")
 
-    def add_no_go_zone(self, zone: List[Position]):
+    def add_no_go_zone(self, zone: list[Position]):
         """Add a no-go zone to avoid"""
         self.navigation_state.no_go_zones.append(zone)
         logger.info("Added no-go zone")
 
-    async def get_navigation_status(self) -> Dict[str, Any]:
+    async def get_navigation_status(self) -> dict[str, Any]:
         """Get current navigation status"""
         return {
             "mode": self.navigation_state.navigation_mode,

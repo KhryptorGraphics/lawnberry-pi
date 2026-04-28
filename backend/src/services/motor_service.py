@@ -5,17 +5,17 @@ Motor control abstraction for RoboHAT/Cytron and L298N fallback
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 from ..models import (
-    MotorControl,
-    DriveCommand,
     BladeCommand,
-    EncoderFeedback,
-    MotorDiagnostics,
-    DriveController,
     ControlMode,
+    DriveCommand,
+    DriveController,
+    EncoderFeedback,
+    MotorControl,
+    MotorDiagnostics,
     MotorStatus,
 )
 
@@ -27,7 +27,7 @@ class RoboHATCytronController:
 
     def __init__(self):
         self.initialized = False
-        self.last_command: Optional[DriveCommand] = None
+        self.last_command: DriveCommand | None = None
 
     async def initialize(self) -> bool:
         """Initialize RoboHAT + Cytron controller"""
@@ -62,7 +62,7 @@ class RoboHATCytronController:
             logger.error(f"Failed to send RoboHAT command: {e}")
             return False
 
-    async def read_encoder_feedback(self) -> Optional[EncoderFeedback]:
+    async def read_encoder_feedback(self) -> EncoderFeedback | None:
         """Read encoder feedback from RoboHAT"""
         # STUB: hardcoded placeholder — not connected to real hardware
         if not self.initialized:
@@ -83,7 +83,7 @@ class RoboHATCytronController:
             logger.error(f"Failed to read encoder feedback: {e}")
             return None
 
-    async def get_diagnostics(self) -> Optional[MotorDiagnostics]:
+    async def get_diagnostics(self) -> MotorDiagnostics | None:
         """Get motor diagnostics from RoboHAT"""
         try:
             diagnostics = MotorDiagnostics(
@@ -152,11 +152,11 @@ class L298NController:
             logger.error(f"Failed to send L298N command: {e}")
             return False
 
-    async def read_encoder_feedback(self) -> Optional[EncoderFeedback]:
+    async def read_encoder_feedback(self) -> EncoderFeedback | None:
         """L298N doesn't have built-in encoder support"""
         return None
 
-    async def get_diagnostics(self) -> Optional[MotorDiagnostics]:
+    async def get_diagnostics(self) -> MotorDiagnostics | None:
         """Get basic L298N diagnostics"""
         try:
             diagnostics = MotorDiagnostics(
@@ -229,7 +229,7 @@ class SafetySystem:
         self.safety_violations = []
 
     def check_safety_conditions(
-        self, motor_control: MotorControl, sensor_data: Dict[str, Any]
+        self, motor_control: MotorControl, sensor_data: dict[str, Any]
     ) -> bool:
         """Check all safety conditions"""
         violations = []
@@ -292,7 +292,7 @@ class MotorService:
             self.motor_control.encoder_enabled = False
 
         self.blade_controller = BladeController()
-        self.command_timeout_task: Optional[asyncio.Task] = None
+        self.command_timeout_task: asyncio.Task | None = None
 
     async def initialize(self) -> bool:
         """Initialize motor service"""
@@ -312,13 +312,13 @@ class MotorService:
         return drive_init and blade_init
 
     async def send_drive_command(
-        self, command: DriveCommand, sensor_data: Dict[str, Any] = None
+        self, command: DriveCommand, sensor_data: dict[str, Any] = None
     ) -> bool:
         """Send drive command with safety checks"""
 
         # Update motor control state
         self.motor_control.drive_command = command
-        self.motor_control.last_command_time = datetime.now(timezone.utc)
+        self.motor_control.last_command_time = datetime.now(UTC)
         self.motor_control.command_sequence += 1
 
         # Check safety conditions
@@ -363,7 +363,7 @@ class MotorService:
         return success
 
     async def send_blade_command(
-        self, command: BladeCommand, sensor_data: Dict[str, Any] = None
+        self, command: BladeCommand, sensor_data: dict[str, Any] = None
     ) -> bool:
         """Send blade command with safety checks"""
 
@@ -446,7 +446,7 @@ class MotorService:
         self.motor_control.tilt_cutoff_active = self.safety_system.tilt_cutoff_active
         self.motor_control.blade_safety_ok = not self.safety_system.tilt_cutoff_active
 
-        self.motor_control.timestamp = datetime.now(timezone.utc)
+        self.motor_control.timestamp = datetime.now(UTC)
         return self.motor_control
 
     async def reset_emergency_stop(self) -> bool:
@@ -465,7 +465,7 @@ class MotorService:
         logger.info("Emergency stop reset - system ready")
         return True
 
-    async def get_motor_status(self) -> Dict[str, Any]:
+    async def get_motor_status(self) -> dict[str, Any]:
         """Get current motor status"""
         return {
             "controller_type": self.controller_type,

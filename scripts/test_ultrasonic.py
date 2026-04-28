@@ -24,13 +24,15 @@ import argparse
 import asyncio
 import os
 import sys
-import time
 
 # Add project root to path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from backend.src.drivers.sensors.ultrasonic_driver import UltrasonicDriver, UltrasonicReading
+from backend.src.drivers.sensors.ultrasonic_driver import (  # noqa: E402
+    UltrasonicDriver,
+    UltrasonicReading,
+)
 
 
 def print_header():
@@ -70,7 +72,7 @@ async def test_single_sensor(driver: UltrasonicDriver, sensor_id: str, count: in
     valid_count = 0
     distances = []
 
-    for i in range(count):
+    for _i in range(count):
         reading = await driver.read_distance(sensor_id)
         print_reading(reading)
 

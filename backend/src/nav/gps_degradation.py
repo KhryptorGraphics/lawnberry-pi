@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import datetime as _dt
 from dataclasses import dataclass
-from typing import Optional
 
 from ..core.robot_state_manager import get_robot_state_manager
 from ..models.robot_state import NavigationMode
@@ -35,9 +34,9 @@ class GPSDegradationMonitor:
     are handled elsewhere (e.g., geofence enforcer).
     """
 
-    def __init__(self, config: Optional[GPSDegradationConfig] = None):
+    def __init__(self, config: GPSDegradationConfig | None = None):
         self.cfg = config or GPSDegradationConfig()
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
 
     async def start(self) -> None:
@@ -64,7 +63,7 @@ class GPSDegradationMonitor:
                 pass
             try:
                 await asyncio.wait_for(self._stopping.wait(), timeout=self.cfg.check_interval_s)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
     def _tick(self) -> None:

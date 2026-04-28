@@ -3,13 +3,14 @@ WebUIPageContracts model for LawnBerry Pi v2
 WebUI page definitions and data flow contracts
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class WebUIPageSlug(str, Enum):
+class WebUIPageSlug(StrEnum):
     """Mandated WebUI page identifiers"""
 
     DASHBOARD = "dashboard"
@@ -21,7 +22,7 @@ class WebUIPageSlug(str, Enum):
     DOCS_HUB = "docs-hub"
 
 
-class AuthRequirement(str, Enum):
+class AuthRequirement(StrEnum):
     """Authentication requirements for pages"""
 
     NONE = "none"  # Public access
@@ -30,7 +31,7 @@ class AuthRequirement(str, Enum):
     ADMIN = "admin"  # Administrative access
 
 
-class DataDependencyType(str, Enum):
+class DataDependencyType(StrEnum):
     """Types of data dependencies"""
 
     REST_ENDPOINT = "rest_endpoint"
@@ -46,9 +47,9 @@ class DataDependency(BaseModel):
     dependency_type: DataDependencyType
     endpoint_or_topic: str  # e.g., "/api/dashboard/status" or "telemetry/updates"
     required: bool = True
-    caching_policy: Optional[str] = None  # "cache", "no-cache", "refresh"
-    refresh_interval_ms: Optional[int] = None
-    fallback_value: Optional[Any] = None
+    caching_policy: str | None = None  # "cache", "no-cache", "refresh"
+    refresh_interval_ms: int | None = None
+    fallback_value: Any | None = None
 
 
 class TelemetryRequirement(BaseModel):
@@ -71,8 +72,8 @@ class PerformanceMetrics(BaseModel):
     target_fps: int = 30  # For animations/updates
 
     # Measured metrics
-    actual_load_time_ms: Optional[int] = None
-    actual_memory_mb: Optional[float] = None
+    actual_load_time_ms: int | None = None
+    actual_memory_mb: float | None = None
     frame_drops: int = 0
     error_count: int = 0
 
@@ -82,8 +83,8 @@ class ResponsiveBreakpoint(BaseModel):
 
     name: str  # "mobile", "tablet", "desktop"
     min_width_px: int
-    max_width_px: Optional[int] = None
-    layout_adjustments: Dict[str, Any] = Field(default_factory=dict)
+    max_width_px: int | None = None
+    layout_adjustments: dict[str, Any] = Field(default_factory=dict)
 
 
 class WebUIPageContract(BaseModel):
@@ -96,21 +97,21 @@ class WebUIPageContract(BaseModel):
 
     # Page objectives and functionality
     primary_goal: str
-    key_features: List[str] = Field(default_factory=list)
-    user_workflows: List[str] = Field(default_factory=list)
+    key_features: list[str] = Field(default_factory=list)
+    user_workflows: list[str] = Field(default_factory=list)
 
     # Data requirements
-    rest_dependencies: List[DataDependency] = Field(default_factory=list)
-    websocket_topics: List[TelemetryRequirement] = Field(default_factory=list)
+    rest_dependencies: list[DataDependency] = Field(default_factory=list)
+    websocket_topics: list[TelemetryRequirement] = Field(default_factory=list)
 
     # Security and access
     auth_requirement: AuthRequirement = AuthRequirement.OPERATOR
-    permissions_required: List[str] = Field(default_factory=list)
+    permissions_required: list[str] = Field(default_factory=list)
 
     # UI specifications
     layout_type: str = "responsive"  # "responsive", "fixed", "fluid"
-    responsive_breakpoints: List[ResponsiveBreakpoint] = Field(default_factory=list)
-    theme_support: List[str] = Field(default_factory=lambda: ["retro-amber", "retro-green"])
+    responsive_breakpoints: list[ResponsiveBreakpoint] = Field(default_factory=list)
+    theme_support: list[str] = Field(default_factory=lambda: ["retro-amber", "retro-green"])
 
     # Performance and constraints
     performance_metrics: PerformanceMetrics = Field(default_factory=PerformanceMetrics)
@@ -118,25 +119,25 @@ class WebUIPageContract(BaseModel):
     simulation_support: bool = True  # Must be true per constitution
 
     # Navigation and routing
-    parent_route: Optional[str] = None
-    child_routes: List[str] = Field(default_factory=list)
-    navigation_menu_group: Optional[str] = None
+    parent_route: str | None = None
+    child_routes: list[str] = Field(default_factory=list)
+    navigation_menu_group: str | None = None
 
     # Component specifications
-    required_components: List[str] = Field(default_factory=list)
-    optional_components: List[str] = Field(default_factory=list)
+    required_components: list[str] = Field(default_factory=list)
+    optional_components: list[str] = Field(default_factory=list)
 
     # Testing requirements
-    e2e_test_scenarios: List[str] = Field(default_factory=list)
-    integration_test_requirements: List[str] = Field(default_factory=list)
+    e2e_test_scenarios: list[str] = Field(default_factory=list)
+    integration_test_requirements: list[str] = Field(default_factory=list)
 
     # Documentation
-    help_content_path: Optional[str] = None
+    help_content_path: str | None = None
     tutorial_available: bool = False
 
     # Metadata
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_modified: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_modified: datetime = Field(default_factory=lambda: datetime.now(UTC))
     version: str = "1.0"
 
     model_config = ConfigDict(use_enum_values=True)
@@ -151,30 +152,30 @@ class WebUIPageContract(BaseModel):
             **kwargs,
         )
         self.rest_dependencies.append(dependency)
-        self.last_modified = datetime.now(timezone.utc)
+        self.last_modified = datetime.now(UTC)
 
     def add_websocket_topic(self, topic: str, cadence_hz: float = 5.0, **kwargs):
         """Add a WebSocket topic requirement"""
         requirement = TelemetryRequirement(topic=topic, cadence_hz=cadence_hz, **kwargs)
         self.websocket_topics.append(requirement)
-        self.last_modified = datetime.now(timezone.utc)
+        self.last_modified = datetime.now(UTC)
 
 
 class WebUIPageContracts(BaseModel):
     """Collection of all WebUI page contracts"""
 
-    pages: Dict[WebUIPageSlug, WebUIPageContract] = Field(default_factory=dict)
+    pages: dict[WebUIPageSlug, WebUIPageContract] = Field(default_factory=dict)
 
     # Global UI settings
     global_theme: str = "retro-amber"
-    brand_colors: Dict[str, str] = Field(default_factory=dict)
+    brand_colors: dict[str, str] = Field(default_factory=dict)
     logo_path: str = "/assets/LawnBerryPi_logo.png"
     icon_path: str = "/assets/LawnBerryPi_icon2.png"
     favicon_path: str = "/assets/favicon.ico"
 
     # Navigation structure
-    main_navigation: List[Dict[str, Any]] = Field(default_factory=list)
-    footer_links: List[Dict[str, str]] = Field(default_factory=list)
+    main_navigation: list[dict[str, Any]] = Field(default_factory=list)
+    footer_links: list[dict[str, str]] = Field(default_factory=list)
 
     # Global performance settings
     max_concurrent_connections: int = 10
@@ -189,24 +190,24 @@ class WebUIPageContracts(BaseModel):
 
     # Metadata
     contract_version: str = "2.0"
-    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
     def add_page(self, page_contract: WebUIPageContract):
         """Add a page contract"""
         self.pages[page_contract.slug] = page_contract
-        self.last_updated = datetime.now(timezone.utc)
+        self.last_updated = datetime.now(UTC)
 
-    def get_page(self, slug: WebUIPageSlug) -> Optional[WebUIPageContract]:
+    def get_page(self, slug: WebUIPageSlug) -> WebUIPageContract | None:
         """Get a page contract by slug"""
         return self.pages.get(slug)
 
-    def get_pages_requiring_auth(self, auth_level: AuthRequirement) -> List[WebUIPageContract]:
+    def get_pages_requiring_auth(self, auth_level: AuthRequirement) -> list[WebUIPageContract]:
         """Get pages requiring specific authentication level"""
         return [page for page in self.pages.values() if page.auth_requirement == auth_level]
 
-    def get_pages_with_websocket_topics(self) -> List[WebUIPageContract]:
+    def get_pages_with_websocket_topics(self) -> list[WebUIPageContract]:
         """Get pages that use WebSocket topics"""
         return [page for page in self.pages.values() if len(page.websocket_topics) > 0]
 
@@ -270,7 +271,7 @@ class WebUIPageContracts(BaseModel):
         return contracts
 
 
-class DocumentationType(str, Enum):
+class DocumentationType(StrEnum):
     """Documentation types"""
 
     HARDWARE_OVERVIEW = "hardware_overview"
@@ -294,13 +295,13 @@ class DocumentationFile(BaseModel):
 
     # File metadata
     size_bytes: int = 0
-    checksum: Optional[str] = None  # SHA256
-    last_modified: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    checksum: str | None = None  # SHA256
+    last_modified: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Content metadata
-    title: Optional[str] = None
-    version: Optional[str] = None
-    author: Optional[str] = None
+    title: str | None = None
+    version: str | None = None
+    author: str | None = None
 
     # Accessibility
     offline_available: bool = True
@@ -315,38 +316,38 @@ class DocumentationBundle(BaseModel):
     bundle_name: str = "LawnBerry Pi v2 Documentation"
 
     # Documentation files
-    files: List[DocumentationFile] = Field(default_factory=list)
+    files: list[DocumentationFile] = Field(default_factory=list)
 
     # Bundle metadata
     total_size_bytes: int = 0
     total_files: int = 0
 
     # Checksums and validation
-    bundle_checksum: Optional[str] = None  # SHA256 of all file checksums
+    bundle_checksum: str | None = None  # SHA256 of all file checksums
     checksum_validated: bool = False
-    checksum_validation_time: Optional[datetime] = None
+    checksum_validation_time: datetime | None = None
 
     # Freshness tracking
-    oldest_file_date: Optional[datetime] = None
-    newest_file_date: Optional[datetime] = None
+    oldest_file_date: datetime | None = None
+    newest_file_date: datetime | None = None
     days_since_last_update: int = 0
     freshness_status: str = "current"  # "current", "stale", "outdated"
 
     # Generation metadata
-    generated_at: Optional[datetime] = None
+    generated_at: datetime | None = None
     generation_method: str = "manual"  # "manual", "automated", "ci"
 
     # Offline support
     offline_bundle_available: bool = False
-    offline_bundle_path: Optional[str] = None  # Path to tarball/ZIP
+    offline_bundle_path: str | None = None  # Path to tarball/ZIP
     offline_bundle_size_bytes: int = 0
 
     # Path traversal protection
-    allowed_base_paths: List[str] = Field(default_factory=lambda: ["docs/", "assets/"])
+    allowed_base_paths: list[str] = Field(default_factory=lambda: ["docs/", "assets/"])
 
     # Timestamps
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -355,7 +356,7 @@ class DocumentationBundle(BaseModel):
         self.files.append(file)
         self.total_files = len(self.files)
         self.total_size_bytes += file.size_bytes
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
         # Update file date tracking
         if not self.oldest_file_date or file.last_modified < self.oldest_file_date:
@@ -363,11 +364,11 @@ class DocumentationBundle(BaseModel):
         if not self.newest_file_date or file.last_modified > self.newest_file_date:
             self.newest_file_date = file.last_modified
 
-    def get_file_by_id(self, file_id: str) -> Optional[DocumentationFile]:
+    def get_file_by_id(self, file_id: str) -> DocumentationFile | None:
         """Get documentation file by ID"""
         return next((f for f in self.files if f.file_id == file_id), None)
 
-    def get_files_by_type(self, doc_type: DocumentationType) -> List[DocumentationFile]:
+    def get_files_by_type(self, doc_type: DocumentationType) -> list[DocumentationFile]:
         """Get files by documentation type"""
         return [f for f in self.files if f.doc_type == doc_type]
 
@@ -410,15 +411,14 @@ class DocumentationBundle(BaseModel):
         checksum = hasher.hexdigest()
         self.bundle_checksum = checksum
         self.checksum_validated = True
-        self.checksum_validation_time = datetime.now(timezone.utc)
+        self.checksum_validation_time = datetime.now(UTC)
 
         return checksum
 
     def check_freshness(self, stale_threshold_days: int = 90, outdated_threshold_days: int = 180):
         """Check documentation freshness and update status"""
-        from datetime import timedelta
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if self.oldest_file_date:
             age_delta = now - self.oldest_file_date
@@ -433,9 +433,9 @@ class DocumentationBundle(BaseModel):
 
     def generate_offline_bundle(self, output_path: str, format: str = "tar.gz") -> bool:
         """Generate offline documentation bundle"""
+        import os
         import tarfile
         import zipfile
-        import os
 
         try:
             if format == "tar.gz":
@@ -453,14 +453,14 @@ class DocumentationBundle(BaseModel):
             self.offline_bundle_available = True
             self.offline_bundle_path = output_path
             self.offline_bundle_size_bytes = os.path.getsize(output_path)
-            self.generated_at = datetime.now(timezone.utc)
+            self.generated_at = datetime.now(UTC)
 
             return True
 
-        except Exception as e:
+        except Exception:
             return False
 
-    def get_freshness_alerts(self) -> List[str]:
+    def get_freshness_alerts(self) -> list[str]:
         """Get freshness alert messages"""
         alerts = []
 
@@ -487,13 +487,13 @@ class DocumentationBundle(BaseModel):
         cls, docs_dir: str, bundle_name: str = "LawnBerry Pi v2 Documentation"
     ) -> "DocumentationBundle":
         """Create documentation bundle by scanning directory"""
+        import hashlib
         import os
         import uuid
-        import hashlib
 
         bundle = cls(bundle_id=str(uuid.uuid4()), bundle_name=bundle_name)
 
-        for root, dirs, files in os.walk(docs_dir):
+        for root, _dirs, files in os.walk(docs_dir):
             for filename in files:
                 if filename.endswith((".md", ".html", ".pdf")):
                     file_path = os.path.join(root, filename)
@@ -523,9 +523,7 @@ class DocumentationBundle(BaseModel):
                         doc_type=doc_type,
                         size_bytes=os.path.getsize(file_path),
                         checksum=file_checksum,
-                        last_modified=datetime.fromtimestamp(
-                            os.path.getmtime(file_path), tz=timezone.utc
-                        ),
+                        last_modified=datetime.fromtimestamp(os.path.getmtime(file_path), tz=UTC),
                     )
 
                     bundle.add_file(doc_file)

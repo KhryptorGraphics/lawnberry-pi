@@ -6,29 +6,29 @@ Manages camera capture, streaming, and IPC communication
 import asyncio
 import io
 import json
+import logging
 import os
 import signal
-import socket
 import stat
-import tempfile
-import time
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Callable, Any, Tuple
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
+from ..core.observability import observability
 from ..models.camera_stream import (
-    CameraStream,
     CameraFrame,
     CameraMode,
+    CameraStream,
     FrameFormat,
-    StreamQuality,
-    CameraConfiguration,
     FrameMetadata,
+    StreamQuality,
     StreamStatistics,
 )
-from ..core.observability import observability
 
 # Try to import camera libraries with fallbacks for SIM_MODE
 
@@ -71,19 +71,19 @@ class CameraStreamService:
     def __init__(self, sim_mode: bool = False):
         self.sim_mode = sim_mode or os.getenv("SIM_MODE", "0") == "1"
         self.stream = CameraStream()
-        self.clients: Set[asyncio.StreamWriter] = set()
+        self.clients: set[asyncio.StreamWriter] = set()
         self.socket_path = "/tmp/lawnberry-camera.sock"
-        self.frame_callbacks: List[Callable[[CameraFrame], None]] = []
+        self.frame_callbacks: list[Callable[[CameraFrame], None]] = []
 
         # Threading for camera capture
-        self.capture_thread: Optional[threading.Thread] = None
+        self.capture_thread: threading.Thread | None = None
         self.capture_active = False
-        self.frame_queue: Optional[asyncio.Queue[CameraFrame]] = None
-        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.frame_queue: asyncio.Queue[CameraFrame] | None = None
+        self.loop: asyncio.AbstractEventLoop | None = None
         self._last_queue_warning = 0.0
 
         # IPC server
-        self.ipc_server: Optional[asyncio.Server] = None
+        self.ipc_server: asyncio.Server | None = None
         self.running = False
 
         # Camera backend
@@ -321,7 +321,7 @@ class CameraStreamService:
             await writer.wait_closed()
             logger.info(f"Camera client disconnected: {client_addr}")
 
-    async def _handle_client_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_client_message(self, message: dict[str, Any]) -> dict[str, Any]:
         """Handle client message and return response."""
         command = message.get("command")
 
@@ -419,7 +419,7 @@ class CameraStreamService:
     def _capture_frames_thread(self):
         """Camera capture thread (runs in separate thread)."""
         logger.info("Camera capture thread started")
-        next_frame_time: Optional[float] = None
+        next_frame_time: float | None = None
 
         while self.capture_active:
             try:
@@ -520,8 +520,8 @@ class CameraStreamService:
         return quality_map.get(quality_key, 80)
 
     def _encode_numpy_frame_to_jpeg(
-        self, frame: Any, *, color_space: Optional[str] = None
-    ) -> Optional[bytes]:
+        self, frame: Any, *, color_space: str | None = None
+    ) -> bytes | None:
         """Encode a numpy frame to JPEG, respecting the declared colour space."""
         quality = self._resolve_jpeg_quality()
 
@@ -580,7 +580,7 @@ class CameraStreamService:
             logger.error("Fallback JPEG encoding failed: %s", exc)
             return None
 
-    def _capture_real_frame(self) -> Optional[Tuple[bytes, Tuple[int, int]]]:
+    def _capture_real_frame(self) -> tuple[bytes, tuple[int, int]] | None:
         """Capture frame from real camera."""
         try:
             if PICAMERA_AVAILABLE and isinstance(self.camera, Picamera2):
@@ -620,7 +620,7 @@ class CameraStreamService:
             logger.error(f"Real frame capture error: {e}")
             return None
 
-    def _discover_opencv_device(self) -> Optional[Tuple[str, Optional[str]]]:
+    def _discover_opencv_device(self) -> tuple[str, str | None] | None:
         """Identify a usable V4L2 device for OpenCV capture."""
         # Honor explicit request first.
         explicit = os.getenv("CAMERA_DEVICE")
@@ -676,11 +676,12 @@ class CameraStreamService:
 
         return None
 
-    def _generate_simulated_frame(self) -> Tuple[bytes, Tuple[int, int]]:
+    def _generate_simulated_frame(self) -> tuple[bytes, tuple[int, int]]:
         """Generate simulated camera frame for testing."""
         try:
             # Create a simple test pattern
             import io
+
             from PIL import Image, ImageDraw, ImageFont
 
             # Create image
@@ -700,7 +701,7 @@ class CameraStreamService:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
                 font = ImageFont.load_default()
-                draw.text((20, 20), f"LawnBerry Pi Camera", font=font, fill="white")
+                draw.text((20, 20), "LawnBerry Pi Camera", font=font, fill="white")
                 draw.text((20, 40), f"SIM MODE: {timestamp}", font=font, fill="yellow")
                 draw.text(
                     (20, height - 60),
@@ -708,7 +709,7 @@ class CameraStreamService:
                     font=font,
                     fill="white",
                 )
-            except:
+            except Exception:
                 # Fallback if font not available
                 pass
 
@@ -720,11 +721,11 @@ class CameraStreamService:
         except Exception as e:
             logger.error(f"Simulated frame generation error: {e}")
             # Return minimal JPEG
-            minimal = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\xff\xc0\x00\x11\x08\x00\x01\x00\x01\x01\x01\x11\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00\xaa\xff\xd9"
+            minimal = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\xff\xc0\x00\x11\x08\x00\x01\x00\x01\x01\x01\x11\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00\xaa\xff\xd9"  # noqa: E501
             return minimal, (1, 1)
 
     def _create_frame_object(
-        self, frame_data: bytes, dimensions: Optional[Tuple[int, int]] = None
+        self, frame_data: bytes, dimensions: tuple[int, int] | None = None
     ) -> CameraFrame:
         """Create CameraFrame object from raw frame data."""
         frame_id = f"frame_{self.stream.statistics.frames_captured:06d}"
@@ -737,7 +738,7 @@ class CameraStreamService:
 
         metadata = FrameMetadata(
             frame_id=frame_id,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             sequence_number=self.stream.statistics.frames_captured,
             width=width,
             height=height,
@@ -785,7 +786,7 @@ class CameraStreamService:
                 ):
                     await self._save_frame_to_disk(frame)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # No frame received, continue
                 continue
             except Exception as e:
@@ -849,7 +850,7 @@ class CameraStreamService:
                     client.write(message_data)
                     await asyncio.wait_for(client.drain(), timeout=self._client_drain_timeout)
                     self.stream.statistics.bytes_transmitted += len(message_data)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning(
                         "Camera client drain exceeded %.2fs; disconnecting",
                         self._client_drain_timeout,
@@ -890,11 +891,11 @@ class CameraStreamService:
         except Exception as e:
             logger.error(f"Failed to save frame to disk: {e}")
 
-    async def get_current_frame(self) -> Optional[CameraFrame]:
+    async def get_current_frame(self) -> CameraFrame | None:
         """Get the most recent frame."""
         return self.stream.current_frame
 
-    async def update_configuration(self, config_data: Dict[str, Any]) -> bool:
+    async def update_configuration(self, config_data: dict[str, Any]) -> bool:
         """Update camera configuration."""
         try:
             # Update configuration

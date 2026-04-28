@@ -17,7 +17,6 @@ from ..models.safety_interlock import (
     SafetyInterlock,
 )
 
-
 _event_handler: callable | None = None
 
 

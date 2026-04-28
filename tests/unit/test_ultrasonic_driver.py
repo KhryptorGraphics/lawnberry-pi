@@ -1,6 +1,7 @@
 """Unit tests for UltrasonicDriver (BEAD-041)."""
 
 import os
+
 import pytest
 
 # Force simulation mode for tests

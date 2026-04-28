@@ -6,12 +6,10 @@ ratings suitable for diagnostics and can be expanded alongside the real EKF.
 
 from __future__ import annotations
 
-from typing import Dict
-
 
 class SensorHealthMonitor:
     def __init__(self) -> None:
-        self._qualities: Dict[str, float] = {
+        self._qualities: dict[str, float] = {
             "gps": 0.8,
             "imu": 0.9,
             "odometry": 0.7,
@@ -20,7 +18,7 @@ class SensorHealthMonitor:
     def set_quality(self, sensor: str, quality_0_to_1: float) -> None:
         self._qualities[sensor] = max(0.0, min(1.0, quality_0_to_1))
 
-    def get_snapshot(self) -> Dict[str, float]:
+    def get_snapshot(self) -> dict[str, float]:
         return dict(self._qualities)
 
 

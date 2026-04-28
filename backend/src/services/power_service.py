@@ -4,7 +4,8 @@ Battery management, solar charging, and power monitoring
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
+
 from ..models import PowerManagement
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class PowerService:
         self.initialized = True
         return True
 
-    async def get_power_status(self) -> Dict[str, Any]:
+    async def get_power_status(self) -> dict[str, Any]:
         """Get current power status"""
         return {
             "battery_percentage": self.power_management.battery_status.percentage,

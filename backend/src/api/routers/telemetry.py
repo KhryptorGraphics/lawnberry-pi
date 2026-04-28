@@ -1,21 +1,22 @@
-from fastapi import APIRouter, WebSocket, Request, Response, HTTPException, status, Query
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
-from typing import Optional, Any
-import uuid
-import json
+import asyncio
+import base64
 import datetime
 import hashlib
-import base64
-import logging
-import asyncio
 import io
-import time
+import json
+import logging
 import os
+import time
+import uuid
+from typing import Any
 
+from fastapi import APIRouter, HTTPException, Query, Request, Response, WebSocket, status
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
+
+from ...core.persistence import persistence
 from ...services.websocket_hub import websocket_hub
 from .auth import _authorize_websocket, _extract_bearer_token
-from ...core.persistence import persistence
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -162,7 +163,7 @@ async def ws_telemetry(websocket: WebSocket):
                     json.dumps(
                         {
                             "event": "pong",
-                            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
                         }
                     )
                 )
@@ -171,7 +172,7 @@ async def ws_telemetry(websocket: WebSocket):
                     json.dumps(
                         {
                             "event": "topics.list",
-                            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
                             "topics": sorted(list(websocket_hub.subscriptions.keys())),
                         }
                     )
@@ -197,7 +198,7 @@ async def ws_control(websocket: WebSocket):
                 {
                     "event": "connection.established",
                     "client_id": client_id,
-                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
                 }
             )
         )
@@ -208,7 +209,7 @@ async def ws_control(websocket: WebSocket):
                 json.dumps(
                     {
                         "event": "ack",
-                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
                     }
                 )
             )
@@ -273,7 +274,7 @@ async def websocket_notifications_handshake(request: Request):
 
 
 @router.get("/telemetry/stream")
-async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: Optional[str] = None):
+async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: str | None = None):
     """Contract-shaped telemetry stream: items + latency_summary_ms + next_since"""
     try:
         # Ensure table exists and seed in SIM mode if empty
@@ -289,7 +290,7 @@ async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: Optio
             items.append(
                 {
                     "timestamp": s.get("timestamp")
-                    or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    or datetime.datetime.now(datetime.UTC).isoformat(),
                     "component_id": s.get("component_id", "power"),
                     "latency_ms": s.get("latency_ms", 0.0),
                     "status": s.get("status", "healthy"),
@@ -327,9 +328,9 @@ async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: Optio
 
 @router.get("/telemetry/export")
 async def export_telemetry_diagnostic(
-    component: Optional[str] = Query(None),
-    start: Optional[str] = Query(None),
-    end: Optional[str] = Query(None),
+    component: str | None = Query(None),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
     format: str = Query("csv", description="Export format: json or csv"),
 ):
     """Export telemetry diagnostic data including power metrics for troubleshooting"""
@@ -381,7 +382,7 @@ async def export_telemetry_diagnostic(
             io.BytesIO(csv_content.encode("utf-8")),
             media_type="text/csv",
             headers={
-                "Content-Disposition": f"attachment; filename=telemetry_diagnostic_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+                "Content-Disposition": f"attachment; filename=telemetry_diagnostic_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d_%H%M%S')}.csv"  # noqa: E501
             },
         )
     else:
@@ -389,7 +390,7 @@ async def export_telemetry_diagnostic(
         return JSONResponse(
             content=diagnostic_data,
             headers={
-                "Content-Disposition": f"attachment; filename=telemetry_diagnostic_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+                "Content-Disposition": f"attachment; filename=telemetry_diagnostic_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d_%H%M%S')}.json"  # noqa: E501
             },
         )
 
@@ -431,7 +432,7 @@ async def dashboard_telemetry():
     telemetry_data = await websocket_hub._generate_telemetry()
 
     latency_ms = (time.perf_counter() - start_time) * 1000
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    now = datetime.datetime.now(datetime.UTC).isoformat()
 
     def _coerce_float(value: object) -> float | None:
         if value is None:
@@ -550,14 +551,14 @@ async def dashboard_telemetry():
         rtk_status = position_data.get("rtk_status", "unknown")
         rtk_fallback_message = None
         if rtk_status in ["no_fix", "gps_fix"]:
-            rtk_fallback_message = "RTK corrections unavailable - using standard GPS. See docs/hardware-overview.md for troubleshooting."
+            rtk_fallback_message = "RTK corrections unavailable - using standard GPS. See docs/hardware-overview.md for troubleshooting."  # noqa: E501
 
         # IMU calibration status
         imu_calibration = imu_data.get("calibration", 0)
         orientation_health = "healthy" if imu_calibration >= 2 else "degraded"
         orientation_message = None
         if imu_calibration < 2:
-            orientation_message = "IMU calibration incomplete - orientation data may be inaccurate. See docs/hardware-feature-matrix.md."
+            orientation_message = "IMU calibration incomplete - orientation data may be inaccurate. See docs/hardware-feature-matrix.md."  # noqa: E501
 
         env = telemetry_data.get("environmental", {}) if isinstance(telemetry_data, dict) else {}
         power_payload = _extract_power_payload(power_data, default_battery=battery_data)

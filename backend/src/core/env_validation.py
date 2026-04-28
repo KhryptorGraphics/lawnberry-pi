@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List
 
 from .secrets_manager import SecretsManager
 
 _log = logging.getLogger(__name__)
 
 
-REQUIRED_SECRETS: List[str] = [
+REQUIRED_SECRETS: list[str] = [
     "JWT_SECRET",
 ]
 

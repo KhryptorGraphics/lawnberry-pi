@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from .robohat_service import get_robohat_service
 
@@ -42,9 +42,9 @@ class IMUCalibrationService:
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-        self._last_result: Optional[Dict[str, Any]] = None
+        self._last_result: dict[str, Any] | None = None
 
-    async def run(self, sensor_manager=None) -> Dict[str, Any]:
+    async def run(self, sensor_manager=None) -> dict[str, Any]:
         """Execute the calibration routine and return a status payload."""
         if self._lock.locked():
             raise CalibrationInProgressError("Calibration already in progress")
@@ -54,11 +54,11 @@ class IMUCalibrationService:
             self._last_result = result
             return result
 
-    async def _execute(self, sensor_manager=None) -> Dict[str, Any]:
+    async def _execute(self, sensor_manager=None) -> dict[str, Any]:
         # Short-circuit in simulation to avoid hardware requirements.
         if os.getenv("SIM_MODE", "0") == "1":
             await asyncio.sleep(0.5)
-            ts = datetime.now(timezone.utc).isoformat()
+            ts = datetime.now(UTC).isoformat()
             return {
                 "status": "simulated",
                 "calibration_status": "fully_calibrated",
@@ -114,10 +114,10 @@ class IMUCalibrationService:
             },
         ]
 
-        step_results: List[Dict[str, Any]] = []
-        start_ts = datetime.now(timezone.utc)
+        step_results: list[dict[str, Any]] = []
+        start_ts = datetime.now(UTC)
 
-        async def _capture_snapshot() -> Optional[Dict[str, Any]]:
+        async def _capture_snapshot() -> dict[str, Any] | None:
             try:
                 snapshot = await manager.read_all_sensors()  # type: ignore[union-attr]
             except Exception as exc:  # pragma: no cover - hardware dependent
@@ -171,7 +171,7 @@ class IMUCalibrationService:
             "calibration_status": final_status,
             "calibration_score": final_score,
             "steps": step_results,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "started_at": start_ts.isoformat(),
             "notes": None
             if final_score >= 2
@@ -179,7 +179,7 @@ class IMUCalibrationService:
         }
         return result
 
-    def last_result(self) -> Optional[Dict[str, Any]]:
+    def last_result(self) -> dict[str, Any] | None:
         """Return the most recent result, if one exists."""
         return self._last_result
 

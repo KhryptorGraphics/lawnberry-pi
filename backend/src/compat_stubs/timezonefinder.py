@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 class TimezoneFinder:
     def __init__(self, in_memory: bool = True):  # pragma: no cover - trivial
@@ -11,16 +9,16 @@ class TimezoneFinder:
 
     def timezone_at(
         self, lat: float | int | str | None = None, lng: float | int | str | None = None
-    ) -> Optional[str]:
+    ) -> str | None:
         return self._lookup(lat, lng)
 
     def closest_timezone_at(
         self, lat: float | int | str | None = None, lng: float | int | str | None = None
-    ) -> Optional[str]:
+    ) -> str | None:
         return self._lookup(lat, lng)
 
     @staticmethod
-    def _lookup(lat: float | int | str | None, lng: float | int | str | None) -> Optional[str]:
+    def _lookup(lat: float | int | str | None, lng: float | int | str | None) -> str | None:
         try:
             lat_f = float(lat) if lat is not None else None
             lng_f = float(lng) if lng is not None else None

@@ -11,12 +11,12 @@ Guard rails:
 - Will never enable motors or blades; RUN_ENABLE must be 1 to allow any actuation (not used)
 """
 
-import argparse
-import csv
-import os
-import sys
-import time
-from datetime import datetime, timezone
+import argparse  # noqa: E402
+import csv  # noqa: E402
+import os  # noqa: E402
+import sys  # noqa: E402
+import time  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -24,7 +24,7 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def probe_once(client, base_url: str) -> dict:
@@ -85,7 +85,7 @@ def main() -> int:
     # Guard rails
     REAL_HW = _bool_env("REAL_HW", False)
     RUN_ENABLE = _bool_env("RUN_ENABLE", False)
-    SIM_MODE = _bool_env("SIM_MODE", True)
+    _bool_env("SIM_MODE", True)
 
     if REAL_HW and not RUN_ENABLE:
         print("WARNING: REAL_HW=1 but RUN_ENABLE!=1; proceeding read-only", file=sys.stderr)

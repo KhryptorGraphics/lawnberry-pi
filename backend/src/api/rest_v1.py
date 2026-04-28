@@ -1,14 +1,14 @@
 """FastAPI v1 API router for contract compliance with /api/v1 endpoints."""
 
+import hashlib
+import json
+import os
+from datetime import UTC, datetime
+from email.utils import format_datetime
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from datetime import datetime, timezone
-from typing import List, Optional, Dict
-import os
-import hashlib
-import json
-from email.utils import format_datetime
 
 from ..services.auth_service import AuthenticationError, primary_auth_service
 
@@ -23,22 +23,22 @@ class SafetyStatus(BaseModel):
     tilt_detected: bool = False
     obstacle_detected: bool = False
     blade_safety_ok: bool = True
-    safety_interlocks: List[str] = []
+    safety_interlocks: list[str] = []
 
 
 class SystemStatus(BaseModel):
-    battery_percentage: Optional[float] = None
+    battery_percentage: float | None = None
     navigation_state: str = "IDLE"
     safety_status: SafetyStatus = SafetyStatus()
     motor_status: str = "idle"
-    last_updated: datetime = datetime.now(timezone.utc)
+    last_updated: datetime = datetime.now(UTC)
 
 
 # --- Auth Models ---
 class AuthLoginRequest(BaseModel):
-    credential: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
+    credential: str | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 class UserResponse(BaseModel):
@@ -62,8 +62,8 @@ class Point(BaseModel):
 
 class Zone(BaseModel):
     id: str
-    name: Optional[str] = None
-    polygon: List[Point]
+    name: str | None = None
+    polygon: list[Point]
     priority: int = 0
     exclusion_zone: bool = False
 
@@ -73,17 +73,17 @@ class Job(BaseModel):
     id: str
     name: str
     schedule: str
-    zones: List[str]
+    zones: list[str]
     priority: int = 1
     enabled: bool = True
     status: str = "pending"
-    created_at: datetime = datetime.now(timezone.utc)
-    last_run: Optional[datetime] = None
+    created_at: datetime = datetime.now(UTC)
+    last_run: datetime | None = None
 
 
 # --- Storage (in-memory for now) ---
-_zones_store: List[Zone] = []
-_jobs_store: List[Job] = []
+_zones_store: list[Zone] = []
+_jobs_store: list[Job] = []
 _job_counter = 0
 
 
@@ -98,7 +98,7 @@ def get_status():
         navigation_state="IDLE",
         safety_status=SafetyStatus(),
         motor_status="idle",
-        last_updated=datetime.now(timezone.utc),
+        last_updated=datetime.now(UTC),
     )
 
 
@@ -124,18 +124,20 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
             user_agent=request.headers.get("User-Agent"),
         )
     except AuthenticationError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=exc.headers)
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail, headers=exc.headers
+        ) from exc  # noqa: E501
 
     session = result.session
     user = UserResponse(
         id=session.user_id, username=session.username, role=session.security_context.role.value
     )
-    expires_in = max(0, int((result.expires_at - datetime.now(timezone.utc)).total_seconds()))
+    expires_in = max(0, int((result.expires_at - datetime.now(UTC)).total_seconds()))
 
     return AuthResponse(access_token=result.token, expires_in=expires_in, user=user)
 
 
-@router.get("/maps/zones", response_model=List[Zone])
+@router.get("/maps/zones", response_model=list[Zone])
 def get_zones(request: Request):
     """List all zones."""
     # Create response data
@@ -146,7 +148,7 @@ def get_zones(request: Request):
     etag = hashlib.sha256(body).hexdigest()
 
     # Create headers with caching information
-    last_modified = datetime.now(timezone.utc)
+    last_modified = datetime.now(UTC)
     headers = {
         "ETag": etag,
         "Last-Modified": format_datetime(last_modified),
@@ -156,8 +158,8 @@ def get_zones(request: Request):
     return JSONResponse(content=data, headers=headers)
 
 
-@router.post("/maps/zones", response_model=List[Zone])
-def create_zones(zones: List[Zone]):
+@router.post("/maps/zones", response_model=list[Zone])
+def create_zones(zones: list[Zone]):
     """Create or update zones."""
     global _zones_store
 
@@ -172,14 +174,14 @@ def create_zones(zones: List[Zone]):
     return _zones_store
 
 
-@router.get("/mow/jobs", response_model=List[Job])
+@router.get("/mow/jobs", response_model=list[Job])
 def get_jobs():
     """List all mowing jobs."""
     return _jobs_store
 
 
 @router.post("/mow/jobs", response_model=Job, status_code=201)
-def create_job(job_data: Dict):
+def create_job(job_data: dict):
     """Queue a new mowing job."""
     global _job_counter, _jobs_store
 
@@ -200,7 +202,7 @@ def create_job(job_data: Dict):
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
             raise ValueError()
     except (ValueError, IndexError):
-        raise HTTPException(status_code=422, detail="Invalid schedule format (use HH:MM)")
+        raise HTTPException(status_code=422, detail="Invalid schedule format (use HH:MM)") from None
 
     # Create job
     _job_counter += 1

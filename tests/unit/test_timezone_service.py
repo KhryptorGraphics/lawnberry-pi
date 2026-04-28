@@ -1,9 +1,10 @@
-import pytest
 import json
 import os
-import tempfile
 import shutil
-from datetime import datetime, timezone as dt_timezone
+import tempfile
+from datetime import UTC, datetime
+
+import pytest
 
 from backend.src.services.timezone_service import TimezoneInfo, detect_system_timezone
 
@@ -56,12 +57,14 @@ def test_detect_timezone_prefers_gps():
     assert info.source == "gps"
 
 
-@pytest.mark.skip(reason="TODO(v3): SystemSettings + get_settings_system not yet implemented in rest.py")
+@pytest.mark.skip(
+    reason="TODO(v3): SystemSettings + get_settings_system not yet implemented in rest.py"
+)
 def test_system_settings_endpoint_auto_sets_timezone(monkeypatch):
     from backend.src.api import rest
 
     monkeypatch.setattr(rest, "_system_settings", rest.SystemSettings())
-    monkeypatch.setattr(rest, "_settings_last_modified", datetime.now(dt_timezone.utc))
+    monkeypatch.setattr(rest, "_settings_last_modified", datetime.now(UTC))
     monkeypatch.setattr(
         rest,
         "detect_system_timezone",

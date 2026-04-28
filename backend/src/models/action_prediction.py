@@ -5,15 +5,17 @@ Defines the output structure for Vision-Language-Action model predictions
 used in autonomous mowing control.
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator, ConfigDict
-from dataclasses import dataclass, field as dataclass_field
 import time
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 
-class ActionConfidence(str, Enum):
+class ActionConfidence(StrEnum):
     """Confidence levels for action predictions."""
 
     HIGH = "high"  # >0.9 confidence
@@ -22,7 +24,7 @@ class ActionConfidence(str, Enum):
     UNCERTAIN = "uncertain"  # <0.5 confidence
 
 
-class ControlMode(str, Enum):
+class ControlMode(StrEnum):
     """Active control mode."""
 
     MANUAL = "manual"
@@ -89,7 +91,7 @@ class ActionPrediction:
         """Total processing time."""
         return self.preprocessing_time_ms + self.inference_time_ms + self.postprocessing_time_ms
 
-    def to_motor_commands(self) -> Dict[str, float]:
+    def to_motor_commands(self) -> dict[str, float]:
         """Convert to motor controller format.
 
         Returns dict compatible with MotorService.set_speeds()
@@ -113,7 +115,7 @@ class ActionPrediction:
             "blade_enabled": self.blade,
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "steering": self.steering,
@@ -168,8 +170,8 @@ class InferenceMetrics(BaseModel):
     hardware_accelerated: bool = False
 
     # Timestamps
-    first_inference_time: Optional[datetime] = None
-    last_inference_time: Optional[datetime] = None
+    first_inference_time: datetime | None = None
+    last_inference_time: datetime | None = None
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -225,7 +227,7 @@ class InferenceMetrics(BaseModel):
             self.safety_overrides += 1
 
         # Update timestamps
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if self.first_inference_time is None:
             self.first_inference_time = now
         self.last_inference_time = now
@@ -246,17 +248,17 @@ class AIControlStatus(BaseModel):
     model_loaded: bool = False
 
     # Current prediction
-    last_prediction: Optional[Dict[str, Any]] = None
+    last_prediction: dict[str, Any] | None = None
     prediction_age_ms: float = 0.0
 
     # Hardware
     hailo_available: bool = False
-    hailo_temperature: Optional[float] = None
+    hailo_temperature: float | None = None
     using_hardware: bool = False
 
     # Safety
     safety_engaged: bool = False
-    safety_reason: Optional[str] = None
+    safety_reason: str | None = None
 
     # Metrics summary
     success_rate: float = 0.0

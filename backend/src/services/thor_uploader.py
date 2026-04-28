@@ -18,14 +18,14 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 import time
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
 import uuid
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ except ImportError:
     logger.warning("lz4 not available - compression disabled")
 
 
-class UploadStatus(str, Enum):
+class UploadStatus(StrEnum):
     """Status of an upload task."""
 
     PENDING = "pending"
@@ -78,15 +78,15 @@ class UploadTask:
     progress_percent: float = 0.0
 
     # Timing
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     # Error handling
     retry_count: int = 0
     last_error: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         d = asdict(self)
         d["status"] = self.status.value
@@ -96,7 +96,7 @@ class UploadTask:
         return d
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "UploadTask":
+    def from_dict(cls, data: dict[str, Any]) -> UploadTask:
         """Create from dictionary."""
         data["status"] = UploadStatus(data["status"])
         data["created_at"] = datetime.fromisoformat(data["created_at"])
@@ -152,15 +152,15 @@ class ThorUploaderService:
         await uploader.stop_processing()
     """
 
-    def __init__(self, config: Optional[ThorUploaderConfig] = None):
+    def __init__(self, config: ThorUploaderConfig | None = None):
         """Initialize the uploader service."""
         self.config = config or ThorUploaderConfig()
 
         # Upload queue
-        self._queue: Dict[str, UploadTask] = {}
+        self._queue: dict[str, UploadTask] = {}
         self._processing = False
-        self._upload_task: Optional[asyncio.Task] = None
-        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._upload_task: asyncio.Task | None = None
+        self._semaphore: asyncio.Semaphore | None = None
 
         # Statistics
         self._total_uploaded_bytes = 0
@@ -168,10 +168,10 @@ class ThorUploaderService:
         self._total_uploads_failed = 0
 
         # HTTP session
-        self._http_session: Optional[aiohttp.ClientSession] = None
+        self._http_session: aiohttp.ClientSession | None = None
 
         # Callbacks
-        self._progress_callbacks: List[Callable[[UploadTask], None]] = []
+        self._progress_callbacks: list[Callable[[UploadTask], None]] = []
 
         self.initialized = False
 
@@ -319,15 +319,15 @@ class ThorUploaderService:
                 return True
         return False
 
-    async def get_task_status(self, task_id: str) -> Optional[UploadTask]:
+    async def get_task_status(self, task_id: str) -> UploadTask | None:
         """Get status of a specific upload task."""
         return self._queue.get(task_id)
 
     def list_tasks(
         self,
-        status: Optional[UploadStatus] = None,
+        status: UploadStatus | None = None,
         limit: int = 100,
-    ) -> List[UploadTask]:
+    ) -> list[UploadTask]:
         """List upload tasks with optional filtering."""
         tasks = list(self._queue.values())
 
@@ -373,7 +373,7 @@ class ThorUploaderService:
         async with self._semaphore:
             try:
                 task.status = UploadStatus.UPLOADING
-                task.started_at = datetime.now(timezone.utc)
+                task.started_at = datetime.now(UTC)
                 self._notify_progress(task)
 
                 source_path = Path(task.source_path)
@@ -402,7 +402,7 @@ class ThorUploaderService:
 
                 if success:
                     task.status = UploadStatus.COMPLETED
-                    task.completed_at = datetime.now(timezone.utc)
+                    task.completed_at = datetime.now(UTC)
                     task.progress_percent = 100.0
                     self._total_uploaded_bytes += task.compressed_size
                     self._total_uploads_completed += 1
@@ -437,7 +437,7 @@ class ThorUploaderService:
                     # Exponential backoff
                     delay = self.config.retry_delay_base * (2**task.retry_count)
                     logger.warning(
-                        f"Upload retry {task.retry_count}/{self.config.max_retries} in {delay}s: {task.session_id}"
+                        f"Upload retry {task.retry_count}/{self.config.max_retries} in {delay}s: {task.session_id}"  # noqa: E501
                     )
                     await asyncio.sleep(delay)
 
@@ -498,7 +498,7 @@ class ThorUploaderService:
                         self._notify_progress(task)
 
                 except aiohttp.ClientError as e:
-                    raise Exception(f"Network error: {e}")
+                    raise Exception(f"Network error: {e}") from None
 
         # Finalize upload
         try:
@@ -513,7 +513,7 @@ class ThorUploaderService:
                     raise Exception(f"Finalize failed: {response.status} - {error_text}")
 
         except aiohttp.ClientError as e:
-            raise Exception(f"Finalize network error: {e}")
+            raise Exception(f"Finalize network error: {e}") from None
 
         return True
 
@@ -541,7 +541,7 @@ class ThorUploaderService:
         ratio = compressed_size / original_size * 100
 
         logger.info(
-            f"Compressed {source_path.name}: {original_size / 1e6:.1f}MB -> {compressed_size / 1e6:.1f}MB ({ratio:.1f}%)"
+            f"Compressed {source_path.name}: {original_size / 1e6:.1f}MB -> {compressed_size / 1e6:.1f}MB ({ratio:.1f}%)"  # noqa: E501
         )
 
         return compressed_path
@@ -562,7 +562,7 @@ class ThorUploaderService:
         """Load queue from persistent storage."""
         try:
             if self.config.queue_persistence_path.exists():
-                with open(self.config.queue_persistence_path, "r") as f:
+                with open(self.config.queue_persistence_path) as f:
                     data = json.load(f)
 
                 for task_data in data.get("tasks", []):
@@ -584,7 +584,7 @@ class ThorUploaderService:
 
             data = {
                 "tasks": [t.to_dict() for t in self._queue.values()],
-                "saved_at": datetime.now(timezone.utc).isoformat(),
+                "saved_at": datetime.now(UTC).isoformat(),
             }
 
             with open(self.config.queue_persistence_path, "w") as f:
@@ -610,7 +610,7 @@ class ThorUploaderService:
         if callback in self._progress_callbacks:
             self._progress_callbacks.remove(callback)
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Return health status for /health endpoint."""
         pending_count = len([t for t in self._queue.values() if t.status == UploadStatus.PENDING])
         uploading_count = len(
@@ -635,7 +635,7 @@ class ThorUploaderService:
             "lz4_available": HAS_LZ4,
         }
 
-    async def test_connection(self) -> Dict[str, Any]:
+    async def test_connection(self) -> dict[str, Any]:
         """Test connection to Thor server."""
         try:
             if self._http_session is None:
@@ -668,7 +668,7 @@ class ThorUploaderService:
 
 
 # Singleton instance management
-_uploader_instance: Optional[ThorUploaderService] = None
+_uploader_instance: ThorUploaderService | None = None
 
 
 def get_thor_uploader() -> ThorUploaderService:

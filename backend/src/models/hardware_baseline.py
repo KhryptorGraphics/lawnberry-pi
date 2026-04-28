@@ -3,13 +3,14 @@ HardwareBaseline model for LawnBerry Pi v2
 Hardware configuration and capability tracking
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class RaspberryPiModel(str, Enum):
+class RaspberryPiModel(StrEnum):
     """Supported Raspberry Pi models"""
 
     PI5_4GB = "pi5_4gb"
@@ -19,21 +20,21 @@ class RaspberryPiModel(str, Enum):
     PI4B_8GB = "pi4b_8gb"
 
 
-class GpsModuleType(str, Enum):
+class GpsModuleType(StrEnum):
     """GPS module options"""
 
     ZED_F9P_USB = "zed_f9p_usb"  # u-blox ZED-F9P via USB (preferred)
     NEO8M_UART = "neo8m_uart"  # u-blox Neo-8M via UART (alternative)
 
 
-class DriveControllerType(str, Enum):
+class DriveControllerType(StrEnum):
     """Drive controller options"""
 
     ROBOHAT_CYTRON = "robohat_cytron"  # RoboHAT + Cytron MDDRC10 (preferred)
     L298N = "l298n"  # L298N Dual H-Bridge (alternative)
 
 
-class AIAcceleratorType(str, Enum):
+class AIAcceleratorType(StrEnum):
     """AI acceleration hardware"""
 
     CORAL_USB = "coral_usb"  # Google Coral USB Accelerator
@@ -41,7 +42,7 @@ class AIAcceleratorType(str, Enum):
     CPU_ONLY = "cpu_only"  # CPU-only inference
 
 
-class ComponentStatus(str, Enum):
+class ComponentStatus(StrEnum):
     """Hardware component status"""
 
     PRESENT = "present"  # Component detected and functional
@@ -61,19 +62,19 @@ class HardwareComponent(BaseModel):
     # Hardware details
     model: str
     interface: str  # "I2C", "UART", "USB", "GPIO", "SPI"
-    address_or_pin: Optional[str] = None  # I2C address, GPIO pin, etc.
+    address_or_pin: str | None = None  # I2C address, GPIO pin, etc.
 
     # Status and health
     status: ComponentStatus = ComponentStatus.UNKNOWN
-    last_detected: Optional[datetime] = None
-    error_message: Optional[str] = None
+    last_detected: datetime | None = None
+    error_message: str | None = None
 
     # Specifications
-    specifications: Dict[str, Any] = Field(default_factory=dict)
-    capabilities: List[str] = Field(default_factory=list)
+    specifications: dict[str, Any] = Field(default_factory=dict)
+    capabilities: list[str] = Field(default_factory=list)
 
     # Alternative options
-    alternative_models: List[str] = Field(default_factory=list)
+    alternative_models: list[str] = Field(default_factory=list)
     fallback_available: bool = False
 
 
@@ -85,12 +86,12 @@ class GPIOPinAssignment(BaseModel):
     role: str
     component: str
     direction: str = "output"  # "input", "output", "bidirectional"
-    pull_resistor: Optional[str] = None  # "up", "down", "none"
-    initial_state: Optional[bool] = None
+    pull_resistor: str | None = None  # "up", "down", "none"
+    initial_state: bool | None = None
 
     # Alternative assignments for different Pi models
-    pi4_alternative_pin: Optional[int] = None
-    pi5_alternative_pin: Optional[int] = None
+    pi4_alternative_pin: int | None = None
+    pi5_alternative_pin: int | None = None
 
     @field_validator("physical_pin", "gpio_number")
     def validate_pin_numbers(cls, v):
@@ -108,7 +109,7 @@ class I2CDeviceMap(BaseModel):
     bus_number: int = 1  # Default I2C bus
 
     # Conflict detection
-    address_conflicts: List[str] = Field(default_factory=list)
+    address_conflicts: list[str] = Field(default_factory=list)
     shared_bus_compatible: bool = True
 
 
@@ -123,8 +124,8 @@ class UARTAssignment(BaseModel):
     # Pi model specific pins
     tx_pin: int
     rx_pin: int
-    pi4_tx_pin: Optional[int] = None
-    pi4_rx_pin: Optional[int] = None
+    pi4_tx_pin: int | None = None
+    pi4_rx_pin: int | None = None
 
 
 class PowerSpecification(BaseModel):
@@ -142,7 +143,7 @@ class PowerSpecification(BaseModel):
     solar_controller_type: str = "15A MPPT"
 
     # Power monitoring (INA3221 channels)
-    ina3221_channels: Dict[str, str] = Field(
+    ina3221_channels: dict[str, str] = Field(
         default_factory=lambda: {
             "channel_1": "Battery",
             "channel_2": "Unused",
@@ -169,47 +170,47 @@ class HardwareBaseline(BaseModel):
     ai_accelerator: AIAcceleratorType = AIAcceleratorType.CPU_ONLY
 
     # Hardware components
-    components: List[HardwareComponent] = Field(default_factory=list)
+    components: list[HardwareComponent] = Field(default_factory=list)
 
     # Pin and interface assignments
-    gpio_assignments: List[GPIOPinAssignment] = Field(default_factory=list)
-    i2c_devices: List[I2CDeviceMap] = Field(default_factory=list)
-    uart_assignments: List[UARTAssignment] = Field(default_factory=list)
-    usb_devices: List[str] = Field(default_factory=list)
+    gpio_assignments: list[GPIOPinAssignment] = Field(default_factory=list)
+    i2c_devices: list[I2CDeviceMap] = Field(default_factory=list)
+    uart_assignments: list[UARTAssignment] = Field(default_factory=list)
+    usb_devices: list[str] = Field(default_factory=list)
 
     # Power system
     power_spec: PowerSpecification = Field(default_factory=PowerSpecification)
 
     # Detection and validation
-    last_hardware_scan: Optional[datetime] = None
-    hardware_scan_results: Dict[str, Any] = Field(default_factory=dict)
-    validation_errors: List[str] = Field(default_factory=list)
-    validation_warnings: List[str] = Field(default_factory=list)
+    last_hardware_scan: datetime | None = None
+    hardware_scan_results: dict[str, Any] = Field(default_factory=dict)
+    validation_errors: list[str] = Field(default_factory=list)
+    validation_warnings: list[str] = Field(default_factory=list)
 
     # Compatibility and constraints
-    known_conflicts: List[str] = Field(default_factory=list)
-    unsupported_combinations: List[str] = Field(default_factory=list)
+    known_conflicts: list[str] = Field(default_factory=list)
+    unsupported_combinations: list[str] = Field(default_factory=list)
 
     # Metadata
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_modified: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_modified: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
     def add_component(self, component: HardwareComponent):
         """Add a hardware component"""
         self.components.append(component)
-        self.last_modified = datetime.now(timezone.utc)
+        self.last_modified = datetime.now(UTC)
 
-    def get_component(self, name: str) -> Optional[HardwareComponent]:
+    def get_component(self, name: str) -> HardwareComponent | None:
         """Get component by name"""
         return next((comp for comp in self.components if comp.component_name == name), None)
 
-    def get_components_by_type(self, component_type: str) -> List[HardwareComponent]:
+    def get_components_by_type(self, component_type: str) -> list[HardwareComponent]:
         """Get all components of a specific type"""
         return [comp for comp in self.components if comp.component_type == component_type]
 
-    def validate_configuration(self) -> List[str]:
+    def validate_configuration(self) -> list[str]:
         """Validate hardware configuration and return issues"""
         issues = []
 
@@ -243,7 +244,7 @@ class HardwareBaseline(BaseModel):
 
         return issues
 
-    def get_missing_components(self) -> List[HardwareComponent]:
+    def get_missing_components(self) -> list[HardwareComponent]:
         """Get list of required components that are missing"""
         return [
             comp
@@ -251,7 +252,7 @@ class HardwareBaseline(BaseModel):
             if comp.required and comp.status == ComponentStatus.MISSING
         ]
 
-    def get_power_requirements(self) -> Dict[str, float]:
+    def get_power_requirements(self) -> dict[str, float]:
         """Calculate estimated power requirements"""
         power_budget = {
             "raspberry_pi": 5.0,  # Base Pi consumption

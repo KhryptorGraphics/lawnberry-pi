@@ -8,7 +8,6 @@ import logging
 import os
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Optional
 
 try:  # pyserial is optional in CI/staging environments
     import serial  # type: ignore
@@ -27,9 +26,9 @@ class NtripSettings:
     mountpoint: str
     serial_device: str
     baudrate: int
-    username: Optional[str] = None
-    password: Optional[str] = None
-    gga_sentence: Optional[bytes] = None
+    username: str | None = None
+    password: str | None = None
+    gga_sentence: bytes | None = None
     gga_interval: float = 10.0
 
 
@@ -44,7 +43,7 @@ class NtripForwarder:
 
     def __init__(self, settings: NtripSettings):
         self._settings = settings
-        self._task: Optional[asyncio.Task[None]] = None
+        self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._serial = None
         self._serial_lock = asyncio.Lock()
@@ -57,7 +56,7 @@ class NtripForwarder:
         self._connected: bool = False
 
     @classmethod
-    def from_environment(cls, gps_mode: GpsMode | None = None) -> Optional["NtripForwarder"]:
+    def from_environment(cls, gps_mode: GpsMode | None = None) -> NtripForwarder | None:
         host = os.getenv("NTRIP_HOST")
         mountpoint = os.getenv("NTRIP_MOUNTPOINT")
         if not host or not mountpoint:
@@ -107,7 +106,7 @@ class NtripForwarder:
         return cls(settings)
 
     @staticmethod
-    def _build_gga_from_env() -> Optional[str]:
+    def _build_gga_from_env() -> str | None:
         lat_str = os.getenv("NTRIP_GGA_LAT")
         lon_str = os.getenv("NTRIP_GGA_LON")
         if not lat_str or not lon_str:
@@ -229,11 +228,11 @@ class NtripForwarder:
             writer.close()
             await writer.wait_closed()
             raise RuntimeError(
-                f"NTRIP caster rejected connection: {header.decode('ascii', errors='ignore').strip()}"
+                f"NTRIP caster rejected connection: {header.decode('ascii', errors='ignore').strip()}"  # noqa: E501
             )
 
         await self._open_serial()
-        gga_task: Optional[asyncio.Task[None]] = None
+        gga_task: asyncio.Task[None] | None = None
         if self._settings.gga_sentence:
             gga_task = asyncio.create_task(self._send_gga(writer))
 
@@ -282,7 +281,7 @@ class NtripForwarder:
             "User-Agent: LawnBerry-NTRIP/1.0",
         ]
         if self._settings.username and self._settings.password:
-            auth_raw = f"{self._settings.username}:{self._settings.password}".encode("utf-8")
+            auth_raw = f"{self._settings.username}:{self._settings.password}".encode()
             headers.append("Authorization: Basic " + base64.b64encode(auth_raw).decode("ascii"))
         headers.append("Connection: keep-alive")
         headers.append("")

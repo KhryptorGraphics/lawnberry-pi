@@ -17,12 +17,12 @@ cause initialization to fail. Check versions with:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
-import asyncio
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -34,7 +34,7 @@ from ..base import HardwareDriver
 class HailoInferenceResult:
     """Result from a Hailo inference run."""
 
-    outputs: Dict[str, np.ndarray]
+    outputs: dict[str, np.ndarray]
     inference_time_ms: float
     model_name: str
     input_shape: tuple
@@ -47,10 +47,10 @@ class HailoModelInfo:
 
     name: str
     hef_path: str
-    input_names: List[str]
-    input_shapes: Dict[str, tuple]
-    output_names: List[str]
-    output_shapes: Dict[str, tuple]
+    input_names: list[str]
+    input_shapes: dict[str, tuple]
+    output_names: list[str]
+    output_shapes: dict[str, tuple]
 
 
 class HailoDriver(HardwareDriver):
@@ -77,18 +77,18 @@ class HailoDriver(HardwareDriver):
         "scdepthv3": Path("/home/kp/repos/lawnberry_pi/hailo/scdepthv3.hef"),
     }
 
-    def __init__(self, config: Dict[str, Any] | None = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config)
         self._device = None
         self._network_group = None
         self._infer_pipeline = None
-        self._model_info: Optional[HailoModelInfo] = None
+        self._model_info: HailoModelInfo | None = None
         self._inference_count = 0
         self._total_inference_time_ms = 0.0
         self._last_inference_time_ms = 0.0
         self._hw_available = False
-        self._hw_error: Optional[str] = None
-        self._version_info: Dict[str, str] = {}
+        self._hw_error: str | None = None
+        self._version_info: dict[str, str] = {}
 
         # Get HEF path from config or use default
         self._hef_path = self.config.get("hef_path")
@@ -153,16 +153,16 @@ class HailoDriver(HardwareDriver):
             # Skip version check env var for 4.21 library compatibility
             os.environ["HAILO_SKIP_FW_VERSION_CHECK"] = "1"
 
+            import hailo_platform
             from hailo_platform import (
-                VDevice,
                 HEF,
                 ConfigureParams,
                 HailoStreamInterface,
                 InferVStreams,
                 InputVStreamParams,
                 OutputVStreamParams,
+                VDevice,
             )
-            import hailo_platform
 
             lib_version = getattr(hailo_platform, "__version__", "unknown")
 
@@ -237,7 +237,7 @@ class HailoDriver(HardwareDriver):
                 pass
         self._infer_pipeline = None
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Return health snapshot for /health endpoint."""
         avg_inference_ms = (
             self._total_inference_time_ms / self._inference_count
@@ -260,7 +260,7 @@ class HailoDriver(HardwareDriver):
             "simulation": not self._hw_available,
         }
 
-    async def infer(self, input_data: np.ndarray | Dict[str, np.ndarray]) -> HailoInferenceResult:
+    async def infer(self, input_data: np.ndarray | dict[str, np.ndarray]) -> HailoInferenceResult:
         """Run inference on input data.
 
         Args:
@@ -307,7 +307,7 @@ class HailoDriver(HardwareDriver):
             input_shape=tuple(next(iter(input_dict.values())).shape),
         )
 
-    async def _simulate_inference(self, input_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    async def _simulate_inference(self, input_dict: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Generate simulated inference outputs."""
         # Simulate inference latency (Hailo 8L typically 5-20ms)
         await asyncio.sleep(0.01)  # 10ms simulated latency
@@ -330,7 +330,7 @@ class HailoDriver(HardwareDriver):
 
         return outputs
 
-    def get_model_info(self) -> Optional[HailoModelInfo]:
+    def get_model_info(self) -> HailoModelInfo | None:
         """Get information about the loaded model."""
         return self._model_info
 

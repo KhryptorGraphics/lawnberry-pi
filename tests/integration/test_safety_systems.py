@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 import time
 
-from backend.src.safety.motor_authorization import MotorAuthorization
-from backend.src.safety.estop_handler import EstopHandler
-from backend.src.safety.watchdog import Watchdog
-from backend.src.safety.interlock_validator import InterlockValidator, InterlockActiveError
-from backend.src.safety.safety_triggers import SafetyTriggerManager
 from backend.src.core.config_loader import ConfigLoader
+from backend.src.safety.estop_handler import EstopHandler
+from backend.src.safety.interlock_validator import InterlockActiveError, InterlockValidator
+from backend.src.safety.motor_authorization import MotorAuthorization
+from backend.src.safety.safety_triggers import SafetyTriggerManager
+from backend.src.safety.watchdog import Watchdog
 
 
 def test_estop_latency_under_limit():
@@ -51,7 +51,7 @@ def test_interlock_validator_blocks_and_raises():
     assert iv.is_any_active() is True
     try:
         iv.assert_safe_to_move()
-        assert False, "Expected InterlockActiveError"
+        raise AssertionError("Expected InterlockActiveError")
     except InterlockActiveError:
         pass
     iv.set_interlock("blade_guard_open", False)

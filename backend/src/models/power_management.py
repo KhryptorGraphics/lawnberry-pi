@@ -3,13 +3,13 @@ PowerManagement model for LawnBerry Pi v2
 Battery status, solar charging, and power monitoring
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from datetime import UTC, datetime
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class PowerMode(str, Enum):
+class PowerMode(StrEnum):
     """Power management modes"""
 
     NORMAL = "normal"  # Standard operation
@@ -20,7 +20,7 @@ class PowerMode(str, Enum):
     SUN_SEEKING = "sun_seeking"  # Actively seek solar charging
 
 
-class BatteryChemistry(str, Enum):
+class BatteryChemistry(StrEnum):
     """Battery chemistry types"""
 
     LIFEPO4 = "lifepo4"  # LiFePO4 (default for system)
@@ -28,7 +28,7 @@ class BatteryChemistry(str, Enum):
     LEAD_ACID = "lead_acid"  # Lead acid (backup)
 
 
-class ChargingStatus(str, Enum):
+class ChargingStatus(StrEnum):
     """Battery charging status"""
 
     NOT_CHARGING = "not_charging"
@@ -57,8 +57,8 @@ class BatteryStatus(BaseModel):
     min_voltage: float = 10.0  # Volts (discharge cutoff)
 
     # Health and status
-    temperature: Optional[float] = None  # °C
-    internal_resistance: Optional[float] = None  # Ohms
+    temperature: float | None = None  # °C
+    internal_resistance: float | None = None  # Ohms
     cycle_count: int = 0
     health_percentage: float = 100.0  # 0-100%
     charging_status: ChargingStatus = ChargingStatus.NOT_CHARGING
@@ -89,12 +89,12 @@ class SolarStatus(BaseModel):
     power: float = 0.0  # Watts
 
     # Environmental factors
-    irradiance: Optional[float] = None  # W/m² (if available)
-    panel_temperature: Optional[float] = None  # °C
+    irradiance: float | None = None  # W/m² (if available)
+    panel_temperature: float | None = None  # °C
 
     # MPPT controller status
-    mppt_efficiency: Optional[float] = None  # 0-100%
-    mppt_mode: Optional[str] = None  # "tracking", "absorption", "float"
+    mppt_efficiency: float | None = None  # 0-100%
+    mppt_mode: str | None = None  # "tracking", "absorption", "float"
 
     # Daily statistics
     energy_today: float = 0.0  # Wh generated today
@@ -124,8 +124,8 @@ class INA3221Reading(BaseModel):
     channel3_power: float = 0.0  # W
 
     # Chip status
-    chip_temperature: Optional[float] = None  # °C
-    measurement_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    chip_temperature: float | None = None  # °C
+    measurement_timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class PowerBudget(BaseModel):
@@ -166,7 +166,7 @@ class PowerManagement(BaseModel):
     # Current status
     battery_status: BatteryStatus = Field(default_factory=BatteryStatus)
     solar_status: SolarStatus = Field(default_factory=SolarStatus)
-    ina3221_reading: Optional[INA3221Reading] = None
+    ina3221_reading: INA3221Reading | None = None
     power_budget: PowerBudget = Field(default_factory=PowerBudget)
 
     # Power mode and strategy
@@ -181,9 +181,9 @@ class PowerManagement(BaseModel):
     max_discharge_current: float = 10.0  # A maximum discharge
 
     # Runtime estimates
-    estimated_runtime_hours: Optional[float] = None  # Hours remaining
-    estimated_charge_time_hours: Optional[float] = None  # Hours to full charge
-    time_to_low_battery: Optional[datetime] = None
+    estimated_runtime_hours: float | None = None  # Hours remaining
+    estimated_charge_time_hours: float | None = None  # Hours to full charge
+    time_to_low_battery: datetime | None = None
 
     # Historical data
     energy_consumed_today: float = 0.0  # Wh
@@ -191,11 +191,11 @@ class PowerManagement(BaseModel):
     net_energy_today: float = 0.0  # Wh (positive = surplus)
 
     # Safety and alerts
-    power_alerts: List[str] = Field(default_factory=list)
+    power_alerts: list[str] = Field(default_factory=list)
     emergency_power_off: bool = False
     thermal_throttling: bool = False
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -221,7 +221,7 @@ class PowerManagement(BaseModel):
 
         return self.power_mode
 
-    def calculate_runtime_estimate(self) -> Optional[float]:
+    def calculate_runtime_estimate(self) -> float | None:
         """Calculate estimated runtime in hours"""
         if self.power_budget.total_consumption <= 0:
             return None

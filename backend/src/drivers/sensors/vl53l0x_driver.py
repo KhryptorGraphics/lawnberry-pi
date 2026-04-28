@@ -25,7 +25,7 @@ import asyncio
 import os
 import random
 import time
-from typing import Any, Optional
+from typing import Any
 
 from ...core.simulation import is_simulation_mode
 from ..base import HardwareDriver
@@ -63,7 +63,7 @@ class VL53L0XDriver(HardwareDriver):
             cfg.get("ranging_mode") or os.environ.get("TOF_RANGING_MODE") or "better_accuracy"
         ).lower()
         # Optional XSHUT pins (BCM numbering) for address assignment using Adafruit backend
-        self._xshut_gpio: Optional[int] = None
+        self._xshut_gpio: int | None = None
         env_x = os.environ.get(
             "TOF_LEFT_SHUTDOWN_GPIO" if sensor_side == "left" else "TOF_RIGHT_SHUTDOWN_GPIO"
         )
@@ -82,7 +82,7 @@ class VL53L0XDriver(HardwareDriver):
         # Optional timing budget (microseconds) for Adafruit backend
         try:
             tb_env = os.environ.get("TOF_TIMING_BUDGET_US")
-            self._timing_budget_us: Optional[int] = (
+            self._timing_budget_us: int | None = (
                 int(cfg.get("timing_budget_us") or (int(tb_env) if tb_env else 0)) or None
             )
         except Exception:
@@ -166,10 +166,10 @@ class VL53L0XDriver(HardwareDriver):
         try:
             if self._driver is not None:
                 if self._driver_backend == "adafruit":
-                    # Adafruit property `.range` returns mm. Access in a thread to avoid blocking loop.
+                    # Adafruit property `.range` returns mm. Access in a thread to avoid blocking loop.  # noqa: E501
                     def _read_range():
                         try:
-                            return getattr(self._driver, "range")
+                            return self._driver.range
                         except Exception:
                             return None
 
@@ -210,26 +210,20 @@ __all__ = ["VL53L0XDriver", "ensure_pair_addressing"]
 # -------------------------- Private helpers ---------------------------
 
 
-async def _ensure_gpio_provider() -> Optional[str]:
+async def _ensure_gpio_provider() -> str | None:
     global _gpio_provider
     if _gpio_provider is not None:
         return _gpio_provider
     # Try lgpio (fast on Pi 5), then periphery, then RPi.GPIO
     try:
-        import lgpio  # type: ignore
-
         _gpio_provider = "lgpio"
         return _gpio_provider
     except Exception:
         try:
-            from periphery import GPIO  # type: ignore
-
             _gpio_provider = "periphery"
             return _gpio_provider
         except Exception:
             try:
-                import RPi.GPIO as GPIO  # type: ignore
-
                 _gpio_provider = "rpi_gpio"
                 return _gpio_provider
             except Exception:
@@ -266,7 +260,7 @@ def _gpio_set(pin: int, value: int) -> None:
 
 
 async def _try_pair_init_adafruit(
-    left_gpio: Optional[int], right_gpio: Optional[int], right_addr: int
+    left_gpio: int | None, right_gpio: int | None, right_addr: int
 ) -> bool:
     """Initialize both sensors with unique addresses using XSHUT pins.
 
@@ -291,9 +285,9 @@ async def _try_pair_init_adafruit(
     _gpio_set(right_gpio, 1)
     time.sleep(0.02)
     try:
+        import adafruit_vl53l0x  # type: ignore
         import board  # type: ignore
         import busio  # type: ignore
-        import adafruit_vl53l0x  # type: ignore
 
         if _adafruit_i2c is None:
             _adafruit_i2c = busio.I2C(board.SCL, board.SDA)
@@ -323,7 +317,7 @@ async def _try_pair_init_adafruit(
 
 
 async def ensure_pair_addressing(
-    left_gpio: Optional[int], right_gpio: Optional[int], right_addr: int = 0x30
+    left_gpio: int | None, right_gpio: int | None, right_addr: int = 0x30
 ) -> bool:
     """Public helper to set up dual VL53L0X sensors with unique addresses via XSHUT.
 
@@ -333,13 +327,13 @@ async def ensure_pair_addressing(
     return await _try_pair_init_adafruit(left_gpio, right_gpio, right_addr)
 
 
-async def _try_prepare_adafruit_instance(address: int) -> tuple[object | None, Optional[str]]:
+async def _try_prepare_adafruit_instance(address: int) -> tuple[object | None, str | None]:
     """Create Adafruit VL53L0X instance bound to a specific address."""
     global _adafruit_i2c
     try:
+        import adafruit_vl53l0x  # type: ignore
         import board  # type: ignore
         import busio  # type: ignore
-        import adafruit_vl53l0x  # type: ignore
     except Exception:
         return None, None
     try:

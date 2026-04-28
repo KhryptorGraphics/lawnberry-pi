@@ -13,30 +13,26 @@ import hashlib
 import logging
 import os
 import secrets
-import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import bcrypt
 import jwt
 import pyotp
 
+from ..core.context import get_correlation_id
 from ..models import (
-    UserSession,
-    SecurityContext,
-    UserRole,
     AuthenticationMethod,
     Permission,
     SessionStatus,
+    UserRole,
+    UserSession,
 )
 from ..models.auth_security_config import (
     AuthSecurityConfig,
     SecurityLevel,
-    TOTPConfig,
-    GoogleAuthConfig,
 )
-from ..core.context import get_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +88,9 @@ class JWTManager:
 
     def create_token(
         self, *, session_id: str, user_id: str, role: UserRole
-    ) -> Tuple[str, datetime]:
+    ) -> tuple[str, datetime]:
         """Create a signed JWT token for the supplied session."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = now + timedelta(hours=self.token_expiry_hours)
         payload = {
             "sub": user_id,
@@ -107,7 +103,7 @@ class JWTManager:
         token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
         return token, expires_at
 
-    def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
+    def verify_token(self, token: str) -> dict[str, Any] | None:
         """Verify and decode a token."""
         try:
             return jwt.decode(
@@ -133,11 +129,11 @@ class RateLimiter:
     def __init__(self, *, failure_limit: int = 3, lockout_seconds: int = 60) -> None:
         self.failure_limit = max(1, failure_limit)
         self.lockout_seconds = max(1, lockout_seconds)
-        self._failures: Dict[str, int] = {}
-        self._lockout_until: Dict[str, datetime] = {}
+        self._failures: dict[str, int] = {}
+        self._lockout_until: dict[str, datetime] = {}
 
-    def lockout_remaining(self, key: str) -> Optional[int]:
-        now = datetime.now(timezone.utc)
+    def lockout_remaining(self, key: str) -> int | None:
+        now = datetime.now(UTC)
         until = self._lockout_until.get(key)
         if not until:
             return None
@@ -156,8 +152,8 @@ class RateLimiter:
                 retry_after=remaining,
             )
 
-    def record_failure(self, key: str) -> Optional[int]:
-        now = datetime.now(timezone.utc)
+    def record_failure(self, key: str) -> int | None:
+        now = datetime.now(UTC)
         failures = self._failures.get(key, 0) + 1
         self._failures[key] = failures
         if failures >= self.failure_limit:
@@ -180,7 +176,7 @@ class RateLimiter:
         self._lockout_until.pop(key, None)
 
     def locked_clients(self) -> list[str]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return [key for key, until in self._lockout_until.items() if until > now]
 
 
@@ -198,7 +194,7 @@ class AuthService:
         self.operator_credential_hash = self._hash_credential(default_secret)
 
         # Active sessions
-        self.active_sessions: Dict[str, UserSession] = {}
+        self.active_sessions: dict[str, UserSession] = {}
 
         # Configuration
         self.session_timeout_hours = 8
@@ -210,7 +206,7 @@ class AuthService:
         """Hash the operator credential"""
         return self.password_manager.hash_password(credential)
 
-    def _client_key(self, client_identifier: Optional[str], client_ip: Optional[str]) -> str:
+    def _client_key(self, client_identifier: str | None, client_ip: str | None) -> str:
         if client_identifier:
             return client_identifier
         if client_ip:
@@ -239,9 +235,9 @@ class AuthService:
         self,
         credential: str,
         *,
-        client_identifier: Optional[str] = None,
-        client_ip: Optional[str] = None,
-        user_agent: Optional[str] = None,
+        client_identifier: str | None = None,
+        client_ip: str | None = None,
+        user_agent: str | None = None,
     ) -> AuthResult:
         """Authenticate with shared operator credential."""
 
@@ -311,7 +307,7 @@ class AuthService:
 
         return result
 
-    async def verify_token(self, token: str) -> Optional[UserSession]:
+    async def verify_token(self, token: str) -> UserSession | None:
         """Verify JWT token and return session"""
         payload = self.jwt_manager.verify_token(token)
         if not payload:
@@ -331,7 +327,7 @@ class AuthService:
 
         return session
 
-    async def verify_session(self, session_id: str) -> Optional[UserSession]:
+    async def verify_session(self, session_id: str) -> UserSession | None:
         """Verify session by ID"""
         if session_id not in self.active_sessions:
             return None
@@ -376,9 +372,7 @@ class AuthService:
         session.extend_session(hours)
 
         # Update JWT expiration
-        session.security_context.token_expires_at = datetime.now(timezone.utc) + timedelta(
-            hours=hours
-        )
+        session.security_context.token_expires_at = datetime.now(UTC) + timedelta(hours=hours)
 
         logger.info(f"Session {session_id} extended by {hours} hours")
         return True
@@ -438,7 +432,7 @@ class AuthService:
         if expired_sessions:
             logger.info(f"Cleaned up {len(expired_sessions)} expired sessions")
 
-    async def get_active_sessions(self) -> Dict[str, Dict[str, Any]]:
+    async def get_active_sessions(self) -> dict[str, dict[str, Any]]:
         """Get information about active sessions"""
         sessions_info = {}
 
@@ -457,7 +451,7 @@ class AuthService:
 
         return sessions_info
 
-    async def get_auth_statistics(self) -> Dict[str, Any]:
+    async def get_auth_statistics(self) -> dict[str, Any]:
         """Get authentication statistics"""
         return {
             "active_sessions": len(self.active_sessions),
@@ -468,7 +462,7 @@ class AuthService:
             "audit_logging_enabled": self.audit_logging_enabled,
         }
 
-    async def generate_api_key(self, session_id: str, description: str = "") -> Optional[str]:
+    async def generate_api_key(self, session_id: str, description: str = "") -> str | None:
         """Generate API key for programmatic access"""
         if session_id not in self.active_sessions:
             return None
@@ -495,15 +489,15 @@ class AuthService:
 
 
 class AuthenticationError(Exception):
-    def __init__(self, message: str, *, status_code: int = 401, retry_after: Optional[int] = None):
+    def __init__(self, message: str, *, status_code: int = 401, retry_after: int | None = None):
         super().__init__(message)
         self.detail = message
         self.status_code = status_code
         self.retry_after = retry_after
 
     @property
-    def headers(self) -> Dict[str, str]:
-        headers: Dict[str, str] = {}
+    def headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
         if self.retry_after is not None:
             headers["Retry-After"] = str(self.retry_after)
         return headers
@@ -516,9 +510,9 @@ class _AuthServiceFacade:
         self._core = AuthService()
         # default config
         self.config = AuthSecurityConfig()
-        self.active_sessions: Dict[str, list[UserSession]] = {}
+        self.active_sessions: dict[str, list[UserSession]] = {}
         self._initialized = False
-        self._failed_attempts: Dict[str, int] = {}
+        self._failed_attempts: dict[str, int] = {}
         self._invalidated_session_ids: set[str] = set()
 
     async def initialize(self, config: AuthSecurityConfig) -> None:
@@ -655,7 +649,7 @@ class _AuthServiceFacade:
         )
         return session
 
-    async def authenticate_tunnel(self, headers: Dict[str, str]) -> UserSession:
+    async def authenticate_tunnel(self, headers: dict[str, str]) -> UserSession:
         if not self.config.tunnel_auth_enabled:
             raise AuthenticationError("Tunnel auth disabled")
         # Validate required headers
@@ -681,9 +675,7 @@ class _AuthServiceFacade:
         if not any(session in lst for lst in self.active_sessions.values()):
             return False
         # Check expiry and required security level
-        if getattr(session, "expires_at", None) and session.expires_at <= datetime.now(
-            timezone.utc
-        ):
+        if getattr(session, "expires_at", None) and session.expires_at <= datetime.now(UTC):
             return False
         # If config requires higher level than session, it's invalid
         if session.security_level is not None and int(session.security_level) < int(

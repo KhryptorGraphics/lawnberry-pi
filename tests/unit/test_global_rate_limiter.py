@@ -16,7 +16,7 @@ def create_app():
 
 
 def test_rate_limiter_allows_burst_then_limits(monkeypatch):
-    monkeypatch.setenv("GLOBAL_RATE_LIMIT_RATE", "100")  # refill fast for test
+    monkeypatch.setenv("GLOBAL_RATE_LIMIT_RATE", "0.1")
     monkeypatch.setenv("GLOBAL_RATE_LIMIT_BURST", "3")
     monkeypatch.setenv("GLOBAL_RATE_LIMIT_EXEMPT", "/health")
     app = create_app()

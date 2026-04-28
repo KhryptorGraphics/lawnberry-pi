@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 from .weather_api import WeatherAPI
 from .weather_sensor_fallback import EnvSnapshot, SensorFallbackRules
@@ -11,7 +12,7 @@ from .weather_sensor_fallback import EnvSnapshot, SensorFallbackRules
 class WeatherSuitability:
     suitable: bool
     source: str
-    details: Dict[str, Any]
+    details: dict[str, Any]
 
 
 class WeatherService:
@@ -22,8 +23,8 @@ class WeatherService:
 
     def __init__(
         self,
-        api: Optional[WeatherAPI] = None,
-        rules: Optional[SensorFallbackRules] = None,
+        api: WeatherAPI | None = None,
+        rules: SensorFallbackRules | None = None,
     ):
         self.api = api or WeatherAPI()
         self.rules = rules or SensorFallbackRules()
@@ -33,7 +34,7 @@ class WeatherService:
         latitude: float,
         longitude: float,
         sensor_env: EnvSnapshot,
-        provider: Optional[Callable[[float, float], Optional[Dict[str, Any]]]] = None,
+        provider: Callable[[float, float], dict[str, Any] | None] | None = None,
     ) -> WeatherSuitability:
         forecast = self.api.get_forecast(latitude, longitude, provider)
 
@@ -64,7 +65,7 @@ class WeatherService:
         latitude: float,
         longitude: float,
         sensor_env_supplier: Callable[[], EnvSnapshot],
-        provider: Optional[Callable[[float, float], Optional[Dict[str, Any]]]] = None,
+        provider: Callable[[float, float], dict[str, Any] | None] | None = None,
     ) -> Callable[[], bool]:
         """Return a zero-arg predicate suitable for JobScheduler.start()."""
 

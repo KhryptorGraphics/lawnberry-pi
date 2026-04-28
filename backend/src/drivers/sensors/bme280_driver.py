@@ -12,7 +12,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from ...core.simulation import is_simulation_mode
 from ..base import HardwareDriver
@@ -188,7 +188,7 @@ class BME280Driver(HardwareDriver):
 
         try:
 
-            def _read_raw() -> Dict[str, int]:
+            def _read_raw() -> dict[str, int]:
                 with SMBus(self._bus_num) as bus:
                     data = bus.read_i2c_block_data(self._address, self._DATA_START, 8)
                 adc_p = (data[0] << 12) | (data[1] << 4) | (data[2] >> 4)
@@ -205,7 +205,7 @@ class BME280Driver(HardwareDriver):
         except Exception:
             return self._last_env
 
-    def _compensate(self, raw: Dict[str, int]) -> dict[str, float] | None:
+    def _compensate(self, raw: dict[str, int]) -> dict[str, float] | None:
         if self._calibration is None:
             return None
 

@@ -3,13 +3,13 @@ AIProcessing model for LawnBerry Pi v2
 AI inference results, model management, and hardware acceleration
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from datetime import UTC, datetime
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class AIAccelerator(str, Enum):
+class AIAccelerator(StrEnum):
     """Available AI acceleration hardware"""
 
     CORAL_USB = "coral_usb"  # Google Coral USB Accelerator
@@ -17,7 +17,7 @@ class AIAccelerator(str, Enum):
     CPU = "cpu"  # CPU-only inference (TFLite)
 
 
-class ModelFormat(str, Enum):
+class ModelFormat(StrEnum):
     """AI model formats"""
 
     TFLITE = "tflite"  # TensorFlow Lite
@@ -27,7 +27,7 @@ class ModelFormat(str, Enum):
     PYTORCH = "pytorch"  # PyTorch model
 
 
-class InferenceTask(str, Enum):
+class InferenceTask(StrEnum):
     """Types of AI inference tasks"""
 
     OBSTACLE_DETECTION = "obstacle_detection"
@@ -38,7 +38,7 @@ class InferenceTask(str, Enum):
     SAFETY_MONITORING = "safety_monitoring"
 
 
-class ModelStatus(str, Enum):
+class ModelStatus(StrEnum):
     """AI model status"""
 
     LOADED = "loaded"
@@ -72,9 +72,9 @@ class DetectedObject(BaseModel):
     bounding_box: BoundingBox
 
     # Additional properties
-    distance_estimate: Optional[float] = None  # meters
-    relative_bearing: Optional[float] = None  # degrees from camera center
-    tracking_id: Optional[int] = None  # For object tracking across frames
+    distance_estimate: float | None = None  # meters
+    relative_bearing: float | None = None  # degrees from camera center
+    tracking_id: int | None = None  # For object tracking across frames
 
     @field_validator("confidence")
     def validate_confidence(cls, v):
@@ -89,7 +89,7 @@ class InferenceResult(BaseModel):
     inference_id: str
     task: InferenceTask
     model_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Input information
     input_frame_id: str
@@ -97,14 +97,14 @@ class InferenceResult(BaseModel):
     input_height: int
 
     # Detection results
-    detected_objects: List[DetectedObject] = Field(default_factory=list)
+    detected_objects: list[DetectedObject] = Field(default_factory=list)
 
     # Classification results (for single-class tasks)
-    classification_result: Optional[str] = None
-    classification_confidence: Optional[float] = None
+    classification_result: str | None = None
+    classification_confidence: float | None = None
 
     # Segmentation results (if applicable)
-    segmentation_mask: Optional[str] = None  # Base64 encoded mask
+    segmentation_mask: str | None = None  # Base64 encoded mask
 
     # Performance metrics
     inference_time_ms: float = 0.0
@@ -130,22 +130,22 @@ class ModelInfo(BaseModel):
     input_height: int
     input_channels: int = 3
     num_classes: int
-    class_labels: List[str] = Field(default_factory=list)
+    class_labels: list[str] = Field(default_factory=list)
 
     # Performance characteristics
     target_accelerator: AIAccelerator
-    memory_usage_mb: Optional[float] = None
-    typical_inference_time_ms: Optional[float] = None
+    memory_usage_mb: float | None = None
+    typical_inference_time_ms: float | None = None
 
     # Training information
-    training_dataset: Optional[str] = None
-    training_date: Optional[datetime] = None
-    accuracy_metrics: Dict[str, float] = Field(default_factory=dict)
+    training_dataset: str | None = None
+    training_date: datetime | None = None
+    accuracy_metrics: dict[str, float] = Field(default_factory=dict)
 
     # Status
     status: ModelStatus = ModelStatus.UNLOADED
-    load_time: Optional[datetime] = None
-    error_message: Optional[str] = None
+    load_time: datetime | None = None
+    error_message: str | None = None
 
 
 class AcceleratorStatus(BaseModel):
@@ -153,12 +153,12 @@ class AcceleratorStatus(BaseModel):
 
     accelerator_type: AIAccelerator
     is_available: bool = False
-    device_path: Optional[str] = None
+    device_path: str | None = None
 
     # Hardware information
-    firmware_version: Optional[str] = None
-    temperature: Optional[float] = None  # °C
-    power_consumption: Optional[float] = None  # Watts
+    firmware_version: str | None = None
+    temperature: float | None = None  # °C
+    power_consumption: float | None = None  # Watts
 
     # Performance metrics
     utilization_percent: float = 0.0
@@ -168,11 +168,11 @@ class AcceleratorStatus(BaseModel):
 
     # Error tracking
     error_count: int = 0
-    last_error: Optional[str] = None
-    last_error_time: Optional[datetime] = None
+    last_error: str | None = None
+    last_error_time: datetime | None = None
 
     # Environment isolation (for Coral)
-    venv_path: Optional[str] = None
+    venv_path: str | None = None
     venv_active: bool = False
 
 
@@ -185,12 +185,12 @@ class AIProcessing(BaseModel):
     fallback_accelerator: AIAccelerator = AIAccelerator.CPU
 
     # Loaded models
-    active_models: Dict[str, ModelInfo] = Field(default_factory=dict)
+    active_models: dict[str, ModelInfo] = Field(default_factory=dict)
     model_cache_size_mb: float = 0.0
     max_cache_size_mb: float = 512.0
 
     # Hardware status
-    accelerator_status: Dict[AIAccelerator, AcceleratorStatus] = Field(default_factory=dict)
+    accelerator_status: dict[AIAccelerator, AcceleratorStatus] = Field(default_factory=dict)
 
     # Processing queue and performance
     queue_size: int = 0
@@ -199,7 +199,7 @@ class AIProcessing(BaseModel):
     target_fps: float = 5.0
 
     # Recent inference results
-    recent_results: List[InferenceResult] = Field(default_factory=list)
+    recent_results: list[InferenceResult] = Field(default_factory=list)
     max_recent_results: int = 100
 
     # Statistics
@@ -218,7 +218,7 @@ class AIProcessing(BaseModel):
     auto_collect_training_data: bool = False
     training_data_count: int = 0
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -262,7 +262,7 @@ class AIProcessing(BaseModel):
         """Load an AI model"""
         try:
             model_info.status = ModelStatus.LOADING
-            model_info.load_time = datetime.now(timezone.utc)
+            model_info.load_time = datetime.now(UTC)
 
             # Model loading logic would go here
             # For now, just mark as loaded
@@ -275,7 +275,7 @@ class AIProcessing(BaseModel):
             model_info.error_message = str(e)
             return False
 
-    def get_inference_performance(self) -> Dict[str, float]:
+    def get_inference_performance(self) -> dict[str, float]:
         """Get current inference performance metrics"""
         if self.total_inferences == 0:
             return {"success_rate": 0.0, "avg_time_ms": 0.0, "fps": 0.0}

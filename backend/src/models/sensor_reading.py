@@ -13,8 +13,9 @@ Fields:
 - quality_indicator: optional 0..1 score or categorical string
 """
 
-from typing import Any
-from pydantic import BaseModel, Field, field_validator
+from typing import Any  # noqa: E402
+
+from pydantic import BaseModel, Field, field_validator  # noqa: E402
 
 
 class SensorReadingV2(BaseModel):

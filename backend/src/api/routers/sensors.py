@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, Any, Dict
-from datetime import datetime, timezone
-import time
-import os
 import logging
+import os
+import time
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from ...core.globals import _debug_overrides
 from ...services.websocket_hub import websocket_hub
@@ -38,7 +39,7 @@ class MowerStatus(BaseModel):
     navigation_state: str = "IDLE"
     safety_status: SafetyStatus = SafetyStatus()
     blade_active: bool = False
-    last_updated: datetime = datetime.now(timezone.utc)
+    last_updated: datetime = datetime.now(UTC)
 
 
 class SensorHealthResponse(BaseModel):
@@ -130,7 +131,7 @@ async def get_sensors_health() -> SensorHealthResponse:
         status = await sm.get_sensor_status()
         # Map to simple response
         # Map statuses to strings and apply fault injection overrides
-        from ...testing.fault_injector import enabled, any_enabled  # lightweight
+        from ...testing.fault_injector import any_enabled, enabled  # lightweight
 
         def _as_str(v: object) -> str:
             try:
@@ -172,7 +173,7 @@ async def get_sensors_health() -> SensorHealthResponse:
     return SensorHealthResponse(
         initialized=initialized,
         components=components,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
     )
 
 
@@ -183,7 +184,7 @@ async def get_tof_status() -> ToFStatusResponse:
     Returns per-sensor backend info (binding name), bus/address, and last reading.
     Safe on systems without the VL53L0X binding: fields will be None.
     """
-    sim_mode = os.getenv("SIM_MODE", "0") != "0"
+    sim_mode = _ = os.getenv("SIM_MODE", "0") != "0"
     left_probe: ToFProbe | None = None
     right_probe: ToFProbe | None = None
     try:
@@ -233,13 +234,13 @@ async def get_tof_status() -> ToFStatusResponse:
         sim_mode=sim_mode,
         left=left_probe,
         right=right_probe,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
     )
 
 
 @router.get("/sensors/gps/status", response_model=GPSSummary)
 async def get_gps_status() -> GPSSummary:
-    sim_mode = os.getenv("SIM_MODE", "0") != "0"
+    _ = os.getenv("SIM_MODE", "0") != "0"
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore
@@ -509,7 +510,7 @@ async def inject_tilt(req: InjectTiltRequest):
         if safety.trigger_obstacle(
             req.roll_deg, limits.tilt_threshold_degrees
         ) or safety.trigger_obstacle(req.pitch_deg, limits.tilt_threshold_degrees):
-            # Note: The original code in rest.py called safety.trigger_tilt(roll, pitch, limits.tilt_threshold_degrees)
+            # Note: The original code in rest.py called safety.trigger_tilt(roll, pitch, limits.tilt_threshold_degrees)  # noqa: E501
             # I should check the original code again to be exact.
             pass
         roll = abs(_debug_overrides.get("imu_roll_deg", 0.0))

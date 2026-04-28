@@ -3,14 +3,15 @@ TelemetryExchange model for LawnBerry Pi v2
 Real-time data streaming and telemetry management
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List, Union
-from pydantic import BaseModel, Field, field_validator, ConfigDict
 import json
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class ComponentId(str, Enum):
+class ComponentId(StrEnum):
     """Hardware component identifiers"""
 
     IMU = "imu"
@@ -28,7 +29,7 @@ class ComponentId(str, Enum):
     ENVIRONMENTAL = "environmental"
 
 
-class ComponentStatus(str, Enum):
+class ComponentStatus(StrEnum):
     """Hardware component health status"""
 
     HEALTHY = "healthy"
@@ -36,7 +37,7 @@ class ComponentStatus(str, Enum):
     FAULT = "fault"
 
 
-class RtkFixType(str, Enum):
+class RtkFixType(StrEnum):
     """RTK GPS fix quality"""
 
     NO_FIX = "no_fix"
@@ -57,7 +58,7 @@ class GPSData(BaseModel):
     hdop: float = 99.9  # Horizontal dilution of precision
     satellites: int = 0
     fix_type: RtkFixType = RtkFixType.NO_FIX
-    rtk_status_message: Optional[str] = None  # Human-readable RTK status
+    rtk_status_message: str | None = None  # Human-readable RTK status
 
     @field_validator("latitude")
     def validate_latitude(cls, v):
@@ -110,8 +111,8 @@ class MotorData(BaseModel):
     pwm_actual: int = 0
     current_amps: float = 0.0
     temperature_c: float = 0.0
-    encoder_position: Optional[int] = None
-    encoder_velocity: Optional[float] = None  # RPM
+    encoder_position: int | None = None
+    encoder_velocity: float | None = None  # RPM
 
 
 class PowerData(BaseModel):
@@ -128,7 +129,7 @@ class PowerData(BaseModel):
     solar_power: float = 0.0
 
     # Derived metrics
-    battery_soc_percent: Optional[float] = None  # State of charge estimate
+    battery_soc_percent: float | None = None  # State of charge estimate
     battery_health: ComponentStatus = ComponentStatus.HEALTHY
 
 
@@ -144,28 +145,28 @@ class HardwareTelemetryStream(BaseModel):
     """Real-time snapshot of hardware sensor values and status"""
 
     # Timestamp and identification
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     component_id: ComponentId
 
     # Component value (variant based on component_id)
-    value: Union[float, int, str, Dict[str, Any]] = Field(default=0.0)
+    value: float | int | str | dict[str, Any] = Field(default=0.0)
 
     # Component health
     status: ComponentStatus = ComponentStatus.HEALTHY
     latency_ms: float = 0.0
 
     # Component-specific structured data
-    gps_data: Optional[GPSData] = None
-    imu_data: Optional[IMUData] = None
-    motor_data: Optional[MotorData] = None
-    power_data: Optional[PowerData] = None
-    tof_data: Optional[ToFData] = None
+    gps_data: GPSData | None = None
+    imu_data: IMUData | None = None
+    motor_data: MotorData | None = None
+    power_data: PowerData | None = None
+    tof_data: ToFData | None = None
 
     # Generic metadata (JSON for flexibility)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Verification artifact reference
-    verification_artifact_id: Optional[str] = None
+    verification_artifact_id: str | None = None
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -176,7 +177,7 @@ class HardwareTelemetryStream(BaseModel):
         return v
 
 
-class TelemetryTopic(str, Enum):
+class TelemetryTopic(StrEnum):
     """Available telemetry topics"""
 
     TELEMETRY_UPDATES = "telemetry/updates"
@@ -193,7 +194,7 @@ class TelemetryTopic(str, Enum):
     LOGS = "system/logs"
 
 
-class MessagePriority(str, Enum):
+class MessagePriority(StrEnum):
     """Message priority levels"""
 
     LOW = "low"
@@ -203,7 +204,7 @@ class MessagePriority(str, Enum):
     EMERGENCY = "emergency"
 
 
-class StreamStatus(str, Enum):
+class StreamStatus(StrEnum):
     """Telemetry stream status"""
 
     ACTIVE = "active"
@@ -218,10 +219,10 @@ class TelemetryMessage(BaseModel):
 
     message_id: str
     topic: TelemetryTopic
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Message content
-    data: Dict[str, Any] = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=dict)
     message_type: str = "data"  # "data", "event", "alert", "command"
 
     # Message metadata
@@ -231,11 +232,11 @@ class TelemetryMessage(BaseModel):
 
     # Quality of service
     retain: bool = False  # Should message be retained for late subscribers
-    expiry_seconds: Optional[int] = None  # Message expiry time
+    expiry_seconds: int | None = None  # Message expiry time
 
     # Client targeting
-    target_clients: Optional[List[str]] = None  # Specific client IDs (None = all)
-    client_filter: Optional[Dict[str, Any]] = None  # Filter criteria
+    target_clients: list[str] | None = None  # Specific client IDs (None = all)
+    client_filter: dict[str, Any] | None = None  # Filter criteria
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -279,8 +280,8 @@ class StreamConfiguration(BaseModel):
     subscriber_timeout_seconds: int = 30
 
     # Data filtering
-    payload_schema: Optional[str] = None  # JSON schema reference
-    data_filters: List[str] = Field(default_factory=list)  # Filter expressions
+    payload_schema: str | None = None  # JSON schema reference
+    data_filters: list[str] = Field(default_factory=list)  # Filter expressions
 
     @field_validator("cadence_hz", "burst_max_hz", "diagnostic_floor_hz")
     def validate_frequencies(cls, v):
@@ -294,12 +295,12 @@ class ClientSubscription(BaseModel):
 
     client_id: str
     topic: TelemetryTopic
-    subscribed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    subscribed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Subscription preferences
-    cadence_override_hz: Optional[float] = None  # Client-specific cadence
-    priority_filter: Optional[MessagePriority] = None  # Minimum priority
-    data_fields: Optional[List[str]] = None  # Specific fields to include
+    cadence_override_hz: float | None = None  # Client-specific cadence
+    priority_filter: MessagePriority | None = None  # Minimum priority
+    data_fields: list[str] | None = None  # Specific fields to include
 
     # Quality of service
     guaranteed_delivery: bool = False
@@ -308,7 +309,7 @@ class ClientSubscription(BaseModel):
     # Statistics
     messages_sent: int = 0
     messages_dropped: int = 0
-    last_message_time: Optional[datetime] = None
+    last_message_time: datetime | None = None
     connection_errors: int = 0
 
 
@@ -339,13 +340,13 @@ class StreamStatistics(BaseModel):
 
     # Error tracking
     error_count: int = 0
-    last_error_time: Optional[datetime] = None
-    last_error_message: Optional[str] = None
+    last_error_time: datetime | None = None
+    last_error_message: str | None = None
 
     # Time tracking
-    stream_start_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_message_time: Optional[datetime] = None
-    last_reset_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    stream_start_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_message_time: datetime | None = None
+    last_reset_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -356,12 +357,12 @@ class TelemetryHub(BaseModel):
     hub_id: str = "primary"
 
     # Stream management
-    streams: Dict[TelemetryTopic, StreamConfiguration] = Field(default_factory=dict)
-    stream_statistics: Dict[TelemetryTopic, StreamStatistics] = Field(default_factory=dict)
+    streams: dict[TelemetryTopic, StreamConfiguration] = Field(default_factory=dict)
+    stream_statistics: dict[TelemetryTopic, StreamStatistics] = Field(default_factory=dict)
 
     # Client management
-    connected_clients: Dict[str, datetime] = Field(default_factory=dict)
-    client_subscriptions: List[ClientSubscription] = Field(default_factory=list)
+    connected_clients: dict[str, datetime] = Field(default_factory=dict)
+    client_subscriptions: list[ClientSubscription] = Field(default_factory=list)
 
     # Global settings
     global_rate_limit_hz: float = 50.0  # Total message rate limit
@@ -371,13 +372,13 @@ class TelemetryHub(BaseModel):
     # Health monitoring
     hub_status: StreamStatus = StreamStatus.ACTIVE
     health_check_interval_seconds: int = 30
-    last_health_check: Optional[datetime] = None
+    last_health_check: datetime | None = None
 
     # Message queue
-    pending_messages: List[TelemetryMessage] = Field(default_factory=list)
+    pending_messages: list[TelemetryMessage] = Field(default_factory=list)
     max_queue_size: int = 10000
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -464,7 +465,7 @@ class TelemetryHub(BaseModel):
 
         return True
 
-    def get_topic_subscribers(self, topic: TelemetryTopic) -> List[ClientSubscription]:
+    def get_topic_subscribers(self, topic: TelemetryTopic) -> list[ClientSubscription]:
         """Get all subscribers for a topic"""
         return [sub for sub in self.client_subscriptions if sub.topic == topic]
 
@@ -486,10 +487,10 @@ class TelemetryExchange(BaseModel):
     network_utilization_percent: float = 0.0
 
     # Historical data
-    message_history: List[TelemetryMessage] = Field(default_factory=list)
+    message_history: list[TelemetryMessage] = Field(default_factory=list)
     max_history_size: int = 1000
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 

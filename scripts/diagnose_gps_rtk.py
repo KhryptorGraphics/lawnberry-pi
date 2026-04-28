@@ -2,7 +2,6 @@
 import os
 import sys
 import time
-from typing import Optional, Tuple
 
 try:
     import serial  # type: ignore
@@ -15,7 +14,7 @@ BAUD = int(os.environ.get("GPS_BAUD", os.environ.get("NTRIP_SERIAL_BAUD", "11520
 DURATION = float(os.environ.get("GPS_DIAG_DURATION", "12"))
 
 
-def parse_nmea_coord(val: str, hemi: str) -> Optional[float]:
+def parse_nmea_coord(val: str, hemi: str) -> float | None:
     try:
         if not val or not hemi:
             return None
@@ -35,7 +34,7 @@ def parse_nmea_coord(val: str, hemi: str) -> Optional[float]:
 
 def parse_gga(
     line: str,
-) -> Tuple[Optional[float], Optional[float], Optional[int], Optional[float], Optional[int]]:
+) -> tuple[float | None, float | None, int | None, float | None, int | None]:
     # returns (lat, lon, sats, hdop, fix_quality)
     parts = line.split(",")
     lat = parse_nmea_coord(parts[2], parts[3]) if len(parts) > 4 else None
@@ -49,7 +48,7 @@ def parse_gga(
     return lat, lon, sats, hdop, fix_quality
 
 
-def parse_gst(line: str) -> Optional[float]:
+def parse_gst(line: str) -> float | None:
     parts = line.split(",")
     if len(parts) < 9:
         return None
@@ -91,7 +90,7 @@ def main() -> int:
     if last_gga:
         lat, lon, sats, hdop, q = last_gga
         print(
-            f"Lat,Lon: {lat:.6f if lat is not None else 'n/a'}, {lon:.6f if lon is not None else 'n/a'}"
+            f"Lat,Lon: {lat:.6f if lat is not None else 'n/a'}, {lon:.6f if lon is not None else 'n/a'}"  # noqa: E501
         )
         print(f"Satellites: {sats}")
         print(f"HDOP: {hdop}")

@@ -14,14 +14,14 @@ Platform notes:
 
 from __future__ import annotations
 
+import glob
+import json
+import math
 import os
+import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
-import math
-import glob
-import socket
-import json
+from typing import Any
 
 from ...core.simulation import is_simulation_mode
 from ...models.sensor_data import GpsMode, GpsReading
@@ -192,7 +192,6 @@ class GPSDriver(HardwareDriver):
                         if p not in candidates:
                             candidates.append(p)
 
-                last_err: Optional[Exception] = None
                 for dev in candidates:
                     for baud in self._baud_candidates:
                         try:
@@ -219,8 +218,7 @@ class GPSDriver(HardwareDriver):
                                     ser.close()
                                 except Exception:
                                     pass
-                        except Exception as e:  # pragma: no cover - hardware dependent
-                            last_err = e
+                        except Exception:  # pragma: no cover - hardware dependent
                             try:
                                 ser.close()  # type: ignore
                             except Exception:
@@ -236,16 +234,15 @@ class GPSDriver(HardwareDriver):
             # Allow a bit more time on first acquisition
             deadline = time.time() + (1.5 if not self._first_read_done else 0.75)
             got_lat = got_lon = False
-            acc: Optional[float] = None
-            acc_source: Optional[str] = None  # 'gst' | 'hdop'
-            hdop_val: Optional[float] = None
-            sats: Optional[int] = None
-            alt: Optional[float] = None
-            spd: Optional[float] = None
-            hdg: Optional[float] = None
-            lat: Optional[float] = None
-            lon: Optional[float] = None
-            rtk_status: Optional[str] = None
+            acc: float | None = None
+            acc_source: str | None = None  # 'gst' | 'hdop'
+            hdop_val: float | None = None
+            sats: int | None = None
+            alt: float | None = None
+            spd: float | None = None
+            lat: float | None = None
+            lon: float | None = None
+            rtk_status: str | None = None
 
             while time.time() < deadline:
                 raw = self._serial.readline().decode("ascii", errors="ignore")  # type: ignore
@@ -271,8 +268,8 @@ class GPSDriver(HardwareDriver):
                             hdop_val = hdop
                             # HDOP is a dilution-of-precision multiplier, not an accuracy by itself.
                             # Historically we used "max(0.5, hdop)" which masked RTK improvements
-                            # (HDOP ~0.5) even when the fix was RTK_FIXED. Keep an HDOP-derived fallback
-                            # but allow heuristics/real accuracy sources (GST/UBX) to override it later.
+                            # (HDOP ~0.5) even when the fix was RTK_FIXED. Keep an HDOP-derived fallback  # noqa: E501
+                            # but allow heuristics/real accuracy sources (GST/UBX) to override it later.  # noqa: E501
                             hdop_based = max(0.2, hdop * 1.0)
                             if acc is None or hdop_based < acc:
                                 acc = hdop_based
@@ -294,7 +291,7 @@ class GPSDriver(HardwareDriver):
                         if spd_knots is not None:
                             spd = spd_knots * 0.514444  # knots -> m/s
                         if course is not None:
-                            hdg = course
+                            pass
                 elif raw.startswith(("$GPGST", "$GNGST")):
                     try:
                         self._last_nmea["GST"] = raw
@@ -366,7 +363,7 @@ class GPSDriver(HardwareDriver):
             return {}
 
     @staticmethod
-    def _parse_nmea_coord(val: str, hemi: str) -> Optional[float]:
+    def _parse_nmea_coord(val: str, hemi: str) -> float | None:
         """Convert NMEA ddmm.mmmm (lat) / dddmm.mmmm (lon) to decimal degrees.
 
         hemi is 'N'/'S' or 'E'/'W'. Returns None if invalid.
@@ -390,16 +387,9 @@ class GPSDriver(HardwareDriver):
 
     def _parse_gga(
         self, line: str
-    ) -> Optional[
-        tuple[
-            Optional[float],
-            Optional[float],
-            Optional[float],
-            Optional[int],
-            Optional[float],
-            Optional[int],
-        ]
-    ]:
+    ) -> (
+        tuple[float | None, float | None, float | None, int | None, float | None, int | None] | None
+    ):
         """Parse GGA: returns (lat, lon, altitude_m, satellites, hdop, fix_quality)."""
         try:
             parts = line.split(",")
@@ -423,7 +413,7 @@ class GPSDriver(HardwareDriver):
 
     def _parse_rmc(
         self, line: str
-    ) -> Optional[tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]:
+    ) -> tuple[float | None, float | None, float | None, float | None] | None:
         """Parse RMC: returns (lat, lon, speed_knots, course_deg)."""
         try:
             parts = line.split(",")
@@ -436,7 +426,7 @@ class GPSDriver(HardwareDriver):
         except Exception:
             return None
 
-    def _parse_gst(self, line: str) -> Optional[float]:
+    def _parse_gst(self, line: str) -> float | None:
         """Parse GST sentence to estimate horizontal accuracy (1-sigma meters)."""
         try:
             parts = line.split(",")
@@ -452,7 +442,7 @@ class GPSDriver(HardwareDriver):
             return None
 
     @staticmethod
-    def _map_fix_quality(fix_quality: Optional[int]) -> Optional[str]:
+    def _map_fix_quality(fix_quality: int | None) -> str | None:
         if fix_quality is None:
             return None
         mapping = {
@@ -467,7 +457,7 @@ class GPSDriver(HardwareDriver):
         }
         return mapping.get(fix_quality)
 
-    def _read_from_gpsd(self, timeout_sec: float = 0.5) -> Optional[GpsReading]:
+    def _read_from_gpsd(self, timeout_sec: float = 0.5) -> GpsReading | None:
         """Try reading a TPV report from gpsd if available.
 
         Uses a raw TCP socket to 127.0.0.1:2947 to avoid external deps.

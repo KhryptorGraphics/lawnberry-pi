@@ -62,5 +62,5 @@ def test_encode_numpy_frame_preserves_expected_rgb(monkeypatch, color_space, pix
         expected = [pixel_value[2], pixel_value[1], pixel_value[0]]
 
     assert len(rgb_pixel) == len(expected)
-    for observed, exp in zip(rgb_pixel, expected):
+    for observed, exp in zip(rgb_pixel, expected, strict=False):
         assert abs(observed - exp) <= 2

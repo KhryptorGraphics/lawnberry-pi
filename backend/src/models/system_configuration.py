@@ -3,14 +3,15 @@ SystemConfiguration model for LawnBerry Pi v2
 Operational parameters and user-defined settings
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
 import json
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class OperationalMode(str, Enum):
+class OperationalMode(StrEnum):
     """System operational modes"""
 
     DEVELOPMENT = "development"  # Development/testing mode
@@ -19,7 +20,7 @@ class OperationalMode(str, Enum):
     SIMULATION = "simulation"  # Simulation mode (SIM_MODE=1)
 
 
-class GpsModeConfig(str, Enum):
+class GpsModeConfig(StrEnum):
     """GPS module configuration"""
 
     F9P_USB = "f9p_usb"  # u-blox ZED-F9P via USB with RTK
@@ -27,14 +28,14 @@ class GpsModeConfig(str, Enum):
     NEO8M_UART = "neo8m_uart"  # u-blox Neo-8M via UART
 
 
-class DriveControllerConfig(str, Enum):
+class DriveControllerConfig(StrEnum):
     """Drive controller configuration"""
 
     ROBOHAT_MDDRC10 = "robohat_mddrc10"  # RoboHAT + Cytron MDDRC10
     L298N_ALT = "l298n_alt"  # L298N H-Bridge fallback
 
 
-class AIRunnerPreference(str, Enum):
+class AIRunnerPreference(StrEnum):
     """AI acceleration preference order"""
 
     CORAL_FIRST = "coral_first"  # Try Coral, fallback to Hailo, then CPU
@@ -42,7 +43,7 @@ class AIRunnerPreference(str, Enum):
     CPU_ONLY = "cpu_only"  # CPU-only inference
 
 
-class LogLevel(str, Enum):
+class LogLevel(StrEnum):
     """Logging levels"""
 
     DEBUG = "debug"
@@ -56,8 +57,8 @@ class SensorCalibration(BaseModel):
     """Sensor calibration parameters"""
 
     sensor_type: str
-    calibration_data: Dict[str, float] = Field(default_factory=dict)
-    calibration_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    calibration_data: dict[str, float] = Field(default_factory=dict)
+    calibration_date: datetime = Field(default_factory=lambda: datetime.now(UTC))
     calibration_valid: bool = True
 
     # Calibration offsets and scaling factors
@@ -67,7 +68,7 @@ class SensorCalibration(BaseModel):
     scale_factor: float = 1.0
 
     # Temperature compensation (if applicable)
-    temp_coefficient: Optional[float] = None
+    temp_coefficient: float | None = None
     reference_temperature: float = 25.0  # °C
 
 
@@ -189,7 +190,7 @@ class NetworkConfiguration(BaseModel):
 
     # Wi-Fi settings (primary runtime)
     wifi_enabled: bool = True
-    wifi_ssid_hints: List[str] = Field(default_factory=list)
+    wifi_ssid_hints: list[str] = Field(default_factory=list)
     wifi_auto_reconnect: bool = True
     wifi_power_save: bool = False
 
@@ -206,9 +207,9 @@ class NetworkConfiguration(BaseModel):
     websocket_ping_interval_s: int = 30
 
     # External services
-    ntp_servers: List[str] = Field(default_factory=lambda: ["pool.ntp.org", "time.google.com"])
+    ntp_servers: list[str] = Field(default_factory=lambda: ["pool.ntp.org", "time.google.com"])
     weather_api_enabled: bool = True
-    weather_api_key: Optional[str] = None
+    weather_api_key: str | None = None
 
 
 class SystemConfiguration(BaseModel):
@@ -229,7 +230,7 @@ class SystemConfiguration(BaseModel):
     ai_runner_preference: AIRunnerPreference = AIRunnerPreference.CPU_ONLY
 
     # Calibration data
-    sensor_calibration: Dict[str, SensorCalibration] = Field(default_factory=dict)
+    sensor_calibration: dict[str, SensorCalibration] = Field(default_factory=dict)
 
     # System settings
     navigation_settings: NavigationSettings = Field(default_factory=NavigationSettings)
@@ -250,29 +251,29 @@ class SystemConfiguration(BaseModel):
     backup_interval_hours: int = 24
 
     # Feature flags
-    feature_flags: Dict[str, bool] = Field(default_factory=dict)
-    experimental_features: Dict[str, bool] = Field(default_factory=dict)
+    feature_flags: dict[str, bool] = Field(default_factory=dict)
+    experimental_features: dict[str, bool] = Field(default_factory=dict)
 
     # Timestamps
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_modified: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_backup: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_modified: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_backup: datetime | None = None
 
     model_config = ConfigDict(use_enum_values=True)
 
     def add_sensor_calibration(self, sensor_type: str, calibration: SensorCalibration):
         """Add or update sensor calibration"""
         self.sensor_calibration[sensor_type] = calibration
-        self.last_modified = datetime.now(timezone.utc)
+        self.last_modified = datetime.now(UTC)
 
-    def get_sensor_calibration(self, sensor_type: str) -> Optional[SensorCalibration]:
+    def get_sensor_calibration(self, sensor_type: str) -> SensorCalibration | None:
         """Get sensor calibration by type"""
         return self.sensor_calibration.get(sensor_type)
 
     def set_feature_flag(self, flag_name: str, enabled: bool):
         """Set a feature flag"""
         self.feature_flags[flag_name] = enabled
-        self.last_modified = datetime.now(timezone.utc)
+        self.last_modified = datetime.now(UTC)
 
     def is_feature_enabled(self, flag_name: str) -> bool:
         """Check if a feature flag is enabled"""
@@ -284,7 +285,7 @@ class SystemConfiguration(BaseModel):
             section_obj = getattr(self, section)
             if hasattr(section_obj, key):
                 setattr(section_obj, key, value)
-                self.last_modified = datetime.now(timezone.utc)
+                self.last_modified = datetime.now(UTC)
                 return True
         return False
 
@@ -292,7 +293,7 @@ class SystemConfiguration(BaseModel):
         """Export configuration as JSON"""
         return json.dumps(self.model_dump(), indent=2, default=str)
 
-    def validate_configuration(self) -> List[str]:
+    def validate_configuration(self) -> list[str]:
         """Validate configuration and return any issues"""
         issues = []
 
@@ -421,7 +422,7 @@ class SettingsProfile(BaseModel):
     profile_name: str = "Default Profile"
 
     # Settings categories
-    hardware: Dict[str, Any] = Field(default_factory=dict)  # Calibration values, channel mappings
+    hardware: dict[str, Any] = Field(default_factory=dict)  # Calibration values, channel mappings
     network: NetworkConfiguration = Field(default_factory=NetworkConfiguration)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     control: ControlSettings = Field(default_factory=ControlSettings)
@@ -431,18 +432,18 @@ class SettingsProfile(BaseModel):
     system: SystemSettings = Field(default_factory=SystemSettings)
 
     # Branding compliance
-    branding_checksum: Optional[str] = None  # SHA256 of required assets
+    branding_checksum: str | None = None  # SHA256 of required assets
     branding_assets_present: bool = False
 
     # Persistence metadata
     persisted_to_sqlite: bool = False
     persisted_to_config_files: bool = False
-    sqlite_last_sync: Optional[datetime] = None
-    config_files_last_sync: Optional[datetime] = None
+    sqlite_last_sync: datetime | None = None
+    config_files_last_sync: datetime | None = None
 
     # Timestamps
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def bump_version(self, bump_type: str = "patch"):
         """Bump semantic version (major.minor.patch)"""
@@ -460,7 +461,7 @@ class SettingsProfile(BaseModel):
             patch += 1
 
         self.profile_version = f"{major}.{minor}.{patch}"
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
     def update_setting(self, category: str, key: str, value: Any) -> bool:
         """Update a setting in a specific category"""
@@ -475,11 +476,11 @@ class SettingsProfile(BaseModel):
         else:
             return False
 
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
         self.bump_version("patch")
         return True
 
-    def compute_branding_checksum(self, asset_paths: List[str]) -> str:
+    def compute_branding_checksum(self, asset_paths: list[str]) -> str:
         """Compute SHA256 checksum of branding assets"""
         import hashlib
         import os
@@ -494,7 +495,7 @@ class SettingsProfile(BaseModel):
         self.branding_checksum = checksum
         return checksum
 
-    def validate_branding_assets(self, required_assets: List[str]) -> bool:
+    def validate_branding_assets(self, required_assets: list[str]) -> bool:
         """Validate presence of required branding assets"""
         import os
 
@@ -502,7 +503,7 @@ class SettingsProfile(BaseModel):
         self.branding_assets_present = all_present
         return all_present
 
-    def validate_settings(self) -> List[str]:
+    def validate_settings(self) -> list[str]:
         """Validate all settings and return issues"""
         issues = []
 

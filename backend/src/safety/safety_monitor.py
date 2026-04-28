@@ -6,14 +6,14 @@ Collects safety interlock changes and watchdog/estop events and forwards them
 to observability + WebSocket topics. This module has no direct hardware control.
 """
 
-import asyncio
-from dataclasses import dataclass, asdict
-from datetime import UTC, datetime
-from typing import Any, Callable, Optional
+import asyncio  # noqa: E402
+from dataclasses import asdict, dataclass  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
+from typing import Any  # noqa: E402
 
-from ..core.observability import observability
-from ..services.websocket_hub import websocket_hub
-from ..models.safety_interlock import SafetyInterlock, InterlockState
+from ..core.observability import observability  # noqa: E402
+from ..models.safety_interlock import SafetyInterlock  # noqa: E402
+from ..services.websocket_hub import websocket_hub  # noqa: E402
 
 
 @dataclass
@@ -66,7 +66,7 @@ class SafetyMonitor:
             }
 
 
-_monitor: Optional[SafetyMonitor] = None
+_monitor: SafetyMonitor | None = None
 
 
 def get_safety_monitor() -> SafetyMonitor:

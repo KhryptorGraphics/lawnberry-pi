@@ -7,16 +7,16 @@ status synchronization using Unix domain sockets and message queues.
 
 import json
 import logging
+import queue
 import socket
+import struct
 import threading
 import time
-import queue
-from pathlib import Path
-from typing import Dict, Any, Optional, Callable, List
-from dataclasses import dataclass, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from enum import Enum
-import struct
-import select
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class IPCMessage:
     timestamp: float
     source_service: str
     target_service: str = "all"
-    data: Dict[str, Any] = None
+    data: dict[str, Any] = None
     correlation_id: str = ""
 
     def __post_init__(self):
@@ -53,12 +53,12 @@ class IPCMessage:
 class SensorDataMessage:
     """Sensor data IPC message."""
 
-    imu_data: Dict[str, float]
+    imu_data: dict[str, float]
     battery_voltage: float
     current_draw: float
-    tof_distances: List[Dict[str, Any]]
-    gps_position: Dict[str, float]
-    environmental: Dict[str, float]
+    tof_distances: list[dict[str, Any]]
+    gps_position: dict[str, float]
+    environmental: dict[str, float]
 
 
 @dataclass
@@ -80,7 +80,7 @@ class SafetyStatusMessage:
     tilt_detected: bool
     obstacle_detected: bool
     blade_safety_ok: bool
-    safety_interlocks: List[str]
+    safety_interlocks: list[str]
 
 
 class IPCSocket:
@@ -122,7 +122,7 @@ class IPCSocket:
                         target=self._handle_client, args=(conn, message_handler), daemon=True
                     )
                     client_thread.start()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except Exception as e:
                     if not self._stop_event.is_set():
@@ -226,9 +226,9 @@ class IPCCoordinator:
         self.ipc_dir = Path(ipc_dir)
         self.ipc_dir.mkdir(parents=True, exist_ok=True)
 
-        self._servers: Dict[str, IPCSocket] = {}
-        self._clients: Dict[str, IPCSocket] = {}
-        self._message_handlers: Dict[str, Callable[[IPCMessage], None]] = {}
+        self._servers: dict[str, IPCSocket] = {}
+        self._clients: dict[str, IPCSocket] = {}
+        self._message_handlers: dict[str, Callable[[IPCMessage], None]] = {}
         self._message_queue = queue.Queue()
 
         # Start message processing thread
@@ -262,7 +262,7 @@ class IPCCoordinator:
         target_service: str,
         endpoint_name: str,
         message_type: MessageType,
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> bool:
         """Send message to another service."""
         client_key = f"{target_service}_{endpoint_name}"
@@ -282,7 +282,7 @@ class IPCCoordinator:
 
         return self._clients[client_key].send_message(message)
 
-    def broadcast_message(self, message_type: MessageType, data: Dict[str, Any]):
+    def broadcast_message(self, message_type: MessageType, data: dict[str, Any]):
         """Broadcast message to all connected services."""
         message = IPCMessage(
             message_type=message_type.value,

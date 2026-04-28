@@ -134,6 +134,8 @@ config/secrets.json
 config/maps_settings.json
 config/*.key
 config/*.pem
+config/ssl/
+.omx/
 
 # Temporary files
 tmp/

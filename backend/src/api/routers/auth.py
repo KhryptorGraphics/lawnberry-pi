@@ -1,20 +1,21 @@
-from fastapi import APIRouter, HTTPException, WebSocket, Request, status
-from pydantic import BaseModel
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, Tuple
+import base64
+import hashlib
+import json
+import logging
 import os
 import uuid
-import base64
-import json
-import hashlib
-import logging
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import bcrypt
 import pyotp
+from fastapi import APIRouter, HTTPException, Request, WebSocket, status
+from pydantic import BaseModel
 
-from ...models.auth_security_config import AuthSecurityConfig, SecurityLevel
+from ...core.globals import _manual_control_sessions, _security_settings
+from ...models.auth_security_config import SecurityLevel
 from ...models.user_session import UserSession
 from ...services.auth_service import AuthenticationError, primary_auth_service
-from ...core.globals import _manual_control_sessions, _security_settings, _security_last_modified
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,39 +30,39 @@ router = APIRouter()
 
 # Models
 class ManualUnlockRequest(BaseModel):
-    method: Optional[str] = None
-    password: Optional[str] = None
-    totp_code: Optional[str] = None
+    method: str | None = None
+    password: str | None = None
+    totp_code: str | None = None
 
 
 class ManualUnlockResponse(BaseModel):
     authorized: bool
     session_id: str
     expires_at: str
-    principal: Optional[str] = None
+    principal: str | None = None
     source: str = "manual_control"
 
 
 class ManualUnlockStatusResponse(BaseModel):
     authorized: bool
-    session_id: Optional[str] = None
-    expires_at: Optional[str] = None
-    principal: Optional[str] = None
-    reason: Optional[str] = None
+    session_id: str | None = None
+    expires_at: str | None = None
+    principal: str | None = None
+    reason: str | None = None
 
 
 class AuthLoginRequest(BaseModel):
     # Support both shared-credential and username/password payloads
-    credential: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
+    credential: str | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 class UserOut(BaseModel):
     id: str
     username: str
     role: str = "admin"
-    created_at: datetime = datetime.now(timezone.utc)
+    created_at: datetime = datetime.now(UTC)
 
 
 class AuthResponse(BaseModel):
@@ -84,7 +85,7 @@ class RefreshResponse(BaseModel):
 
 
 # Helpers
-def _decode_jwt_payload(token: str) -> Dict[str, Any]:
+def _decode_jwt_payload(token: str) -> dict[str, Any]:
     try:
         parts = token.split(".")
         if len(parts) < 2:
@@ -99,12 +100,12 @@ def _decode_jwt_payload(token: str) -> Dict[str, Any]:
 
 
 def _manual_session_expiry(
-    default_minutes: int | None = None, token_payload: Dict[str, Any] | None = None
+    default_minutes: int | None = None, token_payload: dict[str, Any] | None = None
 ) -> datetime:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if token_payload and isinstance(token_payload.get("exp"), (int, float)):
         try:
-            exp = datetime.fromtimestamp(float(token_payload["exp"]), tz=timezone.utc)
+            exp = datetime.fromtimestamp(float(token_payload["exp"]), tz=UTC)
             if exp > now:
                 return exp
         except Exception:
@@ -122,11 +123,9 @@ def _manual_session_key(seed: str) -> str:
     return f"manual-{digest[:16]}"
 
 
-def _store_manual_session(
-    seed: str, expires_at: datetime, principal: Optional[str]
-) -> dict[str, Any]:
+def _store_manual_session(seed: str, expires_at: datetime, principal: str | None) -> dict[str, Any]:
     # Garbage collect expired sessions first
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for key in list(_manual_control_sessions.keys()):
         if _manual_control_sessions[key]["expires_at"] <= now:
             _manual_control_sessions.pop(key, None)
@@ -148,12 +147,12 @@ def _store_manual_session(
     return entry
 
 
-def _resolve_manual_session(session_id: Optional[str]) -> dict[str, Any]:
+def _resolve_manual_session(session_id: str | None) -> dict[str, Any]:
     token = (session_id or "").strip()
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Manual control session required")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     matched_entry: dict[str, Any] | None = None
     expired: list[str] = []
     for seed, entry in _manual_control_sessions.items():
@@ -188,7 +187,7 @@ def _manual_unlock_principal(request: Request, method: str) -> str:
     return f"{method}:{host_str}" if host_str else method
 
 
-def _validate_manual_password(password: Optional[str]) -> str:
+def _validate_manual_password(password: str | None) -> str:
     pwd = (password or "").strip()
     required = bool(
         _security_settings.password_required()
@@ -219,7 +218,7 @@ def _validate_manual_password(password: Optional[str]) -> str:
     return pwd
 
 
-def _verify_totp_code(code: Optional[str]) -> Tuple[bool, bool]:
+def _verify_totp_code(code: str | None) -> tuple[bool, bool]:
     config = _security_settings.totp_config
     if not config or not getattr(config, "enabled", True):
         raise HTTPException(
@@ -250,7 +249,7 @@ def _verify_totp_code(code: Optional[str]) -> Tuple[bool, bool]:
 
 def _extract_cloudflare_identity(
     request: Request,
-) -> tuple[Optional[str], Dict[str, Any], Optional[str]]:
+) -> tuple[str | None, dict[str, Any], str | None]:
     token = request.headers.get("CF-Access-Jwt-Assertion") or request.headers.get(
         "cf-access-jwt-assertion"
     )
@@ -271,7 +270,7 @@ def _extract_cloudflare_identity(
     return token, payload, email
 
 
-def _client_identifier(request: Request) -> Optional[str]:
+def _client_identifier(request: Request) -> str | None:
     header = request.headers.get("X-Client-Id")
     if header:
         return header
@@ -286,14 +285,14 @@ def _client_identifier(request: Request) -> Optional[str]:
     return None
 
 
-def _client_ip(request: Request) -> Optional[str]:
+def _client_ip(request: Request) -> str | None:
     client = request.client
     if client and getattr(client, "host", None):
         return str(client.host)
     return None
 
 
-def _extract_bearer_token(auth_header: Optional[str]) -> Optional[str]:
+def _extract_bearer_token(auth_header: str | None) -> str | None:
     if not auth_header:
         return None
     scheme, _, token = auth_header.strip().partition(" ")
@@ -403,7 +402,9 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
             user_agent=request.headers.get("User-Agent"),
         )
     except AuthenticationError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=exc.headers)
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail, headers=exc.headers
+        ) from exc  # noqa: E501
 
     session = result.session
     user = UserOut(
@@ -412,7 +413,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
         role=session.security_context.role.value,
         created_at=session.created_at,
     )
-    expires_in = max(0, int((result.expires_at - datetime.now(timezone.utc)).total_seconds()))
+    expires_in = max(0, int((result.expires_at - datetime.now(UTC)).total_seconds()))
 
     return AuthResponse(
         access_token=result.token,
@@ -427,7 +428,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
 async def auth_refresh(request: Request):
     session = await _require_session(request)
     result = primary_auth_service.refresh_session_token(session)
-    expires_in = max(0, int((result.expires_at - datetime.now(timezone.utc)).total_seconds()))
+    expires_in = max(0, int((result.expires_at - datetime.now(UTC)).total_seconds()))
     return RefreshResponse(
         access_token=result.token,
         token=result.token,
@@ -529,7 +530,7 @@ async def manual_unlock(request: Request, body: ManualUnlockRequest):
         principal = _manual_unlock_principal(request, "totp")
         timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
         expires_at = _manual_session_expiry(timeout_minutes)
-        seed_material = f"totp:{principal}:{body.totp_code or ''}:{password}:{'backup' if backup_used else 'primary'}"
+        seed_material = f"totp:{principal}:{body.totp_code or ''}:{password}:{'backup' if backup_used else 'primary'}"  # noqa: E501
         seed = f"totp:{hashlib.sha256(seed_material.encode('utf-8')).hexdigest()}"
         session_entry = _store_manual_session(seed, expires_at, principal)
         logger.info(

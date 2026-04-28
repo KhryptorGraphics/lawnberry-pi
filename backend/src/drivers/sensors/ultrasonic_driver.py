@@ -22,7 +22,7 @@ import os
 import random
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ...core.simulation import is_simulation_mode
@@ -58,7 +58,7 @@ class UltrasonicReading:
 
     sensor_id: str  # "front_left", "front_center", "front_right"
     distance_cm: float  # Distance in centimeters (2-400 typical range)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     valid: bool = True  # False if reading timed out or out of range
 
 
@@ -118,14 +118,14 @@ class UltrasonicDriver(HardwareDriver):
         if _lgpio is not None:
             try:
                 self._gpio_handle = _lgpio.gpiochip_open(0)
-                for sensor_id, pins in self.SENSORS.items():
+                for _, pins in self.SENSORS.items():
                     # Set TRIG as output
                     _lgpio.gpio_claim_output(self._gpio_handle, pins["trig"], 0)
                     # Set ECHO as input
                     _lgpio.gpio_claim_input(self._gpio_handle, pins["echo"])
                 self.initialized = True
                 return
-            except Exception as e:
+            except Exception:
                 if self._gpio_handle is not None:
                     try:
                         _lgpio.gpiochip_close(self._gpio_handle)
@@ -144,7 +144,7 @@ class UltrasonicDriver(HardwareDriver):
                     )
                 self.initialized = True
                 return
-            except Exception as e:
+            except Exception:
                 self._gpiozero_sensors = {}
 
         # No GPIO library available - allow initialization for testing

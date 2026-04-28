@@ -1,9 +1,11 @@
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi.testclient import TestClient
+
 from backend.src.main import app
-from backend.src.services.mission_service import get_mission_service, MissionService
-from backend.src.models.mission import Mission, MissionWaypoint
-from unittest.mock import AsyncMock
+from backend.src.models.mission import Mission
+from backend.src.services.mission_service import MissionService, get_mission_service
 
 
 # Mock MissionService for testing

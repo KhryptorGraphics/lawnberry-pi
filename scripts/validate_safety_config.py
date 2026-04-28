@@ -3,10 +3,9 @@ from __future__ import annotations
 
 """Validate safety limits configuration from CLI (T123)."""
 
-import json
-import sys
+import json  # noqa: E402
 
-from backend.src.safety.safety_validator import validate_on_start
+from backend.src.safety.safety_validator import validate_on_start  # noqa: E402
 
 
 def main() -> int:

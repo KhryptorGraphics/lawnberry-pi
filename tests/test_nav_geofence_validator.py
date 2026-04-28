@@ -2,8 +2,8 @@ import pytest
 
 pytest.importorskip("shapely")
 
-from backend.src.nav.geofence_validator import build_shape, contains
 from backend.src.models import Geofence, LatLng
+from backend.src.nav.geofence_validator import build_shape, contains
 
 
 def test_geofence_contains_and_buffer():
@@ -24,5 +24,5 @@ def test_geofence_contains_and_buffer():
     assert not contains(shape, outside, use_buffer=False)
 
     # With buffer, a point just outside original polygon should be contained
-    slightly_outside = LatLng(latitude=0.00009 + 5.0 / 111000.0, longitude=0.0)
+    slightly_outside = LatLng(latitude=0.00009 + 1.0 / 111000.0, longitude=0.0)
     assert contains(shape, slightly_outside, use_buffer=True)

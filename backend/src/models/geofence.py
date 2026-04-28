@@ -13,7 +13,7 @@ Notes:
 - Keep validators lightweight and Pydantic v2 compatible.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator  # noqa: E402
 
 
 class LatLng(BaseModel):

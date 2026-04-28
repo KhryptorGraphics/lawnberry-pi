@@ -8,7 +8,6 @@ The stereo camera outputs a combined 2560x960 frame (1280x960 per eye).
 
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass
 from typing import Any

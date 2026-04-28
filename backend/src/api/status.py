@@ -15,7 +15,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .rest import websocket_hub
 from ..core.robot_state_manager import get_robot_state_manager
-from ..models.safety_interlock import SafetyInterlock
 
 
 router = APIRouter()

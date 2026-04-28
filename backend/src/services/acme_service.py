@@ -1,13 +1,9 @@
-import asyncio
 import subprocess
-import tempfile
-import os
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, List
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from ..core.observability import observability
-
 
 logger = observability.get_logger(__name__)
 
@@ -16,8 +12,8 @@ class ACMEService:
     """ACME TLS certificate management service."""
 
     def __init__(self):
-        self.certificates: Dict[str, Dict[str, Any]] = {}
-        self.challenges: Dict[str, str] = {}  # token -> file_content
+        self.certificates: dict[str, dict[str, Any]] = {}
+        self.challenges: dict[str, str] = {}  # token -> file_content
         self.cert_dir = Path("/etc/lawnberry/certs")
         self.challenge_dir = Path("/var/www/.well-known/acme-challenge")
         self.auto_renewal_enabled = True
@@ -27,7 +23,7 @@ class ACMEService:
         self.cert_dir.mkdir(parents=True, exist_ok=True)
         self.challenge_dir.mkdir(parents=True, exist_ok=True)
 
-    def request_certificate(self, domain: str, email: str) -> Dict[str, Any]:
+    def request_certificate(self, domain: str, email: str) -> dict[str, Any]:
         """Request a new certificate from Let's Encrypt."""
         try:
             # Placeholder for ACME certificate request
@@ -36,8 +32,8 @@ class ACMEService:
             result = {
                 "domain": domain,
                 "status": "requested",
-                "requested_at": datetime.now(timezone.utc),
-                "expires_at": datetime.now(timezone.utc) + timedelta(days=90),
+                "requested_at": datetime.now(UTC),
+                "expires_at": datetime.now(UTC) + timedelta(days=90),
                 "auto_renew": True,
             }
 
@@ -49,7 +45,7 @@ class ACMEService:
                 "domain": domain,
                 "status": "failed",
                 "error": str(e),
-                "requested_at": datetime.now(timezone.utc),
+                "requested_at": datetime.now(UTC),
             }
 
     def create_challenge_file(self, token: str, key_auth: str) -> str:
@@ -62,7 +58,7 @@ class ACMEService:
 
         return str(challenge_file)
 
-    def get_challenge_content(self, token: str) -> Optional[str]:
+    def get_challenge_content(self, token: str) -> str | None:
         """Get challenge content for serving."""
         return self.challenges.get(token)
 
@@ -74,11 +70,11 @@ class ACMEService:
 
         self.challenges.pop(token, None)
 
-    def list_certificates(self) -> Dict[str, Dict[str, Any]]:
+    def list_certificates(self) -> dict[str, dict[str, Any]]:
         """List all managed certificates."""
         return self.certificates.copy()
 
-    def get_certificate_info(self, domain: str) -> Optional[Dict[str, Any]]:
+    def get_certificate_info(self, domain: str) -> dict[str, Any] | None:
         """Get certificate information."""
         return self.certificates.get(domain)
 
@@ -96,14 +92,14 @@ class ACMEService:
         if isinstance(expires_at, str):
             expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
 
-        renewal_threshold = datetime.now(timezone.utc) + timedelta(days=30)
+        renewal_threshold = datetime.now(UTC) + timedelta(days=30)
         return expires_at > renewal_threshold
 
     def needs_renewal(self, domain: str) -> bool:
         """Check if certificate needs renewal."""
         return not self.is_certificate_valid(domain)
 
-    def renew_certificate(self, domain: str) -> Dict[str, Any]:
+    def renew_certificate(self, domain: str) -> dict[str, Any]:
         """Renew an existing certificate."""
         cert_info = self.certificates.get(domain)
         if not cert_info:
@@ -114,8 +110,8 @@ class ACMEService:
             cert_info.update(
                 {
                     "status": "renewed",
-                    "renewed_at": datetime.now(timezone.utc),
-                    "expires_at": datetime.now(timezone.utc) + timedelta(days=90),
+                    "renewed_at": datetime.now(UTC),
+                    "expires_at": datetime.now(UTC) + timedelta(days=90),
                 }
             )
 
@@ -132,13 +128,13 @@ class ACMEService:
         try:
             # Placeholder revocation logic
             self.certificates[domain]["status"] = "revoked"
-            self.certificates[domain]["revoked_at"] = datetime.now(timezone.utc)
+            self.certificates[domain]["revoked_at"] = datetime.now(UTC)
             return True
 
         except Exception:
             return False
 
-    def get_certificates_needing_renewal(self) -> List[str]:
+    def get_certificates_needing_renewal(self) -> list[str]:
         """Get list of domains with certificates needing renewal."""
         domains = []
         for domain, cert_info in self.certificates.items():
@@ -210,7 +206,7 @@ server {{
             return False
 
     def install_certificate(
-        self, domain: str, cert_path: str, key_path: str, chain_path: Optional[str] = None
+        self, domain: str, cert_path: str, key_path: str, chain_path: str | None = None
     ) -> bool:
         """Install certificate files."""
         try:
@@ -225,7 +221,7 @@ server {{
             cert_info.update(
                 {
                     "status": "installed",
-                    "installed_at": datetime.now(timezone.utc),
+                    "installed_at": datetime.now(UTC),
                     "cert_path": str(domain_dir / "cert.pem"),
                     "key_path": str(domain_dir / "key.pem"),
                     "chain_path": str(domain_dir / "chain.pem") if chain_path else None,
@@ -267,7 +263,7 @@ server {{
             )
             raise
 
-    def get_renewal_status(self) -> Dict[str, Any]:
+    def get_renewal_status(self) -> dict[str, Any]:
         """Get renewal status and statistics."""
         total_certs = len(self.certificates)
         valid_certs = sum(1 for domain in self.certificates if self.is_certificate_valid(domain))
@@ -280,7 +276,7 @@ server {{
             "expired_certificates": expired_certs,
             "renewal_needed": renewal_needed,
             "auto_renewal_enabled": self.auto_renewal_enabled,
-            "last_check": datetime.now(timezone.utc).isoformat(),
+            "last_check": datetime.now(UTC).isoformat(),
         }
 
 

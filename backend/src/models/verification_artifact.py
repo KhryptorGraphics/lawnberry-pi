@@ -3,13 +3,14 @@ VerificationArtifact model for LawnBerry Pi v2
 Evidence package for telemetry validation, UI walkthroughs, and documentation completion
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class ArtifactType(str, Enum):
+class ArtifactType(StrEnum):
     """Verification artifact types"""
 
     TELEMETRY_LOG = "telemetry_log"
@@ -42,7 +43,7 @@ class PlatformInfo(BaseModel):
     uart_available: bool
 
     # Detection timestamp
-    detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    detected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class PerformanceMetrics(BaseModel):
@@ -75,19 +76,19 @@ class PerformanceMetrics(BaseModel):
     # Measurement metadata
     measurement_duration_seconds: int = 0
     sample_count: int = 0
-    measured_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    measured_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class TelemetrySnapshot(BaseModel):
     """Snapshot of telemetry data for evidence"""
 
     snapshot_id: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # GPS data
-    gps_latitude: Optional[float] = None
-    gps_longitude: Optional[float] = None
-    gps_fix_type: Optional[str] = None
+    gps_latitude: float | None = None
+    gps_longitude: float | None = None
+    gps_fix_type: str | None = None
     gps_satellites: int = 0
 
     # IMU data
@@ -106,10 +107,10 @@ class TelemetrySnapshot(BaseModel):
     solar_power: float = 0.0
 
     # Component health
-    component_statuses: Dict[str, str] = Field(default_factory=dict)
+    component_statuses: dict[str, str] = Field(default_factory=dict)
 
     # Metadata
-    platform_detected: Optional[str] = None
+    platform_detected: str | None = None
     sim_mode_active: bool = False
 
 
@@ -123,35 +124,35 @@ class VerificationArtifact(BaseModel):
     # Location and storage
     location: str  # Path or URL
     file_size_bytes: int = 0
-    checksum: Optional[str] = None  # SHA256
+    checksum: str | None = None  # SHA256
 
     # Content description
     summary: str
-    description: Optional[str] = None
+    description: str | None = None
 
     # Linked requirements
-    linked_requirements: List[str] = Field(default_factory=list)  # FR IDs
-    linked_tasks: List[str] = Field(default_factory=list)  # Task IDs (e.g., "T009")
+    linked_requirements: list[str] = Field(default_factory=list)  # FR IDs
+    linked_tasks: list[str] = Field(default_factory=list)  # Task IDs (e.g., "T009")
 
     # Verification data
-    platform_info: Optional[PlatformInfo] = None
-    performance_metrics: Optional[PerformanceMetrics] = None
-    telemetry_snapshots: List[TelemetrySnapshot] = Field(default_factory=list)
+    platform_info: PlatformInfo | None = None
+    performance_metrics: PerformanceMetrics | None = None
+    telemetry_snapshots: list[TelemetrySnapshot] = Field(default_factory=list)
 
     # Test results
     test_passed: bool = False
-    test_failure_reason: Optional[str] = None
-    test_evidence: Dict[str, Any] = Field(default_factory=dict)
+    test_failure_reason: str | None = None
+    test_evidence: dict[str, Any] = Field(default_factory=dict)
 
     # Related entities
-    related_telemetry_stream_id: Optional[str] = None
-    related_control_session_id: Optional[str] = None
-    related_documentation_id: Optional[str] = None
+    related_telemetry_stream_id: str | None = None
+    related_control_session_id: str | None = None
+    related_documentation_id: str | None = None
 
     # Metadata
     created_by: str  # operator_id or "automation"
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    tags: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    tags: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -197,7 +198,7 @@ class VerificationArtifactCollection(BaseModel):
     collection_version: str = "1.0.0"
 
     # Artifacts
-    artifacts: List[VerificationArtifact] = Field(default_factory=list)
+    artifacts: list[VerificationArtifact] = Field(default_factory=list)
 
     # Collection metadata
     total_artifacts: int = 0
@@ -205,15 +206,15 @@ class VerificationArtifactCollection(BaseModel):
 
     # Verification status
     all_tests_passed: bool = False
-    failed_tests: List[str] = Field(default_factory=list)
+    failed_tests: list[str] = Field(default_factory=list)
 
     # Platform coverage
     pi5_tested: bool = False
     pi4_tested: bool = False
 
     # Timestamps
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    finalized_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    finalized_at: datetime | None = None
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -234,24 +235,24 @@ class VerificationArtifactCollection(BaseModel):
             elif "PI4" in artifact.platform_info.pi_model:
                 self.pi4_tested = True
 
-    def get_artifacts_by_type(self, artifact_type: ArtifactType) -> List[VerificationArtifact]:
+    def get_artifacts_by_type(self, artifact_type: ArtifactType) -> list[VerificationArtifact]:
         """Get artifacts by type"""
         return [a for a in self.artifacts if a.artifact_type == artifact_type]
 
-    def get_artifacts_by_requirement(self, requirement_id: str) -> List[VerificationArtifact]:
+    def get_artifacts_by_requirement(self, requirement_id: str) -> list[VerificationArtifact]:
         """Get artifacts linked to a requirement"""
         return [a for a in self.artifacts if requirement_id in a.linked_requirements]
 
-    def get_artifacts_by_task(self, task_id: str) -> List[VerificationArtifact]:
+    def get_artifacts_by_task(self, task_id: str) -> list[VerificationArtifact]:
         """Get artifacts linked to a task"""
         return [a for a in self.artifacts if task_id in a.linked_tasks]
 
     def finalize(self):
         """Finalize the collection"""
         self.all_tests_passed = len(self.failed_tests) == 0
-        self.finalized_at = datetime.now(timezone.utc)
+        self.finalized_at = datetime.now(UTC)
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get collection summary"""
         return {
             "collection_id": self.collection_id,

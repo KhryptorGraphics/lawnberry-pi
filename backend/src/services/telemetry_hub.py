@@ -7,25 +7,20 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, timezone
-from typing import Dict, Set, List, Optional, Any
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from ..models import (
+    ClientSubscription,
+    MessagePriority,
+    StreamConfiguration,
+    StreamStatus,
     TelemetryExchange,
     TelemetryHub,
     TelemetryMessage,
-    StreamConfiguration,
-    ClientSubscription,
-    StreamStatistics,
     TelemetryTopic,
-    MessagePriority,
-    StreamStatus,
-    HardwareTelemetryStream,
-    ComponentId,
-    ComponentStatus,
 )
-from ..core.persistence import persistence
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +31,10 @@ class WebSocketClient:
     def __init__(self, client_id: str, websocket):
         self.client_id = client_id
         self.websocket = websocket
-        self.connected_at = datetime.now(timezone.utc)
+        self.connected_at = datetime.now(UTC)
         self.last_ping = None
         self.last_pong = None
-        self.subscriptions: Set[TelemetryTopic] = set()
+        self.subscriptions: set[TelemetryTopic] = set()
         self.message_count = 0
         self.error_count = 0
 
@@ -58,7 +53,7 @@ class WebSocketClient:
         """Send ping to client"""
         try:
             await self.websocket.ping()
-            self.last_ping = datetime.now(timezone.utc)
+            self.last_ping = datetime.now(UTC)
             return True
         except Exception as e:
             logger.error(f"Failed to ping client {self.client_id}: {e}")
@@ -68,7 +63,7 @@ class WebSocketClient:
         """Check if client connection is healthy"""
         if self.last_ping and not self.last_pong:
             # No pong response within reasonable time
-            time_since_ping = (datetime.now(timezone.utc) - self.last_ping).total_seconds()
+            time_since_ping = (datetime.now(UTC) - self.last_ping).total_seconds()
             if time_since_ping > 30:  # 30 second timeout
                 return False
 
@@ -80,7 +75,7 @@ class TelemetryPublisher:
 
     def __init__(self, telemetry_hub: TelemetryHub):
         self.hub = telemetry_hub
-        self.publish_tasks: Dict[TelemetryTopic, asyncio.Task] = {}
+        self.publish_tasks: dict[TelemetryTopic, asyncio.Task] = {}
         self.running = False
 
     async def start_publishing(self):
@@ -134,12 +129,12 @@ class TelemetryPublisher:
                 logger.error(f"Error in {topic} publishing loop: {e}")
                 await asyncio.sleep(interval)
 
-    async def _generate_telemetry_data(self, topic: TelemetryTopic) -> Optional[Dict[str, Any]]:
+    async def _generate_telemetry_data(self, topic: TelemetryTopic) -> dict[str, Any] | None:
         """Generate telemetry data for a topic"""
 
         if topic == TelemetryTopic.TELEMETRY_UPDATES:
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "battery": {"percentage": 85.2, "voltage": 12.6},
                 "position": {"latitude": 40.7128, "longitude": -74.0060},
                 "motor_status": "idle",
@@ -149,7 +144,7 @@ class TelemetryPublisher:
 
         elif topic == TelemetryTopic.SYSTEM_STATUS:
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "system_state": "idle",
                 "cpu_usage": 25.0,
                 "memory_usage": 45.0,
@@ -159,7 +154,7 @@ class TelemetryPublisher:
 
         elif topic == TelemetryTopic.SENSOR_DATA:
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "gps": {"latitude": 40.7128, "longitude": -74.0060, "accuracy": 2.5},
                 "imu": {"roll": 0.5, "pitch": 1.2, "yaw": 45.0},
                 "tof": {"left": 1250, "right": 2100},
@@ -168,7 +163,7 @@ class TelemetryPublisher:
 
         elif topic == TelemetryTopic.POWER_STATUS:
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "battery": {
                     "voltage": 12.6,
                     "current": -2.5,
@@ -180,7 +175,7 @@ class TelemetryPublisher:
 
         elif topic == TelemetryTopic.NAVIGATION_STATE:
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "mode": "idle",
                 "position": {"latitude": 40.7128, "longitude": -74.0060},
                 "heading": 45.0,
@@ -201,13 +196,13 @@ class TelemetryHubService:
         self.publisher = TelemetryPublisher(self.hub)
 
         # Client management
-        self.clients: Dict[str, WebSocketClient] = {}
-        self.client_subscriptions: Dict[str, List[ClientSubscription]] = {}
+        self.clients: dict[str, WebSocketClient] = {}
+        self.client_subscriptions: dict[str, list[ClientSubscription]] = {}
 
         # Service state
         self.running = False
-        self.health_check_task: Optional[asyncio.Task] = None
-        self.message_dispatch_task: Optional[asyncio.Task] = None
+        self.health_check_task: asyncio.Task | None = None
+        self.message_dispatch_task: asyncio.Task | None = None
 
     async def start_service(self) -> bool:
         """Start the telemetry hub service"""
@@ -276,7 +271,7 @@ class TelemetryHubService:
         connection_msg = {
             "event": "connection.established",
             "client_id": client_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "available_topics": [topic.value for topic in TelemetryTopic],
         }
 
@@ -298,7 +293,7 @@ class TelemetryHubService:
         # Close WebSocket
         try:
             await client.websocket.close()
-        except:
+        except Exception:
             pass
 
         # Clean up
@@ -341,7 +336,7 @@ class TelemetryHubService:
 
             elif message_type == "ping":
                 # Respond with pong
-                pong_msg = {"event": "pong", "timestamp": datetime.now(timezone.utc).isoformat()}
+                pong_msg = {"event": "pong", "timestamp": datetime.now(UTC).isoformat()}
                 await self.clients[client_id].send_message(json.dumps(pong_msg))
 
         except json.JSONDecodeError:
@@ -363,7 +358,7 @@ class TelemetryHubService:
             confirm_msg = {
                 "event": "subscription.confirmed",
                 "topic": topic.value,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             await self.clients[client_id].send_message(json.dumps(confirm_msg))
 
@@ -383,7 +378,7 @@ class TelemetryHubService:
         confirm_msg = {
             "event": "unsubscription.confirmed",
             "topic": topic.value,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         await self.clients[client_id].send_message(json.dumps(confirm_msg))
 
@@ -404,7 +399,7 @@ class TelemetryHubService:
         confirm_msg = {
             "event": "cadence.updated",
             "cadence_hz": cadence_hz,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         await self.clients[client_id].send_message(json.dumps(confirm_msg))
 
@@ -482,7 +477,7 @@ class TelemetryHubService:
                     await self.disconnect_client(client_id)
 
                 # Update hub health check timestamp
-                self.hub.last_health_check = datetime.now(timezone.utc)
+                self.hub.last_health_check = datetime.now(UTC)
 
                 await asyncio.sleep(self.hub.health_check_interval_seconds)
 
@@ -492,7 +487,7 @@ class TelemetryHubService:
                 logger.error(f"Error in health check loop: {e}")
                 await asyncio.sleep(10)
 
-    async def get_service_status(self) -> Dict[str, Any]:
+    async def get_service_status(self) -> dict[str, Any]:
         """Get current service status"""
         return {
             "running": self.running,

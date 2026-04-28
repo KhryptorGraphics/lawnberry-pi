@@ -1,19 +1,19 @@
-from fastapi import APIRouter, HTTPException, status, Request
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Any
-import time
 import logging
-from datetime import datetime, timezone
+import time
+from typing import Any
 
-from ...services.hw_selftest import run_selftest
-from ...services.timezone_service import detect_system_timezone
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field
+
 from ...core.persistence import persistence
-from ...services.websocket_hub import websocket_hub
 from ...services.calibration_service import (
-    imu_calibration_service,
     CalibrationInProgressError,
     DriveControllerUnavailableError,
+    imu_calibration_service,
 )
+from ...services.hw_selftest import run_selftest
+from ...services.timezone_service import detect_system_timezone
+from ...services.websocket_hub import websocket_hub
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -147,9 +147,9 @@ async def post_calibrate_imu(request: Request) -> IMUCalibrationResultPayload:
         except CalibrationInProgressError:
             raise HTTPException(
                 status.HTTP_409_CONFLICT, detail="IMU calibration already in progress"
-            )
+            ) from None
         except DriveControllerUnavailableError as exc:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - hardware dependent
             logger.exception("IMU calibration routine failed: %s", exc)
             raise HTTPException(

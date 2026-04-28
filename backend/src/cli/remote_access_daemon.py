@@ -20,7 +20,6 @@ from backend.src.services.remote_access_service import (
     RemoteAccessService,
 )
 
-
 logging.basicConfig(
     level=logging.INFO, format="[remote-access] %(asctime)s %(levelname)s: %(message)s"
 )
@@ -56,7 +55,7 @@ async def _polling_loop(
 
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
 
 

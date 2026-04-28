@@ -14,11 +14,10 @@ import json
 import logging
 import subprocess
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ...core.simulation import is_simulation_mode
 from ..base import HardwareDriver
-
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class VictronVeDirectDriver(HardwareDriver):
 
     _DEFAULT_CLI = "victron-ble"
 
-    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config=config)
         cfg = config or {}
         self._enabled = bool(cfg.get("enabled", True))
@@ -45,8 +44,8 @@ class VictronVeDirectDriver(HardwareDriver):
         self._read_timeout = float(cfg.get("read_timeout_s", 8.0))
         self._sample_limit = int(cfg.get("sample_limit", 1) or 1)
         self._adapter_warned = False
-        self._last_payload: Optional[Dict[str, Any]] = None
-        self._last_timestamp: Optional[float] = None
+        self._last_payload: dict[str, Any] | None = None
+        self._last_timestamp: float | None = None
 
     async def initialize(self) -> None:
         self.initialized = True
@@ -67,7 +66,7 @@ class VictronVeDirectDriver(HardwareDriver):
             "last_payload": self._last_payload,
         }
 
-    async def read_power(self) -> Optional[Dict[str, Any]]:
+    async def read_power(self) -> dict[str, Any] | None:
         if not self._enabled or not self.initialized:
             return None
         if is_simulation_mode():
@@ -102,7 +101,7 @@ class VictronVeDirectDriver(HardwareDriver):
         self._last_timestamp = time.time()
         return parsed
 
-    def _resolve_port(self) -> Optional[str]:
+    def _resolve_port(self) -> str | None:
         # Deprecated for BLE-based flow
         return None
 
@@ -112,7 +111,7 @@ class VictronVeDirectDriver(HardwareDriver):
         if self._adapter:
             if not self._adapter_warned:
                 logger.warning(
-                    "victron-ble read currently ignores custom adapters; set BLEAK_DEVICE env if needed"
+                    "victron-ble read currently ignores custom adapters; set BLEAK_DEVICE env if needed"  # noqa: E501
                 )
                 self._adapter_warned = True
         return cmd
@@ -123,10 +122,10 @@ class VictronVeDirectDriver(HardwareDriver):
         if self._device_id and self._encryption_key:
             return f"{self._device_id}@{self._encryption_key}"
         raise RuntimeError(
-            "Victron BLE configuration requires either 'device_key' or both 'device_id' and 'encryption_key'"
+            "Victron BLE configuration requires either 'device_key' or both 'device_id' and 'encryption_key'"  # noqa: E501
         )
 
-    def _read_victron_cli_frame(self) -> Optional[Dict[str, Any]]:
+    def _read_victron_cli_frame(self) -> dict[str, Any] | None:
         try:
             cmd = self._build_cli_cmd()
         except RuntimeError as exc:
@@ -147,7 +146,7 @@ class VictronVeDirectDriver(HardwareDriver):
             return None
 
         deadline = time.time() + self._read_timeout
-        captured: Optional[dict[str, Any]] = None
+        captured: dict[str, Any] | None = None
         buffer = ""
         lines_read = 0
 
@@ -218,9 +217,9 @@ class VictronVeDirectDriver(HardwareDriver):
     # legacy serial reader removed - BLE CLI is used
 
     @staticmethod
-    def _convert_frame(frame: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _convert_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
         payload = frame
-        meta: Dict[str, Any] = {}
+        meta: dict[str, Any] = {}
         if isinstance(frame, dict) and "payload" in frame and isinstance(frame["payload"], dict):
             payload = frame["payload"]
             meta = {k: v for k, v in frame.items() if k != "payload"}
@@ -228,7 +227,7 @@ class VictronVeDirectDriver(HardwareDriver):
         if not isinstance(payload, dict):
             return None
 
-        def _to_float(value: Any) -> Optional[float]:
+        def _to_float(value: Any) -> float | None:
             if value is None:
                 return None
             if isinstance(value, (int, float)):
@@ -243,7 +242,7 @@ class VictronVeDirectDriver(HardwareDriver):
 
         if is_numeric_frame:
 
-            def _get_int(key: str) -> Optional[int]:
+            def _get_int(key: str) -> int | None:
                 try:
                     return int(payload[key])
                 except (KeyError, TypeError, ValueError):
@@ -258,12 +257,12 @@ class VictronVeDirectDriver(HardwareDriver):
             if battery_mv is None and panel_mv is None and panel_power_w is None:
                 return None
 
-            def _scale_mv(value: Optional[int]) -> Optional[float]:
+            def _scale_mv(value: int | None) -> float | None:
                 if value is None:
                     return None
                 return round(value / 1000.0, 3)
 
-            def _scale_ma(value: Optional[int]) -> Optional[float]:
+            def _scale_ma(value: int | None) -> float | None:
                 if value is None:
                     return None
                 return round(value / 1000.0, 3)

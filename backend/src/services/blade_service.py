@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
 
 from ..drivers.blade.ibt4_gpio import IBT4BladeDriver
 
@@ -55,7 +54,7 @@ class BladeService:
             pass
 
 
-_blade_service: Optional[BladeService] = None
+_blade_service: BladeService | None = None
 
 
 def get_blade_service() -> BladeService:

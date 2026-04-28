@@ -5,7 +5,7 @@ from __future__ import annotations
 Default OFF until explicitly authorized. E-stop and interlocks will revoke.
 """
 
-import threading
+import threading  # noqa: E402
 
 
 class MotorAuthorization:

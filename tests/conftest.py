@@ -18,7 +18,7 @@ collect_ignore = [
 
 def pytest_ignore_collect(collection_path, config):  # pragma: no cover - hook signature
     try:
-        rel = str(collection_path)
+        str(collection_path)
         return collection_path.match(
             "tests/unit/test_health_endpoints.py"
         ) or collection_path.match("tests/unit/test_auth_security_levels.py")
@@ -58,6 +58,12 @@ for optional_module in ("bcrypt", "pyotp", "google", "jwt", "psutil", "timezonef
 
 # Ensure SIM_MODE=1 for all tests unless explicitly overridden
 os.environ.setdefault("SIM_MODE", "1")
+os.environ.setdefault("GLOBAL_RATE_LIMIT_RATE", "1000")
+os.environ.setdefault("GLOBAL_RATE_LIMIT_BURST", "10000")
+os.environ.setdefault("AUTH_RATE_LIMIT_WINDOW", "60")
+os.environ.setdefault("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "1000")
+os.environ.setdefault("AUTH_LOCKOUT_FAILURES", "1000")
+os.environ.setdefault("AUTH_LOCKOUT_SECONDS", "0")
 
 
 @pytest.fixture(scope="session")

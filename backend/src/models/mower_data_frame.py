@@ -17,11 +17,11 @@ Data Format:
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from enum import Enum
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -35,7 +35,7 @@ except ImportError:
     HAS_MSGPACK = False
 
 
-class RTKFixType(str, Enum):
+class RTKFixType(StrEnum):
     """RTK GPS fix quality types."""
 
     NONE = "none"
@@ -46,7 +46,7 @@ class RTKFixType(str, Enum):
     PPS = "pps"  # PPS fix
 
 
-class MowerState(str, Enum):
+class MowerState(StrEnum):
     """Operational states of the mower."""
 
     IDLE = "idle"
@@ -60,7 +60,7 @@ class MowerState(str, Enum):
     ERROR = "error"
 
 
-class ActionSource(str, Enum):
+class ActionSource(StrEnum):
     """Source of control actions."""
 
     MANUAL = "manual"  # Human teleop
@@ -164,15 +164,15 @@ class MowerDataFrame:
     """
 
     # Identifiers
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     frame_id: int = 0
 
     # Camera data (stored as numpy arrays, dtype=uint8, shape=[H,W,3] BGR)
-    stereo_left: Optional[np.ndarray] = None  # 1280x960 or 960x540
-    stereo_right: Optional[np.ndarray] = None  # 1280x960 or 960x540
-    stereo_depth: Optional[np.ndarray] = None  # Computed disparity map
-    pi_camera_rgb: Optional[np.ndarray] = None  # 1920x1080 or 1280x720
+    stereo_left: np.ndarray | None = None  # 1280x960 or 960x540
+    stereo_right: np.ndarray | None = None  # 1280x960 or 960x540
+    stereo_depth: np.ndarray | None = None  # Computed disparity map
+    pi_camera_rgb: np.ndarray | None = None  # 1920x1080 or 1280x720
 
     # Sensor data
     gps: GPSData = field(default_factory=GPSData)
@@ -190,7 +190,7 @@ class MowerDataFrame:
 
     # AI inference results (if running)
     ai_inference_time_ms: float = 0.0
-    ai_detections: List[Dict[str, Any]] = field(default_factory=list)
+    ai_detections: list[dict[str, Any]] = field(default_factory=list)
     ai_depth_available: bool = False
 
     # Recording metadata
@@ -198,7 +198,7 @@ class MowerDataFrame:
     lap_number: int = 0
     waypoint_index: int = 0
 
-    def to_dict(self, include_images: bool = True) -> Dict[str, Any]:
+    def to_dict(self, include_images: bool = True) -> dict[str, Any]:
         """Convert to dictionary for serialization.
 
         Args:
@@ -255,14 +255,14 @@ class MowerDataFrame:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MowerDataFrame":
+    def from_dict(cls, data: dict[str, Any]) -> MowerDataFrame:
         """Create MowerDataFrame from dictionary."""
         # Parse timestamp
         ts = data.get("timestamp")
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         elif ts is None:
-            ts = datetime.now(timezone.utc)
+            ts = datetime.now(UTC)
 
         # Parse nested data classes
         gps_data = data.get("gps", {})
@@ -330,7 +330,7 @@ class MowerDataFrame:
         return msgpack.packb(data, use_bin_type=True)
 
     @classmethod
-    def deserialize(cls, data: bytes) -> "MowerDataFrame":
+    def deserialize(cls, data: bytes) -> MowerDataFrame:
         """Deserialize from MessagePack bytes.
 
         Args:
@@ -355,7 +355,7 @@ class MowerDataFrame:
 
         return size
 
-    def get_telemetry_summary(self) -> Dict[str, Any]:
+    def get_telemetry_summary(self) -> dict[str, Any]:
         """Get lightweight telemetry summary for real-time streaming."""
         return {
             "timestamp": self.timestamp.isoformat(),
@@ -389,8 +389,8 @@ class RecordingSession:
 
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
-    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    end_time: Optional[datetime] = None
+    start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
+    end_time: datetime | None = None
     frame_count: int = 0
     total_distance_m: float = 0.0
     mowing_area_m2: float = 0.0
@@ -398,10 +398,10 @@ class RecordingSession:
     notes: str = ""
 
     # File paths
-    data_file: Optional[Path] = None
-    video_file: Optional[Path] = None
+    data_file: Path | None = None
+    video_file: Path | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "session_id": self.session_id,

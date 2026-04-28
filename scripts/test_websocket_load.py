@@ -19,7 +19,7 @@ async def main():
             while count < 5 and idle_ticks < 40:
                 try:
                     msg = await asyncio.wait_for(ws.recv(), timeout=0.5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     idle_ticks += 1
                     continue
                 evt = json.loads(msg)
@@ -28,8 +28,8 @@ async def main():
                     data = evt.get("data", {})
                     power = data.get("power", {}) if isinstance(data, dict) else {}
                     print(
-                        f"#{count} Vb={power.get('battery_voltage')}V Ib={power.get('battery_current')}A Pb={power.get('battery_power')}W | "
-                        f"Vs={power.get('solar_voltage')}V Is={power.get('solar_current')}A Ps={power.get('solar_power')}W Yt={power.get('solar_yield_today_wh')}Wh | "
+                        f"#{count} Vb={power.get('battery_voltage')}V Ib={power.get('battery_current')}A Pb={power.get('battery_power')}W | "  # noqa: E501
+                        f"Vs={power.get('solar_voltage')}V Is={power.get('solar_current')}A Ps={power.get('solar_power')}W Yt={power.get('solar_yield_today_wh')}Wh | "  # noqa: E501
                         f"Il={power.get('load_current')}A"
                     )
                 else:

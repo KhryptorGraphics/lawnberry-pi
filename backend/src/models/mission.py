@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional
 import uuid
+
+from pydantic import BaseModel, Field
 
 
 class MissionWaypoint(BaseModel):
@@ -22,7 +22,7 @@ class Mission(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str = Field(..., description="Name of the mission.")
-    waypoints: List[MissionWaypoint] = Field(
+    waypoints: list[MissionWaypoint] = Field(
         default_factory=list, description="List of waypoints in the mission."
     )
     created_at: str = Field(description="ISO 8601 timestamp of when the mission was created.")
@@ -30,11 +30,11 @@ class Mission(BaseModel):
 
 class MissionCreationRequest(BaseModel):
     name: str
-    waypoints: List[MissionWaypoint]
+    waypoints: list[MissionWaypoint]
 
 
 class MissionStatus(BaseModel):
     mission_id: str
     status: str  # e.g., "running", "paused", "completed", "aborted"
-    current_waypoint_index: Optional[int] = None
+    current_waypoint_index: int | None = None
     completion_percentage: float = 0.0

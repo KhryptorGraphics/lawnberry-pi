@@ -10,23 +10,22 @@ No heavy geometry deps; uses horizontal line intersection against polygon
 edges and interval subtraction to avoid holes.
 """
 
-from typing import Iterable, List, Tuple
+from collections.abc import Iterable  # noqa: E402
 
-from .geoutils import haversine_m
+from .geoutils import haversine_m  # noqa: E402
+
+LatLng = tuple[float, float]
+Interval = tuple[float, float]
 
 
-LatLng = Tuple[float, float]
-Interval = Tuple[float, float]
-
-
-def _horizontal_intersections(polygon: Iterable[LatLng], y: float) -> List[float]:
+def _horizontal_intersections(polygon: Iterable[LatLng], y: float) -> list[float]:
     """Compute longitudes where a horizontal scanline at latitude y intersects the polygon.
 
     Uses half-open edge inclusion to avoid double counting at vertices.
     """
     pts = list(polygon)
     n = len(pts)
-    xs: List[float] = []
+    xs: list[float] = []
     for i in range(n):
         (y1, x1) = pts[i]
         (y2, x2) = pts[(i + 1) % n]
@@ -45,9 +44,9 @@ def _horizontal_intersections(polygon: Iterable[LatLng], y: float) -> List[float
     return xs
 
 
-def _intervals_from_intersections(xs: List[float]) -> List[Interval]:
+def _intervals_from_intersections(xs: list[float]) -> list[Interval]:
     """Pair sorted intersections into inside intervals along scanline."""
-    intervals: List[Interval] = []
+    intervals: list[Interval] = []
     for i in range(0, len(xs) - 1, 2):
         a, b = xs[i], xs[i + 1]
         if b > a:
@@ -55,7 +54,7 @@ def _intervals_from_intersections(xs: List[float]) -> List[Interval]:
     return intervals
 
 
-def _subtract_intervals(source: List[Interval], holes: List[List[Interval]]) -> List[Interval]:
+def _subtract_intervals(source: list[Interval], holes: list[list[Interval]]) -> list[Interval]:
     """Subtract hole intervals from source boundary intervals (1D on scanline).
 
     Args:
@@ -66,11 +65,11 @@ def _subtract_intervals(source: List[Interval], holes: List[List[Interval]]) -> 
     """
     result = source[:]
     for hole_list in holes:
-        new_result: List[Interval] = []
+        new_result: list[Interval] = []
         for a, b in result:
-            cur: List[Interval] = [(a, b)]
+            cur: list[Interval] = [(a, b)]
             for h1, h2 in hole_list:
-                tmp: List[Interval] = []
+                tmp: list[Interval] = []
                 for s1, s2 in cur:
                     # No overlap
                     if h2 <= s1 or h1 >= s2:
@@ -85,7 +84,7 @@ def _subtract_intervals(source: List[Interval], holes: List[List[Interval]]) -> 
             new_result.extend(cur)
         # Normalize/merge adjacent small gaps
         new_result.sort()
-        merged: List[Interval] = []
+        merged: list[Interval] = []
         for seg in new_result:
             if not merged:
                 merged.append(seg)
@@ -100,12 +99,12 @@ def _subtract_intervals(source: List[Interval], holes: List[List[Interval]]) -> 
 
 
 def plan_coverage(
-    boundary: List[LatLng],
-    exclusion_polys: List[List[LatLng]] | None = None,
+    boundary: list[LatLng],
+    exclusion_polys: list[list[LatLng]] | None = None,
     spacing_m: float = 0.6,
     angle_deg: float = 0.0,
     max_rows: int = 2000,
-) -> Tuple[List[LatLng], int, float]:
+) -> tuple[list[LatLng], int, float]:
     """Compute a serpentine coverage path across boundary with optional holes.
 
     Currently supports angle=0 only (east-west passes).
@@ -120,7 +119,7 @@ def plan_coverage(
     ys = [p[0] for p in boundary]
     xs = [p[1] for p in boundary]
     y_min, y_max = min(ys), max(ys)
-    x_min, x_max = min(xs), max(xs)
+    _x_min, _x_max = min(xs), max(xs)
 
     # Convert spacing (m) to degrees latitude (approx 111320 m per deg)
     if spacing_m <= 0:
@@ -129,7 +128,7 @@ def plan_coverage(
     if dy <= 0:
         dy = 0.000005
 
-    path: List[LatLng] = []
+    path: list[LatLng] = []
     row_idx = 0
     length_m = 0.0
 
@@ -140,7 +139,7 @@ def plan_coverage(
         b_intervals = _intervals_from_intersections(bxs)
 
         # Subtract exclusion intervals
-        hole_intervals: List[List[Interval]] = []
+        hole_intervals: list[list[Interval]] = []
         if exclusion_polys:
             for hole in exclusion_polys:
                 hxs = _horizontal_intersections(hole, y)

@@ -5,11 +5,10 @@ from __future__ import annotations
 Async loop monitors time since last heartbeat; triggers E-stop if exceeded.
 """
 
-import asyncio
-import time
-from typing import Optional
+import asyncio  # noqa: E402
+import time  # noqa: E402
 
-from .estop_handler import EstopHandler
+from .estop_handler import EstopHandler  # noqa: E402
 
 
 class Watchdog:
@@ -17,7 +16,7 @@ class Watchdog:
         self._estop = estop
         self._timeout_ms = max(1, int(timeout_ms))
         self._last_heartbeat = time.perf_counter()
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._stop_evt = asyncio.Event()
 
     def heartbeat(self) -> None:

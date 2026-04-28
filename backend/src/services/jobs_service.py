@@ -1,11 +1,8 @@
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Dict, Any
+from datetime import UTC, datetime, timedelta
 
 from ..core.observability import observability
-from ..models.job import Job, JobStatus, JobType, JobPriority
-from ..models.zone import Zone
-
+from ..models.job import Job, JobPriority, JobStatus, JobType
 
 logger = observability.get_logger(__name__)
 
@@ -14,16 +11,16 @@ class JobsService:
     """Job scheduling and execution service."""
 
     def __init__(self):
-        self.jobs: Dict[str, Job] = {}
+        self.jobs: dict[str, Job] = {}
         self.job_counter = 0
         self.scheduler_running = False
-        self._scheduler_task: Optional[asyncio.Task] = None
+        self._scheduler_task: asyncio.Task | None = None
 
     def create_job(
         self,
         name: str,
         job_type: JobType = JobType.SCHEDULED_MOW,
-        zones: List[str] = None,
+        zones: list[str] = None,
         priority: JobPriority = JobPriority.NORMAL,
         **kwargs,
     ) -> Job:
@@ -38,13 +35,13 @@ class JobsService:
         self.jobs[job_id] = job
         return job
 
-    def get_job(self, job_id: str) -> Optional[Job]:
+    def get_job(self, job_id: str) -> Job | None:
         """Get job by ID."""
         return self.jobs.get(job_id)
 
     def list_jobs(
-        self, status: Optional[JobStatus] = None, job_type: Optional[JobType] = None
-    ) -> List[Job]:
+        self, status: JobStatus | None = None, job_type: JobType | None = None
+    ) -> list[Job]:
         """List jobs with optional filtering."""
         jobs = list(self.jobs.values())
 
@@ -58,7 +55,7 @@ class JobsService:
         jobs.sort(key=lambda j: (-j.priority.value, j.created_at))
         return jobs
 
-    def update_job(self, job_id: str, **updates) -> Optional[Job]:
+    def update_job(self, job_id: str, **updates) -> Job | None:
         """Update job properties."""
         job = self.jobs.get(job_id)
         if not job:
@@ -88,7 +85,7 @@ class JobsService:
             return False
 
         job.status = JobStatus.RUNNING
-        job.started_at = datetime.now(timezone.utc)
+        job.started_at = datetime.now(UTC)
 
         # Start job execution (placeholder)
         asyncio.create_task(self._execute_job(job))
@@ -119,12 +116,12 @@ class JobsService:
             return False
 
         job.status = JobStatus.CANCELLED
-        job.completed_at = datetime.now(timezone.utc)
+        job.completed_at = datetime.now(UTC)
         return True
 
-    def get_next_scheduled_jobs(self, limit: int = 10) -> List[Job]:
+    def get_next_scheduled_jobs(self, limit: int = 10) -> list[Job]:
         """Get next jobs scheduled to run."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         scheduled_jobs = [
             job
             for job in self.jobs.values()
@@ -193,7 +190,7 @@ class JobsService:
 
     def _update_recurring_schedules(self):
         """Update next_run times for recurring jobs."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for job in self.jobs.values():
             if (
@@ -209,7 +206,7 @@ class JobsService:
                     job.scheduled_for = next_run
                     job.status = JobStatus.PENDING
 
-    def _calculate_next_run(self, job: Job, from_time: datetime) -> Optional[datetime]:
+    def _calculate_next_run(self, job: Job, from_time: datetime) -> datetime | None:
         """Calculate next run time for a job."""
         if not job.schedule or not job.schedule.start_time:
             return None
@@ -217,7 +214,7 @@ class JobsService:
         # Simple daily scheduling (can be enhanced for more complex patterns)
         next_date = from_time.date() + timedelta(days=1)
         next_run = datetime.combine(next_date, job.schedule.start_time)
-        next_run = next_run.replace(tzinfo=timezone.utc)
+        next_run = next_run.replace(tzinfo=UTC)
 
         # Check if this day is allowed
         if job.schedule.days_of_week:
@@ -228,7 +225,7 @@ class JobsService:
 
     def _cleanup_old_jobs(self):
         """Remove old completed jobs."""
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+        cutoff_date = datetime.now(UTC) - timedelta(days=30)
 
         jobs_to_remove = [
             job_id
@@ -267,13 +264,13 @@ class JobsService:
             # Complete the job
             if job.status == JobStatus.RUNNING:
                 job.status = JobStatus.COMPLETED
-                job.completed_at = datetime.now(timezone.utc)
+                job.completed_at = datetime.now(UTC)
                 job.last_run = job.completed_at
                 job.result_message = "Job completed successfully"
 
         except Exception as e:
             job.status = JobStatus.FAILED
-            job.completed_at = datetime.now(timezone.utc)
+            job.completed_at = datetime.now(UTC)
             job.error_message = str(e)
             job.execution_logs.append(f"Job failed: {e}")
 

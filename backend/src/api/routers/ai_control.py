@@ -17,19 +17,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ...services.ai_inference_service import (
     AIInferenceService,
     get_ai_inference_service,
-)
-from ...models.action_prediction import (
-    AIControlStatus,
-    InferenceMetrics,
-    ControlMode,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,8 +53,8 @@ class LoadModelRequest(BaseModel):
     """Request to load a new AI model."""
 
     model_path: str = Field(..., description="Path to .hef model file")
-    model_name: Optional[str] = Field(None, description="Optional model name override")
-    model_version: Optional[str] = Field(None, description="Optional version override")
+    model_name: str | None = Field(None, description="Optional model name override")
+    model_version: str | None = Field(None, description="Optional version override")
 
 
 class LoadModelResponse(BaseModel):
@@ -104,13 +99,13 @@ class StatusResponse(BaseModel):
     enabled: bool
     mode: str
     model_loaded: bool
-    last_prediction: Optional[Dict[str, Any]] = None
+    last_prediction: dict[str, Any] | None = None
     prediction_age_ms: float
     hailo_available: bool
-    hailo_temperature: Optional[float] = None
+    hailo_temperature: float | None = None
     using_hardware: bool
     safety_engaged: bool
-    safety_reason: Optional[str] = None
+    safety_reason: str | None = None
     success_rate: float
     avg_latency_ms: float
     current_fps: float
@@ -146,7 +141,8 @@ async def get_service() -> AIInferenceService:
 
 @router.post("/enable", response_model=EnableAIResponse)
 async def enable_ai_control(
-    request: EnableAIRequest, service: AIInferenceService = Depends(get_service)
+    request: EnableAIRequest,
+    service: AIInferenceService = Depends(get_service),  # noqa: B008
 ) -> EnableAIResponse:
     """Enable AI control mode.
 
@@ -176,12 +172,12 @@ async def enable_ai_control(
 
     except Exception as e:
         logger.error(f"Failed to enable AI control: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/disable", response_model=EnableAIResponse)
 async def disable_ai_control(
-    service: AIInferenceService = Depends(get_service),
+    service: AIInferenceService = Depends(get_service),  # noqa: B008
 ) -> EnableAIResponse:
     """Disable AI control mode.
 
@@ -202,11 +198,11 @@ async def disable_ai_control(
 
     except Exception as e:
         logger.error(f"Failed to disable AI control: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/status", response_model=StatusResponse)
-async def get_ai_status(service: AIInferenceService = Depends(get_service)) -> StatusResponse:
+async def get_ai_status(service: AIInferenceService = Depends(get_service)) -> StatusResponse:  # noqa: B008
     """Get current AI control status.
 
     Returns comprehensive status including model state, inference metrics,
@@ -236,12 +232,13 @@ async def get_ai_status(service: AIInferenceService = Depends(get_service)) -> S
 
     except Exception as e:
         logger.error(f"Failed to get AI status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/model", response_model=LoadModelResponse)
 async def load_model(
-    request: LoadModelRequest, service: AIInferenceService = Depends(get_service)
+    request: LoadModelRequest,
+    service: AIInferenceService = Depends(get_service),  # noqa: B008
 ) -> LoadModelResponse:
     """Load a new AI model.
 
@@ -287,11 +284,11 @@ async def load_model(
         raise
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/metrics", response_model=MetricsResponse)
-async def get_metrics(service: AIInferenceService = Depends(get_service)) -> MetricsResponse:
+async def get_metrics(service: AIInferenceService = Depends(get_service)) -> MetricsResponse:  # noqa: B008
     """Get inference performance metrics.
 
     Returns detailed statistics about inference performance including
@@ -330,11 +327,11 @@ async def get_metrics(service: AIInferenceService = Depends(get_service)) -> Met
 
     except Exception as e:
         logger.error(f"Failed to get metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/metrics/reset")
-async def reset_metrics(service: AIInferenceService = Depends(get_service)) -> Dict[str, Any]:
+async def reset_metrics(service: AIInferenceService = Depends(get_service)) -> dict[str, Any]:  # noqa: B008
     """Reset inference performance metrics.
 
     Clears all accumulated statistics and starts fresh.
@@ -349,11 +346,11 @@ async def reset_metrics(service: AIInferenceService = Depends(get_service)) -> D
 
     except Exception as e:
         logger.error(f"Failed to reset metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(service: AIInferenceService = Depends(get_service)) -> HealthResponse:
+async def health_check(service: AIInferenceService = Depends(get_service)) -> HealthResponse:  # noqa: B008
     """Health check for AI inference service.
 
     Returns service health status for monitoring.

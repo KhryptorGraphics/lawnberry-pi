@@ -3,14 +3,15 @@ OperationalData model for LawnBerry Pi v2
 Historical operational data and performance tracking
 """
 
-from datetime import datetime, timezone, timedelta
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict
 import uuid
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class OperationStatus(str, Enum):
+class OperationStatus(StrEnum):
     """Operational status types"""
 
     IDLE = "idle"
@@ -22,7 +23,7 @@ class OperationStatus(str, Enum):
     EMERGENCY_STOP = "emergency_stop"
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Types of operational events"""
 
     SYSTEM_START = "system_start"
@@ -40,7 +41,7 @@ class EventType(str, Enum):
     USER_ACTION = "user_action"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     """Event severity levels"""
 
     INFO = "info"
@@ -54,7 +55,7 @@ class OperationalEvent(BaseModel):
     """Individual operational event record"""
 
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Event classification
     event_type: EventType
@@ -62,23 +63,23 @@ class OperationalEvent(BaseModel):
 
     # Event details
     title: str
-    description: Optional[str] = None
-    source_component: Optional[str] = None
-    error_code: Optional[str] = None
+    description: str | None = None
+    source_component: str | None = None
+    error_code: str | None = None
 
     # Context data
-    system_state: Dict[str, Any] = Field(default_factory=dict)
-    sensor_readings: Dict[str, Any] = Field(default_factory=dict)
-    user_context: Dict[str, Any] = Field(default_factory=dict)
+    system_state: dict[str, Any] = Field(default_factory=dict)
+    sensor_readings: dict[str, Any] = Field(default_factory=dict)
+    user_context: dict[str, Any] = Field(default_factory=dict)
 
     # Resolution information
     resolved: bool = False
-    resolution_time: Optional[datetime] = None
-    resolution_notes: Optional[str] = None
+    resolution_time: datetime | None = None
+    resolution_notes: str | None = None
 
     # Impact assessment
     downtime_minutes: float = 0.0
-    affected_operations: List[str] = Field(default_factory=list)
+    affected_operations: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -122,15 +123,15 @@ class PerformanceMetrics(BaseModel):
     # Availability metrics
     uptime_percent: float = 0.0
     availability_percent: float = 0.0  # Uptime excluding maintenance
-    mtbf_hours: Optional[float] = None  # Mean time between failures
-    mttr_minutes: Optional[float] = None  # Mean time to repair
+    mtbf_hours: float | None = None  # Mean time between failures
+    mttr_minutes: float | None = None  # Mean time to repair
 
 
 class MaintenanceRecord(BaseModel):
     """Maintenance activity record"""
 
     maintenance_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Maintenance details
     maintenance_type: str  # "preventive", "corrective", "emergency"
@@ -138,18 +139,18 @@ class MaintenanceRecord(BaseModel):
     description: str
 
     # Work performed
-    work_performed: List[str] = Field(default_factory=list)
-    parts_replaced: List[str] = Field(default_factory=list)
-    components_serviced: List[str] = Field(default_factory=list)
+    work_performed: list[str] = Field(default_factory=list)
+    parts_replaced: list[str] = Field(default_factory=list)
+    components_serviced: list[str] = Field(default_factory=list)
 
     # Time and effort
     duration_minutes: float = 0.0
     technician: str = "system"
 
     # Results
-    issues_resolved: List[str] = Field(default_factory=list)
-    next_maintenance_due: Optional[datetime] = None
-    maintenance_notes: Optional[str] = None
+    issues_resolved: list[str] = Field(default_factory=list)
+    next_maintenance_due: datetime | None = None
+    maintenance_notes: str | None = None
 
 
 class JobExecution(BaseModel):
@@ -161,8 +162,8 @@ class JobExecution(BaseModel):
 
     # Execution timing
     scheduled_start: datetime
-    actual_start: Optional[datetime] = None
-    completion_time: Optional[datetime] = None
+    actual_start: datetime | None = None
+    completion_time: datetime | None = None
 
     # Execution status
     status: str = "scheduled"  # scheduled, running, completed, failed, aborted
@@ -175,29 +176,29 @@ class JobExecution(BaseModel):
     execution_time_minutes: float = 0.0
 
     # Quality metrics
-    coverage_quality_score: Optional[float] = None  # 0.0-1.0
-    path_efficiency_score: Optional[float] = None  # 0.0-1.0
+    coverage_quality_score: float | None = None  # 0.0-1.0
+    path_efficiency_score: float | None = None  # 0.0-1.0
     overlap_percentage: float = 0.0
 
     # Environmental conditions
-    weather_conditions: Dict[str, Any] = Field(default_factory=dict)
+    weather_conditions: dict[str, Any] = Field(default_factory=dict)
     battery_start_percent: float = 0.0
     battery_end_percent: float = 0.0
 
     # Issues and interruptions
-    interruptions: List[Dict[str, Any]] = Field(default_factory=list)
+    interruptions: list[dict[str, Any]] = Field(default_factory=list)
     error_count: int = 0
-    recovery_actions: List[str] = Field(default_factory=list)
+    recovery_actions: list[str] = Field(default_factory=list)
 
 
 class SystemHealth(BaseModel):
     """Current system health status"""
 
     health_score: float = 100.0  # 0.0-100.0
-    last_assessment: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_assessment: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Component health scores
-    component_health: Dict[str, float] = Field(default_factory=dict)
+    component_health: dict[str, float] = Field(default_factory=dict)
 
     # Health factors
     hardware_health: float = 100.0
@@ -210,12 +211,12 @@ class SystemHealth(BaseModel):
     reliability_trend: str = "stable"  # "improving", "stable", "degrading"
 
     # Predictive indicators
-    estimated_remaining_life_hours: Optional[float] = None
-    next_maintenance_recommended: Optional[datetime] = None
+    estimated_remaining_life_hours: float | None = None
+    next_maintenance_recommended: datetime | None = None
 
     # Health alerts
-    health_alerts: List[str] = Field(default_factory=list)
-    critical_issues: List[str] = Field(default_factory=list)
+    health_alerts: list[str] = Field(default_factory=list)
+    critical_issues: list[str] = Field(default_factory=list)
 
 
 class OperationalData(BaseModel):
@@ -223,28 +224,28 @@ class OperationalData(BaseModel):
 
     # Data collection metadata
     data_collection_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    collection_start: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    collection_start: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Current operational status
     current_status: OperationStatus = OperationStatus.IDLE
-    current_job_id: Optional[str] = None
-    status_since: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    current_job_id: str | None = None
+    status_since: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Event logging
-    events: List[OperationalEvent] = Field(default_factory=list)
+    events: list[OperationalEvent] = Field(default_factory=list)
     max_events: int = 10000  # Maximum events to keep in memory
 
     # Performance tracking
-    daily_metrics: List[PerformanceMetrics] = Field(default_factory=list)
-    weekly_metrics: List[PerformanceMetrics] = Field(default_factory=list)
-    monthly_metrics: List[PerformanceMetrics] = Field(default_factory=list)
+    daily_metrics: list[PerformanceMetrics] = Field(default_factory=list)
+    weekly_metrics: list[PerformanceMetrics] = Field(default_factory=list)
+    monthly_metrics: list[PerformanceMetrics] = Field(default_factory=list)
 
     # Job execution history
-    job_executions: List[JobExecution] = Field(default_factory=list)
+    job_executions: list[JobExecution] = Field(default_factory=list)
 
     # Maintenance history
-    maintenance_records: List[MaintenanceRecord] = Field(default_factory=list)
+    maintenance_records: list[MaintenanceRecord] = Field(default_factory=list)
 
     # System health
     system_health: SystemHealth = Field(default_factory=SystemHealth)
@@ -271,7 +272,7 @@ class OperationalData(BaseModel):
         if len(self.events) > self.max_events:
             self.events.pop(0)
 
-        self.last_updated = datetime.now(timezone.utc)
+        self.last_updated = datetime.now(UTC)
 
         # Update system health based on event
         if event.severity in [Severity.ERROR, Severity.CRITICAL, Severity.EMERGENCY]:
@@ -279,18 +280,18 @@ class OperationalData(BaseModel):
 
     def get_events_by_type(
         self, event_type: EventType, hours_back: int = 24
-    ) -> List[OperationalEvent]:
+    ) -> list[OperationalEvent]:
         """Get events of a specific type within time window"""
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+        cutoff_time = datetime.now(UTC) - timedelta(hours=hours_back)
         return [
             event
             for event in self.events
             if event.event_type == event_type and event.timestamp >= cutoff_time
         ]
 
-    def get_current_performance_metrics(self) -> Optional[PerformanceMetrics]:
+    def get_current_performance_metrics(self) -> PerformanceMetrics | None:
         """Get current day's performance metrics"""
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         return next(
             (metrics for metrics in self.daily_metrics if metrics.period_start.date() == today),
             None,
@@ -298,7 +299,7 @@ class OperationalData(BaseModel):
 
     def calculate_uptime_percent(self, hours_back: int = 24) -> float:
         """Calculate uptime percentage for the given period"""
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+        cutoff_time = datetime.now(UTC) - timedelta(hours=hours_back)
 
         # Count error events in the period
         error_events = [
@@ -318,7 +319,7 @@ class OperationalData(BaseModel):
 
     def get_error_rate(self, hours_back: int = 24) -> float:
         """Calculate error rate (errors per hour)"""
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+        cutoff_time = datetime.now(UTC) - timedelta(hours=hours_back)
 
         error_count = len(
             [
@@ -342,7 +343,7 @@ class OperationalData(BaseModel):
             self.total_distance_km += job_execution.distance_traveled_m / 1000.0
             self.total_area_covered_sqm += job_execution.area_completed_sqm
 
-        self.last_updated = datetime.now(timezone.utc)
+        self.last_updated = datetime.now(UTC)
 
     def add_maintenance_record(self, maintenance: MaintenanceRecord):
         """Add a maintenance record"""
@@ -353,7 +354,7 @@ class OperationalData(BaseModel):
             improvement = min(10.0, 100.0 - self.system_health.health_score)
             self.system_health.health_score += improvement
 
-        self.last_updated = datetime.now(timezone.utc)
+        self.last_updated = datetime.now(UTC)
 
     def update_status(self, new_status: OperationStatus):
         """Update operational status"""
@@ -370,11 +371,11 @@ class OperationalData(BaseModel):
             self.add_event(event)
 
             self.current_status = new_status
-            self.status_since = datetime.now(timezone.utc)
+            self.status_since = datetime.now(UTC)
 
     def cleanup_old_data(self):
         """Clean up old data based on retention policies"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Clean up old events
         event_cutoff = now - timedelta(days=self.event_retention_days)

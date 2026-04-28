@@ -7,13 +7,13 @@ to default values when configuration is missing or invalid.
 
 import json
 import logging
-import tempfile
 import shutil
+import tempfile
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Dict, Any, Optional, Union
-from datetime import datetime, timezone
-from dataclasses import dataclass, asdict
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class NetworkConfig:
 class HardwareConfig:
     """Hardware configuration and calibration."""
 
-    imu_calibration_offset: Dict[str, float] = None
+    imu_calibration_offset: dict[str, float] = None
     motor_left_max_pwm: int = 255
     motor_right_max_pwm: int = 255
     blade_motor_max_pwm: int = 255
@@ -80,7 +80,7 @@ class ConfigurationManager:
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
         self._lock = Lock()
-        self._config_cache: Dict[str, Dict[str, Any]] = {}
+        self._config_cache: dict[str, dict[str, Any]] = {}
         self._load_all_configs()
 
     def _load_all_configs(self):
@@ -100,7 +100,7 @@ class ConfigurationManager:
 
         try:
             if config_path.exists():
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     config_data = json.load(f)
                 self._config_cache[config_name] = config_data
                 logger.info(f"Loaded {config_name} configuration from {filename}")
@@ -111,12 +111,12 @@ class ConfigurationManager:
                 self._save_config_file(config_name, filename, default_config)
                 logger.info(f"Created default {config_name} configuration")
 
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.error(f"Error loading {config_name} config: {e}")
             # Fall back to defaults
             self._config_cache[config_name] = self._get_default_config(config_name)
 
-    def _get_default_config(self, config_name: str) -> Dict[str, Any]:
+    def _get_default_config(self, config_name: str) -> dict[str, Any]:
         """Get default configuration for a given config type."""
         defaults = {
             "system": asdict(SystemConfigDefaults()),
@@ -125,14 +125,14 @@ class ConfigurationManager:
         }
         return defaults.get(config_name, {})
 
-    def _save_config_file(self, config_name: str, filename: str, config_data: Dict[str, Any]):
+    def _save_config_file(self, config_name: str, filename: str, config_data: dict[str, Any]):
         """Atomically save configuration file."""
         config_path = self.config_dir / filename
 
         # Add metadata
         config_with_metadata = {
             "config": config_data,
-            "metadata": {"updated_at": datetime.now(timezone.utc).isoformat(), "version": "2.0.0"},
+            "metadata": {"updated_at": datetime.now(UTC).isoformat(), "version": "2.0.0"},
         }
 
         # Atomic write using temporary file
@@ -152,12 +152,12 @@ class ConfigurationManager:
                 temp_path.unlink()
             raise e
 
-    def get_config(self, config_name: str) -> Dict[str, Any]:
+    def get_config(self, config_name: str) -> dict[str, Any]:
         """Get configuration by name (thread-safe)."""
         with self._lock:
             return self._config_cache.get(config_name, {}).copy()
 
-    def update_config(self, config_name: str, updates: Dict[str, Any]) -> bool:
+    def update_config(self, config_name: str, updates: dict[str, Any]) -> bool:
         """Update configuration with partial updates (thread-safe)."""
         with self._lock:
             try:
@@ -193,7 +193,7 @@ class ConfigurationManager:
         }
         return filenames.get(config_name, f"{config_name}.json")
 
-    def _validate_config(self, config_name: str, config_data: Dict[str, Any]) -> bool:
+    def _validate_config(self, config_name: str, config_data: dict[str, Any]) -> bool:
         """Validate configuration data."""
         if config_name == "system":
             return self._validate_system_config(config_data)
@@ -203,7 +203,7 @@ class ConfigurationManager:
             return self._validate_hardware_config(config_data)
         return True
 
-    def _validate_system_config(self, config: Dict[str, Any]) -> bool:
+    def _validate_system_config(self, config: dict[str, Any]) -> bool:
         """Validate system configuration."""
         try:
             # Validate numeric ranges
@@ -233,7 +233,7 @@ class ConfigurationManager:
         except (TypeError, ValueError):
             return False
 
-    def _validate_network_config(self, config: Dict[str, Any]) -> bool:
+    def _validate_network_config(self, config: dict[str, Any]) -> bool:
         """Validate network configuration."""
         try:
             # Validate port ranges
@@ -254,7 +254,7 @@ class ConfigurationManager:
         except (TypeError, ValueError):
             return False
 
-    def _validate_hardware_config(self, config: Dict[str, Any]) -> bool:
+    def _validate_hardware_config(self, config: dict[str, Any]) -> bool:
         """Validate hardware configuration."""
         try:
             # Validate PWM values

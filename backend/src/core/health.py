@@ -9,7 +9,7 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,7 @@ from .tls_status import get_tls_status
 logger = logging.getLogger(__name__)
 
 
-class HealthLevel(str, Enum):
+class HealthLevel(StrEnum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     CRITICAL = "critical"

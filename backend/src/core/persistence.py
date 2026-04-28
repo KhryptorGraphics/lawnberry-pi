@@ -4,15 +4,17 @@ This module provides a lightweight persistence layer for the LawnBerry Pi v2 sys
 handling database schema creation, migrations, and basic CRUD operations for
 persistent data like job schedules, configuration, and telemetry history.
 """
+# ruff: noqa: E501
 
-import sqlite3
 import json
 import logging
-from pathlib import Path
+import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any, Generator
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -182,16 +184,16 @@ class PersistenceLayer:
             conn.close()
 
     # System Configuration
-    def save_system_config(self, config: Dict[str, Any]) -> None:
+    def save_system_config(self, config: dict[str, Any]) -> None:
         """Save system configuration to database."""
         with self.get_connection() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO system_config (id, config_json, updated_at) VALUES (1, ?, ?)",
-                (json.dumps(config), datetime.now(timezone.utc)),
+                (json.dumps(config), datetime.now(UTC)),
             )
             conn.commit()
 
-    def load_system_config(self) -> Optional[Dict[str, Any]]:
+    def load_system_config(self) -> dict[str, Any] | None:
         """Load system configuration from database."""
         with self.get_connection() as conn:
             cursor = conn.execute("SELECT config_json FROM system_config WHERE id = 1")
@@ -201,7 +203,7 @@ class PersistenceLayer:
             return None
 
     # Planning Jobs
-    def save_planning_job(self, job_data: Dict[str, Any]) -> None:
+    def save_planning_job(self, job_data: dict[str, Any]) -> None:
         """Save planning job to database."""
         with self.get_connection() as conn:
             conn.execute(
@@ -224,7 +226,7 @@ class PersistenceLayer:
             )
             conn.commit()
 
-    def load_planning_jobs(self) -> List[Dict[str, Any]]:
+    def load_planning_jobs(self) -> list[dict[str, Any]]:
         """Load all planning jobs from database."""
         with self.get_connection() as conn:
             cursor = conn.execute("SELECT * FROM planning_jobs ORDER BY created_at")
@@ -244,7 +246,7 @@ class PersistenceLayer:
             return cursor.rowcount > 0
 
     # Map Zones
-    def save_map_zones(self, zones: List[Dict[str, Any]]) -> None:
+    def save_map_zones(self, zones: list[dict[str, Any]]) -> None:
         """Save map zones to database."""
         with self.get_connection() as conn:
             # Clear existing zones
@@ -267,7 +269,7 @@ class PersistenceLayer:
                 )
             conn.commit()
 
-    def load_map_zones(self) -> List[Dict[str, Any]]:
+    def load_map_zones(self) -> list[dict[str, Any]]:
         """Load map zones from database."""
         with self.get_connection() as conn:
             cursor = conn.execute("SELECT * FROM map_zones ORDER BY priority DESC")
@@ -280,16 +282,16 @@ class PersistenceLayer:
             return zones
 
     # Telemetry History
-    def save_telemetry_snapshot(self, data: Dict[str, Any]) -> None:
+    def save_telemetry_snapshot(self, data: dict[str, Any]) -> None:
         """Save telemetry snapshot for historical analysis."""
         with self.get_connection() as conn:
             conn.execute(
                 "INSERT INTO telemetry_snapshots (timestamp, data_json) VALUES (?, ?)",
-                (datetime.now(timezone.utc), json.dumps(data)),
+                (datetime.now(UTC), json.dumps(data)),
             )
             conn.commit()
 
-    def load_telemetry_history(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def load_telemetry_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """Load recent telemetry history."""
         with self.get_connection() as conn:
             cursor = conn.execute(
@@ -307,7 +309,7 @@ class PersistenceLayer:
 
     def cleanup_old_telemetry(self, days_to_keep: int = 7) -> int:
         """Clean up old telemetry data to manage disk space."""
-        cutoff = datetime.now(timezone.utc).timestamp() - (days_to_keep * 24 * 3600)
+        cutoff = datetime.now(UTC).timestamp() - (days_to_keep * 24 * 3600)
         with self.get_connection() as conn:
             cursor = conn.execute(
                 "DELETE FROM telemetry_snapshots WHERE timestamp < datetime(?, 'unixepoch')",
@@ -325,12 +327,12 @@ class PersistenceLayer:
                 INSERT OR REPLACE INTO map_config (id, config_json, updated_at)
                 VALUES (?, ?, ?)
                 """,
-                (config_id, config_json, datetime.now(timezone.utc)),
+                (config_id, config_json, datetime.now(UTC)),
             )
             conn.commit()
             logger.info(f"Saved map configuration {config_id} to persistence")
 
-    async def load_map_configuration(self, config_id: str) -> Optional[str]:
+    async def load_map_configuration(self, config_id: str) -> str | None:
         """Load map configuration from database."""
         with self.get_connection() as conn:
             cursor = conn.execute(
@@ -347,9 +349,9 @@ class PersistenceLayer:
     def add_audit_log(
         self,
         action: str,
-        client_id: Optional[str] = None,
-        resource: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
+        client_id: str | None = None,
+        resource: str | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         with self.get_connection() as conn:
             conn.execute(
@@ -358,7 +360,7 @@ class PersistenceLayer:
             )
             conn.commit()
 
-    def load_audit_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def load_audit_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.get_connection() as conn:
             cursor = conn.execute(
                 "SELECT id, timestamp, client_id, action, resource, details_json FROM audit_logs ORDER BY id DESC LIMIT ?",
@@ -379,7 +381,7 @@ class PersistenceLayer:
             return rows
 
     # Hardware Telemetry Streams
-    def save_telemetry_streams(self, streams: List[Dict[str, Any]]) -> None:
+    def save_telemetry_streams(self, streams: list[dict[str, Any]]) -> None:
         """Save hardware telemetry streams to database."""
         with self.get_connection() as conn:
             for stream in streams:
@@ -407,10 +409,10 @@ class PersistenceLayer:
     def load_telemetry_streams(
         self,
         limit: int = 100,
-        component_id: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        component_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Load hardware telemetry streams from database with optional filters."""
         with self.get_connection() as conn:
             query = "SELECT * FROM hardware_telemetry_streams WHERE 1=1"
@@ -441,10 +443,10 @@ class PersistenceLayer:
 
     def compute_telemetry_latency_stats(
         self,
-        component_id: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        component_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
         """Compute latency statistics for telemetry streams."""
         with self.get_connection() as conn:
             query = """
@@ -503,7 +505,7 @@ class PersistenceLayer:
 
     def cleanup_old_telemetry_streams(self, days_to_keep: int = 7) -> int:
         """Clean up old telemetry stream data to manage disk space."""
-        cutoff = datetime.now(timezone.utc).timestamp() - (days_to_keep * 24 * 3600)
+        cutoff = datetime.now(UTC).timestamp() - (days_to_keep * 24 * 3600)
         with self.get_connection() as conn:
             cursor = conn.execute(
                 "DELETE FROM hardware_telemetry_streams WHERE timestamp < datetime(?, 'unixepoch')",
@@ -514,10 +516,10 @@ class PersistenceLayer:
 
     def export_telemetry_diagnostic(
         self,
-        component_id: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        component_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
         """Export telemetry diagnostic data including power metrics and status."""
         streams = self.load_telemetry_streams(
             limit=1000, component_id=component_id, start_time=start_time, end_time=end_time
@@ -528,7 +530,7 @@ class PersistenceLayer:
         )
 
         return {
-            "export_timestamp": datetime.now(timezone.utc).isoformat(),
+            "export_timestamp": datetime.now(UTC).isoformat(),
             "filters": {
                 "component_id": component_id,
                 "start_time": start_time,
@@ -545,9 +547,9 @@ class PersistenceLayer:
 
         if os.environ.get("SIM_MODE") != "1":
             return
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         rows = []
-        for i in range(count):
+        for _i in range(count):
             ts = (now).isoformat()
             rows.append(
                 {

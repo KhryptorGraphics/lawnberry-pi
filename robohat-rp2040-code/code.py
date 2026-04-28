@@ -21,14 +21,14 @@ from __future__ import annotations
 import sys
 import time
 
+import adafruit_pixelbuf
 import board
 import digitalio
-import pwmio
-import supervisor
 import microcontroller
-import rotaryio
-import adafruit_pixelbuf
 import neopixel_write
+import pwmio
+import rotaryio
+import supervisor
 from pulseio import PulseIn
 
 # ----- Watchdog enum location changed in CP 9 ----- #

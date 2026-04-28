@@ -13,22 +13,22 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
-from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
 from ..core.simulation import is_simulation_mode
+from ..drivers.ai.hailo_driver import HailoDriver
 from ..drivers.base import HardwareDriver
-from ..drivers.ai.hailo_driver import HailoDriver, HailoInferenceResult
-from ..models.mower_data_frame import MowerDataFrame
 from ..models.action_prediction import (
     ActionPrediction,
-    InferenceMetrics,
     AIControlStatus,
     ControlMode,
+    InferenceMetrics,
 )
+from ..models.mower_data_frame import MowerDataFrame
 
 
 @dataclass
@@ -56,10 +56,10 @@ class VLAModelConfig:
 
 
 # Singleton instance holder
-_service_instance: Optional["AIInferenceService"] = None
+_service_instance: AIInferenceService | None = None
 
 
-def get_ai_inference_service() -> "AIInferenceService":
+def get_ai_inference_service() -> AIInferenceService:
     """Get or create the singleton AIInferenceService instance."""
     global _service_instance
     if _service_instance is None:
@@ -97,7 +97,7 @@ class AIInferenceService(HardwareDriver):
 
     DEFAULT_MODEL_PATH = Path("/home/kp/repos/lawnberry_pi/models/lawnmower_vla.hef")
 
-    def __init__(self, config: Dict[str, Any] | None = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config)
 
         # Model configuration
@@ -108,9 +108,9 @@ class AIInferenceService(HardwareDriver):
                     setattr(self._model_config, key, value)
 
         # Hailo driver
-        self._hailo: Optional[HailoDriver] = None
+        self._hailo: HailoDriver | None = None
         self._model_loaded = False
-        self._model_path: Optional[Path] = None
+        self._model_path: Path | None = None
         self._model_name = "lawnmower_vla"
         self._model_version = "1.0.0"
 
@@ -118,7 +118,7 @@ class AIInferenceService(HardwareDriver):
         self._enabled = False
         self._control_mode = ControlMode.MANUAL
         self._frame_id = 0
-        self._last_prediction: Optional[ActionPrediction] = None
+        self._last_prediction: ActionPrediction | None = None
         self._last_prediction_time: float = 0.0
 
         # Metrics
@@ -134,7 +134,7 @@ class AIInferenceService(HardwareDriver):
 
     async def initialize(self) -> None:
         """Initialize the AI inference service."""
-        sim_mode = is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
+        is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
 
         # Initialize Hailo driver
         hailo_config = {
@@ -177,7 +177,7 @@ class AIInferenceService(HardwareDriver):
         if self._hailo:
             await self._hailo.stop()
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Return health status."""
         hailo_health = {}
         if self._hailo:
@@ -269,7 +269,7 @@ class AIInferenceService(HardwareDriver):
         if not self.initialized or not self.running:
             raise RuntimeError("Service not initialized or not running")
 
-        start_time = time.perf_counter()
+        time.perf_counter()
 
         # Preprocess inputs
         preprocess_start = time.perf_counter()
@@ -310,7 +310,7 @@ class AIInferenceService(HardwareDriver):
 
         return prediction
 
-    def _preprocess(self, frame: MowerDataFrame) -> Dict[str, np.ndarray]:
+    def _preprocess(self, frame: MowerDataFrame) -> dict[str, np.ndarray]:
         """Preprocess sensor data into model input tensors.
 
         Converts MowerDataFrame into normalized tensors suitable for
@@ -397,7 +397,7 @@ class AIInferenceService(HardwareDriver):
         return normalized
 
     def _postprocess(
-        self, outputs: Dict[str, np.ndarray], frame: MowerDataFrame
+        self, outputs: dict[str, np.ndarray], frame: MowerDataFrame
     ) -> ActionPrediction:
         """Convert model outputs to ActionPrediction.
 
@@ -463,7 +463,7 @@ class AIInferenceService(HardwareDriver):
             boundary_warning=boundary_warning,
         )
 
-    async def _simulate_vla_inference(self, frame: MowerDataFrame) -> Dict[str, Any]:
+    async def _simulate_vla_inference(self, frame: MowerDataFrame) -> dict[str, Any]:
         """Simulate VLA model inference for testing.
 
         Generates realistic-looking control predictions based on

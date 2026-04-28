@@ -5,7 +5,6 @@ from typing import Final
 
 from backend.src.models.scheduled_job import JobState, ScheduledJob
 
-
 _ALLOWED: Final[dict[JobState, set[JobState]]] = {
     JobState.IDLE: {JobState.SCHEDULED},
     JobState.SCHEDULED: {JobState.RUNNING, JobState.FAILED},
@@ -74,7 +73,7 @@ class JobStateMachine:
         current = self._as_state(self._job.state)
         if current in (JobState.COMPLETED, JobState.FAILED):
             raise ValueError(
-                f"Invalid transition: {self._state_name(current)} -> {self._state_name(JobState.FAILED)}"
+                f"Invalid transition: {self._state_name(current)} -> {self._state_name(JobState.FAILED)}"  # noqa: E501
             )
         self._job.state = JobState.FAILED
         self._job.error_message = reason

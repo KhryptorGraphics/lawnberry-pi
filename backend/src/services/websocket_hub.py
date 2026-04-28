@@ -1,30 +1,33 @@
 import asyncio
+import inspect
 import json
 import logging
+import math
 import os
 import time
-import inspect
-import math
-from datetime import datetime, timezone
-from typing import Any, Optional, Mapping
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import WebSocket
 from fastapi.encoders import jsonable_encoder
 
-from ..models.sensor_data import GpsMode
 from ..models.hardware_config import GPSType
+from ..models.sensor_data import GpsMode
 from ..services.ntrip_client import NtripForwarder
-from ..services.weather_service import weather_service
 from ..services.remote_access_service import (
     STATUS_PATH as REMOTE_ACCESS_STATUS_PATH,
+)
+from ..services.remote_access_service import (
     RemoteAccessService,
     RemoteAccessStatus,
 )
+from ..services.weather_service import weather_service
 
 # We need to import _remote_access_settings from somewhere or pass it in.
 # In rest.py it was a global. We should probably make WebSocketHub self-contained or
 # pass dependencies in `__init__` or `bind_app_state`.
-# For now, I will assume we can access it via app_state or similar, or I'll need to refactor how it's accessed.
+# For now, I will assume we can access it via app_state or similar, or I'll need to refactor how it's accessed.  # noqa: E501
 # Actually, looking at rest.py, `_remote_access_settings` is a global loaded from disk.
 # I'll duplicate the loading logic here or better, make it a property of the hub that loads it?
 # Or maybe just import the service and load it when needed.
@@ -36,7 +39,7 @@ from ..services.remote_access_service import (
 # Wait, `rest.py` uses `_safety_state` in `_generate_telemetry`.
 # If I move `_generate_telemetry` to `WebSocketHub`, I need access to `_safety_state`.
 # I should probably create a `SafetyService` or similar.
-# But to avoid over-engineering right now, I might just have to pass it in or keep it in a shared place.
+# But to avoid over-engineering right now, I might just have to pass it in or keep it in a shared place.  # noqa: E501
 # Let's look at where `_safety_state` is defined. Line 2255 in rest.py.
 # It's just a dict.
 
@@ -45,7 +48,7 @@ from ..services.remote_access_service import (
 # Let's check if there is a safety service.
 # `backend/src/safety/safety_triggers.py` exists.
 
-# Let's create `backend/src/core/globals.py` for now to hold these shared states to avoid circular imports and duplication.
+# Let's create `backend/src/core/globals.py` for now to hold these shared states to avoid circular imports and duplication.  # noqa: E501
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +58,7 @@ class WebSocketHub:
         self.clients: dict[str, WebSocket] = {}
         self.subscriptions: dict[str, set[str]] = {}  # topic -> client_ids
         self.telemetry_cadence_hz = 5.0
-        self._telemetry_task: Optional[asyncio.Task] = None
+        self._telemetry_task: asyncio.Task | None = None
         # Hardware integration
         self._sensor_manager = None  # lazy init to avoid hardware deps on CI
         self._gps_warm_done = False
@@ -160,7 +163,7 @@ class WebSocketHub:
             await self._ensure_ntrip_forwarder(gps_mode)
         if self._app_state is not None:
             try:
-                setattr(self._app_state, "sensor_manager", self._sensor_manager)
+                self._app_state.sensor_manager = self._sensor_manager
             except Exception:
                 pass
         return self._sensor_manager
@@ -212,7 +215,7 @@ class WebSocketHub:
                 {
                     "event": "connection.established",
                     "client_id": client_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
         )
@@ -236,7 +239,7 @@ class WebSocketHub:
                     {
                         "event": "subscription.confirmed",
                         "topic": topic,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
             )
@@ -252,7 +255,7 @@ class WebSocketHub:
                     {
                         "event": "unsubscription.confirmed",
                         "topic": topic,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
             )
@@ -269,7 +272,7 @@ class WebSocketHub:
                     {
                         "event": "cadence.updated",
                         "cadence_hz": cadence_hz,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
             )
@@ -282,7 +285,7 @@ class WebSocketHub:
         payload = {
             "event": "telemetry.data",
             "topic": topic,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "data": data,
         }
         message = json.dumps(jsonable_encoder(payload), default=str)
@@ -437,7 +440,7 @@ class WebSocketHub:
         if "position" in telemetry_data:
             # Ensure shallow copy to avoid mutation races
             pos = telemetry_data.get("position") or {}
-            # Merge with last known values to avoid transient None for fields (e.g., altitude/accuracy)
+            # Merge with last known values to avoid transient None for fields (e.g., altitude/accuracy)  # noqa: E501
             cached = self._last_position
 
             def _merge_field(key: str):
@@ -537,11 +540,11 @@ class WebSocketHub:
         # Additional topics (hardware when available, otherwise simulated)
         await self._broadcast_additional_topics(telemetry_data)
 
-    async def _broadcast_additional_topics(self, telemetry_data: Optional[dict] = None):
+    async def _broadcast_additional_topics(self, telemetry_data: dict | None = None):
         """Broadcast supplemental topics, preferring hardware readings when present."""
         import random
 
-        weather_data: Optional[dict[str, Any]] = None
+        weather_data: dict[str, Any] | None = None
         env = (telemetry_data or {}).get("environmental") if telemetry_data else None
 
         if isinstance(env, dict) and any(
@@ -691,7 +694,7 @@ class WebSocketHub:
             manager = None
 
         # Access shared state for safety
-        from ..core.globals import _safety_state, _debug_overrides
+        from ..core.globals import _safety_state
 
         if manager and getattr(manager, "initialized", False):
             try:
@@ -735,7 +738,7 @@ class WebSocketHub:
                         estimate = None
                     if estimate is None:
                         estimate = max(0.0, min(100.0, (batt_v - 11.0) / (13.0 - 11.0) * 100.0))
-                    # If the battery is actively charging, avoid pegging at 100% just due to surface charge
+                    # If the battery is actively charging, avoid pegging at 100% just due to surface charge  # noqa: E501
                     batt_cur = getattr(data.power, "battery_current", None)
                     if isinstance(batt_cur, (int, float)) and batt_cur > 0.05:
                         battery_pct = float(min(99.0, estimate))
@@ -824,7 +827,7 @@ class WebSocketHub:
                         telemetry["battery"].get("voltage") is None
                         and getattr(power, "battery_voltage", None) is not None
                     ):
-                        telemetry["battery"]["voltage"] = float(getattr(power, "battery_voltage"))
+                        telemetry["battery"]["voltage"] = float(power.battery_voltage)
                     # Surface a charging_state hint for the UI
                     bc = getattr(power, "battery_current", None)
                     if isinstance(bc, (int, float)):
@@ -1067,7 +1070,7 @@ class WebSocketHub:
                     "fps": 15.0,
                     "frame_count": int(time.time() * 15) % 10000,  # Simulated counter
                     "client_count": len(camera_service.clients),
-                    "last_frame": datetime.now(timezone.utc).isoformat(),
+                    "last_frame": datetime.now(UTC).isoformat(),
                 }
             else:
                 telemetry["camera"] = {

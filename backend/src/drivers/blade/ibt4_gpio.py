@@ -13,8 +13,8 @@ Hardware access is encapsulated behind a tiny adapter that can be stubbed.
 
 from __future__ import annotations
 
-from typing import Any, Optional
 import logging
+from typing import Any
 
 from ...core.simulation import is_simulation_mode
 from ..base import HardwareDriver
@@ -59,7 +59,7 @@ class IBT4BladeDriver(HardwareDriver):
     """
 
     def __init__(
-        self, config: dict[str, Any] | None = None, gpio_adapter: Optional[_GPIOAdapter] = None
+        self, config: dict[str, Any] | None = None, gpio_adapter: _GPIOAdapter | None = None
     ):
         super().__init__(config)
         pins = (config or {}).get("pins", {})

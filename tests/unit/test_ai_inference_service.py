@@ -5,37 +5,36 @@ All tests run in simulation mode without requiring hardware.
 """
 
 import os
-import asyncio
-import pytest
+from datetime import UTC, datetime
+
 import numpy as np
-from datetime import datetime, timezone
+import pytest
 
 # Force simulation mode for all tests
 os.environ["SIM_MODE"] = "1"
 
-from backend.src.services.ai_inference_service import (
-    AIInferenceService,
-    VLAModelConfig,
-    get_ai_inference_service,
-)
 from backend.src.models.action_prediction import (
-    ActionPrediction,
-    InferenceMetrics,
-    AIControlStatus,
     ActionConfidence,
+    ActionPrediction,
+    AIControlStatus,
     ControlMode,
+    InferenceMetrics,
 )
 from backend.src.models.mower_data_frame import (
-    MowerDataFrame,
+    ControlAction,
     GPSData,
     IMUData,
-    UltrasonicData,
-    ToFData,
     MotorState,
-    ControlAction,
+    MowerDataFrame,
+    MowerState,
     PowerState,
     RTKFixType,
-    MowerState,
+    ToFData,
+    UltrasonicData,
+)
+from backend.src.services.ai_inference_service import (
+    AIInferenceService,
+    get_ai_inference_service,
 )
 
 
@@ -53,7 +52,7 @@ def service():
 def sample_frame():
     """Create a sample MowerDataFrame for testing."""
     return MowerDataFrame(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         session_id="test-session-001",
         frame_id=42,
         stereo_left=np.random.randint(0, 255, (960, 1280, 3), dtype=np.uint8),
@@ -98,7 +97,7 @@ def sample_frame():
 def obstacle_frame():
     """Create a frame with a close obstacle."""
     frame = MowerDataFrame(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         session_id="test-obstacle-001",
         frame_id=100,
         stereo_left=np.zeros((960, 1280, 3), dtype=np.uint8),
@@ -336,13 +335,13 @@ class TestInferenceMetrics:
         assert metrics.success_rate == 0.0
 
         # Add successful predictions
-        for i in range(8):
+        for _i in range(8):
             pred = ActionPrediction(steering=0, throttle=0.5, blade=True, confidence=0.8)
             pred.inference_time_ms = 10.0
             metrics.update_with_prediction(pred)
 
         # Add failed predictions
-        for i in range(2):
+        for _i in range(2):
             metrics.update_with_prediction(
                 ActionPrediction(steering=0, throttle=0, blade=False, confidence=0.8), success=False
             )
@@ -376,7 +375,7 @@ class TestPreprocessing:
 
         # Frame with no images
         frame = MowerDataFrame(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             stereo_left=None,
             stereo_right=None,
             pi_camera_rgb=None,

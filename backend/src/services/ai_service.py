@@ -4,8 +4,9 @@ AI inference management with hardware acceleration support
 """
 
 import logging
-from typing import Dict, Any, Optional
-from ..models import AIProcessing, AIAccelerator, AcceleratorStatus
+from typing import Any
+
+from ..models import AcceleratorStatus, AIAccelerator, AIProcessing
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class AIService:
         self.initialized = True
         return True
 
-    async def get_ai_status(self) -> Dict[str, Any]:
+    async def get_ai_status(self) -> dict[str, Any]:
         """Get current AI processing status"""
         return {
             "system_enabled": self.ai_processing.system_enabled,

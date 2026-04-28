@@ -5,15 +5,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 __all__ = ["CryptContext"]
 
 
 class CryptContext:
-    def __init__(
-        self, schemes: Optional[Iterable[str]] = None, deprecated: str | None = None
-    ) -> None:
+    def __init__(self, schemes: Iterable[str] | None = None, deprecated: str | None = None) -> None:
         self.schemes = list(schemes or ["bcrypt"])
         self.deprecated = deprecated
         self._rounds = 390000

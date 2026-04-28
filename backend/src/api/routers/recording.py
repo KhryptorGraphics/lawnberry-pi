@@ -18,11 +18,9 @@ Endpoints:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ...services.perimeter_recorder import (
@@ -56,14 +54,14 @@ class RecordingSessionResponse(BaseModel):
     session_id: str
     name: str
     start_time: str
-    end_time: Optional[str] = None
+    end_time: str | None = None
     frame_count: int
     total_distance_m: float = 0.0
     mowing_area_m2: float = 0.0
     session_type: str
     notes: str
-    data_file: Optional[str] = None
-    video_file: Optional[str] = None
+    data_file: str | None = None
+    video_file: str | None = None
 
 
 class RecordingStatusResponse(BaseModel):
@@ -71,8 +69,8 @@ class RecordingStatusResponse(BaseModel):
 
     state: str = Field(..., description="Current state: idle, recording, paused, stopping")
     recording: bool
-    session_id: Optional[str] = None
-    session_name: Optional[str] = None
+    session_id: str | None = None
+    session_name: str | None = None
     frame_count: int = 0
     target_fps: float = 10.0
     avg_capture_time_ms: float = 0.0
@@ -85,7 +83,7 @@ class RecordingStatusResponse(BaseModel):
 class SessionListResponse(BaseModel):
     """Response containing list of sessions."""
 
-    sessions: List[Dict[str, Any]]
+    sessions: list[dict[str, Any]]
     total_count: int
 
 
@@ -95,7 +93,7 @@ class HealthResponse(BaseModel):
     service: str
     initialized: bool
     state: str
-    details: Dict[str, Any]
+    details: dict[str, Any]
 
 
 # ----------------------- API Endpoints -----------------------
@@ -104,7 +102,7 @@ class HealthResponse(BaseModel):
 @router.post("/start", response_model=RecordingSessionResponse)
 async def start_recording(
     request: StartRecordingRequest,
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
 ) -> RecordingSessionResponse:
     """Start a new recording session.
 
@@ -141,15 +139,15 @@ async def start_recording(
         )
 
     except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to start recording: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to start recording: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start recording: {e}") from e
 
 
 @router.post("/stop", response_model=RecordingSessionResponse)
 async def stop_recording(
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
 ) -> RecordingSessionResponse:
     """Stop the current recording session.
 
@@ -181,16 +179,16 @@ async def stop_recording(
         )
 
     except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to stop recording: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to stop recording: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to stop recording: {e}") from e
 
 
 @router.post("/pause")
 async def pause_recording(
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
-) -> Dict[str, str]:
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
+) -> dict[str, str]:
     """Pause the current recording session.
 
     Temporarily stops frame capture without finalizing the session.
@@ -208,16 +206,16 @@ async def pause_recording(
         return {"status": "paused", "message": "Recording paused successfully"}
 
     except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to pause recording: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to pause recording: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to pause recording: {e}") from e
 
 
 @router.post("/resume")
 async def resume_recording(
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
-) -> Dict[str, str]:
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
+) -> dict[str, str]:
     """Resume a paused recording session.
 
     Continues frame capture from where it was paused.
@@ -234,15 +232,15 @@ async def resume_recording(
         return {"status": "recording", "message": "Recording resumed successfully"}
 
     except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to resume recording: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to resume recording: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to resume recording: {e}") from e
 
 
 @router.get("/status", response_model=RecordingStatusResponse)
 async def get_recording_status(
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
 ) -> RecordingStatusResponse:
     """Get current recording status.
 
@@ -273,7 +271,7 @@ async def get_recording_status(
 async def list_sessions(
     limit: int = Query(50, ge=1, le=200, description="Maximum sessions to return"),
     offset: int = Query(0, ge=0, description="Number of sessions to skip"),
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
 ) -> SessionListResponse:
     """List all recorded sessions.
 
@@ -303,8 +301,8 @@ async def list_sessions(
 async def get_session(
     session_id: str,
     include_frames: bool = Query(False, description="Include frame data (large)"),
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
-) -> Dict[str, Any]:
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
+) -> dict[str, Any]:
     """Get a specific recording session.
 
     Returns detailed session information including optionally the
@@ -338,8 +336,8 @@ async def get_session(
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: str,
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
-) -> Dict[str, str]:
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
+) -> dict[str, str]:
     """Delete a recording session.
 
     Permanently removes the session data file from disk.
@@ -364,7 +362,7 @@ async def delete_session(
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check(
-    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),
+    recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
 ) -> HealthResponse:
     """Get recording service health status.
 

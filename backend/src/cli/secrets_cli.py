@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 
 from ..core.secrets_manager import SecretsManager
 
@@ -21,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     p_rotate.add_argument("key")
     p_rotate.add_argument("value")
 
-    p_validate = sub.add_parser("validate", help="Validate required secrets are present")
+    sub.add_parser("validate", help="Validate required secrets are present")
 
     args = parser.parse_args(argv)
     sm = SecretsManager()

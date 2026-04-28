@@ -3,14 +3,15 @@ CameraStream model for LawnBerry Pi v2
 Camera frame data and streaming metadata
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict, PrivateAttr
 import base64
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 
-class CameraMode(str, Enum):
+class CameraMode(StrEnum):
     """Camera operation modes"""
 
     STREAMING = "streaming"  # Continuous streaming
@@ -20,7 +21,7 @@ class CameraMode(str, Enum):
     ERROR = "error"  # Camera error state
 
 
-class FrameFormat(str, Enum):
+class FrameFormat(StrEnum):
     """Frame data formats"""
 
     JPEG = "jpeg"
@@ -30,7 +31,7 @@ class FrameFormat(str, Enum):
     H264 = "h264"  # For video streams
 
 
-class StreamQuality(str, Enum):
+class StreamQuality(StrEnum):
     """Stream quality presets"""
 
     LOW = "low"  # 320x240 @ 15fps
@@ -45,7 +46,7 @@ class CameraCapabilities(BaseModel):
     max_resolution_width: int = 1920
     max_resolution_height: int = 1080
     max_framerate: float = 30.0
-    supported_formats: List[FrameFormat] = Field(
+    supported_formats: list[FrameFormat] = Field(
         default_factory=lambda: [FrameFormat.JPEG, FrameFormat.PNG, FrameFormat.RGB]
     )
     has_autofocus: bool = False
@@ -57,7 +58,7 @@ class FrameMetadata(BaseModel):
     """Individual frame metadata"""
 
     frame_id: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     sequence_number: int = 0
 
     # Frame properties
@@ -67,34 +68,34 @@ class FrameMetadata(BaseModel):
     size_bytes: int = 0
 
     # Camera settings at capture
-    exposure_time: Optional[float] = None  # microseconds
-    iso: Optional[int] = None
-    brightness: Optional[float] = None  # -1.0 to 1.0
-    contrast: Optional[float] = None  # -1.0 to 1.0
-    saturation: Optional[float] = None  # -1.0 to 1.0
+    exposure_time: float | None = None  # microseconds
+    iso: int | None = None
+    brightness: float | None = None  # -1.0 to 1.0
+    contrast: float | None = None  # -1.0 to 1.0
+    saturation: float | None = None  # -1.0 to 1.0
 
     # Quality metrics
-    sharpness_score: Optional[float] = None  # 0.0 to 1.0
-    noise_level: Optional[float] = None  # 0.0 to 1.0
-    motion_blur: Optional[float] = None  # 0.0 to 1.0
+    sharpness_score: float | None = None  # 0.0 to 1.0
+    noise_level: float | None = None  # 0.0 to 1.0
+    motion_blur: float | None = None  # 0.0 to 1.0
 
 
 class CameraFrame(BaseModel):
     """Single camera frame with data"""
 
     metadata: FrameMetadata
-    data: Optional[str] = None  # Base64 encoded frame data
+    data: str | None = None  # Base64 encoded frame data
 
     # Processing flags
     processed_for_ai: bool = False
-    ai_annotations: List[Dict[str, Any]] = Field(default_factory=list)
+    ai_annotations: list[dict[str, Any]] = Field(default_factory=list)
 
     # Storage information
     stored_to_disk: bool = False
-    file_path: Optional[str] = None
-    checksum: Optional[str] = None
+    file_path: str | None = None
+    checksum: str | None = None
 
-    _raw_cache: Optional[bytes] = PrivateAttr(default=None)
+    _raw_cache: bytes | None = PrivateAttr(default=None)
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def set_frame_data(self, frame_bytes: bytes):
@@ -103,7 +104,7 @@ class CameraFrame(BaseModel):
         self.data = base64.b64encode(frame_bytes).decode("utf-8")
         self.metadata.size_bytes = len(frame_bytes)
 
-    def get_frame_data(self) -> Optional[bytes]:
+    def get_frame_data(self) -> bytes | None:
         """Get frame data as raw bytes"""
         if self._raw_cache is not None:
             return self._raw_cache
@@ -145,7 +146,7 @@ class StreamStatistics(BaseModel):
     transmission_errors: int = 0
     buffer_overruns: int = 0
 
-    last_reset: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_reset: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class CameraConfiguration(BaseModel):
@@ -212,14 +213,14 @@ class CameraStream(BaseModel):
     # Current status
     mode: CameraMode = CameraMode.OFFLINE
     is_active: bool = False
-    last_frame_time: Optional[datetime] = None
+    last_frame_time: datetime | None = None
 
     # Configuration and capabilities
     configuration: CameraConfiguration = Field(default_factory=CameraConfiguration)
     capabilities: CameraCapabilities = Field(default_factory=CameraCapabilities)
 
     # Current frame and statistics
-    current_frame: Optional[CameraFrame] = None
+    current_frame: CameraFrame | None = None
     statistics: StreamStatistics = Field(default_factory=StreamStatistics)
 
     # IPC and service information
@@ -233,12 +234,12 @@ class CameraStream(BaseModel):
     ai_processing_enabled: bool = True
 
     # Error handling
-    error_message: Optional[str] = None
+    error_message: str | None = None
     error_count: int = 0
-    last_error_time: Optional[datetime] = None
+    last_error_time: datetime | None = None
     restart_count: int = 0
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -290,7 +291,7 @@ class CameraStream(BaseModel):
 
         # Check if we've received frames recently
         if self.last_frame_time:
-            time_since_frame = datetime.now(timezone.utc) - self.last_frame_time
+            time_since_frame = datetime.now(UTC) - self.last_frame_time
             if time_since_frame.total_seconds() > 10.0:  # No frame in 10 seconds
                 return False
 

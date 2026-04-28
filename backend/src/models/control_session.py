@@ -3,13 +3,14 @@ ControlSession model for LawnBerry Pi v2
 Auditable record of manual control interactions and safety interlocks
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class ControlCommandType(str, Enum):
+class ControlCommandType(StrEnum):
     """Control command types"""
 
     DRIVE = "drive"
@@ -19,7 +20,7 @@ class ControlCommandType(str, Enum):
     EMERGENCY_CLEAR = "emergency_clear"
 
 
-class ControlCommandResult(str, Enum):
+class ControlCommandResult(StrEnum):
     """Control command execution result"""
 
     ACCEPTED = "accepted"
@@ -28,7 +29,7 @@ class ControlCommandResult(str, Enum):
     PENDING = "pending"
 
 
-class EmergencyStatus(str, Enum):
+class EmergencyStatus(StrEnum):
     """Emergency stop status"""
 
     CLEAR = "clear"
@@ -36,7 +37,7 @@ class EmergencyStatus(str, Enum):
     PENDING_CLEAR = "pending_clear"
 
 
-class SafetyInterlock(str, Enum):
+class SafetyInterlock(StrEnum):
     """Safety interlock types"""
 
     BLADE_REQUIRES_STOPPED_MOTORS = "blade_requires_stopped_motors"
@@ -53,30 +54,30 @@ class ControlCommand(BaseModel):
     command_type: ControlCommandType
 
     # Command payload (varies by type)
-    throttle: Optional[float] = Field(None, ge=-1.0, le=1.0)  # For drive commands
-    turn: Optional[float] = Field(None, ge=-1.0, le=1.0)  # For drive commands
-    blade_enabled: Optional[bool] = None  # For blade commands
-    mode_target: Optional[str] = None  # For mode toggles
-    reason: Optional[str] = None  # For emergency commands
-    confirmation_token: Optional[str] = None  # For emergency clear
+    throttle: float | None = Field(None, ge=-1.0, le=1.0)  # For drive commands
+    turn: float | None = Field(None, ge=-1.0, le=1.0)  # For drive commands
+    blade_enabled: bool | None = None  # For blade commands
+    mode_target: str | None = None  # For mode toggles
+    reason: str | None = None  # For emergency commands
+    confirmation_token: str | None = None  # For emergency clear
 
     # Execution details
     result: ControlCommandResult = ControlCommandResult.PENDING
-    status_reason: Optional[str] = None
-    latency_ms: Optional[float] = None
+    status_reason: str | None = None
+    latency_ms: float | None = None
 
     # Safety checks
-    safety_checks_passed: List[str] = Field(default_factory=list)
-    safety_interlocks_active: List[SafetyInterlock] = Field(default_factory=list)
+    safety_checks_passed: list[str] = Field(default_factory=list)
+    safety_interlocks_active: list[SafetyInterlock] = Field(default_factory=list)
 
     # Watchdog acknowledgement
-    watchdog_echo: Optional[str] = None  # RoboHAT watchdog response
-    watchdog_latency_ms: Optional[float] = None
+    watchdog_echo: str | None = None  # RoboHAT watchdog response
+    watchdog_latency_ms: float | None = None
 
     # Timestamps
-    issued_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    executed_at: Optional[datetime] = None
-    acknowledged_at: Optional[datetime] = None
+    issued_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    executed_at: datetime | None = None
+    acknowledged_at: datetime | None = None
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -99,20 +100,20 @@ class ControlAuditEntry(BaseModel):
 
     # Result and state
     result: ControlCommandResult
-    status_reason: Optional[str] = None
+    status_reason: str | None = None
 
     # Telemetry snapshot reference
-    telemetry_snapshot_id: Optional[str] = None
+    telemetry_snapshot_id: str | None = None
 
     # Settings changes (if command modified configuration)
-    settings_changed: Dict[str, Any] = Field(default_factory=dict)
+    settings_changed: dict[str, Any] = Field(default_factory=dict)
 
     # Remediation guidance
-    documentation_link: Optional[str] = None  # Link to troubleshooting docs
-    remediation_steps: List[str] = Field(default_factory=list)
+    documentation_link: str | None = None  # Link to troubleshooting docs
+    remediation_steps: list[str] = Field(default_factory=list)
 
     # Timestamps
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -123,28 +124,28 @@ class EmergencyState(BaseModel):
     status: EmergencyStatus = EmergencyStatus.CLEAR
 
     # Emergency details
-    triggered_at: Optional[datetime] = None
-    trigger_reason: Optional[str] = None
-    trigger_source: Optional[str] = None  # "manual", "watchdog", "safety_sensor"
+    triggered_at: datetime | None = None
+    trigger_reason: str | None = None
+    trigger_source: str | None = None  # "manual", "watchdog", "safety_sensor"
 
     # Clear operation
-    cleared_at: Optional[datetime] = None
-    cleared_by: Optional[str] = None
-    clear_confirmation_token: Optional[str] = None
+    cleared_at: datetime | None = None
+    cleared_by: str | None = None
+    clear_confirmation_token: str | None = None
     clear_requires_confirmation: bool = True
 
     # Active interlocks
-    active_interlocks: List[SafetyInterlock] = Field(default_factory=list)
+    active_interlocks: list[SafetyInterlock] = Field(default_factory=list)
 
     # Audit trail
-    audit_entries: List[str] = Field(default_factory=list)  # References to audit IDs
+    audit_entries: list[str] = Field(default_factory=list)  # References to audit IDs
 
     model_config = ConfigDict(use_enum_values=True)
 
     def trigger_emergency(self, reason: str, source: str = "manual"):
         """Trigger emergency stop"""
         self.status = EmergencyStatus.ACTIVE
-        self.triggered_at = datetime.now(timezone.utc)
+        self.triggered_at = datetime.now(UTC)
         self.trigger_reason = reason
         self.trigger_source = source
 
@@ -160,13 +161,13 @@ class EmergencyState(BaseModel):
 
         if not self.clear_requires_confirmation:
             self.status = EmergencyStatus.CLEAR
-            self.cleared_at = datetime.now(timezone.utc)
+            self.cleared_at = datetime.now(UTC)
             self.cleared_by = operator_id
             return True
 
         if confirmation_token == self.clear_confirmation_token:
             self.status = EmergencyStatus.CLEAR
-            self.cleared_at = datetime.now(timezone.utc)
+            self.cleared_at = datetime.now(UTC)
             self.cleared_by = operator_id
             self.clear_confirmation_token = None
             return True
@@ -199,7 +200,7 @@ class ControlSession(BaseModel):
     emergency_state: EmergencyState = Field(default_factory=EmergencyState)
 
     # Audit trail
-    audit_entries: List[ControlAuditEntry] = Field(default_factory=list)
+    audit_entries: list[ControlAuditEntry] = Field(default_factory=list)
 
     # Statistics
     commands_issued: int = 0
@@ -208,9 +209,9 @@ class ControlSession(BaseModel):
     average_latency_ms: float = 0.0
 
     # Timestamps
-    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    ended_at: Optional[datetime] = None
-    last_command_at: Optional[datetime] = None
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    ended_at: datetime | None = None
+    last_command_at: datetime | None = None
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -236,7 +237,7 @@ class ControlSession(BaseModel):
 
         self.audit_entries.append(audit_entry)
         self.commands_issued += 1
-        self.last_command_at = datetime.now(timezone.utc)
+        self.last_command_at = datetime.now(UTC)
 
         if command.result == ControlCommandResult.ACCEPTED:
             self.commands_accepted += 1
@@ -253,4 +254,4 @@ class ControlSession(BaseModel):
     def end_session(self):
         """End the control session"""
         self.active = False
-        self.ended_at = datetime.now(timezone.utc)
+        self.ended_at = datetime.now(UTC)

@@ -1,20 +1,21 @@
 import asyncio
-from typing import Dict, List
-from ..models.mission import Mission, MissionWaypoint, MissionStatus
-from ..models import NavigationMode
-from ..services.navigation_service import NavigationService
-from fastapi import Depends
 import datetime
+
+from fastapi import Depends
+
+from ..models import NavigationMode
+from ..models.mission import Mission, MissionStatus, MissionWaypoint
+from ..services.navigation_service import NavigationService
 
 
 class MissionService:
     def __init__(self, navigation_service: NavigationService):
         self.nav_service = navigation_service
-        self.missions: Dict[str, Mission] = {}
-        self.mission_statuses: Dict[str, MissionStatus] = {}
-        self.mission_tasks: Dict[str, asyncio.Task] = {}
+        self.missions: dict[str, Mission] = {}
+        self.mission_statuses: dict[str, MissionStatus] = {}
+        self.mission_tasks: dict[str, asyncio.Task] = {}
 
-    async def create_mission(self, name: str, waypoints: List[MissionWaypoint]) -> Mission:
+    async def create_mission(self, name: str, waypoints: list[MissionWaypoint]) -> Mission:
         # Your geofence validation logic here
         # For example:
         # if not self.nav_service.are_waypoints_in_geofence(waypoints):
@@ -23,7 +24,7 @@ class MissionService:
         mission = Mission(
             name=name,
             waypoints=waypoints,
-            created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            created_at=datetime.datetime.now(datetime.UTC).isoformat(),
         )
         self.missions[mission.id] = mission
         self.mission_statuses[mission.id] = MissionStatus(mission_id=mission.id, status="idle")
@@ -93,7 +94,7 @@ class MissionService:
     async def abort_mission(self, mission_id: str):
         if mission_id not in self.mission_statuses:
             raise ValueError("Mission not found.")
-        self.mission_statuses[mid].status = "aborted"
+        self.mission_statuses[mission_id].status = "aborted"
         if mission_id in self.mission_tasks:
             self.mission_tasks[mission_id].cancel()
             del self.mission_tasks[mission_id]
@@ -117,7 +118,7 @@ class MissionService:
 
         return status
 
-    async def list_missions(self) -> List[Mission]:
+    async def list_missions(self) -> list[Mission]:
         return list(self.missions.values())
 
 
@@ -126,7 +127,7 @@ _mission_service_instance = None
 
 
 def get_mission_service(
-    nav_service: NavigationService = Depends(NavigationService.get_instance),
+    nav_service: NavigationService = Depends(NavigationService.get_instance),  # noqa: B008
 ) -> "MissionService":
     global _mission_service_instance
     if _mission_service_instance is None:

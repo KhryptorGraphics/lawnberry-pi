@@ -6,12 +6,12 @@ services are unavailable.
 """
 
 import datetime as dt
-from typing import Any, Tuple
+from typing import Any
 
 from fastapi import APIRouter, Request
 
-from ..models.operational_data import OperationalData
 from ..models import SensorData
+from ..models.operational_data import OperationalData
 from ..services.sensor_manager import SensorManager  # type: ignore
 
 router = APIRouter()
@@ -23,7 +23,7 @@ def _now_iso() -> str:
 
 async def _ensure_sensor_snapshot(
     request: Request,
-) -> Tuple[SensorManager | None, SensorData | None]:
+) -> tuple[SensorManager | None, SensorData | None]:
     """Return an initialized SensorManager and its latest SensorData snapshot."""
     sensor_manager: SensorManager | None = None
 

@@ -1,3 +1,5 @@
+import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -6,36 +8,35 @@ from .api.dashboard import router as dashboard_router
 from .api.fusion import router as fusion_router
 from .api.health import router as health_router
 from .api.metrics import router as metrics_router
+from .api.mission import router as mission_router
 from .api.motors import router as motors_router
 from .api.navigation import router as navigation_router
-from .api.rest import router as rest_router, legacy_router as rest_legacy_router
-from .services.websocket_hub import websocket_hub
+from .api.rest import legacy_router as rest_legacy_router
+from .api.rest import router as rest_router
+from .api.rest_v1 import router as rest_v1_router
+from .api.routers import ai_control as ai_control_router
 from .api.routers import auth as auth_router
-from .api.routers import telemetry as telemetry_router
-from .api.routers import sensors as sensors_router
 from .api.routers import maintenance as maintenance_router
 from .api.routers import recording as recording_router
-from .api.routers import ai_control as ai_control_router
-from .api.rest_v1 import router as rest_v1_router
+from .api.routers import sensors as sensors_router
+from .api.routers import telemetry as telemetry_router
 from .api.safety import router as safety_router
 from .api.status import router as status_router
-from .api.mission import router as mission_router
 from .core.config_loader import ConfigLoader
-from .nav.gps_degradation import GPSDegradationMonitor
-from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
-from .services.camera_stream_service import camera_service
-from .middleware.correlation import register_correlation_middleware
-from .middleware.security import register_security_middleware
-from .middleware.rate_limiting import register_global_rate_limiter
-from .middleware.input_validation import register_input_validation_middleware
-from .middleware.sanitization import register_sanitization_middleware
-from .middleware.api_key_auth import register_api_key_auth_middleware
 from .core.env_validation import validate_environment
-from .safety.safety_validator import validate_on_start
+from .middleware.api_key_auth import register_api_key_auth_middleware
+from .middleware.correlation import register_correlation_middleware
+from .middleware.input_validation import register_input_validation_middleware
+from .middleware.rate_limiting import register_global_rate_limiter
+from .middleware.sanitization import register_sanitization_middleware
+from .middleware.security import register_security_middleware
+from .nav.gps_degradation import GPSDegradationMonitor
 from .safety.safety_monitor import get_safety_monitor
 from .safety.safety_triggers import set_safety_event_handler
-import os
-import logging
+from .safety.safety_validator import validate_on_start
+from .services.camera_stream_service import camera_service
+from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
+from .services.websocket_hub import websocket_hub
 
 # Load .env early so secrets like NTRIP_* are available under systemd
 try:
@@ -61,7 +62,7 @@ async def lifespan(app: FastAPI):
     app.state.safety_limits = safety_limits
     websocket_hub.bind_app_state(app.state)
 
-    # Small boot hook: ensure dual VL53L0X are addressed uniquely via XSHUT (left 0x29, right default 0x30)
+    # Small boot hook: ensure dual VL53L0X are addressed uniquely via XSHUT (left 0x29, right default 0x30)  # noqa: E501
     try:
         if os.getenv("SIM_MODE", "0") == "0":
             tc = getattr(hardware_cfg, "tof_config", None)
@@ -72,7 +73,9 @@ async def lifespan(app: FastAPI):
             ):
                 try:
                     # Lazy import to keep CI SIM-safe
-                    from .drivers.sensors.vl53l0x_driver import ensure_pair_addressing  # type: ignore
+                    from .drivers.sensors.vl53l0x_driver import (
+                        ensure_pair_addressing,  # type: ignore
+                    )
 
                     right_addr = getattr(tc, "right_address", 0x30) or 0x30
                     ok = await ensure_pair_addressing(
@@ -163,7 +166,7 @@ try:
 except Exception:
     _log.exception("Environment validation crashed")
 
-# Middleware order: global limit -> input validation -> security -> API key -> correlation -> sanitization
+# Middleware order: global limit -> input validation -> security -> API key -> correlation -> sanitization  # noqa: E501
 register_global_rate_limiter(app)
 register_input_validation_middleware(app)
 register_security_middleware(app)

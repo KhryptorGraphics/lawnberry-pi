@@ -8,14 +8,14 @@ by downstream contracts. This model is intended for REST/WS serialization.
 from __future__ import annotations
 
 import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
 from .safety_interlock import SafetyInterlock
 
 
-class NavigationMode(str, Enum):
+class NavigationMode(StrEnum):
     IDLE = "IDLE"
     MANUAL = "MANUAL"
     AUTONOMOUS = "AUTONOMOUS"

@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,8 +19,8 @@ try:  # Lazy import for CI safety
 except Exception:  # pragma: no cover - serial not required in SIM
     serial = None  # type: ignore
 
-from ..base import HardwareDriver
 from ...core.simulation import is_simulation_mode
+from ..base import HardwareDriver
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "lawnberry-pi"
 version = "0.1.0"
 description = "LawnBerry Pi v2 Unified System"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 
 dependencies = [
     "fastapi>=0.115.0",
@@ -75,7 +75,9 @@ ignore = []
 ]
 
 [tool.uv]
-# Primary index remains PyPI; add piwheels as extra index to prefer ARM64 wheels on Raspberry Pi.
-# uv will honor the lockfile (uv.lock) when using `uv sync --frozen`.
+# Primary index remains PyPI for portable Linux aarch64 lock resolution.
 index-url = "https://pypi.org/simple"
-extra-index-url = ["https://www.piwheels.org/simple"]
+# Ensure lock resolution includes 64-bit Raspberry Pi OS/Linux aarch64 wheels.
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]

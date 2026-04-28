@@ -15,8 +15,9 @@ Notes:
 - Keep independent from existing Waypoint model to avoid breaking existing APIs.
 """
 
-from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from datetime import datetime  # noqa: E402
+
+from pydantic import BaseModel, Field, field_validator  # noqa: E402
 
 
 class NavigationWaypoint(BaseModel):

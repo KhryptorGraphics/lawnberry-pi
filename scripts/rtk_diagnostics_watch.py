@@ -3,7 +3,7 @@
 Poll the LawnBerry RTK diagnostics endpoint and print live NTRIP/GPS status.
 
 Usage:
-  python scripts/rtk_diagnostics_watch.py [--url http://127.0.0.1:8000] [--seconds 30] [--interval 2]
+  python scripts/rtk_diagnostics_watch.py [--url URL] [--seconds 30] [--interval 2]
 
 Shows whether NTRIP is connected, bytes forwarded and rate, and current GPS RTK status.
 """
@@ -14,12 +14,12 @@ import argparse
 import json
 import sys
 import time
-import urllib.request
 import urllib.error
-from typing import Any, Dict
+import urllib.request
+from typing import Any
 
 
-def fetch(url: str) -> Dict[str, Any] | None:
+def fetch(url: str) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
             if resp.status != 200:
@@ -55,7 +55,7 @@ def main() -> int:
             continue
         ntrip = payload.get("ntrip", {}) if isinstance(payload, dict) else {}
         gps = payload.get("gps", {}) if isinstance(payload, dict) else {}
-        hw = payload.get("hardware", {}) if isinstance(payload, dict) else {}
+        payload.get("hardware", {}) if isinstance(payload, dict) else {}
 
         connected = ntrip.get("connected")
         total = ntrip.get("total_bytes_forwarded")
@@ -87,7 +87,7 @@ def main() -> int:
             f"hdop={hdop}",
             f"sats={sats}",
             f"gps_mode={gps.get('mode')}",
-            f"nmea_gga={'yes' if isinstance(gps.get('nmea'), dict) and 'GGA' in gps['nmea'] else 'no'}",
+            f"nmea_gga={'yes' if isinstance(gps.get('nmea'), dict) and 'GGA' in gps['nmea'] else 'no'}",  # noqa: E501
         ]
         print("[RTK] ", "; ".join(str(s) for s in status))
         time.sleep(max(0.25, args.interval))

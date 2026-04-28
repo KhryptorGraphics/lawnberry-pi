@@ -19,32 +19,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from ..models.mower_data_frame import (
-    MowerDataFrame,
-    RecordingSession,
-    MowerState,
+    HAS_MSGPACK,
     ActionSource,
+    ControlAction,
     GPSData,
     IMUData,
-    UltrasonicData,
-    ToFData,
     MotorState,
-    ControlAction,
+    MowerDataFrame,
+    MowerState,
     PowerState,
+    RecordingSession,
     RTKFixType,
-    HAS_MSGPACK,
+    ToFData,
+    UltrasonicData,
 )
-from ..models import SensorStatus, GpsMode
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +103,7 @@ class PerimeterRecordingService:
         sensor_manager: Any = None,
         robohat_service: Any = None,
         camera_service: Any = None,
-        config: Optional[RecordingConfig] = None,
+        config: RecordingConfig | None = None,
     ):
         """Initialize the recording service.
 
@@ -121,12 +120,12 @@ class PerimeterRecordingService:
 
         # Session state
         self._state = RecordingState.IDLE
-        self._current_session: Optional[RecordingSession] = None
-        self._session_frames: List[MowerDataFrame] = []
+        self._current_session: RecordingSession | None = None
+        self._session_frames: list[MowerDataFrame] = []
         self._frame_counter = 0
 
         # Recording task
-        self._recording_task: Optional[asyncio.Task] = None
+        self._recording_task: asyncio.Task | None = None
         self._capture_interval = 1.0 / self.config.target_fps
 
         # Statistics
@@ -136,7 +135,7 @@ class PerimeterRecordingService:
         self._avg_capture_time_ms = 0.0
 
         # Callbacks for real-time streaming
-        self._frame_callbacks: List[Callable[[MowerDataFrame], None]] = []
+        self._frame_callbacks: list[Callable[[MowerDataFrame], None]] = []
 
         # Initialize storage
         self.config.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -196,7 +195,7 @@ class PerimeterRecordingService:
 
         # Create session
         session_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
         self._current_session = RecordingSession(
             session_id=session_id,
@@ -245,7 +244,7 @@ class PerimeterRecordingService:
 
         # Finalize session
         if self._current_session:
-            self._current_session.end_time = datetime.now(timezone.utc)
+            self._current_session.end_time = datetime.now(UTC)
             self._current_session.frame_count = len(self._session_frames)
 
             # Calculate total distance from GPS points
@@ -273,7 +272,7 @@ class PerimeterRecordingService:
 
         self._state = RecordingState.PAUSED
         logger.info(
-            f"Paused recording: {self._current_session.name if self._current_session else 'unknown'}"
+            f"Paused recording: {self._current_session.name if self._current_session else 'unknown'}"  # noqa: E501
         )
 
     async def resume_recording(self) -> None:
@@ -283,7 +282,7 @@ class PerimeterRecordingService:
 
         self._state = RecordingState.RECORDING
         logger.info(
-            f"Resumed recording: {self._current_session.name if self._current_session else 'unknown'}"
+            f"Resumed recording: {self._current_session.name if self._current_session else 'unknown'}"  # noqa: E501
         )
 
     async def _recording_loop(self) -> None:
@@ -329,7 +328,7 @@ class PerimeterRecordingService:
             self._avg_capture_time_ms = self._avg_capture_time_ms * 0.9 + capture_time * 1000 * 0.1
             self._last_frame_time = time.time()
 
-    async def _capture_frame(self) -> Optional[MowerDataFrame]:
+    async def _capture_frame(self) -> MowerDataFrame | None:
         """Capture a single multi-modal data frame."""
         frame_start = time.perf_counter()
 
@@ -360,7 +359,7 @@ class PerimeterRecordingService:
             await asyncio.gather(*tasks, return_exceptions=True)
 
         # Update capture timing
-        capture_ms = (time.perf_counter() - frame_start) * 1000
+        (time.perf_counter() - frame_start) * 1000
 
         return frame
 
@@ -535,7 +534,7 @@ class PerimeterRecordingService:
 
         return RTKFixType.NONE
 
-    def _estimate_soc(self, voltage: Optional[float]) -> float:
+    def _estimate_soc(self, voltage: float | None) -> float:
         """Estimate battery state of charge from voltage."""
         if voltage is None:
             return 0.0
@@ -554,7 +553,7 @@ class PerimeterRecordingService:
             return 0.0
 
         try:
-            from math import radians, sin, cos, sqrt, atan2
+            from math import atan2, cos, radians, sin, sqrt
 
             total_distance = 0.0
             prev_lat, prev_lon = None, None
@@ -621,7 +620,7 @@ class PerimeterRecordingService:
         except Exception as e:
             logger.error(f"Failed to save session: {e}")
 
-    def list_sessions(self) -> List[Dict[str, Any]]:
+    def list_sessions(self) -> list[dict[str, Any]]:
         """List all recorded sessions."""
         sessions = []
 
@@ -640,7 +639,7 @@ class PerimeterRecordingService:
             try:
                 import json
 
-                with open(file_path, "r") as f:
+                with open(file_path) as f:
                     data = json.load(f)
                     sessions.append(data.get("session", {}))
             except Exception as e:
@@ -648,7 +647,7 @@ class PerimeterRecordingService:
 
         return sorted(sessions, key=lambda s: s.get("start_time", ""), reverse=True)
 
-    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
         """Get a specific session by ID."""
         # Check MessagePack first
         msgpack_path = self.config.storage_dir / f"{session_id}.msgpack"
@@ -663,7 +662,7 @@ class PerimeterRecordingService:
         if json_path.exists():
             import json
 
-            with open(json_path, "r") as f:
+            with open(json_path) as f:
                 return json.load(f)
 
         return None
@@ -696,7 +695,7 @@ class PerimeterRecordingService:
         return self._state
 
     @property
-    def current_session(self) -> Optional[RecordingSession]:
+    def current_session(self) -> RecordingSession | None:
         """Current recording session if active."""
         return self._current_session
 
@@ -705,7 +704,7 @@ class PerimeterRecordingService:
         """Number of frames in current session."""
         return len(self._session_frames)
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Return health status for /health endpoint."""
         return {
             "service": "perimeter_recorder",
@@ -724,7 +723,7 @@ class PerimeterRecordingService:
 
 
 # Singleton instance management
-_recorder_instance: Optional[PerimeterRecordingService] = None
+_recorder_instance: PerimeterRecordingService | None = None
 
 
 def get_perimeter_recorder() -> PerimeterRecordingService:

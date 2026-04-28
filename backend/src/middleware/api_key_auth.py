@@ -14,7 +14,7 @@ The feature is off by default to avoid breaking user-facing flows.
 from __future__ import annotations
 
 import os
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -24,9 +24,7 @@ from ..core.secrets_manager import SecretsManager
 
 
 class APIKeyAuthMiddleware(BaseHTTPMiddleware):
-    def __init__(
-        self, app: FastAPI, *, prefixes: Iterable[str], secret: Optional[str] = None
-    ) -> None:
+    def __init__(self, app: FastAPI, *, prefixes: Iterable[str], secret: str | None = None) -> None:
         super().__init__(app)
         self._prefixes = tuple(p.strip() for p in prefixes if p.strip())
         self._secret = secret
@@ -49,7 +47,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         return await call_next(request)
 
-    def _extract_key(self, request: Request) -> Optional[str]:
+    def _extract_key(self, request: Request) -> str | None:
         key = request.headers.get("X-API-Key")
         if key:
             return key.strip()
@@ -63,7 +61,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             return False
         # simple constant-time compare
         result = 0
-        for x, y in zip(a.encode(), b.encode()):
+        for x, y in zip(a.encode(), b.encode(), strict=False):
             result |= x ^ y
         return result == 0
 

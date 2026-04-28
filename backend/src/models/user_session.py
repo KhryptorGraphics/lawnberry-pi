@@ -3,15 +3,17 @@ UserSession model for LawnBerry Pi v2
 Web interface connections and user management
 """
 
-from datetime import datetime, timezone, timedelta
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict
 import uuid
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
 from ..models.auth_security_config import SecurityLevel
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(StrEnum):
     """User session status"""
 
     ACTIVE = "active"
@@ -21,7 +23,7 @@ class SessionStatus(str, Enum):
     LOCKED = "locked"
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     """User role levels"""
 
     VIEWER = "viewer"  # Read-only access
@@ -30,7 +32,7 @@ class UserRole(str, Enum):
     SYSTEM = "system"  # System-level access
 
 
-class AuthenticationMethod(str, Enum):
+class AuthenticationMethod(StrEnum):
     """Authentication methods"""
 
     SHARED_CREDENTIAL = "shared_credential"  # Single operator credential
@@ -38,7 +40,7 @@ class AuthenticationMethod(str, Enum):
     API_KEY = "api_key"  # API key authentication
 
 
-class ConnectionType(str, Enum):
+class ConnectionType(StrEnum):
     """Connection types"""
 
     WEB_BROWSER = "web_browser"
@@ -48,7 +50,7 @@ class ConnectionType(str, Enum):
     SYSTEM_SERVICE = "system_service"
 
 
-class Permission(str, Enum):
+class Permission(StrEnum):
     """System permissions"""
 
     VIEW_STATUS = "view_status"
@@ -69,25 +71,25 @@ class SessionActivity(BaseModel):
     """Individual session activity record"""
 
     activity_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Activity details
     action: str  # "login", "page_view", "api_call", "control_command", etc.
-    resource: Optional[str] = None  # Resource accessed
-    method: Optional[str] = None  # HTTP method or action type
+    resource: str | None = None  # Resource accessed
+    method: str | None = None  # HTTP method or action type
 
     # Request details
-    user_agent: Optional[str] = None
-    ip_address: Optional[str] = None
-    referrer: Optional[str] = None
+    user_agent: str | None = None
+    ip_address: str | None = None
+    referrer: str | None = None
 
     # Response details
-    status_code: Optional[int] = None
-    response_time_ms: Optional[float] = None
-    error_message: Optional[str] = None
+    status_code: int | None = None
+    response_time_ms: float | None = None
+    error_message: str | None = None
 
     # Additional context
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class UserPreferences(BaseModel):
@@ -100,8 +102,8 @@ class UserPreferences(BaseModel):
 
     # Dashboard customization
     dashboard_layout: str = "default"
-    visible_widgets: List[str] = Field(default_factory=list)
-    widget_positions: Dict[str, Dict[str, int]] = Field(default_factory=dict)
+    visible_widgets: list[str] = Field(default_factory=list)
+    widget_positions: dict[str, dict[str, int]] = Field(default_factory=dict)
 
     # Telemetry preferences
     telemetry_cadence_hz: float = 5.0
@@ -131,12 +133,12 @@ class SecurityContext(BaseModel):
 
     # Authentication details
     authentication_method: AuthenticationMethod = AuthenticationMethod.SHARED_CREDENTIAL
-    credential_hash: Optional[str] = None  # Hashed credential
-    token_expires_at: Optional[datetime] = None
+    credential_hash: str | None = None  # Hashed credential
+    token_expires_at: datetime | None = None
 
     # Access control
     role: UserRole = UserRole.OPERATOR
-    permissions: List[Permission] = Field(default_factory=list)
+    permissions: list[Permission] = Field(default_factory=list)
 
     # Security flags
     mfa_required: bool = False
@@ -151,8 +153,8 @@ class SecurityContext(BaseModel):
     max_login_attempts: int = 5
 
     # Audit trail
-    last_password_change: Optional[datetime] = None
-    failed_login_attempts: List[datetime] = Field(default_factory=list)
+    last_password_change: datetime | None = None
+    failed_login_attempts: list[datetime] = Field(default_factory=list)
 
     def has_permission(self, permission: Permission) -> bool:
         """Check if user has specific permission"""
@@ -171,25 +173,25 @@ class WebSocketConnection(BaseModel):
     """WebSocket connection details"""
 
     connection_id: str
-    connected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    connected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Connection details
     protocol: str = "websocket"
     endpoint: str = "/ws/telemetry"
 
     # Subscription information
-    subscribed_topics: List[str] = Field(default_factory=list)
+    subscribed_topics: list[str] = Field(default_factory=list)
     message_count_sent: int = 0
     message_count_received: int = 0
 
     # Health monitoring
-    last_ping: Optional[datetime] = None
-    last_pong: Optional[datetime] = None
+    last_ping: datetime | None = None
+    last_pong: datetime | None = None
     ping_interval_seconds: int = 30
 
     # Error tracking
     connection_errors: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
 
 
 class UserSession(BaseModel):
@@ -202,37 +204,35 @@ class UserSession(BaseModel):
     username: str = "operator"
 
     # Session timing
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_activity: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    expires_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc) + timedelta(hours=8)
-    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_activity: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(UTC) + timedelta(hours=8))
 
     # Session status
     status: SessionStatus = SessionStatus.ACTIVE
 
     # Connection information
     connection_type: ConnectionType = ConnectionType.WEB_BROWSER
-    client_ip: Optional[str] = None
-    user_agent: Optional[str] = None
+    client_ip: str | None = None
+    user_agent: str | None = None
 
     # WebSocket connections
-    websocket_connections: List[WebSocketConnection] = Field(default_factory=list)
+    websocket_connections: list[WebSocketConnection] = Field(default_factory=list)
 
     # Security and permissions
     security_context: SecurityContext = Field(default_factory=SecurityContext)
     # Compatibility flags/metadata used by auth tests
-    security_level: Optional[SecurityLevel] = None
+    security_level: SecurityLevel | None = None
     mfa_verified: bool = False
     backup_code_used: bool = False
-    oauth_provider: Optional[str] = None
+    oauth_provider: str | None = None
     tunnel_authenticated: bool = False
 
     # User preferences
     preferences: UserPreferences = Field(default_factory=UserPreferences)
 
     # Activity tracking
-    activity_log: List[SessionActivity] = Field(default_factory=list)
+    activity_log: list[SessionActivity] = Field(default_factory=list)
     max_activity_log_size: int = 1000
 
     # Session statistics
@@ -245,18 +245,18 @@ class UserSession(BaseModel):
     idle_timeout_minutes: int = 30
     warning_before_timeout_minutes: int = 5
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(use_enum_values=True)
 
     def is_expired(self) -> bool:
         """Check if session is expired"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return now >= self.expires_at
 
     def is_idle(self) -> bool:
         """Check if session is idle"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         idle_threshold = self.last_activity + timedelta(minutes=self.idle_timeout_minutes)
         return now >= idle_threshold
 
@@ -271,7 +271,7 @@ class UserSession(BaseModel):
             self.activity_log.pop(0)
 
         # Update session timing
-        self.last_activity = datetime.now(timezone.utc)
+        self.last_activity = datetime.now(UTC)
 
         # Update statistics
         if action == "page_view":
@@ -283,8 +283,8 @@ class UserSession(BaseModel):
 
     def extend_session(self, hours: int = 8):
         """Extend session expiration"""
-        self.expires_at = datetime.now(timezone.utc) + timedelta(hours=hours)
-        self.last_activity = datetime.now(timezone.utc)
+        self.expires_at = datetime.now(UTC) + timedelta(hours=hours)
+        self.last_activity = datetime.now(UTC)
 
     def add_websocket_connection(self, connection_id: str, endpoint: str = "/ws/telemetry"):
         """Add WebSocket connection"""
@@ -297,7 +297,7 @@ class UserSession(BaseModel):
             conn for conn in self.websocket_connections if conn.connection_id != connection_id
         ]
 
-    def get_websocket_connection(self, connection_id: str) -> Optional[WebSocketConnection]:
+    def get_websocket_connection(self, connection_id: str) -> WebSocketConnection | None:
         """Get WebSocket connection by ID"""
         return next(
             (conn for conn in self.websocket_connections if conn.connection_id == connection_id),

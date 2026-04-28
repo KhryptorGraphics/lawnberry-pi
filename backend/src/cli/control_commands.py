@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Optional
 
 try:
     import typer  # type: ignore
@@ -20,7 +19,7 @@ async def _get_client(base_url: str, app=None):
 
 
 async def drive(
-    throttle: float, turn: float, duration_ms: int = 500, app=None, base_url: Optional[str] = None
+    throttle: float, turn: float, duration_ms: int = 500, app=None, base_url: str | None = None
 ):
     base_url = base_url or os.getenv("LAWNBERRY_API_URL", "http://localhost:8000")
     payload = {
@@ -33,7 +32,7 @@ async def drive(
         return {"status_code": r.status_code, "body": r.json() if r.text else {}}
 
 
-async def blade(active: bool, app=None, base_url: Optional[str] = None):
+async def blade(active: bool, app=None, base_url: str | None = None):
     base_url = base_url or os.getenv("LAWNBERRY_API_URL", "http://localhost:8000")
     # Legacy-friendly payload to accommodate current endpoint behavior
     payload = {"active": bool(active)}
@@ -42,7 +41,7 @@ async def blade(active: bool, app=None, base_url: Optional[str] = None):
         return {"status_code": r.status_code, "body": r.json() if r.text else {}}
 
 
-async def emergency_stop(app=None, base_url: Optional[str] = None):
+async def emergency_stop(app=None, base_url: str | None = None):
     base_url = base_url or os.getenv("LAWNBERRY_API_URL", "http://localhost:8000")
     async with await _get_client(base_url, app) as client:
         r = await client.post("/api/v2/control/emergency-stop")

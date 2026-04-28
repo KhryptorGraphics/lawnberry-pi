@@ -16,10 +16,11 @@ import json
 import logging
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
 import serial
 
@@ -38,20 +39,20 @@ class RoboHATStatus:
     firmware_version: str = "unknown"
     uptime_seconds: int = 0
     watchdog_active: bool = False
-    last_watchdog_echo: Optional[str] = None
+    last_watchdog_echo: str | None = None
     watchdog_latency_ms: float = 0.0
     serial_connected: bool = False
     error_count: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
     motor_controller_ok: bool = False
     encoder_feedback_ok: bool = False
     timestamp: datetime = None
 
     def __post_init__(self):
         if self.timestamp is None:
-            self.timestamp = datetime.now(timezone.utc)
+            self.timestamp = datetime.now(UTC)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses"""
         return {
             "firmware_version": self.firmware_version,
@@ -85,15 +86,15 @@ class RoboHATService:
     def __init__(self, serial_port: str = "/dev/ttyACM0", baud_rate: int = 115200):
         self.serial_port = serial_port
         self.baud_rate = baud_rate
-        self.serial_conn: Optional[serial.Serial] = None
+        self.serial_conn: serial.Serial | None = None
         self.status = RoboHATStatus()
         self.running = False
-        self.watchdog_task: Optional[asyncio.Task] = None
-        self.read_task: Optional[asyncio.Task] = None
+        self.watchdog_task: asyncio.Task | None = None
+        self.read_task: asyncio.Task | None = None
         self._serial_lock = asyncio.Lock()
         self._rc_enabled = True
         self._usb_control_requested = False
-        self._pending_rc_state: Optional[bool] = None
+        self._pending_rc_state: bool | None = None
         self._pending_rc_since: float = 0.0
         self._last_status_at: float = 0.0
         # Track last PWM sent so we can refresh it to avoid firmware USB timeout
@@ -154,7 +155,7 @@ class RoboHATService:
                 await asyncio.to_thread(self.serial_conn.flush)
             return True
         except Exception as exc:  # pragma: no cover - hardware error path
-            logger.error(f"Failed to send RoboHAT command line '%s': %s", line, exc)
+            logger.error("Failed to send RoboHAT command line '%s': %s", line, exc)
             self.status.error_count += 1
             self.status.last_error = str(exc)
             return False
@@ -474,7 +475,7 @@ class RoboHATService:
 
     def get_status(self) -> RoboHATStatus:
         """Get current RoboHAT status"""
-        self.status.timestamp = datetime.now(timezone.utc)
+        self.status.timestamp = datetime.now(UTC)
         return self.status
 
     @staticmethod
@@ -534,10 +535,10 @@ class RoboHATService:
 
 
 # Global RoboHAT service instance
-robohat_service: Optional[RoboHATService] = None
+robohat_service: RoboHATService | None = None
 
 
-def get_robohat_service() -> Optional[RoboHATService]:
+def get_robohat_service() -> RoboHATService | None:
     """Get global RoboHAT service instance"""
     return robohat_service
 
@@ -575,7 +576,7 @@ def _settings_profile_paths() -> Iterable[Path]:
     yield project_base / "settings.json"
 
 
-def _read_profile_robohat_port() -> Optional[str]:
+def _read_profile_robohat_port() -> str | None:
     """Extract RoboHAT serial port override from persisted settings if present."""
 
     for path in _settings_profile_paths():
@@ -634,13 +635,13 @@ def _list_ports_candidates() -> list[str]:
     return matches
 
 
-def _candidate_serial_ports(explicit: Optional[str] = None) -> list[str]:
+def _candidate_serial_ports(explicit: str | None = None) -> list[str]:
     """Build an ordered list of serial ports to try for RoboHAT."""
 
     seen: set[str] = set()
     ordered: list[str] = []
 
-    def add(port: Optional[str], *, require_exists: bool = False) -> None:
+    def add(port: str | None, *, require_exists: bool = False) -> None:
         if port is None:
             return
         value = str(port).strip()
@@ -676,7 +677,7 @@ def _candidate_serial_ports(explicit: Optional[str] = None) -> list[str]:
 
 
 async def initialize_robohat_service(
-    serial_port: Optional[str] = None, baud_rate: int = 115200
+    serial_port: str | None = None, baud_rate: int = 115200
 ) -> bool:
     """Initialize global RoboHAT service, probing common serial ports when needed."""
     global robohat_service
@@ -700,7 +701,7 @@ async def initialize_robohat_service(
     if not candidates:
         candidates = [serial_port or "/dev/ttyACM0"]
 
-    last_attempt: Optional[RoboHATService] = None
+    last_attempt: RoboHATService | None = None
     for candidate in candidates:
         svc = RoboHATService(candidate, baud_rate)
         ok = await svc.initialize()

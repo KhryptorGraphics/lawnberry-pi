@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from datetime import UTC, datetime
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class MotorMode(str, Enum):
+class MotorMode(StrEnum):
     STOP = "stop"
     ARCADE = "arcade"  # throttle + turn
     TANK = "tank"  # left + right independent
@@ -17,27 +17,27 @@ class MotorCommand(BaseModel):
     mode: MotorMode = MotorMode.STOP
 
     # Arcade mode (most common)
-    throttle: Optional[float] = None  # -1.0 to 1.0 (reverse to forward)
-    turn: Optional[float] = None  # -1.0 to 1.0 (left to right)
+    throttle: float | None = None  # -1.0 to 1.0 (reverse to forward)
+    turn: float | None = None  # -1.0 to 1.0 (left to right)
 
     # Tank mode
-    left_track: Optional[float] = None  # -1.0 to 1.0
-    right_track: Optional[float] = None  # -1.0 to 1.0
+    left_track: float | None = None  # -1.0 to 1.0
+    right_track: float | None = None  # -1.0 to 1.0
 
     # Direct motor control (advanced)
-    left_motor_speed: Optional[float] = None  # -1.0 to 1.0
-    right_motor_speed: Optional[float] = None  # -1.0 to 1.0
+    left_motor_speed: float | None = None  # -1.0 to 1.0
+    right_motor_speed: float | None = None  # -1.0 to 1.0
 
     # Safety limits
     max_speed_limit: float = 1.0  # 0.0 to 1.0
 
     # Blade control
     blade_active: bool = False
-    blade_height_mm: Optional[int] = None
+    blade_height_mm: int | None = None
 
     # Command metadata
-    command_id: Optional[str] = None
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    command_id: str | None = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_validator(
         "throttle", "turn", "left_track", "right_track", "left_motor_speed", "right_motor_speed"

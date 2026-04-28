@@ -8,14 +8,13 @@ on all responses as a backstop.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterable, Set
+from typing import Any
 
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
-
-SENSITIVE_KEYS: Set[str] = {
+SENSITIVE_KEYS: set[str] = {
     "password",
     "pass",
     "secret",
