@@ -365,15 +365,25 @@ class AIInferenceService(HardwareDriver):
         return inputs
 
     def _preprocess_image(self, image: np.ndarray, target_size: tuple) -> np.ndarray:
-        """Resize and normalize a single image."""
-        import cv2
+        """Resize and normalize a single image.
 
-        # Resize
+        Uses OpenCV when available; falls back to PIL for simulation environments.
+        """
         h, w = target_size
-        resized = cv2.resize(image, (w, h))
 
-        # Convert BGR to RGB
-        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        try:
+            import cv2
+
+            resized = cv2.resize(image, (w, h))
+            # Convert BGR to RGB
+            rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        except ImportError:
+            from PIL import Image
+
+            # PIL expects HWC uint8 — image is already in that format
+            pil_img = Image.fromarray(image)
+            pil_img = pil_img.resize((w, h), Image.BILINEAR)
+            rgb = np.array(pil_img, dtype=np.float32) / 255.0
 
         # Normalize to [0, 1]
         normalized = rgb.astype(np.float32) / 255.0
