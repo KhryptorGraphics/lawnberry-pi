@@ -12,12 +12,12 @@ This document provides a complete matrix of hardware components, their capabilit
 
 ## Core Processing Platform
 
-### Raspberry Pi 4 Model B Configuration
+### Raspberry Pi 5 Configuration
 
 | Component | Specification | Status | Notes |
 |-----------|---------------|--------|-------|
-| **CPU** | ARM Cortex-A72 Quad-core 1.5GHz | ✅ Implemented | Sufficient for all processing needs |
-| **RAM** | 8GB LPDDR4 | ✅ Implemented | Supports advanced computer vision |
+| **CPU** | ARM Cortex-A76 Quad-core 2.4GHz | ✅ Implemented | Sufficient for all processing needs |
+| **RAM** | 8GB LPDDR4X | ✅ Implemented | Supports advanced computer vision |
 | **Storage** | MicroSD 64GB+ Class 10 | ✅ Implemented | High-speed card recommended |
 | **GPIO** | 40-pin header | ✅ Fully Utilized | Pin mapping 100% compliant |
 | **Camera Interface** | CSI connector | ✅ Implemented | 1920x1080@30fps capability |
@@ -78,8 +78,9 @@ This document provides a complete matrix of hardware components, their capabilit
 |-------------|-------|-----------|-------|--------|----------|
 | **ToF Left** | VL53L0X | I2C (0x29) | 30-2000mm | ✅ Implemented | Left side obstacles |
 | **ToF Right** | VL53L0X | I2C (0x30) | 30-2000mm | ✅ Implemented | Right side obstacles |
-| **Camera Vision** | Pi Camera v2 | CSI | Visual range | ✅ Implemented | Object recognition |
-| **Ultrasonic** | — | — | — | ❌ Not in Baseline | Removed (use ToF sensors) |
+| **Mono Vision** | Raspberry Pi Camera 2 | CSI | Visual range | ✅ Implemented | RGB scene capture |
+| **Stereo Vision** | ELP-USB960P2CAM-V90 | USB | Visual range with depth cues | ✅ Implemented | Stereo depth and recording |
+| **Ultrasonic** | Planned side sensors | GPIO/I2C TBD | Near-field deck clearance | ⚠️ Planned | Deck-overhang obstacle detection |
 
 **Sensor Fusion Matrix:**
 - ✅ Multi-sensor obstacle detection
@@ -105,10 +106,10 @@ This document provides a complete matrix of hardware components, their capabilit
 
 | Component | Specification | Status | Capabilities |
 |-----------|---------------|--------|--------------|
-| **Camera Module** | Pi Camera v2 8MP | ✅ Implemented | 1920x1080@30fps |
-| **Lens** | Fixed focus | ✅ Standard | 62.2° field of view |
-| **Night Vision** | Optional IR camera | ⚠️ Optional | Low-light operation |
-| **Pan/Tilt** | Optional servo mount | ⚠️ Optional | 360° coverage |
+| **Mono Camera** | Raspberry Pi Camera 2 8MP | ✅ Implemented | RGB capture and operator video |
+| **Stereo Camera** | ELP-USB960P2CAM-V90 | ✅ Implemented | Left/right synchronized capture |
+| **Lens** | Fixed focus | ✅ Standard | Baseline field of view |
+| **Night Vision / Pan-Tilt** | Not in baseline | ❌ Not in Baseline | Future work only if spec changes |
 
 **Vision Processing Capabilities:**
 - ✅ Real-time object detection
@@ -121,7 +122,8 @@ This document provides a complete matrix of hardware components, their capabilit
 
 | Component | Model | Interface | Status | Performance Gain |
 |-----------|-------|-----------|--------|------------------|
-| **Google Coral TPU** | USB Accelerator | USB 3.0 | ❌ Not Implemented | 10-100x AI speedup |
+| **Hailo-8L** | M.2 AI accelerator | PCIe/M.2 | ⚠️ Optional Baseline | Edge inference target |
+| **Google Coral TPU** | USB Accelerator | USB 3.0 | ⚠️ Optional Baseline | Alternate edge acceleration |
 | **Neural Compute Stick** | Intel Movidius | USB 3.0 | ❌ Not in Baseline | Not supported |
 | **Jetson Nano** | NVIDIA | GPIO/USB | ❌ Not in Baseline | Not supported |
 
@@ -284,7 +286,7 @@ This document provides a complete matrix of hardware components, their capabilit
 
 | System | Components | Status | Capability Level |
 |--------|------------|--------|------------------|
-| **Processing** | Pi 4B 8GB | ✅ Complete | Professional |
+| **Processing** | Pi 5 8GB | ✅ Complete | Professional |
 | **Navigation** | RTK GPS + IMU | ✅ Complete | Sub-centimeter |
 | **Sensors** | ToF + Camera + Environmental | ✅ Complete | Comprehensive |
 | **Power** | 30Ah LiFePO4 + 30W Solar | ✅ Complete | Full-day operation |
@@ -305,7 +307,7 @@ This document provides a complete matrix of hardware components, their capabilit
 
 | System | Reduced Components | Impact | Cost Savings |
 |--------|-------------------|--------|--------------|
-| **Processing** | Pi 4B 8GB | Moderate | 20% reduction |
+| **Processing** | Pi 5 8GB | Moderate | 20% reduction |
 | **GPS** | Standard GPS (no RTK) | Reduced accuracy | 40% GPS cost |
 | **Sensors** | Single ToF sensor | Reduced safety | 30% sensor cost |
 | **Power** | Smaller battery/panel | Shorter operation | 25% power cost |
@@ -540,7 +542,7 @@ This document provides a complete matrix of hardware components, their capabilit
 
 | Requirement | Implementation | Status | Validation Method |
 |-------------|----------------|--------|-------------------|
-| **Latency Targets** | ≤250ms (Pi 5), ≤350ms (Pi 4B) | ✅ Enforced | Performance tests |
+| **Latency Targets** | ≤250ms | ✅ Enforced | Performance tests |
 | **Audit Logging** | All state changes logged | ✅ Implemented | Audit trail verification |
 | **Remediation Links** | All errors include docs links | ✅ Implemented | Error response inspection |
 | **Branding Validation** | Checksum verification | ✅ Implemented | Settings validation |

@@ -408,7 +408,7 @@ class PerimeterRecordingService:
                     battery_voltage=power.battery_voltage or 0.0,
                     battery_current=power.battery_current or 0.0,
                     battery_soc=self._estimate_soc(power.battery_voltage) if power.battery_voltage else 0.0,
-                    charging=False,  # TODO: Get from power service
+                    charging=False,  # TODO(v3): wire charging state from power service — Issue #N
                 )
 
         except Exception as e:

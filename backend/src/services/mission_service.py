@@ -42,19 +42,19 @@ class MissionService:
         task.add_done_callback(self._mission_completed_callback(mission_id))
 
     def _mission_completed_callback(self, mission_id: str):
-        def callback(task: asyncio.Task):
+        def callback(task: asyncio.Task, mid=mission_id):
             try:
                 task.result()
-                if self.mission_statuses[mission_id].status == "running":
-                    self.mission_statuses[mission_id].status = "completed"
-                    self.mission_statuses[mission_id].completion_percentage = 100
+                if self.mission_statuses[mid].status == "running":
+                    self.mission_statuses[mid].status = "completed"
+                    self.mission_statuses[mid].completion_percentage = 100
             except asyncio.CancelledError:
-                self.mission_statuses[mission_id].status = "aborted"
+                self.mission_statuses[mid].status = "aborted"
             except Exception as e:
-                self.mission_statuses[mission_id].status = "failed"
-                print(f"Mission {mission_id} failed: {e}")
+                self.mission_statuses[mid].status = "failed"
+                print(f"Mission {mid} failed: {e}")
             finally:
-                del self.mission_tasks[mission_id]
+                del self.mission_tasks[mid]
         return callback
 
 
@@ -86,7 +86,7 @@ class MissionService:
     async def abort_mission(self, mission_id: str):
         if mission_id not in self.mission_statuses:
             raise ValueError("Mission not found.")
-        self.mission_statuses[mission_id].status = "aborted"
+        self.mission_statuses[mid].status = "aborted"
         if mission_id in self.mission_tasks:
             self.mission_tasks[mission_id].cancel()
             del self.mission_tasks[mission_id]

@@ -22,7 +22,6 @@ jobs:
           grep -qi "MDDRC10" "$f"
           grep -qi "RoboHAT" "$f"
           grep -qi "Pi Camera v2" "$f"
-          grep -qi "coral" "$f"
           grep -qi "Hailo" "$f"
 
       - name: Ensure bench-only ethernet note exists

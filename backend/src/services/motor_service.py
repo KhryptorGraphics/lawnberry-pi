@@ -58,6 +58,7 @@ class RoboHATCytronController:
     
     async def read_encoder_feedback(self) -> Optional[EncoderFeedback]:
         """Read encoder feedback from RoboHAT"""
+        # STUB: hardcoded placeholder — not connected to real hardware
         if not self.initialized:
             return None
         
@@ -121,6 +122,7 @@ class L298NController:
     
     async def send_drive_command(self, command: DriveCommand) -> bool:
         """Send drive command to L298N"""
+        # STUB: hardcoded placeholder — not connected to real hardware
         if not self.initialized:
             return False
         

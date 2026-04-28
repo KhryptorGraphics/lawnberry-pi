@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable, Optional
 
 from ..core.observability import observability
-from ..api.rest import websocket_hub
+from ..services.websocket_hub import websocket_hub
 from ..models.safety_interlock import SafetyInterlock, InterlockState
 
 
