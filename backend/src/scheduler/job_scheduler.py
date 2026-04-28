@@ -74,7 +74,9 @@ class JobScheduler:
     """
 
     def __init__(self, tick_interval: float = 0.5):
-        self._jobs: Dict[str, tuple[ScheduledJob, Callback, Optional[_EverySpec], Optional[str]]] = {}
+        self._jobs: Dict[
+            str, tuple[ScheduledJob, Callback, Optional[_EverySpec], Optional[str]]
+        ] = {}
         self._task: Optional[asyncio.Task] = None
         self._running = asyncio.Event()
         self._tick_interval = max(0.05, float(tick_interval))

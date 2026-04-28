@@ -5,6 +5,7 @@ orientations the BNO085 expects during its calibration sequence. The routine
 is safe to call in SIM_MODE (returns a simulated success) and guards against
 concurrent executions so operators cannot stack conflicting calibration runs.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -68,7 +69,11 @@ class IMUCalibrationService:
             }
 
         robohat = get_robohat_service()
-        if robohat is None or not robohat.running or not getattr(robohat.status, "serial_connected", False):
+        if (
+            robohat is None
+            or not robohat.running
+            or not getattr(robohat.status, "serial_connected", False)
+        ):
             raise DriveControllerUnavailableError("RoboHAT drive controller is offline")
 
         from .sensor_manager import SensorManager  # local import to avoid circular deps
@@ -168,7 +173,9 @@ class IMUCalibrationService:
             "steps": step_results,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "started_at": start_ts.isoformat(),
-            "notes": None if final_score >= 2 else "Continue moving mower gently until status improves.",
+            "notes": None
+            if final_score >= 2
+            else "Continue moving mower gently until status improves.",
         }
         return result
 

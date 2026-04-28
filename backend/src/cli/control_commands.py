@@ -12,13 +12,16 @@ except Exception:
 
 async def _get_client(base_url: str, app=None):
     import httpx
+
     if app is not None:
         transport = httpx.ASGITransport(app=app)
         return httpx.AsyncClient(transport=transport, base_url=base_url)
     return httpx.AsyncClient(base_url=base_url)
 
 
-async def drive(throttle: float, turn: float, duration_ms: int = 500, app=None, base_url: Optional[str] = None):
+async def drive(
+    throttle: float, turn: float, duration_ms: int = 500, app=None, base_url: Optional[str] = None
+):
     base_url = base_url or os.getenv("LAWNBERRY_API_URL", "http://localhost:8000")
     payload = {
         "session_id": "cli",
@@ -60,6 +63,7 @@ def main():  # pragma: no cover - runtime CLI
         base_url: str = typer.Option("http://localhost:8000", help="API base URL"),
     ):
         from backend.src.main import app as fastapi_app
+
         res = asyncio.run(drive(throttle, turn, duration_ms, app=fastapi_app, base_url=base_url))
         print(res)
 
@@ -69,6 +73,7 @@ def main():  # pragma: no cover - runtime CLI
         base_url: str = typer.Option("http://localhost:8000", help="API base URL"),
     ):
         from backend.src.main import app as fastapi_app
+
         res = asyncio.run(blade(active, app=fastapi_app, base_url=base_url))
         print(res)
 
@@ -77,6 +82,7 @@ def main():  # pragma: no cover - runtime CLI
         base_url: str = typer.Option("http://localhost:8000", help="API base URL"),
     ):
         from backend.src.main import app as fastapi_app
+
         res = asyncio.run(emergency_stop(app=fastapi_app, base_url=base_url))
         print(res)
 

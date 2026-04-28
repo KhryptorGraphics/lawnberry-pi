@@ -1,4 +1,5 @@
 """Health evaluation helpers for LawnBerry Pi backend."""
+
 from __future__ import annotations
 
 import asyncio
@@ -82,14 +83,10 @@ class HealthService:
     def evaluate(self) -> dict[str, Any]:
         now = datetime.now(UTC)
 
-        observability.update_error_metrics_for_testing(
-            window_seconds=self.error_window_seconds
-        )
+        observability.update_error_metrics_for_testing(window_seconds=self.error_window_seconds)
 
         rates, counts = observability.calculate_error_rates(self.error_window_seconds)
-        recent_errors = observability.get_recent_errors(
-            within_seconds=self.error_window_seconds
-        )
+        recent_errors = observability.get_recent_errors(within_seconds=self.error_window_seconds)
         alerts = observability.get_recent_events(
             event_type="alert", within_seconds=self.error_window_seconds, limit=5
         )
@@ -533,21 +530,15 @@ class HealthService:
     ) -> dict[str, Any]:
         subsystems: dict[str, Any] = {}
 
-        subsystems["api"] = self._status_from_errors(
-            "http_request", rates, counts, recent_errors
-        )
-        subsystems["metrics"] = self._status_from_errors(
-            "metrics", rates, counts, recent_errors
-        )
+        subsystems["api"] = self._status_from_errors("http_request", rates, counts, recent_errors)
+        subsystems["metrics"] = self._status_from_errors("metrics", rates, counts, recent_errors)
         subsystems["job_scheduler"] = self._status_from_errors(
             "job_scheduler", rates, counts, recent_errors
         )
         subsystems["telemetry"] = self._status_from_errors(
             "telemetry", rates, counts, recent_errors
         )
-        subsystems["acme"] = self._status_from_errors(
-            "acme", rates, counts, recent_errors
-        )
+        subsystems["acme"] = self._status_from_errors("acme", rates, counts, recent_errors)
         # TLS/HTTPS certificate status
         try:
             tls = get_tls_status()

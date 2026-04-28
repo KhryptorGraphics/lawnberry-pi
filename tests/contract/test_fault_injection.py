@@ -3,6 +3,7 @@
 Enables fault injection and verifies system degrades gracefully and reports
 degraded/fault status in sensor health endpoint.
 """
+
 import os
 
 import httpx

@@ -100,27 +100,27 @@ class TestMapsService:
     def test_attempt_provider_fallback_to_leaflet(self):
         """Test fallback to Leaflet when Google fails."""
         service = MapsService(provider="google", api_key="invalid_key")
-        
+
         success = service.attempt_provider_fallback()
-        
+
         assert success is True
         assert service.current_provider == "leaflet"
 
     def test_attempt_provider_fallback_already_leaflet(self):
         """Test no fallback when already using Leaflet."""
         service = MapsService(provider="leaflet")
-        
+
         success = service.attempt_provider_fallback()
-        
+
         assert success is False
         assert service.current_provider == "leaflet"
 
     def test_validate_geojson_zone_valid_polygon(self, sample_exclusion_zone):
         """Test validating a valid GeoJSON zone."""
         service = MapsService(provider="leaflet")
-        
+
         is_valid, error = service.validate_geojson_zone(sample_exclusion_zone)
-        
+
         assert is_valid is True
         assert error is None
 
@@ -132,9 +132,9 @@ class TestMapsService:
             name="Invalid",
             polygon=[LatLng(lat=40.0, lng=-75.0), LatLng(lat=40.0, lng=-74.9)],
         )
-        
+
         is_valid, error = service.validate_geojson_zone(zone)
-        
+
         assert is_valid is False
         assert "at least 3 points" in error.lower()
 
@@ -151,9 +151,9 @@ class TestMapsService:
                 LatLng(lat=39.9, lng=-74.9),
             ],
         )
-        
+
         is_valid, error = service.validate_geojson_zone(zone)
-        
+
         assert is_valid is False
         assert "self-intersecting" in error.lower()
 
@@ -178,9 +178,9 @@ class TestMapsService:
                 LatLng(lat=39.92, lng=-74.92),
             ],
         )
-        
+
         has_overlap = service.check_overlap(zone1, [zone2])
-        
+
         assert has_overlap is False
 
     def test_check_overlap_detected(self):
@@ -206,17 +206,17 @@ class TestMapsService:
                 LatLng(lat=39.935, lng=-74.945),
             ],
         )
-        
+
         has_overlap = service.check_overlap(zone2, [zone1])
-        
+
         assert has_overlap is True
 
     def test_save_map_configuration(self, mock_persistence, sample_config):
         """Test saving map configuration."""
         service = MapsService(provider="leaflet")
-        
+
         service.save_map_configuration(sample_config)
-        
+
         mock_persistence.save_map_configuration.assert_called_once()
         saved_data = mock_persistence.save_map_configuration.call_args[0][0]
         assert saved_data["config_id"] == "config1"
@@ -226,9 +226,9 @@ class TestMapsService:
         """Test loading map configuration."""
         mock_persistence.load_map_configuration.return_value = sample_config.model_dump()
         service = MapsService(provider="leaflet")
-        
+
         config = service.load_map_configuration("config1")
-        
+
         assert config is not None
         assert config.config_id == "config1"
         assert len(config.exclusion_zones) == 1
@@ -239,15 +239,15 @@ class TestMapsService:
         """Test loading non-existent configuration."""
         mock_persistence.load_map_configuration.return_value = None
         service = MapsService(provider="leaflet")
-        
+
         config = service.load_map_configuration("nonexistent")
-        
+
         assert config is None
 
     def test_validate_configuration_success(self, sample_config):
         """Test full configuration validation success."""
         service = MapsService(provider="leaflet")
-        
+
         errors = []
         # Validate boundary
         is_valid, error = service.validate_geojson_zone(
@@ -259,19 +259,19 @@ class TestMapsService:
         )
         if not is_valid:
             errors.append(error)
-        
+
         # Validate exclusion zones
         for zone in sample_config.exclusion_zones:
             is_valid, error = service.validate_geojson_zone(zone)
             if not is_valid:
                 errors.append(error)
-        
+
         assert len(errors) == 0
 
     def test_validate_configuration_with_overlaps(self, sample_config):
         """Test configuration validation detects overlaps."""
         service = MapsService(provider="leaflet")
-        
+
         # Add overlapping zone
         overlapping_zone = ExclusionZone(
             zone_id="overlap",
@@ -283,20 +283,19 @@ class TestMapsService:
                 LatLng(lat=39.94, lng=-74.95),
             ],
         )
-        
-        has_overlap = service.check_overlap(
-            overlapping_zone, sample_config.exclusion_zones
-        )
-        
+
+        has_overlap = service.check_overlap(overlapping_zone, sample_config.exclusion_zones)
+
         assert has_overlap is True
 
     def test_configuration_modification_updates_timestamp(self, sample_config):
         """Test modifying configuration updates last_modified."""
         original_time = sample_config.last_modified
-        
+
         # Simulate modification
         import time
+
         time.sleep(0.01)
         sample_config.last_modified = datetime.now()
-        
+
         assert sample_config.last_modified > original_time

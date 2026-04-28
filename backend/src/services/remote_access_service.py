@@ -274,7 +274,9 @@ class RemoteAccessService:
 
         process = self._process
         if process is None or process.returncode is not None:
-            logger.warning("Tunnel process for %s is not running; attempting restart", provider_value)
+            logger.warning(
+                "Tunnel process for %s is not running; attempting restart", provider_value
+            )
             self._status.active = False
             self._status.health = "restarting"
             await self.enable()
@@ -308,7 +310,9 @@ class RemoteAccessService:
             self._status.active = self._health_failures < HEALTH_FAILURE_THRESHOLD
             self._status.message = f"{provider_value} health probe failed ({self._health_failures})"
             if self._health_failures >= HEALTH_FAILURE_THRESHOLD:
-                logger.warning("Health failure threshold reached; restarting %s tunnel", provider_value)
+                logger.warning(
+                    "Health failure threshold reached; restarting %s tunnel", provider_value
+                )
                 self._health_failures = 0
                 await self.enable()
                 return
@@ -338,7 +342,10 @@ class RemoteAccessService:
         if provider is RemoteAccessProvider.CLOUDFLARE and cfg.enabled:
             if not cfg.cloudflare or not cfg.cloudflare.tunnel_name:
                 raise RemoteAccessError("Cloudflare tunnel_name is required when enabled")
-            if cfg.cloudflare.credentials_file and not Path(cfg.cloudflare.credentials_file).exists():
+            if (
+                cfg.cloudflare.credentials_file
+                and not Path(cfg.cloudflare.credentials_file).exists()
+            ):
                 raise RemoteAccessError("Cloudflare credentials file not found")
         if provider is RemoteAccessProvider.NGROK and cfg.enabled:
             if not cfg.ngrok or not cfg.ngrok.authtoken:
@@ -350,7 +357,14 @@ class RemoteAccessService:
 
     async def _start_cloudflare(self, cfg: CloudflareConfig) -> None:
         binary = self._ensure_binary("cloudflared")
-        cmd = [binary, "tunnel", "--no-autoupdate", "--metrics", f"127.0.0.1:{self._metrics_port}", "run"]
+        cmd = [
+            binary,
+            "tunnel",
+            "--no-autoupdate",
+            "--metrics",
+            f"127.0.0.1:{self._metrics_port}",
+            "run",
+        ]
         if cfg.credentials_file:
             cmd.extend(["--cred-file", cfg.credentials_file])
         if cfg.tunnel_name:
@@ -457,9 +471,13 @@ class RemoteAccessService:
         )
         self._process = process
         if process.stdout:
-            self._stdout_task = asyncio.create_task(self._stream_output(process.stdout, logging.INFO, provider.value))
+            self._stdout_task = asyncio.create_task(
+                self._stream_output(process.stdout, logging.INFO, provider.value)
+            )
         if process.stderr:
-            self._stderr_task = asyncio.create_task(self._stream_output(process.stderr, logging.WARNING, provider.value))
+            self._stderr_task = asyncio.create_task(
+                self._stream_output(process.stderr, logging.WARNING, provider.value)
+            )
         self._monitor_task = asyncio.create_task(self._monitor_process(provider))
         self._status.provider = provider.value
 

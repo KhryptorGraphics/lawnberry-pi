@@ -8,6 +8,7 @@ This module is SIM_MODE-safe and only manipulates the in-memory RobotState.
 It does not own any hardware resources. It should be started during app
 startup and stopped during shutdown.
 """
+
 from __future__ import annotations
 
 import asyncio

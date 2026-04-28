@@ -31,7 +31,10 @@ SENSITIVE_KEYS: Set[str] = {
 
 def _redact(obj: Any) -> Any:
     if isinstance(obj, dict):
-        return {k: ("***REDACTED***" if k.lower() in SENSITIVE_KEYS else _redact(v)) for k, v in obj.items()}
+        return {
+            k: ("***REDACTED***" if k.lower() in SENSITIVE_KEYS else _redact(v))
+            for k, v in obj.items()
+        }
     if isinstance(obj, list):
         return [_redact(x) for x in obj]
     return obj

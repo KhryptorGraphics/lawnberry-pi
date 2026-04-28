@@ -4,6 +4,7 @@ Skipped by default. When enabled, this test would sample current/voltage
 from INA3221 and compute power across modes. Here we validate the structure
 and provide documentation hooks only.
 """
+
 from __future__ import annotations
 
 import os

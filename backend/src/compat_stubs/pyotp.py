@@ -94,7 +94,7 @@ class TOTP:  # pragma: no cover - exercised via higher-level unit tests
             | ((digest[offset + 2] & 0xFF) << 8)
             | (digest[offset + 3] & 0xFF)
         )
-        code = truncated % (10 ** self.digits)
+        code = truncated % (10**self.digits)
         return str(code).zfill(self.digits)
 
     def at(self, for_time: float | int | datetime, counter_offset: int = 0) -> str:

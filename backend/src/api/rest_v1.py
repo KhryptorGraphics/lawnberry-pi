@@ -1,4 +1,5 @@
 """FastAPI v1 API router for contract compliance with /api/v1 endpoints."""
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -88,6 +89,7 @@ _job_counter = 0
 
 # --- API Endpoints ---
 
+
 @router.get("/status", response_model=SystemStatus)
 def get_status():
     """Get system status snapshot."""
@@ -96,7 +98,7 @@ def get_status():
         navigation_state="IDLE",
         safety_status=SafetyStatus(),
         motor_status="idle",
-        last_updated=datetime.now(timezone.utc)
+        last_updated=datetime.now(timezone.utc),
     )
 
 
@@ -125,7 +127,9 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
         raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=exc.headers)
 
     session = result.session
-    user = UserResponse(id=session.user_id, username=session.username, role=session.security_context.role.value)
+    user = UserResponse(
+        id=session.user_id, username=session.username, role=session.security_context.role.value
+    )
     expires_in = max(0, int((result.expires_at - datetime.now(timezone.utc)).total_seconds()))
 
     return AuthResponse(access_token=result.token, expires_in=expires_in, user=user)
@@ -136,19 +140,19 @@ def get_zones(request: Request):
     """List all zones."""
     # Create response data
     data = [zone.model_dump(mode="json") for zone in _zones_store]
-    
+
     # Generate ETag from content
     body = json.dumps(data, sort_keys=True).encode()
     etag = hashlib.sha256(body).hexdigest()
-    
+
     # Create headers with caching information
     last_modified = datetime.now(timezone.utc)
     headers = {
         "ETag": etag,
         "Last-Modified": format_datetime(last_modified),
-        "Cache-Control": "public, max-age=30"
+        "Cache-Control": "public, max-age=30",
     }
-    
+
     return JSONResponse(content=data, headers=headers)
 
 
@@ -156,15 +160,14 @@ def get_zones(request: Request):
 def create_zones(zones: List[Zone]):
     """Create or update zones."""
     global _zones_store
-    
+
     # Basic validation: ensure polygon has at least 3 points
     for zone in zones:
         if len(zone.polygon) < 3:
             raise HTTPException(
-                status_code=422, 
-                detail=f"Zone {zone.id} polygon must have at least 3 points"
+                status_code=422, detail=f"Zone {zone.id} polygon must have at least 3 points"
             )
-    
+
     _zones_store = zones
     return _zones_store
 
@@ -179,18 +182,18 @@ def get_jobs():
 def create_job(job_data: Dict):
     """Queue a new mowing job."""
     global _job_counter, _jobs_store
-    
+
     # Validation
     if not job_data.get("name"):
         raise HTTPException(status_code=422, detail="Job name is required")
-    
+
     if not job_data.get("zones") or len(job_data["zones"]) == 0:
         raise HTTPException(status_code=422, detail="At least one zone is required")
-    
+
     schedule = job_data.get("schedule", "")
     if not schedule or ":" not in schedule:
         raise HTTPException(status_code=422, detail="Valid schedule time required (HH:MM)")
-    
+
     try:
         hour, minute = schedule.split(":")
         hour, minute = int(hour), int(minute)
@@ -198,7 +201,7 @@ def create_job(job_data: Dict):
             raise ValueError()
     except (ValueError, IndexError):
         raise HTTPException(status_code=422, detail="Invalid schedule format (use HH:MM)")
-    
+
     # Create job
     _job_counter += 1
     job = Job(
@@ -207,8 +210,8 @@ def create_job(job_data: Dict):
         schedule=schedule,
         zones=job_data["zones"],
         priority=job_data.get("priority", 1),
-        enabled=job_data.get("enabled", True)
+        enabled=job_data.get("enabled", True),
     )
-    
+
     _jobs_store.append(job)
     return job

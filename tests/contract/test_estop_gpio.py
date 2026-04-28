@@ -8,6 +8,7 @@ def test_estop_triggers_motor_disable_quickly():
     except Exception:
         # Will be implemented in Phase 2
         import pytest
+
         pytest.skip("Safety services not implemented yet")
 
     auth = MotorAuthorization()

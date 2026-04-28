@@ -14,6 +14,7 @@ cause initialization to fail. Check versions with:
   - Firmware: hailortcli fw-control identify
   - Library: python -c "import hailo_platform; print(hailo_platform.__version__)"
 """
+
 from __future__ import annotations
 
 import os
@@ -32,6 +33,7 @@ from ..base import HardwareDriver
 @dataclass
 class HailoInferenceResult:
     """Result from a Hailo inference run."""
+
     outputs: Dict[str, np.ndarray]
     inference_time_ms: float
     model_name: str
@@ -42,6 +44,7 @@ class HailoInferenceResult:
 @dataclass
 class HailoModelInfo:
     """Information about a loaded Hailo model."""
+
     name: str
     hef_path: str
     input_names: List[str]
@@ -91,7 +94,9 @@ class HailoDriver(HardwareDriver):
         self._hef_path = self.config.get("hef_path")
         if self._hef_path is None:
             model_name = self.config.get("model", "yolov8m")
-            self._hef_path = str(self.DEFAULT_MODELS.get(model_name, self.DEFAULT_MODELS["yolov8m"]))
+            self._hef_path = str(
+                self.DEFAULT_MODELS.get(model_name, self.DEFAULT_MODELS["yolov8m"])
+            )
 
     async def initialize(self) -> None:
         """Initialize Hailo device and load model."""
@@ -146,11 +151,16 @@ class HailoDriver(HardwareDriver):
         """Initialize real Hailo hardware."""
         try:
             # Skip version check env var for 4.21 library compatibility
-            os.environ['HAILO_SKIP_FW_VERSION_CHECK'] = '1'
+            os.environ["HAILO_SKIP_FW_VERSION_CHECK"] = "1"
 
             from hailo_platform import (
-                VDevice, HEF, ConfigureParams, HailoStreamInterface,
-                InferVStreams, InputVStreamParams, OutputVStreamParams
+                VDevice,
+                HEF,
+                ConfigureParams,
+                HailoStreamInterface,
+                InferVStreams,
+                InputVStreamParams,
+                OutputVStreamParams,
             )
             import hailo_platform
 
@@ -191,9 +201,7 @@ class HailoDriver(HardwareDriver):
             output_params = OutputVStreamParams.make_from_network_group(
                 self._network_group, quantized=False
             )
-            self._infer_pipeline = InferVStreams(
-                self._network_group, input_params, output_params
-            )
+            self._infer_pipeline = InferVStreams(self._network_group, input_params, output_params)
 
             self._hw_available = True
             self._version_info = {
@@ -233,7 +241,8 @@ class HailoDriver(HardwareDriver):
         """Return health snapshot for /health endpoint."""
         avg_inference_ms = (
             self._total_inference_time_ms / self._inference_count
-            if self._inference_count > 0 else 0.0
+            if self._inference_count > 0
+            else 0.0
         )
 
         return {
@@ -251,10 +260,7 @@ class HailoDriver(HardwareDriver):
             "simulation": not self._hw_available,
         }
 
-    async def infer(
-        self,
-        input_data: np.ndarray | Dict[str, np.ndarray]
-    ) -> HailoInferenceResult:
+    async def infer(self, input_data: np.ndarray | Dict[str, np.ndarray]) -> HailoInferenceResult:
         """Run inference on input data.
 
         Args:
@@ -301,9 +307,7 @@ class HailoDriver(HardwareDriver):
             input_shape=tuple(next(iter(input_dict.values())).shape),
         )
 
-    async def _simulate_inference(
-        self, input_dict: Dict[str, np.ndarray]
-    ) -> Dict[str, np.ndarray]:
+    async def _simulate_inference(self, input_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         """Generate simulated inference outputs."""
         # Simulate inference latency (Hailo 8L typically 5-20ms)
         await asyncio.sleep(0.01)  # 10ms simulated latency

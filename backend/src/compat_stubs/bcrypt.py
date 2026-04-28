@@ -52,7 +52,9 @@ def hashpw(password: Union[str, bytes], salt: Union[str, bytes]) -> bytes:  # pr
         raise ValueError("Salt too short")
 
     password_bytes = _ensure_bytes(password)
-    digest = hashlib.sha256(f"{cost_str}:{salt_body}".encode("ascii") + b":" + password_bytes).digest()
+    digest = hashlib.sha256(
+        f"{cost_str}:{salt_body}".encode("ascii") + b":" + password_bytes
+    ).digest()
     hash_body = _bcrypt64(digest, 31)
     return f"$2b${cost_str}${salt_body}{hash_body}".encode("ascii")
 

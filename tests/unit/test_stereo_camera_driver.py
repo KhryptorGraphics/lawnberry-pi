@@ -1,4 +1,5 @@
 """Unit tests for stereo camera driver."""
+
 from __future__ import annotations
 
 import os

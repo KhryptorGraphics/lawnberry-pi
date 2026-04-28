@@ -7,6 +7,7 @@ occasional tilt excursions (>30°) to support contract test scaffolding.
 Safety Requirement (FR-022): Tilt >30° must trigger blade stop within 200ms.
 This stub only supplies data; enforcement occurs in safety triggers (T051).
 """
+
 from __future__ import annotations
 
 import math

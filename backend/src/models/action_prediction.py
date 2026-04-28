@@ -15,14 +15,16 @@ import time
 
 class ActionConfidence(str, Enum):
     """Confidence levels for action predictions."""
-    HIGH = "high"       # >0.9 confidence
-    MEDIUM = "medium"   # 0.7-0.9 confidence
-    LOW = "low"         # 0.5-0.7 confidence
+
+    HIGH = "high"  # >0.9 confidence
+    MEDIUM = "medium"  # 0.7-0.9 confidence
+    LOW = "low"  # 0.5-0.7 confidence
     UNCERTAIN = "uncertain"  # <0.5 confidence
 
 
 class ControlMode(str, Enum):
     """Active control mode."""
+
     MANUAL = "manual"
     AI_AUTONOMOUS = "ai_autonomous"
     AI_ASSISTED = "ai_assisted"
@@ -37,10 +39,11 @@ class ActionPrediction:
     Represents the model's recommended control actions based on
     current sensor inputs and navigation state.
     """
+
     # Control outputs
     steering: float  # -1.0 (full left) to 1.0 (full right)
     throttle: float  # 0.0 (stop) to 1.0 (full speed)
-    blade: bool      # True = blade on, False = blade off
+    blade: bool  # True = blade on, False = blade off
 
     # Confidence metrics
     confidence: float  # Overall prediction confidence 0.0-1.0
@@ -144,7 +147,7 @@ class InferenceMetrics(BaseModel):
 
     # Timing
     avg_inference_time_ms: float = 0.0
-    min_inference_time_ms: float = float('inf')
+    min_inference_time_ms: float = float("inf")
     max_inference_time_ms: float = 0.0
     avg_total_time_ms: float = 0.0
 
@@ -201,12 +204,8 @@ class InferenceMetrics(BaseModel):
 
         # Running average
         n = self.successful_inferences
-        self.avg_inference_time_ms = (
-            (self.avg_inference_time_ms * (n - 1) + inference_ms) / n
-        )
-        self.avg_total_time_ms = (
-            (self.avg_total_time_ms * (n - 1) + total_ms) / n
-        )
+        self.avg_inference_time_ms = (self.avg_inference_time_ms * (n - 1) + inference_ms) / n
+        self.avg_total_time_ms = (self.avg_total_time_ms * (n - 1) + total_ms) / n
 
         # Update confidence distribution
         level = prediction.confidence_level
@@ -219,9 +218,7 @@ class InferenceMetrics(BaseModel):
         else:
             self.uncertain_count += 1
 
-        self.avg_confidence = (
-            (self.avg_confidence * (n - 1) + prediction.confidence) / n
-        )
+        self.avg_confidence = (self.avg_confidence * (n - 1) + prediction.confidence) / n
 
         # Update safety stats
         if prediction.safety_override:

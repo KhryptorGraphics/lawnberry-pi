@@ -14,7 +14,16 @@ def test_hil_probe_generates_csv_and_ranges():
     os.close(out_fd)
     env = os.environ.copy()
     env.setdefault("SIM_MODE", "1")
-    cmd = [sys.executable, str(Path("scripts/hil_probe.py")), "--duration", "2", "--interval", "0.2", "--out", out_path]
+    cmd = [
+        sys.executable,
+        str(Path("scripts/hil_probe.py")),
+        "--duration",
+        "2",
+        "--interval",
+        "0.2",
+        "--out",
+        out_path,
+    ]
     subprocess.run(cmd, check=True, env=env)
 
     assert Path(out_path).exists(), "CSV was not created"
@@ -23,7 +32,14 @@ def test_hil_probe_generates_csv_and_ranges():
 
     assert len(rows) >= 3, "Expected multiple samples"
     # Basic schema checks
-    required_cols = {"timestamp", "safety_state", "watchdog_ms", "overall_status", "cpu_usage", "mem_mb"}
+    required_cols = {
+        "timestamp",
+        "safety_state",
+        "watchdog_ms",
+        "overall_status",
+        "cpu_usage",
+        "mem_mb",
+    }
     assert required_cols.issubset(rows[0].keys())
 
     # Monotonic timestamps and sane value formats

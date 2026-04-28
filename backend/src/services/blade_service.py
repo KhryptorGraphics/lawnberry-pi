@@ -4,6 +4,7 @@ Blade service for IBT-4 control.
 Provides a simple async wrapper around IBT4BladeDriver with a process-wide
 singleton accessor. Safe in SIM mode; hardware access is lazy and guarded.
 """
+
 from __future__ import annotations
 
 import asyncio

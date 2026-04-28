@@ -1,4 +1,5 @@
 """Unit tests for UltrasonicDriver (BEAD-041)."""
+
 import os
 import pytest
 

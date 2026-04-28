@@ -13,8 +13,12 @@ from email.utils import format_datetime, parsedate_to_datetime
 
 from ..core.persistence import persistence
 from ..core.globals import (
-    _blade_state, _safety_state, _emergency_until, _client_emergency, 
-    _legacy_motors_active, _manual_control_sessions
+    _blade_state,
+    _safety_state,
+    _emergency_until,
+    _client_emergency,
+    _legacy_motors_active,
+    _manual_control_sessions,
 )
 from .routers import telemetry
 from .routers.auth import _resolve_manual_session
@@ -30,9 +34,11 @@ legacy_router.add_websocket_route("/ws/control", telemetry.ws_control)
 
 # ----------------------- Map Zones -----------------------
 
+
 class Point(BaseModel):
     latitude: float
     longitude: float
+
 
 class Zone(BaseModel):
     id: str
@@ -41,8 +47,10 @@ class Zone(BaseModel):
     priority: int = 0
     exclusion_zone: bool = False
 
+
 _zones_store: list[Zone] = []
 _zones_last_modified: datetime = datetime.now(timezone.utc)
+
 
 @router.get("/map/zones", response_model=list[Zone])
 def get_map_zones(request: Request):
@@ -69,6 +77,7 @@ def get_map_zones(request: Request):
     }
     return JSONResponse(content=data, headers=headers)
 
+
 @router.post("/map/zones", response_model=list[Zone])
 def post_map_zones(zones: list[Zone]):
     global _zones_store
@@ -77,7 +86,9 @@ def post_map_zones(zones: list[Zone]):
     _zones_last_modified = datetime.now(timezone.utc)
     return _zones_store
 
+
 # --------------------- Map Locations ---------------------
+
 
 class Position(BaseModel):
     latitude: float | None = None
@@ -86,13 +97,16 @@ class Position(BaseModel):
     accuracy: float | None = None
     gps_mode: str | None = None
 
+
 class MapLocations(BaseModel):
     home: Optional[Position] = None
     am_sun: Optional[Position] = None
     pm_sun: Optional[Position] = None
 
+
 _locations_store = MapLocations()
 _locations_last_modified: datetime = datetime.now(timezone.utc)
+
 
 @router.get("/map/locations", response_model=MapLocations)
 def get_map_locations(request: Request):
@@ -119,6 +133,7 @@ def get_map_locations(request: Request):
     }
     return JSONResponse(content=data, headers=headers)
 
+
 @router.put("/map/locations", response_model=MapLocations)
 def put_map_locations(locations: MapLocations):
     global _locations_store
@@ -127,7 +142,9 @@ def put_map_locations(locations: MapLocations):
     _locations_last_modified = datetime.now(timezone.utc)
     return _locations_store
 
+
 # ------------------------ Control V2 Endpoints ------------------------
+
 
 class ControlCommandV2(BaseModel):
     throttle: Optional[float] = Field(None, ge=-1.0, le=1.0)
@@ -136,6 +153,7 @@ class ControlCommandV2(BaseModel):
     max_speed_limit: float = Field(0.8, ge=0.0, le=1.0)
     timeout_ms: int = Field(1000, ge=100, le=10000)
     confirmation_token: Optional[str] = None
+
 
 class ControlResponseV2(BaseModel):
     accepted: bool
@@ -150,11 +168,13 @@ class ControlResponseV2(BaseModel):
     telemetry_snapshot: Optional[dict[str, Any]] = None
     timestamp: str
 
+
 def _emergency_active() -> bool:
     try:
         return time.time() < _emergency_until
     except Exception:
         return False
+
 
 def _client_key(request: Request) -> str:
     auth = request.headers.get("authorization") or request.headers.get("Authorization")
@@ -176,6 +196,7 @@ def _client_key(request: Request) -> str:
     except Exception:
         # As a last resort, return a fresh anon id each time
         return "anon-" + uuid.uuid4().hex
+
 
 def _client_emergency_active(request: Request | None) -> bool:
     """Return True if this client's emergency flag is active; expire stale entries.
@@ -199,8 +220,10 @@ def _client_emergency_active(request: Request | None) -> bool:
     except Exception:
         return False
 
+
 # Import helper from auth router for session resolution
 from .routers.auth import _resolve_manual_session
+
 
 @router.get("/hardware/robohat")
 async def get_robohat_status():
@@ -210,7 +233,9 @@ async def get_robohat_status():
     robohat = get_robohat_service()
 
     # Determine safety state summary for this snapshot
-    safety_state = "emergency_stop" if _safety_state.get("emergency_stop_active", False) else "nominal"
+    safety_state = (
+        "emergency_stop" if _safety_state.get("emergency_stop_active", False) else "nominal"
+    )
 
     if robohat is None:
         # Minimal payload when service not initialized yet
@@ -266,9 +291,11 @@ async def get_robohat_status():
 
     return payload
 
+
 class Vector2D(BaseModel):
     linear: float
     angular: float
+
 
 class DriveContractIn(BaseModel):
     session_id: str
@@ -276,16 +303,17 @@ class DriveContractIn(BaseModel):
     duration_ms: int
     reason: Optional[str] = None
 
+
 @router.post("/control/drive", response_model=ControlResponseV2, status_code=202)
 async def control_drive_v2(cmd: dict, request: Request):
     """Execute drive command with safety checks and audit logging"""
     import uuid
     from ..services.robohat_service import get_robohat_service
     from ..services.motor_service import MotorService
-    
+
     audit_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc)
-    
+
     # Legacy behavior for integration tests: when payload is legacy style (mode/command),
     # return 200 with calculated motor speeds, unless emergency stop is active (then 403).
     is_legacy = "session_id" not in cmd
@@ -298,9 +326,12 @@ async def control_drive_v2(cmd: dict, request: Request):
                 cmd_details = {}
             persistence.add_audit_log(
                 "control.drive.blocked",
-                details={"reason": "emergency_stop_active", "command": cmd_details}
+                details={"reason": "emergency_stop_active", "command": cmd_details},
             )
-            return JSONResponse(status_code=403, content={"detail": "Emergency stop active - drive commands blocked"})
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Emergency stop active - drive commands blocked"},
+            )
         # Compute motor speeds using arcade drive
         throttle = float(cmd.get("throttle", 0.0))
         turn = float(cmd.get("turn", 0.0))
@@ -333,19 +364,26 @@ async def control_drive_v2(cmd: dict, request: Request):
             cmd_details["session_id"] = "***"
         persistence.add_audit_log(
             "control.drive.blocked",
-            details={"reason": "emergency_stop_active", "command": cmd_details}
+            details={"reason": "emergency_stop_active", "command": cmd_details},
         )
-        return JSONResponse(status_code=403, content={"detail": "Emergency stop active - drive commands blocked"})
+        return JSONResponse(
+            status_code=403, content={"detail": "Emergency stop active - drive commands blocked"}
+        )
 
     session_context = _resolve_manual_session(cmd.get("session_id"))
 
     try:
         duration_ms = int(cmd.get("duration_ms", 0))
     except (TypeError, ValueError):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="duration_ms must be an integer")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="duration_ms must be an integer"
+        )
 
     if duration_ms < 0 or duration_ms > 5000:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="duration_ms must be between 0 and 5000 milliseconds")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="duration_ms must be between 0 and 5000 milliseconds",
+        )
 
     # Extract vector and convert to differential speeds (arcade)
     # Contract-style payload
@@ -354,34 +392,38 @@ async def control_drive_v2(cmd: dict, request: Request):
     try:
         speed_limit = float(cmd.get("max_speed_limit", 0.8))
     except (TypeError, ValueError):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="max_speed_limit must be numeric")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="max_speed_limit must be numeric"
+        )
     speed_limit = max(0.0, min(1.0, speed_limit))
-    
+
     # Send command to RoboHAT
 
     robohat = get_robohat_service()
     watchdog_start = datetime.now(timezone.utc)
-    
+
     if robohat and robohat.status.serial_connected:
         # Calculate differential speeds
         left_speed = throttle - turn
         right_speed = throttle + turn
-        
+
         # Clamp to max speed limit
         left_speed = max(-speed_limit, min(speed_limit, left_speed))
         right_speed = max(-speed_limit, min(speed_limit, right_speed))
-        
+
         # Send to RoboHAT
         success = await robohat.send_motor_command(left_speed, right_speed)
-        
+
         watchdog_end = datetime.now(timezone.utc)
         watchdog_latency = (watchdog_end - watchdog_start).total_seconds() * 1000
-        
+
         response = ControlResponseV2(
             accepted=success,
             audit_id=audit_id,
             result="accepted" if success else "rejected",
-            status_reason=None if success else (robohat.status.last_error or "robohat_communication_failed"),
+            status_reason=None
+            if success
+            else (robohat.status.last_error or "robohat_communication_failed"),
             watchdog_echo=robohat.status.last_watchdog_echo,
             watchdog_latency_ms=watchdog_latency,
             safety_checks=["emergency_stop_check", "command_validation"],
@@ -392,7 +434,7 @@ async def control_drive_v2(cmd: dict, request: Request):
                 "latency_ms": round(watchdog_latency, 2),
                 "speed_limit": speed_limit,
             },
-            timestamp=timestamp.isoformat()
+            timestamp=timestamp.isoformat(),
         )
     else:
         # Contract allows "queued" acknowledgement even if hardware not connected
@@ -410,9 +452,9 @@ async def control_drive_v2(cmd: dict, request: Request):
                 "latency_ms": 0.0,
                 "speed_limit": speed_limit,
             },
-            timestamp=timestamp.isoformat()
+            timestamp=timestamp.isoformat(),
         )
-    
+
     # Audit the command
     try:
         details_cmd = cmd if isinstance(cmd, dict) else cmd.model_dump()
@@ -426,24 +468,28 @@ async def control_drive_v2(cmd: dict, request: Request):
         if principal and "principal" not in details_cmd:
             details_cmd["principal"] = principal
         details_cmd["max_speed_limit"] = speed_limit
-    persistence.add_audit_log("control.drive.v2", details={"command": details_cmd, "response": response.model_dump()})
-    
+    persistence.add_audit_log(
+        "control.drive.v2", details={"command": details_cmd, "response": response.model_dump()}
+    )
+
     return response
+
 
 class BladeContractIn(BaseModel):
     session_id: str
     action: str
     reason: Optional[str] = None
 
+
 @router.post("/control/blade")
 async def control_blade_v2(cmd: dict, request: Request):
     """Execute blade command with safety interlocks and audit logging"""
     import uuid
     from ..services.robohat_service import get_robohat_service
-    
+
     audit_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc)
-    
+
     # Contract requires safety lockout for blade engagement by default
     # Return HTTP 423 (Locked) with remediation
     # Legacy behavior for integration tests
@@ -453,19 +499,27 @@ async def control_blade_v2(cmd: dict, request: Request):
         if (cmd.get("command") == "blade_enable") or (cmd.get("active") is True):
             # Block if emergency is active (global TTL or per-client TTL)
             if _emergency_active() or _client_emergency_active(request):
-                body = {"detail": "safety_interlock: emergency_stop_active - blade commands blocked"}
-                persistence.add_audit_log("control.blade", details={"command": cmd, "response": body})
+                body = {
+                    "detail": "safety_interlock: emergency_stop_active - blade commands blocked"
+                }
+                persistence.add_audit_log(
+                    "control.blade", details={"command": cmd, "response": body}
+                )
                 return JSONResponse(status_code=403, content=body)
             # If no auth header provided, allow enabling for audit test flow
             if not auth_header:
                 body = {"blade_status": "ENABLED"}
-                persistence.add_audit_log("control.blade", details={"command": cmd, "response": body})
+                persistence.add_audit_log(
+                    "control.blade", details={"command": cmd, "response": body}
+                )
                 return JSONResponse(status_code=200, content=body)
             # Safety interlock: reject with 403 if motors active; otherwise accept
             global _legacy_motors_active
             if _legacy_motors_active:
                 body = {"detail": "Safety interlock: motors_active"}
-                persistence.add_audit_log("control.blade", details={"command": cmd, "response": body})
+                persistence.add_audit_log(
+                    "control.blade", details={"command": cmd, "response": body}
+                )
                 return JSONResponse(status_code=403, content=body)
             body = {"blade_status": "ENABLED"}
             persistence.add_audit_log("control.blade", details={"command": cmd, "response": body})
@@ -482,21 +536,35 @@ async def control_blade_v2(cmd: dict, request: Request):
     try:
         desired = None
         if isinstance(cmd, dict) and "action" in cmd:
-            desired = True if str(cmd.get("action")).lower() in {"enable", "on", "start"} else False if str(cmd.get("action")).lower() in {"disable", "off", "stop"} else None
+            desired = (
+                True
+                if str(cmd.get("action")).lower() in {"enable", "on", "start"}
+                else False
+                if str(cmd.get("action")).lower() in {"disable", "off", "stop"}
+                else None
+            )
         elif isinstance(cmd, dict) and "active" in cmd:
             desired = bool(cmd.get("active"))
         if desired is not None and not (_emergency_active() or _client_emergency_active(request)):
             from ..services.blade_service import get_blade_service
+
             bs = get_blade_service()
             await bs.initialize()
             ok = await bs.set_active(desired)
-            body = {"accepted": ok, "audit_id": audit_id, "result": "accepted" if ok else "rejected", "timestamp": timestamp.isoformat()}
+            body = {
+                "accepted": ok,
+                "audit_id": audit_id,
+                "result": "accepted" if ok else "rejected",
+                "timestamp": timestamp.isoformat(),
+            }
             log_command = cmd if not isinstance(cmd, dict) else {**cmd}
             if isinstance(log_command, dict) and "session_id" in log_command:
                 log_command["session_id"] = "***"
             if isinstance(log_command, dict) and session_context.get("principal"):
                 log_command.setdefault("principal", session_context.get("principal"))
-            persistence.add_audit_log("control.blade.v2", details={"command": log_command, "response": body})
+            persistence.add_audit_log(
+                "control.blade.v2", details={"command": log_command, "response": body}
+            )
             return JSONResponse(status_code=200 if ok else 409, content=body)
     except Exception:
         pass
@@ -521,15 +589,18 @@ async def control_blade_v2(cmd: dict, request: Request):
             cmd_details["session_id"] = "***"
         if session_context and session_context.get("principal"):
             cmd_details.setdefault("principal", session_context.get("principal"))
-    persistence.add_audit_log("control.blade.blocked", details={"command": cmd_details, "response": payload})
+    persistence.add_audit_log(
+        "control.blade.blocked", details={"command": cmd_details, "response": payload}
+    )
     return JSONResponse(status_code=423, content=payload)
+
 
 @router.post("/control/emergency", response_model=ControlResponseV2, status_code=202)
 async def control_emergency_v2(body: Optional[dict] = None, request: Request = None):
     """Trigger emergency stop with immediate hardware shutdown"""
     import uuid
     from ..services.robohat_service import get_robohat_service
-    
+
     audit_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc)
 
@@ -538,7 +609,7 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
     session_context = None
     if not is_legacy:
         session_context = _resolve_manual_session(payload.get("session_id"))
-    
+
     # Set emergency state
     _safety_state["emergency_stop_active"] = True
     _blade_state["active"] = False
@@ -554,12 +625,12 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
             _client_emergency[_client_key(request)] = time.time() + 0.3
     except Exception:
         pass
-    
+
     # Send emergency stop to RoboHAT
     robohat = get_robohat_service()
     if robohat and robohat.status.serial_connected:
         await robohat.emergency_stop()
-    
+
     # If legacy payload with command field was sent, return 200 with integration-expected shape
     if is_legacy:
         legacy_payload = {
@@ -581,26 +652,24 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
         active_interlocks=["emergency_stop_override"],
         remediation={
             "message": "Emergency stop activated - all motors stopped",
-            "docs_link": "/docs/OPERATIONS.md#emergency-stop-recovery"
+            "docs_link": "/docs/OPERATIONS.md#emergency-stop-recovery",
         },
         telemetry_snapshot={
             "component_id": "drive_left",
             "status": "fault",
             "latency_ms": 0.0,
         },
-        timestamp=timestamp.isoformat()
+        timestamp=timestamp.isoformat(),
     )
-    
+
     # Audit the emergency stop
     audit_details: dict[str, Any] = {"response": response.model_dump()}
     if session_context and session_context.get("principal"):
         audit_details["principal"] = session_context["principal"]
-    persistence.add_audit_log(
-        "control.emergency.triggered",
-        details=audit_details
-    )
-    
+    persistence.add_audit_log("control.emergency.triggered", details=audit_details)
+
     return response
+
 
 @router.post("/control/emergency-stop")
 async def control_emergency_stop_alias(request: Request = None):
@@ -614,7 +683,7 @@ async def control_emergency_stop_alias(request: Request = None):
         "blade_disabled": True,
         "remediation": {
             "message": "Emergency stop activated - all motors stopped",
-            "docs_link": "/docs/OPERATIONS.md#emergency-stop-recovery"
-        }
+            "docs_link": "/docs/OPERATIONS.md#emergency-stop-recovery",
+        },
     }
     return JSONResponse(status_code=200, content=payload)

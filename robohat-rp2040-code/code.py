@@ -34,8 +34,9 @@ from pulseio import PulseIn
 # ----- Watchdog enum location changed in CP 9 ----- #
 try:
     from watchdog import WatchDogMode  # CP ≥ 9
-except ImportError:                    # CP ≤ 8
+except ImportError:  # CP ≤ 8
     from microcontroller import WatchDogMode  # type: ignore
+
 
 # ---------- NeoPixel helper ---------- #
 class SimpleNeoPixel(adafruit_pixelbuf.PixelBuf):
@@ -55,14 +56,16 @@ pixel = SimpleNeoPixel(board.GP16, 1, brightness=0.3)
 PWM_FREQ = 50  # Hz
 
 steer_pwm = pwmio.PWMOut(board.GP10, frequency=PWM_FREQ, duty_cycle=0)
-thr_pwm   = pwmio.PWMOut(board.GP11, frequency=PWM_FREQ, duty_cycle=0)
+thr_pwm = pwmio.PWMOut(board.GP11, frequency=PWM_FREQ, duty_cycle=0)
+
 
 # ---------- RC Control Modes ---------- #
 class RCMode:
-    EMERGENCY = "emergency"    # RC control only for emergency situations
-    MANUAL = "manual"         # Complete manual control of all functions
-    ASSISTED = "assisted"     # Manual control with safety oversight
-    TRAINING = "training"     # Manual control with movement recording
+    EMERGENCY = "emergency"  # RC control only for emergency situations
+    MANUAL = "manual"  # Complete manual control of all functions
+    ASSISTED = "assisted"  # Manual control with safety oversight
+    TRAINING = "training"  # Manual control with movement recording
+
 
 # ---------- RC Channel Configuration ---------- #
 RC_CHANNELS = {
@@ -98,15 +101,15 @@ wdt.timeout = 8
 wdt.mode = WatchDogMode.RESET
 
 # ---------- Globals ---------- #
-rc_enabled        = True
-rc_mode          = RCMode.EMERGENCY
-last_serial_time  = time.monotonic()
-SERIAL_TIMEOUT    = 2.0
-_prev_led_state   = None
-blade_enabled     = False
+rc_enabled = True
+rc_mode = RCMode.EMERGENCY
+last_serial_time = time.monotonic()
+SERIAL_TIMEOUT = 2.0
+_prev_led_state = None
+blade_enabled = False
 rc_signal_lost_time = None
 SIGNAL_LOSS_TIMEOUT = 1.0
-channel_data      = {}
+channel_data = {}
 
 
 # ---------- helpers ---------- #
@@ -117,7 +120,7 @@ def us_to_dc(us: int, freq: int = PWM_FREQ) -> int:
 
 def set_pwm(steer_us: int, thr_us: int) -> None:
     steer_pwm.duty_cycle = us_to_dc(steer_us)
-    thr_pwm.duty_cycle   = us_to_dc(thr_us)
+    thr_pwm.duty_cycle = us_to_dc(thr_us)
 
 
 def drain_pulsein(pin: PulseIn) -> list[int]:
@@ -136,10 +139,10 @@ def drain_pulsein(pin: PulseIn) -> list[int]:
 def read_rc() -> dict[int, int]:
     """Read RC values from all configured channels"""
     global channel_data, rc_signal_lost_time
-    
+
     current_data = {}
     signal_present = False
-    
+
     for ch_num, rc_input in rc_inputs.items():
         if rc_input:
             pulses = [p for p in drain_pulsein(rc_input) if 800 <= p <= 2200][-5:]
@@ -151,16 +154,17 @@ def read_rc() -> dict[int, int]:
                 current_data[ch_num] = channel_data.get(ch_num, RC_CHANNELS[ch_num]["center"])
         else:
             current_data[ch_num] = RC_CHANNELS[ch_num]["center"]
-    
+
     # Track signal loss
     if signal_present:
         rc_signal_lost_time = None
     elif rc_signal_lost_time is None:
         rc_signal_lost_time = time.monotonic()
-    
+
     # Update global channel data
     channel_data.update(current_data)
     return current_data
+
 
 def get_rc_channel_value(channel: int, function: str = None) -> int:
     """Get RC channel value by number or function"""
@@ -170,9 +174,13 @@ def get_rc_channel_value(channel: int, function: str = None) -> int:
                 return channel_data.get(ch_num, config["center"])
     return channel_data.get(channel, RC_CHANNELS.get(channel, {}).get("center", 1500))
 
+
 def is_rc_signal_lost() -> bool:
     """Check if RC signal is lost"""
-    return rc_signal_lost_time is not None and (time.monotonic() - rc_signal_lost_time) > SIGNAL_LOSS_TIMEOUT
+    return (
+        rc_signal_lost_time is not None
+        and (time.monotonic() - rc_signal_lost_time) > SIGNAL_LOSS_TIMEOUT
+    )
 
 
 def parse_cmd(line: str) -> tuple[str, str | None, str | None]:
@@ -241,9 +249,13 @@ def main() -> None:
     set_pwm(1500, 1500)
     blade_pwm.duty_cycle = 0
     set_led(True, force=True)
-    print("▶ RoboHAT Advanced RC Control ready (CircuitPython ", microcontroller.circuitpython_version, ")")
+    print(
+        "▶ RoboHAT Advanced RC Control ready (CircuitPython ",
+        microcontroller.circuitpython_version,
+        ")",
+    )
 
-    hb_t   = time.monotonic()
+    hb_t = time.monotonic()
     channel_values = {}
 
     while True:
@@ -251,7 +263,7 @@ def main() -> None:
         now = time.monotonic()
 
         # --- USB commands --- #
-        if (line := read_serial_line()):
+        if line := read_serial_line():
             cmd, param1, param2 = parse_cmd(line)
             if cmd == "rc_enable":
                 rc_enabled = True
@@ -266,7 +278,7 @@ def main() -> None:
                 rc_mode = param1
                 print(f"[USB] RC mode set to: {rc_mode}")
             elif cmd == "blade":
-                blade_enabled = (param1 == "on")
+                blade_enabled = param1 == "on"
                 blade_pwm.duty_cycle = us_to_dc(2000) if blade_enabled else 0
                 print(f"[USB] Blade {'enabled' if blade_enabled else 'disabled'}")
             elif cmd == "get_rc_status":
@@ -277,7 +289,7 @@ def main() -> None:
                     "signal_lost": signal_lost,
                     "blade_enabled": blade_enabled,
                     "channels": channel_data,
-                    "encoder": encoder.position
+                    "encoder": encoder.position,
                 }
                 print(f"[STATUS] {status}")
             elif cmd == "enc_zero":
@@ -299,7 +311,7 @@ def main() -> None:
         # --- control path --- #
         if rc_enabled:
             channel_values = read_rc()
-            
+
             # Handle signal loss
             if is_rc_signal_lost():
                 # Emergency failsafe - center all controls
@@ -312,7 +324,7 @@ def main() -> None:
                 # Normal RC control based on mode
                 steer_val = channel_values.get(1, 1500)
                 throttle_val = channel_values.get(2, 1500)
-                
+
                 # Emergency stop check (channel 5)
                 emergency_val = channel_values.get(5, 1500)
                 if emergency_val < 1200:  # Emergency stop triggered
@@ -324,7 +336,7 @@ def main() -> None:
                 else:
                     # Normal operation
                     set_pwm(steer_val, throttle_val)
-                    
+
                     # Blade control (channel 3)
                     blade_val = channel_values.get(3, 1500)
                     if rc_mode in [RCMode.MANUAL, RCMode.ASSISTED] and blade_val > 1700:
@@ -333,7 +345,7 @@ def main() -> None:
                     else:
                         blade_enabled = False
                         blade_pwm.duty_cycle = 0
-                    
+
                     set_led(rc_enabled)
 
         # --- heartbeat --- #

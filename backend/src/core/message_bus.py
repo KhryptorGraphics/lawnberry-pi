@@ -24,7 +24,9 @@ class MessageBus:
             timestamp_us=int(time.time() * 1_000_000),
             payload=payload,
             source_service="backend",
-            persistence_tier=PersistenceTier.CRITICAL if persistent else PersistenceTier.BEST_EFFORT,
+            persistence_tier=PersistenceTier.CRITICAL
+            if persistent
+            else PersistenceTier.BEST_EFFORT,
         )
 
         # persist if requested and persistence available

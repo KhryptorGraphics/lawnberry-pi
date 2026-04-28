@@ -4,12 +4,14 @@
 - Supports buffer zones (positive -> expansion, negative -> contraction)
 - Provides point-in-geofence checks and violation detection
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence, Tuple
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:  # pragma: no cover
     from shapely.geometry import Point as SPoint  # type: ignore
     from shapely.geometry import Polygon  # type: ignore
@@ -45,6 +47,7 @@ def _to_ll(x: float, y: float, olat: float, olon: float) -> Tuple[float, float]:
 
 def _polygon_from_latlngs(points: Sequence[LatLng]):
     from shapely.geometry import Polygon  # type: ignore
+
     if len(points) < 3:
         raise ValueError("Geofence must have >= 3 points")
     olat, olon = points[0].latitude, points[0].longitude
@@ -70,6 +73,7 @@ def build_shape(geofence: Geofence) -> GeofenceShape:
 
 def contains(shape: GeofenceShape, point: LatLng, use_buffer: bool = True) -> bool:
     from shapely.geometry import Point as SPoint  # type: ignore
+
     x, y = _to_xy(point.latitude, point.longitude, shape.origin_lat, shape.origin_lon)
     poly = shape.buffered if use_buffer else shape.polygon
     return poly.contains(SPoint(x, y))

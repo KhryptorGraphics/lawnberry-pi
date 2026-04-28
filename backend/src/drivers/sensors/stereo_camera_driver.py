@@ -5,6 +5,7 @@ SIM_MODE yields synthetic stereo frames for testing without hardware.
 
 The stereo camera outputs a combined 2560x960 frame (1280x960 per eye).
 """
+
 from __future__ import annotations
 
 import os
@@ -20,6 +21,7 @@ from ..base import HardwareDriver
 # Try to import OpenCV
 try:
     import cv2
+
     OPENCV_AVAILABLE = True
 except ImportError:
     OPENCV_AVAILABLE = False
@@ -52,7 +54,9 @@ class StereoCameraDriver(HardwareDriver):
         super().__init__(config=config)
         self._device_index: int = config.get("device_index", 0) if config else 0
         self._width: int = config.get("width", self.DEFAULT_WIDTH) if config else self.DEFAULT_WIDTH
-        self._height: int = config.get("height", self.DEFAULT_HEIGHT) if config else self.DEFAULT_HEIGHT
+        self._height: int = (
+            config.get("height", self.DEFAULT_HEIGHT) if config else self.DEFAULT_HEIGHT
+        )
         self._fps: int = config.get("fps", self.DEFAULT_FPS) if config else self.DEFAULT_FPS
 
         self._cap: Any = None  # cv2.VideoCapture
@@ -143,9 +147,7 @@ class StereoCameraDriver(HardwareDriver):
             "resolution": f"{self._width}x{self._height}",
             "frame_count": self._frame_count,
             "last_capture_age_s": (
-                (time.time() - self._last_capture_time)
-                if self._last_capture_time
-                else None
+                (time.time() - self._last_capture_time) if self._last_capture_time else None
             ),
             "simulation": is_simulation_mode(),
         }

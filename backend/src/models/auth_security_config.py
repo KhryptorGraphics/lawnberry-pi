@@ -30,7 +30,7 @@ class AuthSecurityConfig(BaseModel):
     session_timeout_minutes: int = 60
     require_password_change: bool = False
     max_concurrent_sessions: int = 1
-    
+
     # Optional provider configs
     totp_config: Optional[TOTPConfig] = None
     google_auth_config: Optional[GoogleAuthConfig] = None
@@ -56,6 +56,7 @@ class AuthSecurityConfig(BaseModel):
     def generate_backup_codes(self, count: int = 10) -> List[str]:
         """Generate numeric backup codes for TOTP."""
         import secrets
+
         codes = []
         for _ in range(count):
             codes.append("".join(str(secrets.randbelow(10)) for _ in range(6)))

@@ -41,9 +41,7 @@ async def test_gps_driver_health_check_fields():
 
 def test_gps_driver_parse_gga_and_fix_quality():
     drv = GPSDriver({"mode": GpsMode.F9P_USB.value})
-    sentence = (
-        "$GNGGA,123519,4807.038,N,01131.000,E,4,12,0.7,545.4,M,46.9,M,,*5B"
-    )
+    sentence = "$GNGGA,123519,4807.038,N,01131.000,E,4,12,0.7,545.4,M,46.9,M,,*5B"
     parsed = drv._parse_gga(sentence)
     assert parsed is not None
     lat, lon, alt, sats, hdop, fix_quality = parsed
@@ -63,7 +61,7 @@ def test_gps_driver_parse_gst_accuracy():
     # SD values 0.02 m and 0.03 m should combine via sqrt(a^2 + b^2)
     gst = "$GPGST,024603.00,0.010,0.020,0.030,0.000,0.020,0.030,0.050*5C"
     accuracy = drv._parse_gst(gst)
-    assert accuracy == pytest.approx((0.02 ** 2 + 0.03 ** 2) ** 0.5)
+    assert accuracy == pytest.approx((0.02**2 + 0.03**2) ** 0.5)
 
 
 def test_gps_driver_fix_quality_mapping_handles_unknown():

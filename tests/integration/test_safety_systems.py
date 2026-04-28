@@ -24,17 +24,25 @@ def test_estop_latency_under_limit():
     while auth.is_enabled():
         time.sleep(0)
     dt_ms = (time.perf_counter() - t0) * 1000.0
-    assert dt_ms <= limits.estop_latency_ms, f"E-stop latency {dt_ms:.3f}ms exceeds limit {limits.estop_latency_ms}ms"
+    assert dt_ms <= limits.estop_latency_ms, (
+        f"E-stop latency {dt_ms:.3f}ms exceeds limit {limits.estop_latency_ms}ms"
+    )
 
 
 def test_tilt_detection_response_under_limit():
     _, limits = ConfigLoader().get()
     mgr = SafetyTriggerManager()
     t0 = time.perf_counter()
-    triggered = mgr.trigger_tilt(roll_deg=limits.tilt_threshold_degrees + 1, pitch_deg=0, threshold_deg=limits.tilt_threshold_degrees)
+    triggered = mgr.trigger_tilt(
+        roll_deg=limits.tilt_threshold_degrees + 1,
+        pitch_deg=0,
+        threshold_deg=limits.tilt_threshold_degrees,
+    )
     assert triggered is True
     dt_ms = (time.perf_counter() - t0) * 1000.0
-    assert dt_ms <= limits.tilt_cutoff_latency_ms, f"Tilt response {dt_ms:.3f}ms exceeds limit {limits.tilt_cutoff_latency_ms}ms"
+    assert dt_ms <= limits.tilt_cutoff_latency_ms, (
+        f"Tilt response {dt_ms:.3f}ms exceeds limit {limits.tilt_cutoff_latency_ms}ms"
+    )
 
 
 def test_interlock_validator_blocks_and_raises():

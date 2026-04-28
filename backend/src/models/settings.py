@@ -62,7 +62,9 @@ class SystemSettings(BaseModel):
     auto_updates: bool = False
     remote_access: bool = False
     branding_checksum: Optional[str] = None
-    unit_system: str = Field(default="metric", description="Preferred measurement system: metric or imperial.")
+    unit_system: str = Field(
+        default="metric", description="Preferred measurement system: metric or imperial."
+    )
 
 
 class SettingsProfile(BaseModel):
@@ -134,6 +136,7 @@ class SettingsProfile(BaseModel):
 
     def compute_branding_checksum(self, required_assets: List[str]) -> str:
         import hashlib, os
+
         hasher = hashlib.sha256()
         for p in sorted(required_assets):
             if os.path.exists(p):
@@ -145,4 +148,5 @@ class SettingsProfile(BaseModel):
 
     def validate_branding_assets(self, required_assets: List[str]) -> bool:
         import os
+
         return all(os.path.exists(p) for p in required_assets)

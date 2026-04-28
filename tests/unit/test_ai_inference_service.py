@@ -3,6 +3,7 @@
 Tests the AI inference service for autonomous mowing control.
 All tests run in simulation mode without requiring hardware.
 """
+
 import os
 import asyncio
 import pytest
@@ -43,6 +44,7 @@ def service():
     """Create a fresh AIInferenceService instance for testing."""
     # Reset singleton
     import backend.src.services.ai_inference_service as module
+
     module._service_instance = None
     return AIInferenceService()
 
@@ -342,8 +344,7 @@ class TestInferenceMetrics:
         # Add failed predictions
         for i in range(2):
             metrics.update_with_prediction(
-                ActionPrediction(steering=0, throttle=0, blade=False, confidence=0.8),
-                success=False
+                ActionPrediction(steering=0, throttle=0, blade=False, confidence=0.8), success=False
             )
 
         assert metrics.success_rate == pytest.approx(0.8, rel=0.01)
@@ -356,6 +357,7 @@ class TestSingleton:
         """Test that get_ai_inference_service returns the same instance."""
         # Reset singleton
         import backend.src.services.ai_inference_service as module
+
         module._service_instance = None
 
         service1 = get_ai_inference_service()

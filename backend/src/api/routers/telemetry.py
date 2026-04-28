@@ -20,10 +20,12 @@ from ...core.persistence import persistence
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 # Telemetry V2 Models
 class TelemetryPingRequest(BaseModel):
     component_id: str
     sample_count: int = 10
+
 
 class TelemetryPingResponse(BaseModel):
     component_id: str
@@ -35,14 +37,23 @@ class TelemetryPingResponse(BaseModel):
     target_ms: float
     timestamp: str
 
+
 # WebSocket Handshake Helpers
 _WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
 
 def _compute_accept_header(key: str) -> str:
     digest = hashlib.sha1((key + _WEBSOCKET_GUID).encode("utf-8")).digest()
     return base64.b64encode(digest).decode("utf-8")
 
-def _build_handshake_response(*, protocol: str, key: str, latency_budget_ms: int | None = None, payload_schema: str | None = None) -> Response:
+
+def _build_handshake_response(
+    *,
+    protocol: str,
+    key: str,
+    latency_budget_ms: int | None = None,
+    payload_schema: str | None = None,
+) -> Response:
     headers = {
         "Upgrade": "websocket",
         "Connection": "Upgrade",
@@ -54,6 +65,7 @@ def _build_handshake_response(*, protocol: str, key: str, latency_budget_ms: int
     if payload_schema:
         headers["X-Payload-Schema"] = payload_schema
     return Response(status_code=status.HTTP_101_SWITCHING_PROTOCOLS, headers=headers)
+
 
 def _validate_websocket_upgrade(request: Request, *, expected_protocol: str) -> tuple[str, str]:
     upgrade_header = request.headers.get("upgrade", "").lower()
@@ -79,6 +91,7 @@ def _validate_websocket_upgrade(request: Request, *, expected_protocol: str) -> 
 
     return key, negotiated_protocol
 
+
 def _require_bearer_auth(request: Request) -> None:
     token = _extract_bearer_token(request.headers.get("Authorization"))
     if token:
@@ -86,13 +99,20 @@ def _require_bearer_auth(request: Request) -> None:
 
     client = request.client
     if client is not None:
-        host = (client[0] if isinstance(client, (list, tuple)) else getattr(client, "host", None)) or ""
+        host = (
+            client[0] if isinstance(client, (list, tuple)) else getattr(client, "host", None)
+        ) or ""
         host = str(host)
     else:
         host = request.headers.get("host", "")
 
     host_lower = host.lower()
-    if host_lower.startswith("127.") or host_lower in {"::1", "localhost", "testserver", "testclient"}:
+    if host_lower.startswith("127.") or host_lower in {
+        "::1",
+        "localhost",
+        "testserver",
+        "testclient",
+    }:
         # Loopback access (tests, on-device UI) is allowed without a token.
         return
 
@@ -102,7 +122,9 @@ def _require_bearer_auth(request: Request) -> None:
     )
     raise HTTPException(status_code=401, detail="Unauthorized")
 
+
 # WebSocket Endpoints
+
 
 @router.websocket("/ws/telemetry")
 async def ws_telemetry(websocket: WebSocket):
@@ -136,22 +158,31 @@ async def ws_telemetry(websocket: WebSocket):
                     hz = 5.0
                 await websocket_hub.set_cadence(client_id, hz)
             elif mtype == "ping":
-                await websocket.send_text(json.dumps({
-                    "event": "pong",
-                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                }))
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "event": "pong",
+                            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        }
+                    )
+                )
             elif mtype == "list_topics":
-                await websocket.send_text(json.dumps({
-                    "event": "topics.list",
-                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "topics": sorted(list(websocket_hub.subscriptions.keys())),
-                }))
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "event": "topics.list",
+                            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "topics": sorted(list(websocket_hub.subscriptions.keys())),
+                        }
+                    )
+                )
             # Unknown message types are ignored for forward compatibility
     except Exception:
         pass
     finally:
         websocket_hub.disconnect(client_id)
         session.remove_websocket_connection(client_id)
+
 
 @router.websocket("/ws/control")
 async def ws_control(websocket: WebSocket):
@@ -161,24 +192,34 @@ async def ws_control(websocket: WebSocket):
     session.add_websocket_connection(client_id, endpoint="/api/v2/ws/control")
     try:
         await websocket.accept()
-        await websocket.send_text(json.dumps({
-            "event": "connection.established",
-            "client_id": client_id,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }))
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "event": "connection.established",
+                    "client_id": client_id,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                }
+            )
+        )
         while True:
             # Drain and ignore messages for now (future: control echo/lockout)
             _ = await websocket.receive_text()
-            await websocket.send_text(json.dumps({
-                "event": "ack",
-                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            }))
+            await websocket.send_text(
+                json.dumps(
+                    {
+                        "event": "ack",
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    }
+                )
+            )
     except Exception:
         pass
     finally:
         session.remove_websocket_connection(client_id)
 
+
 # HTTP Handshake Endpoints (for tests/clients that do manual handshake)
+
 
 @router.get("/ws/telemetry")
 async def websocket_telemetry_handshake(request: Request):
@@ -191,6 +232,7 @@ async def websocket_telemetry_handshake(request: Request):
         payload_schema="#/components/schemas/HardwareTelemetryStream",
     )
 
+
 @router.get("/ws/control")
 async def websocket_control_handshake(request: Request):
     _require_bearer_auth(request)
@@ -201,6 +243,7 @@ async def websocket_control_handshake(request: Request):
         latency_budget_ms=150,
         payload_schema="#/components/schemas/ControlCommandResponse",
     )
+
 
 @router.get("/ws/settings")
 async def websocket_settings_handshake(request: Request):
@@ -213,6 +256,7 @@ async def websocket_settings_handshake(request: Request):
         payload_schema="#/components/schemas/SettingsProfile",
     )
 
+
 @router.get("/ws/notifications")
 async def websocket_notifications_handshake(request: Request):
     _require_bearer_auth(request)
@@ -224,7 +268,9 @@ async def websocket_notifications_handshake(request: Request):
         payload_schema="#/components/schemas/NotificationEvent",
     )
 
+
 # Telemetry V2 Endpoints
+
 
 @router.get("/telemetry/stream")
 async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: Optional[str] = None):
@@ -240,23 +286,36 @@ async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: Optio
         # Project to items with required fields and metadata placeholders
         items = []
         for s in streams:
-            items.append({
-                "timestamp": s.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "component_id": s.get("component_id", "power"),
-                "latency_ms": s.get("latency_ms", 0.0),
-                "status": s.get("status", "healthy"),
-                "metadata": {
-                    "rtk_fix": "fallback",
-                    "rtk_fallback_reason": "SIMULATED" if os.environ.get("SIM_MODE") == "1" else None,
-                    "rtk_status_message": "RTK fallback active" if os.environ.get("SIM_MODE") == "1" else "RTK stable",
-                    "orientation": {"type": "euler", "roll": 0, "pitch": 0, "yaw": 0},
-                },
-            })
+            items.append(
+                {
+                    "timestamp": s.get("timestamp")
+                    or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "component_id": s.get("component_id", "power"),
+                    "latency_ms": s.get("latency_ms", 0.0),
+                    "status": s.get("status", "healthy"),
+                    "metadata": {
+                        "rtk_fix": "fallback",
+                        "rtk_fallback_reason": "SIMULATED"
+                        if os.environ.get("SIM_MODE") == "1"
+                        else None,
+                        "rtk_status_message": "RTK fallback active"
+                        if os.environ.get("SIM_MODE") == "1"
+                        else "RTK stable",
+                        "orientation": {"type": "euler", "roll": 0, "pitch": 0, "yaw": 0},
+                    },
+                }
+            )
 
         # Latency summary (dummy values in SIM)
-        latencies = [i["latency_ms"] for i in items if isinstance(i.get("latency_ms"), (int, float))]
+        latencies = [
+            i["latency_ms"] for i in items if isinstance(i.get("latency_ms"), (int, float))
+        ]
         avg = sum(latencies) / len(latencies) if latencies else 0.0
-        summary = {"avg": avg, "min": min(latencies) if latencies else 0.0, "max": max(latencies) if latencies else 0.0}
+        summary = {
+            "avg": avg,
+            "min": min(latencies) if latencies else 0.0,
+            "max": max(latencies) if latencies else 0.0,
+        }
         return {
             "items": items,
             "latency_summary_ms": summary,
@@ -264,6 +323,7 @@ async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: Optio
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 @router.get("/telemetry/export")
 async def export_telemetry_diagnostic(
@@ -273,45 +333,56 @@ async def export_telemetry_diagnostic(
     format: str = Query("csv", description="Export format: json or csv"),
 ):
     """Export telemetry diagnostic data including power metrics for troubleshooting"""
-    
+
     # Generate diagnostic export
     diagnostic_data = persistence.export_telemetry_diagnostic(
         component_id=component,
         start_time=start,
         end_time=end,
     )
-    
+
     if format == "csv":
         # Convert to CSV format
         import csv
+
         output = io.StringIO()
-        
+
         # Write header
-        fieldnames = ["timestamp", "component", "value", "status", "latency_ms", "battery_channel", "solar_channel"]
+        fieldnames = [
+            "timestamp",
+            "component",
+            "value",
+            "status",
+            "latency_ms",
+            "battery_channel",
+            "solar_channel",
+        ]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
-        
+
         # Write rows
         for stream in diagnostic_data.get("streams", []):
-            writer.writerow({
-                "timestamp": stream.get("timestamp"),
-                "component": stream.get("component_id"),
-                "value": str(stream.get("value")),
-                "status": stream.get("status"),
-                "latency_ms": stream.get("latency_ms"),
-                "battery_channel": "ina3221_ch1",
-                "solar_channel": "ina3221_ch2",
-            })
-        
+            writer.writerow(
+                {
+                    "timestamp": stream.get("timestamp"),
+                    "component": stream.get("component_id"),
+                    "value": str(stream.get("value")),
+                    "status": stream.get("status"),
+                    "latency_ms": stream.get("latency_ms"),
+                    "battery_channel": "ina3221_ch1",
+                    "solar_channel": "ina3221_ch2",
+                }
+            )
+
         csv_content = output.getvalue()
         output.close()
-        
+
         return StreamingResponse(
-            io.BytesIO(csv_content.encode('utf-8')),
+            io.BytesIO(csv_content.encode("utf-8")),
             media_type="text/csv",
             headers={
                 "Content-Disposition": f"attachment; filename=telemetry_diagnostic_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
-            }
+            },
         )
     else:
         # Return JSON
@@ -319,8 +390,9 @@ async def export_telemetry_diagnostic(
             content=diagnostic_data,
             headers={
                 "Content-Disposition": f"attachment; filename=telemetry_diagnostic_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
-            }
+            },
         )
+
 
 @router.post("/telemetry/ping")
 async def telemetry_ping(request: TelemetryPingRequest):
@@ -335,10 +407,11 @@ async def telemetry_ping(request: TelemetryPingRequest):
         await asyncio.sleep(0.001)
 
     samples_sorted = sorted(samples)
+
     def pct(arr, p):
         if not arr:
             return 0.0
-        k = max(0, min(len(arr) - 1, int(round((p/100.0) * (len(arr)-1)))))
+        k = max(0, min(len(arr) - 1, int(round((p / 100.0) * (len(arr) - 1)))))
         return arr[k]
 
     return {
@@ -348,17 +421,18 @@ async def telemetry_ping(request: TelemetryPingRequest):
         "latency_ms_p50": round(pct(samples_sorted, 50), 3),
     }
 
+
 @router.get("/dashboard/telemetry")
 async def dashboard_telemetry():
     """Get real-time telemetry from hardware sensors with RTK/IMU orientation states"""
     start_time = time.perf_counter()
-    
+
     # Get hardware telemetry data from the WebSocket hub
     telemetry_data = await websocket_hub._generate_telemetry()
-    
+
     latency_ms = (time.perf_counter() - start_time) * 1000
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    
+
     def _coerce_float(value: object) -> float | None:
         if value is None:
             return None
@@ -367,7 +441,9 @@ async def dashboard_telemetry():
         except (TypeError, ValueError):
             return None
 
-    def _extract_power_payload(raw_power: object, default_battery: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _extract_power_payload(
+        raw_power: object, default_battery: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         payload = raw_power if isinstance(raw_power, dict) else {}
         battery_voltage = _coerce_float(
             payload.get("battery_voltage")
@@ -380,21 +456,19 @@ async def dashboard_telemetry():
             or payload.get("current")
         )
         battery_power = _coerce_float(
-            payload.get("battery_power")
-            or payload.get("battery_power_w")
+            payload.get("battery_power") or payload.get("battery_power_w")
         )
         if battery_power is None and battery_voltage is not None and battery_current is not None:
             battery_power = battery_voltage * battery_current
-        solar_voltage = _coerce_float(payload.get("solar_voltage") or payload.get("solar_input_voltage"))
+        solar_voltage = _coerce_float(
+            payload.get("solar_voltage") or payload.get("solar_input_voltage")
+        )
         solar_current = _coerce_float(
             payload.get("solar_current")
             or payload.get("solar_current_amps")
             or payload.get("solar_input_current")
         )
-        solar_power = _coerce_float(
-            payload.get("solar_power")
-            or payload.get("solar_power_w")
-        )
+        solar_power = _coerce_float(payload.get("solar_power") or payload.get("solar_power_w"))
         if solar_power is None and solar_voltage is not None and solar_current is not None:
             solar_power = solar_voltage * solar_current
         # Normalize sign for display semantics (ensure non-negative)
@@ -427,7 +501,9 @@ async def dashboard_telemetry():
                 load_power = float(battery_voltage) * float(load_current)
             except Exception:
                 load_power = None
-        load_state = payload.get("load_state") if isinstance(payload.get("load_state"), str) else None
+        load_state = (
+            payload.get("load_state") if isinstance(payload.get("load_state"), str) else None
+        )
         if load_state is None and isinstance(load_current, (int, float)):
             load_state = "on" if abs(load_current) > 0.05 else "off"
         timestamp = payload.get("timestamp")
@@ -447,7 +523,9 @@ async def dashboard_telemetry():
                 "voltage": battery_voltage,
                 "current": battery_current,
                 "power": battery_power,
-                "soc_percent": _coerce_float(payload.get("battery_percentage") or payload.get("battery_soc_percent")),
+                "soc_percent": _coerce_float(
+                    payload.get("battery_percentage") or payload.get("battery_soc_percent")
+                ),
             },
             "solar": {
                 "voltage": solar_voltage,
@@ -457,27 +535,30 @@ async def dashboard_telemetry():
         }
 
     # Extract and map hardware data to dashboard format
-    if "source" in telemetry_data and telemetry_data["source"] in {"hardware", "hardware_simulated"}:
+    if "source" in telemetry_data and telemetry_data["source"] in {
+        "hardware",
+        "hardware_simulated",
+    }:
         # Use real hardware data
         battery_data = telemetry_data.get("battery", {})
         position_data = telemetry_data.get("position", {})
         imu_data = telemetry_data.get("imu", {})
         tof_data = telemetry_data.get("tof", {}) if isinstance(telemetry_data, dict) else {}
         power_data = telemetry_data.get("power", {}) if isinstance(telemetry_data, dict) else {}
-        
+
         # RTK status and fallback messaging
         rtk_status = position_data.get("rtk_status", "unknown")
         rtk_fallback_message = None
         if rtk_status in ["no_fix", "gps_fix"]:
             rtk_fallback_message = "RTK corrections unavailable - using standard GPS. See docs/hardware-overview.md for troubleshooting."
-        
+
         # IMU calibration status
         imu_calibration = imu_data.get("calibration", 0)
         orientation_health = "healthy" if imu_calibration >= 2 else "degraded"
         orientation_message = None
         if imu_calibration < 2:
             orientation_message = "IMU calibration incomplete - orientation data may be inaccurate. See docs/hardware-feature-matrix.md."
-        
+
         env = telemetry_data.get("environmental", {}) if isinstance(telemetry_data, dict) else {}
         power_payload = _extract_power_payload(power_data, default_battery=battery_data)
 
@@ -530,14 +611,18 @@ async def dashboard_telemetry():
         env = telemetry_data.get("environmental", {}) if isinstance(telemetry_data, dict) else {}
         tof_data = telemetry_data.get("tof", {}) if isinstance(telemetry_data, dict) else {}
         power_data = telemetry_data.get("power", {}) if isinstance(telemetry_data, dict) else {}
-        fallback_battery = telemetry_data.get("battery", {}) if isinstance(telemetry_data, dict) else {}
+        fallback_battery = (
+            telemetry_data.get("battery", {}) if isinstance(telemetry_data, dict) else {}
+        )
         power_payload = _extract_power_payload(power_data, default_battery=fallback_battery)
 
         result = {
             "timestamp": now,
             "latency_ms": round(latency_ms, 2),
             "source": telemetry_data.get("source", "simulated"),
-            "simulated": telemetry_data.get("simulated", telemetry_data.get("source", "simulated") != "hardware"),
+            "simulated": telemetry_data.get(
+                "simulated", telemetry_data.get("source", "simulated") != "hardware"
+            ),
             "battery": {
                 "percentage": telemetry_data.get("battery", {}).get("percentage", 85.2),
                 "voltage": telemetry_data.get("battery", {}).get("voltage", 12.6),
@@ -577,19 +662,19 @@ async def dashboard_telemetry():
                 },
             },
         }
-    
+
     # Add remediation metadata if latency exceeds thresholds
     if latency_ms > 350:  # Pi 4B threshold
         result["remediation"] = {
             "type": "latency_exceeded",
             "message": "Dashboard telemetry latency exceeds 350ms threshold for Pi 4B",
-            "docs_link": "docs/OPERATIONS.md#telemetry-latency-troubleshooting"
+            "docs_link": "docs/OPERATIONS.md#telemetry-latency-troubleshooting",
         }
     elif latency_ms > 250:  # Pi 5 threshold
         result["remediation"] = {
             "type": "latency_warning",
             "message": "Dashboard telemetry latency exceeds 250ms target for Pi 5",
-            "docs_link": "docs/OPERATIONS.md#performance-optimization"
+            "docs_link": "docs/OPERATIONS.md#performance-optimization",
         }
-    
+
     return result

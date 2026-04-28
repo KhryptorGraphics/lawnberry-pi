@@ -49,6 +49,7 @@ from ..services.remote_access_service import (
 
 logger = logging.getLogger(__name__)
 
+
 class WebSocketHub:
     def __init__(self):
         self.clients: dict[str, WebSocket] = {}
@@ -92,8 +93,15 @@ class WebSocketHub:
                 hw_cfg = getattr(self._app_state, "hardware_config", None)
             except Exception:
                 hw_cfg = None
-            if hw_cfg and getattr(hw_cfg, "gps_type", None) in {GPSType.ZED_F9P_USB, GPSType.ZED_F9P_UART}:
-                gps_mode = GpsMode.F9P_USB if getattr(hw_cfg, "gps_type", None) == GPSType.ZED_F9P_USB else GpsMode.F9P_UART
+            if hw_cfg and getattr(hw_cfg, "gps_type", None) in {
+                GPSType.ZED_F9P_USB,
+                GPSType.ZED_F9P_UART,
+            }:
+                gps_mode = (
+                    GpsMode.F9P_USB
+                    if getattr(hw_cfg, "gps_type", None) == GPSType.ZED_F9P_USB
+                    else GpsMode.F9P_UART
+                )
                 ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
             elif hw_cfg and getattr(hw_cfg, "gps_type", None) == GPSType.LC29H_DA:
                 gps_mode = GpsMode.LC29H_UART
@@ -144,7 +152,9 @@ class WebSocketHub:
                 tof_cfg = None
                 power_cfg = None
 
-        self._sensor_manager = SensorManager(gps_mode=gps_mode, tof_config=tof_cfg, power_config=power_cfg)
+        self._sensor_manager = SensorManager(
+            gps_mode=gps_mode, tof_config=tof_cfg, power_config=power_cfg
+        )
         await self._sensor_manager.initialize()
         if ntrip_enabled:
             await self._ensure_ntrip_forwarder(gps_mode)
@@ -163,7 +173,9 @@ class WebSocketHub:
             return
         forwarder = NtripForwarder.from_environment(gps_mode=gps_mode)
         if forwarder is None:
-            logger.warning("NTRIP forwarding requested but configuration is incomplete; set NTRIP_* env vars")
+            logger.warning(
+                "NTRIP forwarding requested but configuration is incomplete; set NTRIP_* env vars"
+            )
             return
         try:
             await forwarder.start()
@@ -195,70 +207,86 @@ class WebSocketHub:
 
         await websocket.accept(subprotocol=subprotocol)
         self.clients[client_id] = websocket
-        await websocket.send_text(json.dumps({
-            "event": "connection.established",
-            "client_id": client_id,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }))
-        
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "event": "connection.established",
+                    "client_id": client_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        )
+
     def disconnect(self, client_id: str):
         if client_id in self.clients:
             del self.clients[client_id]
         # Remove from all subscriptions
         for _topic, subscribers in self.subscriptions.items():
             subscribers.discard(client_id)
-            
+
     async def subscribe(self, client_id: str, topic: str):
         if topic not in self.subscriptions:
             self.subscriptions[topic] = set()
         self.subscriptions[topic].add(client_id)
-        
+
         # Send confirmation
         if client_id in self.clients:
-            await self.clients[client_id].send_text(json.dumps({
-                "event": "subscription.confirmed",
-                "topic": topic,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }))
-            
+            await self.clients[client_id].send_text(
+                json.dumps(
+                    {
+                        "event": "subscription.confirmed",
+                        "topic": topic,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            )
+
     async def unsubscribe(self, client_id: str, topic: str):
         if topic in self.subscriptions:
             self.subscriptions[topic].discard(client_id)
-            
+
         # Send confirmation
         if client_id in self.clients:
-            await self.clients[client_id].send_text(json.dumps({
-                "event": "unsubscription.confirmed", 
-                "topic": topic,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }))
-            
+            await self.clients[client_id].send_text(
+                json.dumps(
+                    {
+                        "event": "unsubscription.confirmed",
+                        "topic": topic,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            )
+
     async def set_cadence(self, client_id: str, cadence_hz: float):
         # Clamp cadence between 1-10 Hz
         cadence_hz = max(1.0, min(10.0, cadence_hz))
         self.telemetry_cadence_hz = cadence_hz
-        
+
         # Send confirmation
         if client_id in self.clients:
-            await self.clients[client_id].send_text(json.dumps({
-                "event": "cadence.updated",
-                "cadence_hz": cadence_hz,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }))
-            
+            await self.clients[client_id].send_text(
+                json.dumps(
+                    {
+                        "event": "cadence.updated",
+                        "cadence_hz": cadence_hz,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            )
+
     async def broadcast_to_topic(self, topic: str, data: dict):
         if topic not in self.subscriptions:
             return
-        
+
         # Use FastAPI's encoder to safely handle datetimes and Pydantic models
         payload = {
             "event": "telemetry.data",
             "topic": topic,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "data": data
+            "data": data,
         }
         message = json.dumps(jsonable_encoder(payload), default=str)
-        
+
         disconnected_clients = []
         for client_id in self.subscriptions[topic]:
             if client_id in self.clients:
@@ -266,16 +294,16 @@ class WebSocketHub:
                     await self.clients[client_id].send_text(message)
                 except Exception:
                     disconnected_clients.append(client_id)
-                    
+
         # Clean up disconnected clients
         for client_id in disconnected_clients:
             self.disconnect(client_id)
-            
+
     async def start_telemetry_loop(self):
         if self._telemetry_task is not None:
             return
         self._telemetry_task = asyncio.create_task(self._telemetry_loop())
-        
+
     async def stop_telemetry_loop(self):
         if self._telemetry_task:
             self._telemetry_task.cancel()
@@ -284,31 +312,39 @@ class WebSocketHub:
             except asyncio.CancelledError:
                 pass
             self._telemetry_task = None
-            
+
     async def _telemetry_loop(self):
         while True:
             try:
                 telemetry_data = await self._generate_telemetry()
                 # Broadcast to topic-specific channels immediately
                 await self._broadcast_telemetry_topics(telemetry_data)
-                
+
                 # Wait based on cadence
                 await asyncio.sleep(1.0 / self.telemetry_cadence_hz)
-                
+
             except asyncio.CancelledError:
                 break
             except Exception:
                 await asyncio.sleep(1.0)
-                
+
     async def _broadcast_telemetry_topics(self, telemetry_data: dict):
         """Broadcast telemetry data to appropriate topics."""
         # Extract data for specific topics
         if "battery" in telemetry_data or "power" in telemetry_data:
-            power_payload = telemetry_data.get("power") if isinstance(telemetry_data.get("power"), dict) else None
+            power_payload = (
+                telemetry_data.get("power")
+                if isinstance(telemetry_data.get("power"), dict)
+                else None
+            )
             message: dict[str, Any] = {
                 "source": telemetry_data.get("source", "unknown"),
             }
-            battery_block = telemetry_data.get("battery") if isinstance(telemetry_data.get("battery"), dict) else None
+            battery_block = (
+                telemetry_data.get("battery")
+                if isinstance(telemetry_data.get("battery"), dict)
+                else None
+            )
             if battery_block is not None:
                 # We'll enrich this after we know power payload details
                 message["battery"] = dict(battery_block)
@@ -372,7 +408,9 @@ class WebSocketHub:
                 # Load output (state/current/power) when available
                 load_current = pp.get("load_current")
                 load_power = None
-                if isinstance(load_current, (int, float)) and isinstance(battery_voltage, (int, float)):
+                if isinstance(load_current, (int, float)) and isinstance(
+                    battery_voltage, (int, float)
+                ):
                     try:
                         load_power = float(battery_voltage) * float(load_current)
                     except Exception:
@@ -395,15 +433,17 @@ class WebSocketHub:
                 if timestamp is not None:
                     message["timestamp"] = timestamp
             await self.broadcast_to_topic("telemetry.power", message)
-            
+
         if "position" in telemetry_data:
             # Ensure shallow copy to avoid mutation races
             pos = telemetry_data.get("position") or {}
             # Merge with last known values to avoid transient None for fields (e.g., altitude/accuracy)
             cached = self._last_position
+
             def _merge_field(key: str):
                 v = pos.get(key) if isinstance(pos, dict) else None
                 return v if v is not None else cached.get(key)
+
             merged = {
                 "latitude": _merge_field("latitude"),
                 "longitude": _merge_field("longitude"),
@@ -433,58 +473,70 @@ class WebSocketHub:
             if isinstance(hdop_val, (int, float)):
                 nav_payload["hdop"] = hdop_val
             await self.broadcast_to_topic("telemetry.navigation", nav_payload)
-            
+
         if "imu" in telemetry_data:
-            await self.broadcast_to_topic("telemetry.sensors", {
-                "imu": telemetry_data["imu"],
-                "source": telemetry_data.get("source", "unknown")
-            })
+            await self.broadcast_to_topic(
+                "telemetry.sensors",
+                {"imu": telemetry_data["imu"], "source": telemetry_data.get("source", "unknown")},
+            )
 
         if "environmental" in telemetry_data:
-            await self.broadcast_to_topic("telemetry.environmental", {
-                "environmental": telemetry_data["environmental"],
-                "source": telemetry_data.get("source", "unknown")
-            })
+            await self.broadcast_to_topic(
+                "telemetry.environmental",
+                {
+                    "environmental": telemetry_data["environmental"],
+                    "source": telemetry_data.get("source", "unknown"),
+                },
+            )
 
         if "tof" in telemetry_data:
-            await self.broadcast_to_topic("telemetry.tof", {
-                "tof": telemetry_data["tof"],
-                "source": telemetry_data.get("source", "unknown")
-            })
+            await self.broadcast_to_topic(
+                "telemetry.tof",
+                {"tof": telemetry_data["tof"], "source": telemetry_data.get("source", "unknown")},
+            )
 
         if "ultrasonic" in telemetry_data:
-            await self.broadcast_to_topic("telemetry.ultrasonic", {
-                "ultrasonic": telemetry_data["ultrasonic"],
-                "source": telemetry_data.get("source", "unknown")
-            })
+            await self.broadcast_to_topic(
+                "telemetry.ultrasonic",
+                {
+                    "ultrasonic": telemetry_data["ultrasonic"],
+                    "source": telemetry_data.get("source", "unknown"),
+                },
+            )
 
         if "stereo_camera" in telemetry_data:
-            await self.broadcast_to_topic("telemetry.stereo_camera", {
-                "stereo_camera": telemetry_data["stereo_camera"],
-                "source": telemetry_data.get("source", "unknown")
-            })
+            await self.broadcast_to_topic(
+                "telemetry.stereo_camera",
+                {
+                    "stereo_camera": telemetry_data["stereo_camera"],
+                    "source": telemetry_data.get("source", "unknown"),
+                },
+            )
 
         if "motor_status" in telemetry_data:
-            await self.broadcast_to_topic("telemetry.motors", {
-                "motor_status": telemetry_data["motor_status"],
-                "source": telemetry_data.get("source", "unknown")
-            })
-            
+            await self.broadcast_to_topic(
+                "telemetry.motors",
+                {
+                    "motor_status": telemetry_data["motor_status"],
+                    "source": telemetry_data.get("source", "unknown"),
+                },
+            )
+
         # System status
         system_data = {
             "safety_state": telemetry_data.get("safety_state", "unknown"),
             "uptime_seconds": telemetry_data.get("uptime_seconds", 0),
-            "source": telemetry_data.get("source", "unknown")
+            "source": telemetry_data.get("source", "unknown"),
         }
         await self.broadcast_to_topic("telemetry.system", system_data)
         await self.broadcast_to_topic("system.health", system_data)
-        
+
         # Legacy support: broadcast full data to general telemetry topic
         await self.broadcast_to_topic("telemetry/updates", telemetry_data)
-        
+
         # Additional topics (hardware when available, otherwise simulated)
         await self._broadcast_additional_topics(telemetry_data)
-        
+
     async def _broadcast_additional_topics(self, telemetry_data: Optional[dict] = None):
         """Broadcast supplemental topics, preferring hardware readings when present."""
         import random
@@ -492,7 +544,10 @@ class WebSocketHub:
         weather_data: Optional[dict[str, Any]] = None
         env = (telemetry_data or {}).get("environmental") if telemetry_data else None
 
-        if isinstance(env, dict) and any(env.get(key) is not None for key in ("temperature_c", "humidity_percent", "pressure_hpa")):
+        if isinstance(env, dict) and any(
+            env.get(key) is not None
+            for key in ("temperature_c", "humidity_percent", "pressure_hpa")
+        ):
             weather_data = {
                 "temperature_c": env.get("temperature_c"),
                 "humidity_percent": env.get("humidity_percent"),
@@ -500,7 +555,9 @@ class WebSocketHub:
                 "altitude_m": env.get("altitude_m"),
                 "wind_speed_ms": None,
                 "precipitation_mm": None,
-                "source": telemetry_data.get("source", "hardware") if telemetry_data else "hardware"
+                "source": telemetry_data.get("source", "hardware")
+                if telemetry_data
+                else "hardware",
             }
 
         if weather_data is None and self._sensor_manager is not None:
@@ -518,7 +575,7 @@ class WebSocketHub:
                         "altitude_m": getattr(reading, "altitude", None),
                         "wind_speed_ms": None,
                         "precipitation_mm": None,
-                        "source": "hardware"
+                        "source": "hardware",
                     }
 
         if weather_data is None:
@@ -526,15 +583,22 @@ class WebSocketHub:
                 snapshot = await weather_service.get_current_async()
             except Exception:
                 snapshot = None
-            if snapshot and any(snapshot.get(key) is not None for key in ("temperature_c", "humidity_percent", "pressure_hpa")):
+            if snapshot and any(
+                snapshot.get(key) is not None
+                for key in ("temperature_c", "humidity_percent", "pressure_hpa")
+            ):
                 weather_data = {
                     "temperature_c": snapshot.get("temperature_c"),
                     "humidity_percent": snapshot.get("humidity_percent"),
                     "pressure_hpa": snapshot.get("pressure_hpa"),
                     "altitude_m": snapshot.get("altitude_m"),
-                    "wind_speed_ms": snapshot.get("wind_speed_ms") if snapshot.get("wind_speed_ms") is not None else None,
-                    "precipitation_mm": snapshot.get("precipitation_mm") if snapshot.get("precipitation_mm") is not None else None,
-                    "source": snapshot.get("source", "simulated")
+                    "wind_speed_ms": snapshot.get("wind_speed_ms")
+                    if snapshot.get("wind_speed_ms") is not None
+                    else None,
+                    "precipitation_mm": snapshot.get("precipitation_mm")
+                    if snapshot.get("precipitation_mm") is not None
+                    else None,
+                    "source": snapshot.get("source", "simulated"),
                 }
 
         if weather_data is None:
@@ -545,41 +609,45 @@ class WebSocketHub:
                 "altitude_m": None,
                 "wind_speed_ms": None,
                 "precipitation_mm": None,
-                "source": "unavailable"
+                "source": "unavailable",
             }
 
         await self.broadcast_to_topic("telemetry.weather", weather_data)
-        
+
         # Job status (simulated)
         job_data = {
             "current_job": "mowing_zone_1",
             "progress_percent": round(random.uniform(0, 100), 1),
             "remaining_time_min": random.randint(5, 60),
             "status": random.choice(["running", "paused", "idle"]),
-            "source": "simulated"
+            "source": "simulated",
         }
         await self.broadcast_to_topic("jobs.progress", job_data)
-        
-    # System performance
+
+        # System performance
         perf_data = {
             "cpu_usage_percent": round(random.uniform(10, 60), 1),
             "memory_usage_percent": round(random.uniform(20, 70), 1),
             "disk_usage_percent": round(random.uniform(30, 80), 1),
             "temperature_c": round(random.uniform(35, 65), 1),
-            "source": "simulated"
+            "source": "simulated",
         }
         await self.broadcast_to_topic("system.performance", perf_data)
-        
+
         # Connectivity status
         # FIXME: This relies on _remote_access_settings being available.
         # For now, I'll load it here to be safe.
         from ..services.remote_access_service import CONFIG_PATH as REMOTE_ACCESS_CONFIG_PATH
+
         try:
-             _remote_access_settings = RemoteAccessService.load_config_from_disk(REMOTE_ACCESS_CONFIG_PATH)
+            _remote_access_settings = RemoteAccessService.load_config_from_disk(
+                REMOTE_ACCESS_CONFIG_PATH
+            )
         except Exception:
-             # Fallback
-             from ..models.remote_access_config import RemoteAccessConfig
-             _remote_access_settings = RemoteAccessConfig()
+            # Fallback
+            from ..models.remote_access_config import RemoteAccessConfig
+
+            _remote_access_settings = RemoteAccessConfig()
 
         try:
             ra_status = RemoteAccessService.load_status_from_disk(
@@ -621,7 +689,7 @@ class WebSocketHub:
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.warning("SensorManager initialization failed: %s", exc)
             manager = None
-        
+
         # Access shared state for safety
         from ..core.globals import _safety_state, _debug_overrides
 
@@ -632,7 +700,10 @@ class WebSocketHub:
                     try:
                         for _ in range(3):
                             warm = await manager.read_all_sensors()
-                            if getattr(warm, "gps", None) and getattr(warm.gps, "latitude", None) is not None:
+                            if (
+                                getattr(warm, "gps", None)
+                                and getattr(warm.gps, "latitude", None) is not None
+                            ):
                                 break
                             await asyncio.sleep(0.2)
                     finally:
@@ -641,7 +712,10 @@ class WebSocketHub:
                 data = await manager.read_all_sensors()
                 try:
                     # Feed fresh sensor data into NavigationService for closed-loop control
-                    from ..services.navigation_service import NavigationService as _NavSvc  # local import to avoid cycles
+                    from ..services.navigation_service import (
+                        NavigationService as _NavSvc,
+                    )  # local import to avoid cycles
+
                     nav = _NavSvc.get_instance()
                     await nav.update_navigation_state(data)
                 except Exception as exc:
@@ -718,7 +792,9 @@ class WebSocketHub:
                         "angular": {"x": None, "y": None, "z": getattr(imu, "gyro_z", None)},
                     },
                     "motor_status": "idle",
-                    "safety_state": "emergency_stop" if _safety_state.get("emergency_stop_active", False) else "nominal",
+                    "safety_state": "emergency_stop"
+                    if _safety_state.get("emergency_stop_active", False)
+                    else "nominal",
                     "uptime_seconds": time.time(),
                 }
 
@@ -744,12 +820,17 @@ class WebSocketHub:
                             telemetry["power"]["load_state"] = "on" if abs(cur) > 0.05 else "off"
                     except Exception:
                         pass
-                    if telemetry["battery"].get("voltage") is None and getattr(power, "battery_voltage", None) is not None:
+                    if (
+                        telemetry["battery"].get("voltage") is None
+                        and getattr(power, "battery_voltage", None) is not None
+                    ):
                         telemetry["battery"]["voltage"] = float(getattr(power, "battery_voltage"))
                     # Surface a charging_state hint for the UI
                     bc = getattr(power, "battery_current", None)
                     if isinstance(bc, (int, float)):
-                        telemetry["battery"]["charging_state"] = "charging" if bc > 0.05 else ("discharging" if bc < -0.05 else "idle")
+                        telemetry["battery"]["charging_state"] = (
+                            "charging" if bc > 0.05 else ("discharging" if bc < -0.05 else "idle")
+                        )
 
                 env = getattr(data, "environmental", None)
                 if env:
@@ -789,8 +870,16 @@ class WebSocketHub:
                     }
                 if "tof" not in telemetry:
                     telemetry["tof"] = {
-                        "left": {"distance_mm": None, "range_status": None, "signal_strength": None},
-                        "right": {"distance_mm": None, "range_status": None, "signal_strength": None},
+                        "left": {
+                            "distance_mm": None,
+                            "range_status": None,
+                            "signal_strength": None,
+                        },
+                        "right": {
+                            "distance_mm": None,
+                            "range_status": None,
+                            "signal_strength": None,
+                        },
                     }
 
                 # Ultrasonic sensors (HC-SR04 array)
@@ -853,6 +942,7 @@ class WebSocketHub:
 
                 try:
                     from ..services.camera_stream_service import camera_service
+
                     camera_frame = await camera_service.get_current_frame()
                     if camera_frame and camera_service.stream:
                         telemetry["camera"] = {
@@ -861,7 +951,9 @@ class WebSocketHub:
                             "fps": camera_service.stream.statistics.current_fps,
                             "frame_count": camera_service.stream.statistics.frames_captured,
                             "client_count": camera_service.stream.client_count,
-                            "last_frame": camera_frame.metadata.timestamp.isoformat() if camera_frame else None,
+                            "last_frame": camera_frame.metadata.timestamp.isoformat()
+                            if camera_frame
+                            else None,
                         }
                     else:
                         telemetry["camera"] = {
@@ -881,14 +973,29 @@ class WebSocketHub:
         telemetry = {
             "source": "simulated",
             "battery": {"percentage": None, "voltage": None},
-            "position": {"latitude": None, "longitude": None, "accuracy": None, "gps_mode": None, "hdop": None},
-            "imu": {"roll": None, "pitch": None, "yaw": None, "gyro_z": None, "calibration": 0, "calibration_status": None},
+            "position": {
+                "latitude": None,
+                "longitude": None,
+                "accuracy": None,
+                "gps_mode": None,
+                "hdop": None,
+            },
+            "imu": {
+                "roll": None,
+                "pitch": None,
+                "yaw": None,
+                "gyro_z": None,
+                "calibration": 0,
+                "calibration_status": None,
+            },
             "velocity": {
                 "linear": {"x": None, "y": None, "z": None},
                 "angular": {"x": None, "y": None, "z": None},
             },
             "motor_status": "idle",
-            "safety_state": "emergency_stop" if _safety_state.get("emergency_stop_active", False) else "nominal",
+            "safety_state": "emergency_stop"
+            if _safety_state.get("emergency_stop_active", False)
+            else "nominal",
             "uptime_seconds": time.time(),
         }
         telemetry["environmental"] = {
@@ -952,6 +1059,7 @@ class WebSocketHub:
         # Add simulated camera data
         try:
             from ..services.camera_stream_service import camera_service
+
             if camera_service.stream and camera_service.stream.is_active:
                 telemetry["camera"] = {
                     "active": True,
@@ -959,7 +1067,7 @@ class WebSocketHub:
                     "fps": 15.0,
                     "frame_count": int(time.time() * 15) % 10000,  # Simulated counter
                     "client_count": len(camera_service.clients),
-                    "last_frame": datetime.now(timezone.utc).isoformat()
+                    "last_frame": datetime.now(timezone.utc).isoformat(),
                 }
             else:
                 telemetry["camera"] = {
@@ -968,12 +1076,13 @@ class WebSocketHub:
                     "fps": 0.0,
                     "frame_count": 0,
                     "client_count": 0,
-                    "last_frame": None
+                    "last_frame": None,
                 }
         except Exception:
             telemetry["camera"] = {"active": False, "mode": "error"}
-        
+
         return telemetry
+
 
 # Global WebSocket hub instance
 websocket_hub = WebSocketHub()

@@ -1,4 +1,5 @@
 """Global test configuration for LawnBerry Pi v2."""
+
 import asyncio
 import importlib
 import os
@@ -18,12 +19,12 @@ collect_ignore = [
 def pytest_ignore_collect(collection_path, config):  # pragma: no cover - hook signature
     try:
         rel = str(collection_path)
-        return (
-            collection_path.match("tests/unit/test_health_endpoints.py")
-            or collection_path.match("tests/unit/test_auth_security_levels.py")
-        )
+        return collection_path.match(
+            "tests/unit/test_health_endpoints.py"
+        ) or collection_path.match("tests/unit/test_auth_security_levels.py")
     except AttributeError:
         return False
+
 
 # Ensure repository root on sys.path for 'backend' imports and compat stubs
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,9 +87,9 @@ def setup_test_environment():
     os.environ["AUTH_LOCKOUT_SECONDS"] = "0"
 
     print("CONFTEST: Set rate limiting environment variables")
-    
+
     yield
-    
+
     # Cleanup if necessary
     pass
 
@@ -99,7 +100,7 @@ async def test_client():
     import httpx
 
     from backend.src.main import app
-    
+
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client

@@ -6,6 +6,7 @@ into the same telemetry shape the INA3221 driver provides. Using the
 external CLI keeps the Python runtime free of complex BLE deps and
 matches the user's environment where only BLE connectivity is available.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -241,6 +242,7 @@ class VictronVeDirectDriver(HardwareDriver):
         is_numeric_frame = any(key in payload for key in ("V", "VPV", "PPV", "I", "IL"))
 
         if is_numeric_frame:
+
             def _get_int(key: str) -> Optional[int]:
                 try:
                     return int(payload[key])
@@ -315,9 +317,15 @@ class VictronVeDirectDriver(HardwareDriver):
                 or payload.get("load_current_amps")
                 or payload.get("external_device_load")
             )
-            battery_power = _to_float(payload.get("battery_power") or payload.get("battery_power_w"))
+            battery_power = _to_float(
+                payload.get("battery_power") or payload.get("battery_power_w")
+            )
 
-            if battery_power is None and battery_voltage is not None and battery_current is not None:
+            if (
+                battery_power is None
+                and battery_voltage is not None
+                and battery_current is not None
+            ):
                 battery_power = round(battery_voltage * battery_current, 3)
 
             if solar_power is None and solar_voltage is not None and solar_current is not None:

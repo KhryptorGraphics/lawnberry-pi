@@ -7,6 +7,7 @@ steering, throttle, and blade actions.
 Designed for seamless model deployment from Thor training server.
 Supports both hardware inference and simulation mode for testing.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,6 +34,7 @@ from ..models.action_prediction import (
 @dataclass
 class VLAModelConfig:
     """Configuration for VLA model inference."""
+
     # Input specifications
     stereo_input_size: tuple = (256, 320)  # (H, W)
     rgb_input_size: tuple = (224, 224)
@@ -319,12 +321,10 @@ class AIInferenceService(HardwareDriver):
         # Process stereo images
         if frame.stereo_left is not None and frame.stereo_right is not None:
             stereo_left = self._preprocess_image(
-                frame.stereo_left,
-                self._model_config.stereo_input_size
+                frame.stereo_left, self._model_config.stereo_input_size
             )
             stereo_right = self._preprocess_image(
-                frame.stereo_right,
-                self._model_config.stereo_input_size
+                frame.stereo_right, self._model_config.stereo_input_size
             )
             # Stack as batch with channels last
             inputs["stereo"] = np.stack([stereo_left, stereo_right], axis=0)
@@ -335,42 +335,36 @@ class AIInferenceService(HardwareDriver):
 
         # Process RGB camera
         if frame.pi_camera_rgb is not None:
-            rgb = self._preprocess_image(
-                frame.pi_camera_rgb,
-                self._model_config.rgb_input_size
-            )
+            rgb = self._preprocess_image(frame.pi_camera_rgb, self._model_config.rgb_input_size)
             inputs["rgb"] = rgb[np.newaxis, ...]  # Add batch dimension
         else:
             h, w = self._model_config.rgb_input_size
             inputs["rgb"] = np.zeros((1, h, w, 3), dtype=np.float32)
 
         # Encode sensor data as feature vector
-        sensor_features = np.array([
-            # GPS features (normalized)
-            frame.gps.hdop / 10.0,  # HDOP 0-10 normalized
-            frame.gps.num_satellites / 20.0,  # Satellites 0-20 normalized
-            1.0 if frame.gps.rtk_fix_type.value in ["fixed", "float"] else 0.0,
-
-            # IMU features (normalized to [-1, 1])
-            frame.imu.roll / 45.0,  # Roll ±45°
-            frame.imu.pitch / 45.0,  # Pitch ±45°
-            frame.imu.yaw / 180.0,  # Yaw ±180°
-
-            # Ultrasonic features (normalized, inverted for obstacle proximity)
-            1.0 - min(frame.ultrasonic.front_left_cm, 200) / 200.0,
-            1.0 - min(frame.ultrasonic.front_center_cm, 200) / 200.0,
-            1.0 - min(frame.ultrasonic.front_right_cm, 200) / 200.0,
-        ], dtype=np.float32)
+        sensor_features = np.array(
+            [
+                # GPS features (normalized)
+                frame.gps.hdop / 10.0,  # HDOP 0-10 normalized
+                frame.gps.num_satellites / 20.0,  # Satellites 0-20 normalized
+                1.0 if frame.gps.rtk_fix_type.value in ["fixed", "float"] else 0.0,
+                # IMU features (normalized to [-1, 1])
+                frame.imu.roll / 45.0,  # Roll ±45°
+                frame.imu.pitch / 45.0,  # Pitch ±45°
+                frame.imu.yaw / 180.0,  # Yaw ±180°
+                # Ultrasonic features (normalized, inverted for obstacle proximity)
+                1.0 - min(frame.ultrasonic.front_left_cm, 200) / 200.0,
+                1.0 - min(frame.ultrasonic.front_center_cm, 200) / 200.0,
+                1.0 - min(frame.ultrasonic.front_right_cm, 200) / 200.0,
+            ],
+            dtype=np.float32,
+        )
 
         inputs["sensors"] = sensor_features[np.newaxis, ...]  # Add batch dim
 
         return inputs
 
-    def _preprocess_image(
-        self,
-        image: np.ndarray,
-        target_size: tuple
-    ) -> np.ndarray:
+    def _preprocess_image(self, image: np.ndarray, target_size: tuple) -> np.ndarray:
         """Resize and normalize a single image."""
         import cv2
 
@@ -393,9 +387,7 @@ class AIInferenceService(HardwareDriver):
         return normalized
 
     def _postprocess(
-        self,
-        outputs: Dict[str, np.ndarray],
-        frame: MowerDataFrame
+        self, outputs: Dict[str, np.ndarray], frame: MowerDataFrame
     ) -> ActionPrediction:
         """Convert model outputs to ActionPrediction.
 
@@ -461,10 +453,7 @@ class AIInferenceService(HardwareDriver):
             boundary_warning=boundary_warning,
         )
 
-    async def _simulate_vla_inference(
-        self,
-        frame: MowerDataFrame
-    ) -> Dict[str, Any]:
+    async def _simulate_vla_inference(self, frame: MowerDataFrame) -> Dict[str, Any]:
         """Simulate VLA model inference for testing.
 
         Generates realistic-looking control predictions based on
@@ -526,8 +515,12 @@ class AIInferenceService(HardwareDriver):
             hailo_available=self._hailo.hardware_available if self._hailo else False,
             hailo_temperature=None,  # Would query from Hailo driver
             using_hardware=self._hailo.hardware_available if self._hailo else False,
-            safety_engaged=self._last_prediction.safety_override if self._last_prediction else False,
-            safety_reason="obstacle_detected" if (self._last_prediction and self._last_prediction.obstacle_detected) else None,
+            safety_engaged=self._last_prediction.safety_override
+            if self._last_prediction
+            else False,
+            safety_reason="obstacle_detected"
+            if (self._last_prediction and self._last_prediction.obstacle_detected)
+            else None,
             success_rate=self._metrics.success_rate,
             avg_latency_ms=self._metrics.avg_inference_time_ms,
             current_fps=self._metrics.inferences_per_second,

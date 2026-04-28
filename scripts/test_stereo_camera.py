@@ -7,6 +7,7 @@ This script verifies the stereo camera is working correctly by:
 3. Splitting into left/right frames
 4. Saving test images
 """
+
 from __future__ import annotations
 
 import sys

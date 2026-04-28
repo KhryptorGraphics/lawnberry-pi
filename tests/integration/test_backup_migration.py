@@ -11,16 +11,12 @@ def test_backup_and_restore_roundtrip():
             with tempfile.TemporaryDirectory() as restore_dir:
                 src = Path(src_dir)
                 (src / "config").mkdir()
-                (src / "config" / "system.json").write_text(
-                    '{"telemetry": {"cadence_hz": 5}}'
-                )
+                (src / "config" / "system.json").write_text('{"telemetry": {"cadence_hz": 5}}')
                 (src / "db").mkdir()
                 (src / "db" / "lawnberry.db").write_text("dummy-sqlite")
 
                 # Run backup script pointing at our temp dirs
-                backup_script = str(
-                    Path(__file__).resolve().parents[2] / "scripts" / "backup.sh"
-                )
+                backup_script = str(Path(__file__).resolve().parents[2] / "scripts" / "backup.sh")
                 proc = subprocess.run(
                     [
                         backup_script,
@@ -39,9 +35,7 @@ def test_backup_and_restore_roundtrip():
                 assert os.path.isfile(archive_path)
 
                 # Restore to a clean directory
-                restore_script = str(
-                    Path(__file__).resolve().parents[2] / "scripts" / "restore.sh"
-                )
+                restore_script = str(Path(__file__).resolve().parents[2] / "scripts" / "restore.sh")
                 subprocess.run(
                     [
                         restore_script,

@@ -8,6 +8,7 @@ JSON to verification_artifacts/002-complete-engineering-plan/quickstart_validati
 
 This is designed to be fast (<1 min) and hardware-safe (no GPIO access).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -81,8 +82,9 @@ async def run() -> dict[str, Any]:
         tele_ok = True
         for _ in range(5):
             s, lat_ms, payload = await _call(client, "GET", "/api/v2/dashboard/telemetry")
-            tele_ok = tele_ok and (s == 200) and isinstance(payload, dict) \
-                and ("timestamp" in payload)
+            tele_ok = (
+                tele_ok and (s == 200) and isinstance(payload, dict) and ("timestamp" in payload)
+            )
             tele_lats.append(lat_ms)
             await asyncio.sleep(0.05)
         results["phases"]["phase1_telemetry"] = {
@@ -92,8 +94,11 @@ async def run() -> dict[str, Any]:
         }
 
         # Phase 2: Safety API placeholder (use estop endpoint if available)
-        s2, l2, d2 = (await _call(client, "POST", "/api/v2/safety/estop")
-                       if False else (200, 0.0, {"note": "skipped"}))
+        s2, l2, d2 = (
+            await _call(client, "POST", "/api/v2/safety/estop")
+            if False
+            else (200, 0.0, {"note": "skipped"})
+        )
         results["phases"]["phase2_safety"] = {"status": s2, "latency_ms": round(l2, 2), "data": d2}
 
         # Phase 3: Telemetry stream
@@ -114,11 +119,16 @@ async def run() -> dict[str, Any]:
             ],
         }
         s4a, l4a, _ = await _call(client, "POST", "/api/v2/debug/geofence", json=fence)
-        s4b, l4b, _ = await _call(client, "POST", "/api/v2/debug/gps/inject", json={
-            "latitude": 37.4215,
-            "longitude": -122.0835,
-            "accuracy_m": 3.0,
-        })
+        s4b, l4b, _ = await _call(
+            client,
+            "POST",
+            "/api/v2/debug/gps/inject",
+            json={
+                "latitude": 37.4215,
+                "longitude": -122.0835,
+                "accuracy_m": 3.0,
+            },
+        )
         s4c, l4c, nav = await _call(client, "GET", "/api/v2/nav/status")
         inside = None
         mode = None
@@ -135,10 +145,15 @@ async def run() -> dict[str, Any]:
         }
 
         # Phase 6: Telemetry ping latency summary
-        s6, l6, d6 = await _call(client, "POST", "/api/v2/telemetry/ping", json={
-            "component_id": "power",
-            "sample_count": 10,
-        })
+        s6, l6, d6 = await _call(
+            client,
+            "POST",
+            "/api/v2/telemetry/ping",
+            json={
+                "component_id": "power",
+                "sample_count": 10,
+            },
+        )
         results["phases"]["phase6_latency_ping"] = {
             "status": s6,
             "latency_ms": round(l6, 2),

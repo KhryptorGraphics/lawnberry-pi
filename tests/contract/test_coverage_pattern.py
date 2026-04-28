@@ -37,7 +37,7 @@ async def test_generate_parallel_line_pattern_basic():
     lons = [lon for _, lon in geofence]
     min_lat, max_lat = min(lats), max(lats)
     min_lon, max_lon = min(lons), max(lons)
-    for (a, b) in lines:
+    for a, b in lines:
         for lat, lon in (a, b):
             assert min_lat <= lat <= max_lat
             assert min_lon <= lon <= max_lon

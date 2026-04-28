@@ -35,9 +35,7 @@ def validate_limits(limits: SafetyLimits) -> SafetyValidationReport:
 
     # Example cross-check: watchdog must be >= e-stop latency (gives time budget)
     if limits.watchdog_timeout_ms < limits.estop_latency_ms:
-        problems.append(
-            "watchdog_timeout_ms must be >= estop_latency_ms"
-        )
+        problems.append("watchdog_timeout_ms must be >= estop_latency_ms")
 
     ok = not problems
     detail = "ok" if ok else "; ".join(problems)

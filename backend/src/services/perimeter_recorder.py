@@ -14,6 +14,7 @@ datasets for autonomous mowing AI. Captures synchronized data from:
 Data is stored as MowerDataFrames serialized to MessagePack for efficient
 storage and later upload to Thor training server.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,9 +30,19 @@ import uuid
 import numpy as np
 
 from ..models.mower_data_frame import (
-    MowerDataFrame, RecordingSession, MowerState, ActionSource,
-    GPSData, IMUData, UltrasonicData, ToFData, MotorState, ControlAction, PowerState,
-    RTKFixType, HAS_MSGPACK
+    MowerDataFrame,
+    RecordingSession,
+    MowerState,
+    ActionSource,
+    GPSData,
+    IMUData,
+    UltrasonicData,
+    ToFData,
+    MotorState,
+    ControlAction,
+    PowerState,
+    RTKFixType,
+    HAS_MSGPACK,
 )
 from ..models import SensorStatus, GpsMode
 
@@ -40,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 class RecordingState:
     """Recording session states."""
+
     IDLE = "idle"
     RECORDING = "recording"
     PAUSED = "paused"
@@ -49,6 +61,7 @@ class RecordingState:
 @dataclass
 class RecordingConfig:
     """Configuration for recording sessions."""
+
     # Capture rate
     target_fps: float = 10.0  # Target frames per second
 
@@ -147,7 +160,9 @@ class PerimeterRecordingService:
                 return False
 
             self.initialized = True
-            logger.info(f"PerimeterRecordingService initialized, storage: {self.config.storage_dir}")
+            logger.info(
+                f"PerimeterRecordingService initialized, storage: {self.config.storage_dir}"
+            )
             return True
 
         except Exception as e:
@@ -257,7 +272,9 @@ class PerimeterRecordingService:
             raise RuntimeError("Not currently recording")
 
         self._state = RecordingState.PAUSED
-        logger.info(f"Paused recording: {self._current_session.name if self._current_session else 'unknown'}")
+        logger.info(
+            f"Paused recording: {self._current_session.name if self._current_session else 'unknown'}"
+        )
 
     async def resume_recording(self) -> None:
         """Resume a paused recording session."""
@@ -265,7 +282,9 @@ class PerimeterRecordingService:
             raise RuntimeError("Recording is not paused")
 
         self._state = RecordingState.RECORDING
-        logger.info(f"Resumed recording: {self._current_session.name if self._current_session else 'unknown'}")
+        logger.info(
+            f"Resumed recording: {self._current_session.name if self._current_session else 'unknown'}"
+        )
 
     async def _recording_loop(self) -> None:
         """Main recording loop - captures frames at target FPS."""
@@ -307,9 +326,7 @@ class PerimeterRecordingService:
 
             # Update timing stats
             capture_time = time.perf_counter() - loop_start
-            self._avg_capture_time_ms = (
-                self._avg_capture_time_ms * 0.9 + capture_time * 1000 * 0.1
-            )
+            self._avg_capture_time_ms = self._avg_capture_time_ms * 0.9 + capture_time * 1000 * 0.1
             self._last_frame_time = time.time()
 
     async def _capture_frame(self) -> Optional[MowerDataFrame]:
@@ -327,7 +344,7 @@ class PerimeterRecordingService:
         # Capture sensor data concurrently
         tasks = []
 
-        if self._sensor_manager and hasattr(self._sensor_manager, 'read_all_sensors'):
+        if self._sensor_manager and hasattr(self._sensor_manager, "read_all_sensors"):
             tasks.append(self._capture_sensor_data(frame))
 
         if self._robohat_service:
@@ -362,8 +379,8 @@ class PerimeterRecordingService:
                     rtk_fix_type=self._map_rtk_fix(gps),
                     hdop=gps.hdop or 99.0,
                     num_satellites=gps.satellites or 0,
-                    speed_mps=getattr(gps, 'speed', 0.0) or 0.0,
-                    heading=getattr(gps, 'heading', 0.0) or 0.0,
+                    speed_mps=getattr(gps, "speed", 0.0) or 0.0,
+                    heading=getattr(gps, "heading", 0.0) or 0.0,
                 )
 
             # IMU
@@ -383,14 +400,24 @@ class PerimeterRecordingService:
                 )
 
             # Ultrasonic - get from sensor manager's ultrasonic interface
-            if hasattr(self._sensor_manager, 'ultrasonic'):
+            if hasattr(self._sensor_manager, "ultrasonic"):
                 ultrasonic_readings = await self._sensor_manager.ultrasonic.read_ultrasonic()
                 if ultrasonic_readings:
-                    distances = [r.get('distance_cm', 0.0) for r in ultrasonic_readings if r.get('valid', False)]
+                    distances = [
+                        r.get("distance_cm", 0.0)
+                        for r in ultrasonic_readings
+                        if r.get("valid", False)
+                    ]
                     frame.ultrasonic = UltrasonicData(
-                        front_left_cm=ultrasonic_readings[0].get('distance_cm', 0.0) if len(ultrasonic_readings) > 0 else 0.0,
-                        front_center_cm=ultrasonic_readings[1].get('distance_cm', 0.0) if len(ultrasonic_readings) > 1 else 0.0,
-                        front_right_cm=ultrasonic_readings[2].get('distance_cm', 0.0) if len(ultrasonic_readings) > 2 else 0.0,
+                        front_left_cm=ultrasonic_readings[0].get("distance_cm", 0.0)
+                        if len(ultrasonic_readings) > 0
+                        else 0.0,
+                        front_center_cm=ultrasonic_readings[1].get("distance_cm", 0.0)
+                        if len(ultrasonic_readings) > 1
+                        else 0.0,
+                        front_right_cm=ultrasonic_readings[2].get("distance_cm", 0.0)
+                        if len(ultrasonic_readings) > 2
+                        else 0.0,
                         min_distance_cm=min(distances) if distances else 0.0,
                     )
 
@@ -407,7 +434,9 @@ class PerimeterRecordingService:
                 frame.power = PowerState(
                     battery_voltage=power.battery_voltage or 0.0,
                     battery_current=power.battery_current or 0.0,
-                    battery_soc=self._estimate_soc(power.battery_voltage) if power.battery_voltage else 0.0,
+                    battery_soc=self._estimate_soc(power.battery_voltage)
+                    if power.battery_voltage
+                    else 0.0,
                     charging=False,  # TODO(v3): wire charging state from power service — Issue #N
                 )
 
@@ -417,23 +446,23 @@ class PerimeterRecordingService:
     async def _capture_motor_state(self, frame: MowerDataFrame) -> None:
         """Capture motor and control state from RoboHAT."""
         try:
-            if hasattr(self._robohat_service, 'get_motor_state'):
+            if hasattr(self._robohat_service, "get_motor_state"):
                 motor_state = await self._robohat_service.get_motor_state()
                 if motor_state:
                     frame.motor = MotorState(
-                        wheel_speed_left=motor_state.get('left_speed', 0.0),
-                        wheel_speed_right=motor_state.get('right_speed', 0.0),
-                        blade_speed=motor_state.get('blade_speed', 0.0),
-                        blade_enabled=motor_state.get('blade_enabled', False),
+                        wheel_speed_left=motor_state.get("left_speed", 0.0),
+                        wheel_speed_right=motor_state.get("right_speed", 0.0),
+                        blade_speed=motor_state.get("blade_speed", 0.0),
+                        blade_enabled=motor_state.get("blade_enabled", False),
                     )
 
-            if hasattr(self._robohat_service, 'get_control_state'):
+            if hasattr(self._robohat_service, "get_control_state"):
                 control_state = await self._robohat_service.get_control_state()
                 if control_state:
                     frame.action = ControlAction(
-                        steering=control_state.get('steering', 0.0),
-                        throttle=control_state.get('throttle', 0.0),
-                        blade_command=control_state.get('blade_command', False),
+                        steering=control_state.get("steering", 0.0),
+                        throttle=control_state.get("throttle", 0.0),
+                        blade_command=control_state.get("blade_command", False),
                         source=ActionSource.MANUAL,  # Perimeter recording is manual
                     )
 
@@ -443,7 +472,10 @@ class PerimeterRecordingService:
     async def _capture_stereo_images(self, frame: MowerDataFrame) -> None:
         """Capture stereo camera images."""
         try:
-            if hasattr(self._sensor_manager, 'stereo_camera') and self._sensor_manager.stereo_camera._driver:
+            if (
+                hasattr(self._sensor_manager, "stereo_camera")
+                and self._sensor_manager.stereo_camera._driver
+            ):
                 stereo_frame = await self._sensor_manager.stereo_camera._driver.capture()
                 if stereo_frame:
                     # Store images (optionally resized)
@@ -456,7 +488,7 @@ class PerimeterRecordingService:
                             stereo_frame.right, self.config.stereo_resolution
                         )
                     # Depth/disparity map if available
-                    if hasattr(stereo_frame, 'depth') and stereo_frame.depth is not None:
+                    if hasattr(stereo_frame, "depth") and stereo_frame.depth is not None:
                         frame.stereo_depth = stereo_frame.depth
 
         except Exception as e:
@@ -465,9 +497,9 @@ class PerimeterRecordingService:
     async def _capture_pi_camera(self, frame: MowerDataFrame) -> None:
         """Capture Pi Camera RGB image."""
         try:
-            if hasattr(self._camera_service, 'capture_frame'):
+            if hasattr(self._camera_service, "capture_frame"):
                 pi_frame = await self._camera_service.capture_frame()
-                if pi_frame and hasattr(pi_frame, 'data') and pi_frame.data is not None:
+                if pi_frame and hasattr(pi_frame, "data") and pi_frame.data is not None:
                     frame.pi_camera_rgb = self._resize_image(
                         pi_frame.data, self.config.pi_camera_resolution
                     )
@@ -478,6 +510,7 @@ class PerimeterRecordingService:
         """Resize image if needed."""
         try:
             import cv2
+
             if image.shape[1] != target_size[0] or image.shape[0] != target_size[1]:
                 return cv2.resize(image, target_size, interpolation=cv2.INTER_AREA)
         except ImportError:
@@ -486,7 +519,7 @@ class PerimeterRecordingService:
 
     def _map_rtk_fix(self, gps_reading: Any) -> RTKFixType:
         """Map GPS reading to RTKFixType enum."""
-        if hasattr(gps_reading, 'rtk_status') and gps_reading.rtk_status:
+        if hasattr(gps_reading, "rtk_status") and gps_reading.rtk_status:
             status = str(gps_reading.rtk_status).upper()
             if "FIXED" in status:
                 return RTKFixType.FIXED
@@ -496,7 +529,7 @@ class PerimeterRecordingService:
                 return RTKFixType.DGPS
 
         # Fallback based on satellites
-        if hasattr(gps_reading, 'satellites') and gps_reading.satellites:
+        if hasattr(gps_reading, "satellites") and gps_reading.satellites:
             if gps_reading.satellites >= 6:
                 return RTKFixType.SINGLE
 
@@ -535,8 +568,8 @@ class PerimeterRecordingService:
                         dlat = lat2 - lat1
                         dlon = radians(frame.gps.longitude - prev_lon)
 
-                        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-                        c = 2 * atan2(sqrt(a), sqrt(1-a))
+                        a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+                        c = 2 * atan2(sqrt(a), sqrt(1 - a))
                         total_distance += R * c
 
                     prev_lat = frame.gps.latitude
@@ -557,26 +590,30 @@ class PerimeterRecordingService:
             if HAS_MSGPACK:
                 # Save as MessagePack
                 import msgpack
+
                 data = {
                     "session": self._current_session.to_dict(),
                     "frames": [f.to_dict(include_images=True) for f in self._session_frames],
                 }
 
                 file_path = self._current_session.data_file
-                with open(file_path, 'wb') as f:
+                with open(file_path, "wb") as f:
                     msgpack.pack(data, f, use_bin_type=True)
 
-                logger.info(f"Saved session to {file_path} ({file_path.stat().st_size / 1e6:.1f} MB)")
+                logger.info(
+                    f"Saved session to {file_path} ({file_path.stat().st_size / 1e6:.1f} MB)"
+                )
             else:
                 # Fallback to JSON (without images)
                 import json
+
                 data = {
                     "session": self._current_session.to_dict(),
                     "frames": [f.to_dict(include_images=False) for f in self._session_frames],
                 }
 
                 file_path = self.config.storage_dir / f"{self._current_session.session_id}.json"
-                with open(file_path, 'w') as f:
+                with open(file_path, "w") as f:
                     json.dump(data, f)
 
                 logger.info(f"Saved session to {file_path} (JSON fallback, no images)")
@@ -592,7 +629,8 @@ class PerimeterRecordingService:
             try:
                 if HAS_MSGPACK:
                     import msgpack
-                    with open(file_path, 'rb') as f:
+
+                    with open(file_path, "rb") as f:
                         data = msgpack.unpack(f, raw=False)
                         sessions.append(data.get("session", {}))
             except Exception as e:
@@ -601,7 +639,8 @@ class PerimeterRecordingService:
         for file_path in self.config.storage_dir.glob("*.json"):
             try:
                 import json
-                with open(file_path, 'r') as f:
+
+                with open(file_path, "r") as f:
                     data = json.load(f)
                     sessions.append(data.get("session", {}))
             except Exception as e:
@@ -615,14 +654,16 @@ class PerimeterRecordingService:
         msgpack_path = self.config.storage_dir / f"{session_id}.msgpack"
         if msgpack_path.exists() and HAS_MSGPACK:
             import msgpack
-            with open(msgpack_path, 'rb') as f:
+
+            with open(msgpack_path, "rb") as f:
                 return msgpack.unpack(f, raw=False)
 
         # Check JSON fallback
         json_path = self.config.storage_dir / f"{session_id}.json"
         if json_path.exists():
             import json
-            with open(json_path, 'r') as f:
+
+            with open(json_path, "r") as f:
                 return json.load(f)
 
         return None

@@ -24,7 +24,9 @@ from ..core.secrets_manager import SecretsManager
 
 
 class APIKeyAuthMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: FastAPI, *, prefixes: Iterable[str], secret: Optional[str] = None) -> None:
+    def __init__(
+        self, app: FastAPI, *, prefixes: Iterable[str], secret: Optional[str] = None
+    ) -> None:
         super().__init__(app)
         self._prefixes = tuple(p.strip() for p in prefixes if p.strip())
         self._secret = secret
@@ -36,7 +38,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         provided = self._extract_key(request)
-        expected = self._secret or self._secrets.get("API_KEY_SECRET", default=None, purpose="api_key_auth")
+        expected = self._secret or self._secrets.get(
+            "API_KEY_SECRET", default=None, purpose="api_key_auth"
+        )
         if not expected:
             return JSONResponse(status_code=503, content={"detail": "API key not configured"})
 
@@ -69,4 +73,6 @@ def register_api_key_auth_middleware(app: FastAPI) -> None:
         return
     prefixes = os.getenv("API_KEY_PATH_PREFIXES", "/api/v2/internal").split(",")
     secret = os.getenv("API_KEY_SECRET")
-    app.add_middleware(APIKeyAuthMiddleware, prefixes=[p.strip() for p in prefixes if p.strip()], secret=secret)
+    app.add_middleware(
+        APIKeyAuthMiddleware, prefixes=[p.strip() for p in prefixes if p.strip()], secret=secret
+    )

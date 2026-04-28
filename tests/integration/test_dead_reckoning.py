@@ -1,4 +1,3 @@
-
 import pytest
 
 from backend.src.models import ImuReading, Position, SensorData
@@ -54,5 +53,5 @@ async def test_dead_reckoning_drift_bound_progression():
         state = await nav.update_navigation_state(SensorData(imu=ImuReading(yaw=45.0)))
         drifts.append(state.dead_reckoning_drift)
     # non-decreasing, bounded by logic in service
-    assert all(drifts[i] <= drifts[i+1] for i in range(len(drifts)-1))
+    assert all(drifts[i] <= drifts[i + 1] for i in range(len(drifts) - 1))
     assert drifts[-1] <= 1.0  # sanity bound for test given placeholder calc

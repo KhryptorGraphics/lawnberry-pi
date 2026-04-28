@@ -117,7 +117,8 @@ class SecretsManager:
     def _persist(self) -> None:
         try:
             data = {
-                k: {"value": v.value, "updated_at": v.updated_at, "version": v.version} for k, v in self._cache.items()
+                k: {"value": v.value, "updated_at": v.updated_at, "version": v.version}
+                for k, v in self._cache.items()
             }
             tmp = self._path.with_suffix(".tmp")
             with tmp.open("w") as f:

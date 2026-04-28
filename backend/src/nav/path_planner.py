@@ -2,6 +2,7 @@
 
 Provides a stable API used by NavigationService.
 """
+
 from __future__ import annotations
 
 import math
@@ -26,10 +27,7 @@ class PathPlanner:
         lat2 = math.radians(pos2.latitude)
         dlat = lat2 - lat1
         dlon = math.radians(pos2.longitude - pos1.longitude)
-        a = (
-            math.sin(dlat / 2) ** 2
-            + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-        )
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return 6_371_000.0 * c
 
@@ -53,7 +51,9 @@ class PathPlanner:
 
     # Boundary following
     @staticmethod
-    def boundary_follow(boundary: Sequence[Position], *, waypoint_speed_ms: float = 0.3) -> List[Waypoint]:
+    def boundary_follow(
+        boundary: Sequence[Position], *, waypoint_speed_ms: float = 0.3
+    ) -> List[Waypoint]:
         if len(boundary) < 2:
             return []
         wps: List[Waypoint] = []
@@ -85,7 +85,9 @@ class PathPlanner:
         if boundary is None or len(boundary) < 3:
             # Direct path fallback
             return [Waypoint(position=home, target_speed=0.5, action="dock")]
-        path = PathPlanner.find_path(current, home, boundary, obstacles=obstacles, grid_resolution_m=0.3)
+        path = PathPlanner.find_path(
+            current, home, boundary, obstacles=obstacles, grid_resolution_m=0.3
+        )
         if not path:
             return [Waypoint(position=home, target_speed=0.5, action="dock")]
         # Ensure final docking action

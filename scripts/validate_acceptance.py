@@ -11,6 +11,7 @@ we capture surrogate timings via in-process calls as evidence (not physical GPIO
 
 Writes artifacts to verification_artifacts/002-complete-engineering-plan/acceptance_validation.json.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,6 +50,7 @@ def _pi_model_budget() -> float:
 
 async def _asgi_client():
     from backend.src.main import app
+
     transport = httpx.ASGITransport(app=app)
     client = httpx.AsyncClient(transport=transport, base_url="http://test")
     return client
@@ -133,8 +135,8 @@ async def run() -> dict[str, Any]:
         # Acceptance check: outside geofence or unknown, and acceptable mode state
         mode_ok = gf.get("mode") in {"EMERGENCY_STOP", "MANUAL", "IDLE", None}
         results["geofence_zero_tolerance_evidence"] = (
-            (gf.get("inside") in {False, None}) and mode_ok
-        )
+            gf.get("inside") in {False, None}
+        ) and mode_ok
 
         # E-stop acceptance proxy: covered by tests; include proxy metric
         results["estop_latency_proxy_ms"] = 100.0

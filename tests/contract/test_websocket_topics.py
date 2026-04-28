@@ -139,9 +139,7 @@ async def test_notifications_websocket_includes_latency_and_schema():
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
-        headers = _websocket_headers(
-            {"Sec-WebSocket-Protocol": "notifications.v1"}
-        )
+        headers = _websocket_headers({"Sec-WebSocket-Protocol": "notifications.v1"})
         response = await client.get("/api/v2/ws/notifications", headers=headers)
 
         assert response.status_code == 101, response.text

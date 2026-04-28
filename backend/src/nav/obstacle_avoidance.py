@@ -3,6 +3,7 @@
 The planner operates in a local metric frame anchored to the start point's
 latitude/longitude. Obstacles and boundary are provided as Position lists.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 # Lazy import shapely to avoid import-time errors when not installed
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:  # pragma: no cover
     from shapely.geometry import Point as SPoint  # type: ignore
     from shapely.geometry import Polygon  # type: ignore
@@ -47,6 +49,7 @@ def _to_ll(x: float, y: float, olat: float, olon: float) -> Tuple[float, float]:
 
 def _poly_from_positions(boundary: Sequence[Position], olat: float, olon: float):
     from shapely.geometry import Polygon  # type: ignore
+
     if len(boundary) < 3:
         raise ValueError("boundary must have at least 3 vertices")
     pts = [_to_xy(p.latitude, p.longitude, olat, olon) for p in boundary]
@@ -58,8 +61,11 @@ def _poly_from_positions(boundary: Sequence[Position], olat: float, olon: float)
     return poly
 
 
-def _obstacles_union(obstacles: Iterable[Sequence[Position]] | None, olat: float, olon: float, inflate: float):
+def _obstacles_union(
+    obstacles: Iterable[Sequence[Position]] | None, olat: float, olon: float, inflate: float
+):
     from shapely.ops import unary_union  # type: ignore
+
     if not obstacles:
         return None
     polys: List["Polygon"] = []
@@ -103,10 +109,17 @@ def plan_path_astar(
 
     def nbrs(nx: float, ny: float) -> List[Tuple[float, float]]:
         from shapely.geometry import Point as SPoint  # type: ignore
+
         # 8-connected grid
         dirs = [
-            (step, 0), (-step, 0), (0, step), (0, -step),
-            (step, step), (step, -step), (-step, step), (-step, -step),
+            (step, 0),
+            (-step, 0),
+            (0, step),
+            (0, -step),
+            (step, step),
+            (step, -step),
+            (-step, step),
+            (-step, -step),
         ]
         res: List[Tuple[float, float]] = []
         for dx, dy in dirs:

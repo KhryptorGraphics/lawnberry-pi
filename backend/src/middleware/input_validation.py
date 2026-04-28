@@ -20,7 +20,13 @@ from starlette.responses import JSONResponse, Response
 
 
 class InputValidationMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: FastAPI, *, max_body_bytes: int = 1_000_000, skip_prefixes: Iterable[str] | None = None) -> None:
+    def __init__(
+        self,
+        app: FastAPI,
+        *,
+        max_body_bytes: int = 1_000_000,
+        skip_prefixes: Iterable[str] | None = None,
+    ) -> None:
         super().__init__(app)
         self._max_body = max(1024, int(max_body_bytes))
         self._skip = tuple(skip_prefixes or ("/health", "/metrics", "/docs", "/openapi.json"))
@@ -33,7 +39,9 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
         if request.method in {"POST", "PUT", "PATCH"}:
             content_type = (request.headers.get("Content-Type") or "").lower()
             if "application/json" not in content_type:
-                return JSONResponse(status_code=415, content={"detail": "Content-Type must be application/json"})
+                return JSONResponse(
+                    status_code=415, content={"detail": "Content-Type must be application/json"}
+                )
 
             body = await request.body()
             if len(body) > self._max_body:
@@ -57,4 +65,8 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
 def register_input_validation_middleware(app: FastAPI) -> None:
     max_body = int(os.getenv("INPUT_MAX_BODY_BYTES", "1000000"))
     skip = os.getenv("INPUT_VALIDATION_SKIP", "/health,/metrics,/docs,/openapi.json")
-    app.add_middleware(InputValidationMiddleware, max_body_bytes=max_body, skip_prefixes=[s.strip() for s in skip.split(",") if s.strip()])
+    app.add_middleware(
+        InputValidationMiddleware,
+        max_body_bytes=max_body,
+        skip_prefixes=[s.strip() for s in skip.split(",") if s.strip()],
+    )

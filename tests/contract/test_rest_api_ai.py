@@ -22,11 +22,7 @@ async def test_get_ai_datasets_returns_list():
 async def test_post_ai_dataset_export_starts_job():
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        payload = {
-            "format": "COCO",
-            "include_unlabeled": False,
-            "min_confidence": 0.8
-        }
+        payload = {"format": "COCO", "include_unlabeled": False, "min_confidence": 0.8}
         resp = await client.post("/api/v2/ai/datasets/obstacle-detection/export", json=payload)
         assert resp.status_code == 202  # Accepted - export job started
         body = resp.json()
@@ -39,25 +35,17 @@ async def test_post_ai_dataset_export_starts_job():
 async def test_post_ai_dataset_export_yolo_format():
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        payload = {
-            "format": "YOLO",
-            "include_unlabeled": True,
-            "min_confidence": 0.5
-        }
+        payload = {"format": "YOLO", "include_unlabeled": True, "min_confidence": 0.5}
         resp = await client.post("/api/v2/ai/datasets/grass-detection/export", json=payload)
         assert resp.status_code == 202
         body = resp.json()
         assert body["format"] == "YOLO"
 
 
-@pytest.mark.asyncio 
+@pytest.mark.asyncio
 async def test_post_ai_dataset_export_invalid_dataset():
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        payload = {
-            "format": "COCO",
-            "include_unlabeled": False,
-            "min_confidence": 0.8
-        }
+        payload = {"format": "COCO", "include_unlabeled": False, "min_confidence": 0.8}
         resp = await client.post("/api/v2/ai/datasets/nonexistent/export", json=payload)
         assert resp.status_code == 404

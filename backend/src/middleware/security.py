@@ -169,7 +169,9 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     def _validate_request_content(self, request: Request) -> Optional[Response]:
         content_type = request.headers.get("Content-Type", "").lower()
         if "application/json" not in content_type:
-            return JSONResponse(status_code=415, content={"detail": "Content-Type must be application/json"})
+            return JSONResponse(
+                status_code=415, content={"detail": "Content-Type must be application/json"}
+            )
         return None
 
     def _apply_security_headers(self, response: Response) -> None:
@@ -197,7 +199,9 @@ def _default_allowed_origins() -> list[str]:
     ]
 
 
-def register_security_middleware(app: FastAPI, *, allowed_origins: Iterable[str] | None = None) -> None:
+def register_security_middleware(
+    app: FastAPI, *, allowed_origins: Iterable[str] | None = None
+) -> None:
     """Attach security middleware stack to the FastAPI application."""
     origins = list(allowed_origins or _default_allowed_origins())
     app.add_middleware(

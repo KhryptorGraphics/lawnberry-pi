@@ -13,6 +13,7 @@ async def test_watchdog_triggers_estop_on_timeout():
         from backend.src.safety.watchdog import Watchdog
     except Exception:
         import pytest
+
         pytest.skip("Watchdog not implemented yet")
 
     auth = MotorAuthorization()

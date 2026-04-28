@@ -9,10 +9,14 @@ class TimezoneFinder:
     def __init__(self, in_memory: bool = True):  # pragma: no cover - trivial
         self.in_memory = in_memory
 
-    def timezone_at(self, lat: float | int | str | None = None, lng: float | int | str | None = None) -> Optional[str]:
+    def timezone_at(
+        self, lat: float | int | str | None = None, lng: float | int | str | None = None
+    ) -> Optional[str]:
         return self._lookup(lat, lng)
 
-    def closest_timezone_at(self, lat: float | int | str | None = None, lng: float | int | str | None = None) -> Optional[str]:
+    def closest_timezone_at(
+        self, lat: float | int | str | None = None, lng: float | int | str | None = None
+    ) -> Optional[str]:
         return self._lookup(lat, lng)
 
     @staticmethod

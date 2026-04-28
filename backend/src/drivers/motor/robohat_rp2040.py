@@ -3,6 +3,7 @@
 SIM-safe UART stub to command Cytron MDDRC10 via RoboHAT firmware.
 Implements minimal lifecycle and control methods; suitable for tests/CI.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -75,9 +76,7 @@ class RoboHATRP2040Driver(HardwareDriver):
             "driver": "robohat_rp2040",
             "serial_connected": self.status.serial_connected,
             "last_command_at": (
-                self.status.last_command_at.isoformat()
-                if self.status.last_command_at
-                else None
+                self.status.last_command_at.isoformat() if self.status.last_command_at else None
             ),
             "last_error": self.status.last_error,
         }

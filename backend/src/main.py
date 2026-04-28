@@ -40,6 +40,7 @@ import logging
 # Load .env early so secrets like NTRIP_* are available under systemd
 try:
     from dotenv import load_dotenv
+
     # Load from project root working directory
     load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"), override=False)
 except Exception:
@@ -64,12 +65,19 @@ async def lifespan(app: FastAPI):
     try:
         if os.getenv("SIM_MODE", "0") == "0":
             tc = getattr(hardware_cfg, "tof_config", None)
-            if tc and getattr(tc, "left_shutdown_gpio", None) is not None and getattr(tc, "right_shutdown_gpio", None) is not None:
+            if (
+                tc
+                and getattr(tc, "left_shutdown_gpio", None) is not None
+                and getattr(tc, "right_shutdown_gpio", None) is not None
+            ):
                 try:
                     # Lazy import to keep CI SIM-safe
                     from .drivers.sensors.vl53l0x_driver import ensure_pair_addressing  # type: ignore
+
                     right_addr = getattr(tc, "right_address", 0x30) or 0x30
-                    ok = await ensure_pair_addressing(tc.left_shutdown_gpio, tc.right_shutdown_gpio, right_addr=int(right_addr))
+                    ok = await ensure_pair_addressing(
+                        tc.left_shutdown_gpio, tc.right_shutdown_gpio, right_addr=int(right_addr)
+                    )
                     _log.info(
                         "ToF XSHUT pair addressing %s (left_gpio=%s right_gpio=%s right_addr=0x%x)",
                         "completed" if ok else "skipped",
@@ -94,6 +102,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize safety monitor and wire interlock event bridge
     monitor = get_safety_monitor()
+
     async def _event_bridge(action, interlock):
         try:
             await monitor.handle_interlock_event(action, interlock)
@@ -103,6 +112,7 @@ async def lifespan(app: FastAPI):
     # wrap event bridge to work with sync trigger calls
     def _handler(action, interlock):
         import asyncio as _asyncio
+
         try:
             loop = _asyncio.get_running_loop()
             loop.create_task(monitor.handle_interlock_event(action, interlock))
@@ -141,13 +151,15 @@ app = FastAPI(
     title="LawnBerry Pi v2",
     description="Autonomous robotic lawn mower backend API",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Validate environment early
 try:
     if not validate_environment():
-        _log.error("Environment validation failed; service will continue but endpoints may be restricted")
+        _log.error(
+            "Environment validation failed; service will continue but endpoints may be restricted"
+        )
 except Exception:
     _log.exception("Environment validation crashed")
 
@@ -192,13 +204,13 @@ def root():
         "api_endpoints": {
             "health": "/health",
             "api_v2": "/api/v2",
-            "websocket_telemetry": "/api/v2/ws/telemetry"
+            "websocket_telemetry": "/api/v2/ws/telemetry",
         },
         "key_endpoints": [
             "/api/v2/health/liveness",
             "/api/v2/health/readiness",
             "/api/v2/dashboard/status",
             "/api/v2/dashboard/telemetry",
-            "/api/v2/docs/list"
-        ]
+            "/api/v2/docs/list",
+        ],
     }

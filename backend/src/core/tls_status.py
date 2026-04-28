@@ -9,6 +9,7 @@ Notes:
 - Falls back to Let's Encrypt directory (based on LB_DOMAIN/.env or first live dir).
 - Otherwise considers the self-signed baseline.
 """
+
 # ruff: noqa: I001
 from __future__ import annotations
 

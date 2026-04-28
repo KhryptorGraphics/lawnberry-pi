@@ -218,7 +218,14 @@ def test_candidate_serial_ports_prioritize_env_and_settings(monkeypatch, tmp_pat
     monkeypatch.setenv("LAWN_SETTINGS_DIR", str(config_dir))
 
     class DummyPort:
-        def __init__(self, device: str, description: str = "", manufacturer: str = "", product: str = "", vid: int | None = None):
+        def __init__(
+            self,
+            device: str,
+            description: str = "",
+            manufacturer: str = "",
+            product: str = "",
+            vid: int | None = None,
+        ):
             self.device = device
             self.description = description
             self.manufacturer = manufacturer
@@ -240,7 +247,9 @@ def test_candidate_serial_ports_prioritize_env_and_settings(monkeypatch, tmp_pat
         ),
     ]
 
-    monkeypatch.setattr(robohat_module, "list_ports", types.SimpleNamespace(comports=lambda: fake_ports))
+    monkeypatch.setattr(
+        robohat_module, "list_ports", types.SimpleNamespace(comports=lambda: fake_ports)
+    )
     monkeypatch.setattr(robohat_module.glob, "glob", lambda pattern: [])
     monkeypatch.setattr(robohat_module.os.path, "exists", lambda _path: True)
 
@@ -263,7 +272,11 @@ async def test_initialize_robohat_service_attempts_candidates(monkeypatch):
             return True
         return False
 
-    monkeypatch.setattr(robohat_module, "_candidate_serial_ports", lambda explicit=None: ["/dev/ttyACM0", "/dev/ttyACM1"])
+    monkeypatch.setattr(
+        robohat_module,
+        "_candidate_serial_ports",
+        lambda explicit=None: ["/dev/ttyACM0", "/dev/ttyACM1"],
+    )
     monkeypatch.setattr(robohat_module.RoboHATService, "initialize", fake_initialize)
     monkeypatch.setattr(robohat_module, "robohat_service", None)
 

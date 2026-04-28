@@ -284,7 +284,7 @@ class MapsService:
     def _tile_to_lat_lng(zoom: int, x: int, y: int) -> Tuple[float, float]:
         import math
 
-        n = 2.0 ** zoom
+        n = 2.0**zoom
         lon_deg = x / n * 360.0 - 180.0
         lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * y / n)))
         lat_deg = math.degrees(lat_rad)
@@ -305,7 +305,9 @@ class MapsService:
             )
 
     @staticmethod
-    def _serialize_contract(config: ContractMapConfiguration, mode: str = "python") -> Dict[str, Any]:
+    def _serialize_contract(
+        config: ContractMapConfiguration, mode: str = "python"
+    ) -> Dict[str, Any]:
         if mode == "json":
             return config.model_dump(mode="json")
         return config.model_dump(mode="python")

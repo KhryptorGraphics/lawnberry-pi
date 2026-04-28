@@ -5,6 +5,7 @@ from backend.src.services.mission_service import get_mission_service, MissionSer
 from backend.src.models.mission import Mission, MissionWaypoint
 from unittest.mock import AsyncMock
 
+
 # Mock MissionService for testing
 @pytest.fixture
 def mock_mission_service():
@@ -18,6 +19,7 @@ def mock_mission_service():
     service.list_missions = AsyncMock()
     return service
 
+
 @pytest.fixture
 def client(mock_mission_service):
     app.dependency_overrides[get_mission_service] = lambda: mock_mission_service
@@ -25,21 +27,24 @@ def client(mock_mission_service):
         yield c
     app.dependency_overrides.clear()
 
+
 def test_create_mission(client, mock_mission_service):
     waypoints = [{"lat": 1.0, "lon": 1.0, "blade_on": True, "speed": 80}]
     mock_mission_service.create_mission.return_value = Mission(
         id="test_mission", name="Test", waypoints=waypoints, created_at="now"
     )
-    
+
     response = client.post("/api/v2/missions/create", json={"name": "Test", "waypoints": waypoints})
-    
+
     assert response.status_code == 200
     assert response.json()["name"] == "Test"
     mock_mission_service.create_mission.assert_called_once()
+
 
 def test_start_mission(client, mock_mission_service):
     response = client.post("/api/v2/missions/test_mission/start", json={})
     assert response.status_code == 200
     mock_mission_service.start_mission.assert_called_once_with("test_mission")
+
 
 # Add more tests for pause, resume, abort, status, and list endpoints...

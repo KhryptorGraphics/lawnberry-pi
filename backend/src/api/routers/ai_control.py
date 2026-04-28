@@ -12,6 +12,7 @@ Endpoints:
 - POST /ai/metrics/reset - Reset performance metrics
 - GET /ai/health - Health check endpoint
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,14 +41,13 @@ router = APIRouter()
 
 class EnableAIRequest(BaseModel):
     """Request to enable AI control."""
-    mode: str = Field(
-        "ai_autonomous",
-        description="Control mode: ai_autonomous or ai_assisted"
-    )
+
+    mode: str = Field("ai_autonomous", description="Control mode: ai_autonomous or ai_assisted")
 
 
 class EnableAIResponse(BaseModel):
     """Response after enabling AI."""
+
     success: bool
     enabled: bool
     mode: str
@@ -56,6 +56,7 @@ class EnableAIResponse(BaseModel):
 
 class LoadModelRequest(BaseModel):
     """Request to load a new AI model."""
+
     model_path: str = Field(..., description="Path to .hef model file")
     model_name: Optional[str] = Field(None, description="Optional model name override")
     model_version: Optional[str] = Field(None, description="Optional version override")
@@ -63,6 +64,7 @@ class LoadModelRequest(BaseModel):
 
 class LoadModelResponse(BaseModel):
     """Response after loading model."""
+
     success: bool
     model_name: str
     model_version: str
@@ -73,6 +75,7 @@ class LoadModelResponse(BaseModel):
 
 class MetricsResponse(BaseModel):
     """Response containing inference metrics."""
+
     total_inferences: int
     successful_inferences: int
     failed_inferences: int
@@ -97,6 +100,7 @@ class MetricsResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     """Response containing AI control status."""
+
     enabled: bool
     mode: str
     model_loaded: bool
@@ -114,6 +118,7 @@ class StatusResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     healthy: bool
     service: str
     initialized: bool
@@ -141,8 +146,7 @@ async def get_service() -> AIInferenceService:
 
 @router.post("/enable", response_model=EnableAIResponse)
 async def enable_ai_control(
-    request: EnableAIRequest,
-    service: AIInferenceService = Depends(get_service)
+    request: EnableAIRequest, service: AIInferenceService = Depends(get_service)
 ) -> EnableAIResponse:
     """Enable AI control mode.
 
@@ -163,14 +167,11 @@ async def enable_ai_control(
                 success=False,
                 enabled=False,
                 mode="manual",
-                message="Failed to enable AI control - service not ready"
+                message="Failed to enable AI control - service not ready",
             )
 
         return EnableAIResponse(
-            success=True,
-            enabled=True,
-            mode=request.mode,
-            message="AI control enabled successfully"
+            success=True, enabled=True, mode=request.mode, message="AI control enabled successfully"
         )
 
     except Exception as e:
@@ -180,7 +181,7 @@ async def enable_ai_control(
 
 @router.post("/disable", response_model=EnableAIResponse)
 async def disable_ai_control(
-    service: AIInferenceService = Depends(get_service)
+    service: AIInferenceService = Depends(get_service),
 ) -> EnableAIResponse:
     """Disable AI control mode.
 
@@ -196,7 +197,7 @@ async def disable_ai_control(
             success=True,
             enabled=False,
             mode="manual",
-            message="AI control disabled - manual mode active"
+            message="AI control disabled - manual mode active",
         )
 
     except Exception as e:
@@ -205,9 +206,7 @@ async def disable_ai_control(
 
 
 @router.get("/status", response_model=StatusResponse)
-async def get_ai_status(
-    service: AIInferenceService = Depends(get_service)
-) -> StatusResponse:
+async def get_ai_status(service: AIInferenceService = Depends(get_service)) -> StatusResponse:
     """Get current AI control status.
 
     Returns comprehensive status including model state, inference metrics,
@@ -242,8 +241,7 @@ async def get_ai_status(
 
 @router.post("/model", response_model=LoadModelResponse)
 async def load_model(
-    request: LoadModelRequest,
-    service: AIInferenceService = Depends(get_service)
+    request: LoadModelRequest, service: AIInferenceService = Depends(get_service)
 ) -> LoadModelResponse:
     """Load a new AI model.
 
@@ -261,23 +259,18 @@ async def load_model(
 
         if not model_path.exists():
             raise HTTPException(
-                status_code=404,
-                detail=f"Model file not found: {request.model_path}"
+                status_code=404, detail=f"Model file not found: {request.model_path}"
             )
 
         if not model_path.suffix.lower() == ".hef":
             raise HTTPException(
-                status_code=400,
-                detail="Model must be in HEF format (.hef extension)"
+                status_code=400, detail="Model must be in HEF format (.hef extension)"
             )
 
         success = await service.load_model(model_path)
 
         if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to load model"
-            )
+            raise HTTPException(status_code=500, detail="Failed to load model")
 
         health = await service.health_check()
 
@@ -287,7 +280,7 @@ async def load_model(
             model_version=health.get("model_version", "1.0.0"),
             model_path=str(model_path),
             hardware_accelerated=health.get("hailo", {}).get("hardware_available", False),
-            message="Model loaded successfully"
+            message="Model loaded successfully",
         )
 
     except HTTPException:
@@ -298,9 +291,7 @@ async def load_model(
 
 
 @router.get("/metrics", response_model=MetricsResponse)
-async def get_metrics(
-    service: AIInferenceService = Depends(get_service)
-) -> MetricsResponse:
+async def get_metrics(service: AIInferenceService = Depends(get_service)) -> MetricsResponse:
     """Get inference performance metrics.
 
     Returns detailed statistics about inference performance including
@@ -318,7 +309,9 @@ async def get_metrics(
             failed_inferences=metrics.failed_inferences,
             safety_overrides=metrics.safety_overrides,
             avg_inference_time_ms=round(metrics.avg_inference_time_ms, 2),
-            min_inference_time_ms=round(metrics.min_inference_time_ms, 2) if metrics.min_inference_time_ms != float('inf') else 0.0,
+            min_inference_time_ms=round(metrics.min_inference_time_ms, 2)
+            if metrics.min_inference_time_ms != float("inf")
+            else 0.0,
             max_inference_time_ms=round(metrics.max_inference_time_ms, 2),
             avg_total_time_ms=round(metrics.avg_total_time_ms, 2),
             inferences_per_second=round(metrics.inferences_per_second, 2),
@@ -341,9 +334,7 @@ async def get_metrics(
 
 
 @router.post("/metrics/reset")
-async def reset_metrics(
-    service: AIInferenceService = Depends(get_service)
-) -> Dict[str, Any]:
+async def reset_metrics(service: AIInferenceService = Depends(get_service)) -> Dict[str, Any]:
     """Reset inference performance metrics.
 
     Clears all accumulated statistics and starts fresh.
@@ -354,10 +345,7 @@ async def reset_metrics(
     try:
         service.reset_metrics()
 
-        return {
-            "success": True,
-            "message": "Metrics reset successfully"
-        }
+        return {"success": True, "message": "Metrics reset successfully"}
 
     except Exception as e:
         logger.error(f"Failed to reset metrics: {e}")
@@ -365,9 +353,7 @@ async def reset_metrics(
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(
-    service: AIInferenceService = Depends(get_service)
-) -> HealthResponse:
+async def health_check(service: AIInferenceService = Depends(get_service)) -> HealthResponse:
     """Health check for AI inference service.
 
     Returns service health status for monitoring.
@@ -378,10 +364,7 @@ async def health_check(
     try:
         health = await service.health_check()
 
-        healthy = (
-            health.get("initialized", False) and
-            health.get("running", False)
-        )
+        healthy = health.get("initialized", False) and health.get("running", False)
 
         message = "AI inference service healthy"
         if not health.get("initialized", False):

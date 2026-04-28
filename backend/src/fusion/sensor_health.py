@@ -3,6 +3,7 @@
 Tracks basic quality metrics for sensors. This scaffold returns static quality
 ratings suitable for diagnostics and can be expanded alongside the real EKF.
 """
+
 from __future__ import annotations
 
 from typing import Dict

@@ -46,6 +46,7 @@ async def test_gps_degradation_switches_to_manual_on_fix_timeout():
     st.position.accuracy_m = 1.0  # good accuracy, but we'll age it out
     # Manually set last_updated sufficiently in the past
     import datetime as dt
+
     st.last_updated = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1.0)
 
     monitor = GPSDegradationMonitor(

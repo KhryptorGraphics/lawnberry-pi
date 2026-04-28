@@ -8,6 +8,7 @@ falling back to the Raspberry Pi's configured system timezone.
 We also allow dependency-free unit testing by passing an alternate base_path
 or GPS lookup so tests can simulate environments without hardware.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -162,7 +163,7 @@ def _default_gps_lookup(timeout: float = 2.5) -> Optional[Tuple[float, float]]:
 
 
 def _detect_timezone_from_gps(
-    gps_lookup: Optional[Callable[[], Optional[Tuple[float, float]]]]
+    gps_lookup: Optional[Callable[[], Optional[Tuple[float, float]]]],
 ) -> Optional[TimezoneInfo]:
     lookup = gps_lookup or _default_gps_lookup
     if lookup is None:

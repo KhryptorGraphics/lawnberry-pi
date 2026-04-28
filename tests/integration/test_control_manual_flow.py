@@ -3,6 +3,7 @@ Integration tests for manual control flow.
 Validates drive commands, blade control, emergency commands, latency budgets,
 audit trails, safety interlocks.
 """
+
 from datetime import datetime
 
 import pytest
@@ -25,8 +26,8 @@ async def test_manual_drive_command_with_joystick_input():
         payload = {
             "command": "drive",
             "throttle": 0.75,  # 75% forward
-            "turn": 0.2,       # 20% right turn
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "turn": 0.2,  # 20% right turn
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         headers = {"Authorization": "Bearer test-token", "Content-Type": "application/json"}
         response = await client.post(
@@ -34,11 +35,11 @@ async def test_manual_drive_command_with_joystick_input():
             json=payload,
             headers=headers,
         )
-        
+
         # TDD: Allow 404 (not implemented), 501 (not yet available), or 422 (validation)
         if response.status_code in (404, 501, 422):
             return
-        
+
         # When implemented: expect 200 with motor speeds
         assert response.status_code == 200
         data = response.json()
@@ -66,7 +67,7 @@ async def test_blade_control_enable_disable_with_safety_interlock():
         # Attempt to enable blade
         payload_enable = {
             "command": "blade_enable",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         headers = {"Authorization": "Bearer test-token", "Content-Type": "application/json"}
         response_enable = await client.post(
@@ -74,30 +75,30 @@ async def test_blade_control_enable_disable_with_safety_interlock():
             json=payload_enable,
             headers=headers,
         )
-        
+
         if response_enable.status_code in (404, 501, 422):
             return
-        
+
         # When implemented: blade enable should succeed if motors stopped
         assert response_enable.status_code in (200, 403)  # 403 if safety interlock active
         if response_enable.status_code == 200:
             data_enable = response_enable.json()
             assert data_enable["blade_status"] in ["ENABLED", "LOCKED_OUT"]
-        
+
         # Attempt to disable blade
         payload_disable = {
             "command": "blade_disable",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         response_disable = await client.post(
             "/api/v2/control/blade",
             json=payload_disable,
             headers=headers,
         )
-        
+
         if response_disable.status_code in (404, 501, 422):
             return
-        
+
         assert response_disable.status_code == 200
         data_disable = response_disable.json()
         assert data_disable["blade_status"] == "DISABLED"
@@ -113,45 +114,45 @@ async def test_emergency_stop_command_overrides_all_control():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         headers = {"Authorization": "Bearer test-token", "Content-Type": "application/json"}
-        
+
         # Send emergency stop
         payload_emergency = {
             "command": "emergency_stop",
             "reason": "operator_request",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         response_emergency = await client.post(
             "/api/v2/control/emergency",
             json=payload_emergency,
             headers=headers,
         )
-        
+
         if response_emergency.status_code in (404, 501, 422):
             return
-        
+
         # When implemented: expect 200 with confirmation
         assert response_emergency.status_code == 200
         data_emergency = response_emergency.json()
         assert data_emergency["status"] == "EMERGENCY_STOP_ACTIVE"
         assert data_emergency["motors_stopped"] is True
         assert data_emergency["blade_disabled"] is True
-        
+
         # Attempt drive command while emergency active - should be rejected
         payload_drive = {
             "command": "drive",
             "throttle": 0.5,
             "turn": 0.0,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         response_drive = await client.post(
             "/api/v2/control/drive",
             json=payload_drive,
             headers=headers,
         )
-        
+
         if response_drive.status_code in (404, 501, 422):
             return
-        
+
         # Should be rejected with 403 while emergency active
         assert response_drive.status_code == 403
         data_drive = response_drive.json()
@@ -168,27 +169,26 @@ async def test_control_command_latency_100ms_budget():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         headers = {"Authorization": "Bearer test-token", "Content-Type": "application/json"}
-        payload = {
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
-        
+        payload = {"timestamp": datetime.utcnow().isoformat() + "Z"}
+
         import time
+
         start = time.time()
         response = await client.post("/api/v2/control/ping", json=payload, headers=headers)
         elapsed_ms = (time.time() - start) * 1000
-        
+
         if response.status_code in (404, 501, 422):
             return
-        
+
         # When implemented: validate latency header and budget
         assert response.status_code == 200
         assert "X-Control-Latency-Ms" in response.headers
-        
+
         reported_latency = float(response.headers["X-Control-Latency-Ms"])
         assert reported_latency <= 100.0, (
             f"Control latency {reported_latency}ms exceeds 100ms budget"
         )
-        
+
         # Sanity check: elapsed time should be close to reported latency
         assert abs(elapsed_ms - reported_latency) < 50, (
             "Reported latency doesn't match measured time"
@@ -206,15 +206,15 @@ async def test_control_audit_trail_for_all_commands():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         headers = {"Authorization": "Bearer test-token"}
         response = await client.get("/api/v2/control/audit", headers=headers)
-        
+
         if response.status_code in (404, 501, 422):
             return
-        
+
         # When implemented: validate audit log structure
         assert response.status_code == 200
         data = response.json()
         assert "audit_entries" in data
-        
+
         if len(data["audit_entries"]) > 0:
             entry = data["audit_entries"][0]
             assert "timestamp" in entry
@@ -242,37 +242,37 @@ async def test_control_safety_interlock_blade_requires_stopped_motors():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         headers = {"Authorization": "Bearer test-token", "Content-Type": "application/json"}
-        
+
         # Step 1: Send drive command to activate motors
         payload_drive = {
             "command": "drive",
             "throttle": 0.3,
             "turn": 0.0,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         response_drive = await client.post(
             "/api/v2/control/drive",
             json=payload_drive,
             headers=headers,
         )
-        
+
         if response_drive.status_code in (404, 501, 422):
             return
-        
+
         # Step 2: Attempt blade enable while motors active - should be rejected
         payload_blade = {
             "command": "blade_enable",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         response_blade = await client.post(
             "/api/v2/control/blade",
             json=payload_blade,
             headers=headers,
         )
-        
+
         if response_blade.status_code in (404, 501, 422):
             return
-        
+
         # When implemented: expect 403 with safety interlock reason
         assert response_blade.status_code == 403
         data_blade = response_blade.json()
@@ -290,42 +290,42 @@ async def test_control_emergency_clear_requires_explicit_confirmation():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         headers = {"Authorization": "Bearer test-token", "Content-Type": "application/json"}
-        
+
         # Attempt emergency clear without confirmation - should be rejected
         payload_no_confirm = {
             "command": "emergency_clear",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         response_no_confirm = await client.post(
             "/api/v2/control/emergency_clear",
             json=payload_no_confirm,
             headers=headers,
         )
-        
+
         if response_no_confirm.status_code in (404, 501, 422):
             return
-        
+
         # When implemented: expect 400 or 422 without confirmation
         assert response_no_confirm.status_code in (400, 422)
         data_no_confirm = response_no_confirm.json()
         detail_no_confirm = data_no_confirm.get("detail", "").lower()
         assert "confirmation" in detail_no_confirm or "confirm" in detail_no_confirm
-        
+
         # Attempt emergency clear WITH confirmation - should succeed
         payload_with_confirm = {
             "command": "emergency_clear",
             "confirmation": True,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         response_with_confirm = await client.post(
             "/api/v2/control/emergency_clear",
             json=payload_with_confirm,
             headers=headers,
         )
-        
+
         if response_with_confirm.status_code in (404, 501, 422):
             return
-        
+
         assert response_with_confirm.status_code == 200
         data_with_confirm = response_with_confirm.json()
         assert data_with_confirm["status"] == "EMERGENCY_CLEARED"

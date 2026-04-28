@@ -6,6 +6,7 @@ Test goals (FR-031):
 Notes:
 - Placeholder uses /api/v2/nav/waypoints and /api/v2/nav/status if present.
 """
+
 from __future__ import annotations
 
 import os

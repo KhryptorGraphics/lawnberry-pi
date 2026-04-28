@@ -8,17 +8,31 @@ from pydantic import BaseModel, Field, field_validator
 class Ina3221Config(BaseModel):
     address: Optional[int] = Field(default=None, description="I2C address override for INA3221")
     bus: Optional[int] = Field(default=None, description="I2C bus override for INA3221")
-    shunt_ohms_ch1: Optional[float] = Field(default=None, description="Override shunt resistance for channel 1 (solar)")
-    shunt_ohms_ch2: Optional[float] = Field(default=None, description="Override shunt resistance for channel 2")
-    shunt_ohms_ch3: Optional[float] = Field(default=None, description="Override shunt resistance for channel 3 (battery)")
-    shunt_spec_ch1: Optional[str] = Field(default=None, description="Channel 1 shunt spec, e.g. '30A/75mV'")
-    shunt_spec_ch2: Optional[str] = Field(default=None, description="Channel 2 shunt spec, e.g. '5A/50mV'")
-    shunt_spec_ch3: Optional[str] = Field(default=None, description="Channel 3 shunt spec, e.g. '50A/75mV'")
+    shunt_ohms_ch1: Optional[float] = Field(
+        default=None, description="Override shunt resistance for channel 1 (solar)"
+    )
+    shunt_ohms_ch2: Optional[float] = Field(
+        default=None, description="Override shunt resistance for channel 2"
+    )
+    shunt_ohms_ch3: Optional[float] = Field(
+        default=None, description="Override shunt resistance for channel 3 (battery)"
+    )
+    shunt_spec_ch1: Optional[str] = Field(
+        default=None, description="Channel 1 shunt spec, e.g. '30A/75mV'"
+    )
+    shunt_spec_ch2: Optional[str] = Field(
+        default=None, description="Channel 2 shunt spec, e.g. '5A/50mV'"
+    )
+    shunt_spec_ch3: Optional[str] = Field(
+        default=None, description="Channel 3 shunt spec, e.g. '50A/75mV'"
+    )
 
 
 class VictronBleConfig(BaseModel):
     enabled: bool = Field(default=True, description="Enable Victron SmartSolar BLE reader")
-    device_id: Optional[str] = Field(default=None, description="Victron identifier or MAC address for BLE connection")
+    device_id: Optional[str] = Field(
+        default=None, description="Victron identifier or MAC address for BLE connection"
+    )
     device_key: Optional[str] = Field(
         default=None,
         description="Optional combined '<address>@<key>' string accepted by victron-ble CLI",
@@ -28,8 +42,12 @@ class VictronBleConfig(BaseModel):
         description="Victron Instant Readout encryption key; combined with device_id when device_key not provided",
     )
     cli_path: str = Field(default="victron-ble", description="victron-ble CLI executable path")
-    adapter: Optional[str] = Field(default=None, description="Optional BLE adapter (passed as --adapter)")
-    read_timeout_s: float = Field(default=8.0, description="Timeout for BLE read command in seconds")
+    adapter: Optional[str] = Field(
+        default=None, description="Optional BLE adapter (passed as --adapter)"
+    )
+    read_timeout_s: float = Field(
+        default=8.0, description="Timeout for BLE read command in seconds"
+    )
     prefer_battery: bool = Field(
         default=False,
         description="Prefer Victron telemetry for battery voltage/current/power when merging with INA3221",
@@ -79,7 +97,9 @@ class HardwareConfig(BaseModel):
     gps_type: Optional[GPSType] = Field(default=None)
     gps_ntrip_enabled: bool = Field(default=False)
     imu_type: Optional[IMUType] = Field(default=None)
-    tof_sensors: List[str] = Field(default_factory=list, description="ToF sensor positions e.g. ['left','right']")
+    tof_sensors: List[str] = Field(
+        default_factory=list, description="ToF sensor positions e.g. ['left','right']"
+    )
     env_sensor: bool = Field(default=False, description="BME280 present")
     power_monitor: bool = Field(default=False, description="INA3221 present")
     motor_controller: Optional[MotorControllerType] = Field(default=None)
@@ -117,4 +137,3 @@ class ToFConfig(BaseModel):
     left_shutdown_gpio: Optional[int] = Field(default=None)
     right_shutdown_gpio: Optional[int] = Field(default=None)
     timing_budget_us: Optional[int] = Field(default=None)
-

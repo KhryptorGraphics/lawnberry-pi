@@ -4,6 +4,7 @@ Centralizes safety interlock activation based on sensor thresholds. Updates the
 canonical RobotState via RobotStateManager and exposes helpers to
 trigger/clear interlocks. SIM_MODE-safe and lightweight.
 """
+
 from __future__ import annotations
 
 import time
@@ -78,9 +79,7 @@ class SafetyTriggerManager:
         st.touch()
 
     # Public trigger helpers
-    def trigger_tilt(
-        self, roll_deg: float, pitch_deg: float, threshold_deg: float
-    ) -> bool:
+    def trigger_tilt(self, roll_deg: float, pitch_deg: float, threshold_deg: float) -> bool:
         if max(abs(roll_deg), abs(pitch_deg)) >= threshold_deg:
             self._activate(
                 InterlockType.TILT_DETECTED,

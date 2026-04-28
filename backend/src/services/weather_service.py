@@ -55,7 +55,9 @@ class WeatherService:
             "altitude_m": altitude,
         }
 
-    async def get_current_async(self, latitude: Optional[float] = None, longitude: Optional[float] = None) -> Dict[str, Any]:
+    async def get_current_async(
+        self, latitude: Optional[float] = None, longitude: Optional[float] = None
+    ) -> Dict[str, Any]:
         # Try external client (disabled by default)
         ext = None
         if latitude is not None and longitude is not None:
@@ -85,7 +87,9 @@ class WeatherService:
             "pressure_hpa": None,
         }
 
-    def get_current(self, latitude: Optional[float] = None, longitude: Optional[float] = None) -> Dict[str, Any]:
+    def get_current(
+        self, latitude: Optional[float] = None, longitude: Optional[float] = None
+    ) -> Dict[str, Any]:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:

@@ -8,6 +8,7 @@ IMU yaw. This is SIM_MODE-safe and avoids heavy numerics; it is sufficient to
 support a placeholder fused state endpoint and future tests. Real fusion will
 replace the prediction and measurement models and handle lat/lon conversions.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

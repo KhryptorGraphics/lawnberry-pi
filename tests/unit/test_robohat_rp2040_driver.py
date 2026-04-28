@@ -55,7 +55,7 @@ async def test_robohat_driver_ack_handling_success(monkeypatch):
     # Force non-SIM path but replace serial with fake
     monkeypatch.delenv("SIM_MODE", raising=False)
     drv = RoboHATRP2040Driver()
-    drv._ser = _FakeSerial([b"{\"status\":\"ok\"}\n", b"ACK\n"])  # two ACKs for two commands
+    drv._ser = _FakeSerial([b'{"status":"ok"}\n', b"ACK\n"])  # two ACKs for two commands
 
     # Pretend as if serial is open and initialized
     drv.initialized = True

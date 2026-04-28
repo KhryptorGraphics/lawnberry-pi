@@ -23,11 +23,18 @@ import jwt
 import pyotp
 
 from ..models import (
-    UserSession, SecurityContext, UserRole, AuthenticationMethod,
-    Permission, SessionStatus
+    UserSession,
+    SecurityContext,
+    UserRole,
+    AuthenticationMethod,
+    Permission,
+    SessionStatus,
 )
 from ..models.auth_security_config import (
-    AuthSecurityConfig, SecurityLevel, TOTPConfig, GoogleAuthConfig
+    AuthSecurityConfig,
+    SecurityLevel,
+    TOTPConfig,
+    GoogleAuthConfig,
 )
 from ..core.context import get_correlation_id
 
@@ -64,7 +71,9 @@ class PasswordManager:
 
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         secret = self._prepare_secret(plain_password)
-        hashed_bytes = hashed_password.encode("utf-8") if isinstance(hashed_password, str) else hashed_password
+        hashed_bytes = (
+            hashed_password.encode("utf-8") if isinstance(hashed_password, str) else hashed_password
+        )
         try:
             return bcrypt.checkpw(secret, hashed_bytes)
         except ValueError:
@@ -73,13 +82,17 @@ class PasswordManager:
 
 class JWTManager:
     """JWT token management"""
-    
+
     def __init__(self, secret_key: str | None = None, *, expiry_hours: int = 8) -> None:
-        self.secret_key = secret_key or os.getenv("LAWN_BERRY_AUTH_SECRET") or secrets.token_urlsafe(32)
+        self.secret_key = (
+            secret_key or os.getenv("LAWN_BERRY_AUTH_SECRET") or secrets.token_urlsafe(32)
+        )
         self.algorithm = "HS256"
         self.token_expiry_hours = expiry_hours
 
-    def create_token(self, *, session_id: str, user_id: str, role: UserRole) -> Tuple[str, datetime]:
+    def create_token(
+        self, *, session_id: str, user_id: str, role: UserRole
+    ) -> Tuple[str, datetime]:
         """Create a signed JWT token for the supplied session."""
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=self.token_expiry_hours)
@@ -97,12 +110,20 @@ class JWTManager:
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify and decode a token."""
         try:
-            return jwt.decode(token, self.secret_key, algorithms=[self.algorithm], options={"require": ["exp", "sid", "sub"]})
+            return jwt.decode(
+                token,
+                self.secret_key,
+                algorithms=[self.algorithm],
+                options={"require": ["exp", "sid", "sub"]},
+            )
         except jwt.ExpiredSignatureError:
             logger.warning("JWT token expired", extra={"correlation_id": get_correlation_id()})
             return None
         except jwt.InvalidTokenError as exc:
-            logger.warning("Invalid JWT token", extra={"correlation_id": get_correlation_id(), "error": str(exc)})
+            logger.warning(
+                "Invalid JWT token",
+                extra={"correlation_id": get_correlation_id(), "error": str(exc)},
+            )
             return None
 
 
@@ -165,7 +186,7 @@ class RateLimiter:
 
 class AuthService:
     """Main authentication service"""
-    
+
     def __init__(self, operator_credential: str = "operator123"):
         # Managers
         self.password_manager = PasswordManager()
@@ -184,7 +205,7 @@ class AuthService:
         self.require_https = False  # Would be True in production
         self.audit_logging_enabled = True
         self._simulation_mode = os.getenv("SIM_MODE", "0") == "1"
-        
+
     def _hash_credential(self, credential: str) -> str:
         """Hash the operator credential"""
         return self.password_manager.hash_password(credential)
@@ -213,7 +234,7 @@ class AuthService:
     def refresh_session_token(self, session: UserSession) -> AuthResult:
         session.extend_session(self.session_timeout_hours)
         return self._issue_token_for_session(session)
-    
+
     async def authenticate(
         self,
         credential: str,
@@ -289,13 +310,13 @@ class AuthService:
         )
 
         return result
-    
+
     async def verify_token(self, token: str) -> Optional[UserSession]:
         """Verify JWT token and return session"""
         payload = self.jwt_manager.verify_token(token)
         if not payload:
             return None
-        
+
         session_id = payload.get("sid")
         if not session_id:
             return None
@@ -309,113 +330,118 @@ class AuthService:
             return None
 
         return session
-    
+
     async def verify_session(self, session_id: str) -> Optional[UserSession]:
         """Verify session by ID"""
         if session_id not in self.active_sessions:
             return None
-        
+
         session = self.active_sessions[session_id]
-        
+
         # Check if session is expired or idle
         if session.is_expired():
             await self.terminate_session(session_id, "expired")
             return None
-        
+
         if session.is_idle():
             session.status = SessionStatus.IDLE
             logger.info(f"Session {session_id} marked as idle")
-        
+
         return session
-    
+
     async def terminate_session(self, session_id: str, reason: str = "user_logout") -> bool:
         """Terminate a session"""
         if session_id not in self.active_sessions:
             return False
-        
+
         session = self.active_sessions[session_id]
         session.terminate(reason)
-        
+
         # Audit log
         if self.audit_logging_enabled:
             session.update_activity("logout", metadata={"reason": reason})
-        
+
         # Remove from active sessions
         del self.active_sessions[session_id]
-        
+
         logger.info(f"Session {session_id} terminated: {reason}")
         return True
-    
+
     async def extend_session(self, session_id: str, hours: int = 8) -> bool:
         """Extend session expiration"""
         if session_id not in self.active_sessions:
             return False
-        
+
         session = self.active_sessions[session_id]
         session.extend_session(hours)
-        
+
         # Update JWT expiration
-        session.security_context.token_expires_at = (
-            datetime.now(timezone.utc) + timedelta(hours=hours)
+        session.security_context.token_expires_at = datetime.now(timezone.utc) + timedelta(
+            hours=hours
         )
-        
+
         logger.info(f"Session {session_id} extended by {hours} hours")
         return True
-    
+
     def check_permission(self, session: UserSession, permission: Permission) -> bool:
         """Check if session has required permission"""
         return session.security_context.has_permission(permission)
-    
+
     def require_permission(self, permission: Permission):
         """Decorator to require specific permission"""
+
         def decorator(func):
             async def wrapper(*args, **kwargs):
                 # Extract session from request (would be implemented based on framework)
-                session = kwargs.get('current_session')
+                session = kwargs.get("current_session")
                 if not session or not self.check_permission(session, permission):
                     raise PermissionError(f"Permission required: {permission}")
                 return await func(*args, **kwargs)
+
             return wrapper
+
         return decorator
-    
-    async def update_operator_credential(self, current_credential: str, 
-                                       new_credential: str) -> bool:
+
+    async def update_operator_credential(
+        self, current_credential: str, new_credential: str
+    ) -> bool:
         """Update the operator credential"""
         # Verify current credential
-        if not self.password_manager.verify_password(current_credential, 
-                                                    self.operator_credential_hash):
+        if not self.password_manager.verify_password(
+            current_credential, self.operator_credential_hash
+        ):
             logger.warning("Failed attempt to update operator credential")
             return False
-        
+
         # Update credential
         self.operator_credential_hash = self._hash_credential(new_credential)
-        
+
         # Invalidate all active sessions (force re-authentication)
         session_ids = list(self.active_sessions.keys())
         for session_id in session_ids:
             await self.terminate_session(session_id, "credential_changed")
-        
+
         logger.info("Operator credential updated, all sessions terminated")
         return True
-    
+
     async def cleanup_expired_sessions(self):
         """Clean up expired sessions"""
         expired_sessions = []
-        
+
         for session_id, session in self.active_sessions.items():
             if session.is_expired():
                 expired_sessions.append(session_id)
-        
+
         for session_id in expired_sessions:
             await self.terminate_session(session_id, "expired")
-        
+
         if expired_sessions:
             logger.info(f"Cleaned up {len(expired_sessions)} expired sessions")
-    
+
     async def get_active_sessions(self) -> Dict[str, Dict[str, Any]]:
         """Get information about active sessions"""
         sessions_info = {}
-        
+
         for session_id, session in self.active_sessions.items():
             sessions_info[session_id] = {
                 "user_id": session.user_id,
@@ -426,11 +452,11 @@ class AuthService:
                 "client_ip": session.client_ip,
                 "connection_type": session.connection_type,
                 "websocket_connections": len(session.websocket_connections),
-                "activity_count": len(session.activity_log)
+                "activity_count": len(session.activity_log),
             }
-        
+
         return sessions_info
-    
+
     async def get_auth_statistics(self) -> Dict[str, Any]:
         """Get authentication statistics"""
         return {
@@ -439,28 +465,25 @@ class AuthService:
             "session_timeout_hours": self.session_timeout_hours,
             "rate_limit_failure_threshold": self.rate_limiter.failure_limit,
             "rate_limit_lockout_seconds": self.rate_limiter.lockout_seconds,
-            "audit_logging_enabled": self.audit_logging_enabled
+            "audit_logging_enabled": self.audit_logging_enabled,
         }
-    
+
     async def generate_api_key(self, session_id: str, description: str = "") -> Optional[str]:
         """Generate API key for programmatic access"""
         if session_id not in self.active_sessions:
             return None
-        
+
         session = self.active_sessions[session_id]
-        
+
         # Generate API key
         api_key = f"lbpi_{secrets.token_urlsafe(32)}"
-        
+
         # Log API key generation
-        session.update_activity(
-            "api_key_generated",
-            metadata={"description": description}
-        )
-        
+        session.update_activity("api_key_generated", metadata={"description": description})
+
         logger.info(f"API key generated for session {session_id}")
         return api_key
-    
+
     async def revoke_api_key(self, api_key: str) -> bool:
         """Revoke an API key"""
         # API key revocation logic would go here
@@ -469,6 +492,7 @@ class AuthService:
 
 
 # ----------------------- Compatibility Facade -----------------------
+
 
 class AuthenticationError(Exception):
     def __init__(self, message: str, *, status_code: int = 401, retry_after: Optional[int] = None):
@@ -539,14 +563,21 @@ class _AuthServiceFacade:
         # Verify password with bcrypt if hash present
         if not self.config.password_hash:
             raise AuthenticationError("Invalid credentials")
-        ok = bool(bcrypt.checkpw(password.encode("utf-8"), self.config.password_hash.encode("utf-8")))
+        ok = bool(
+            bcrypt.checkpw(password.encode("utf-8"), self.config.password_hash.encode("utf-8"))
+        )
         if not ok:
             self._failed_attempts[username] = attempts + 1
             raise AuthenticationError("Invalid credentials")
         # success
         self._failed_attempts[username] = 0
         session = await self.create_session(username, SecurityLevel.PASSWORD)
-        self._log_security_event(event_type="authentication_success", username=username, security_level=SecurityLevel.PASSWORD, details={})
+        self._log_security_event(
+            event_type="authentication_success",
+            username=username,
+            security_level=SecurityLevel.PASSWORD,
+            details={},
+        )
         return session
 
     async def authenticate_totp(self, username: str, password: str, code: str) -> UserSession:
@@ -558,7 +589,12 @@ class _AuthServiceFacade:
             session = await self.create_session(username, SecurityLevel.TOTP)
             session.mfa_verified = True  # type: ignore[attr-defined]
             session.backup_code_used = True  # type: ignore[attr-defined]
-            self._log_security_event(event_type="authentication_success", username=username, security_level=SecurityLevel.TOTP, details={"mfa_verified": True})
+            self._log_security_event(
+                event_type="authentication_success",
+                username=username,
+                security_level=SecurityLevel.TOTP,
+                details={"mfa_verified": True},
+            )
             return session
         # Verify TOTP code first to avoid failing due to bcrypt stubs in tests
         if not code:
@@ -573,13 +609,20 @@ class _AuthServiceFacade:
             raise AuthenticationError("Invalid TOTP code")
         # Then perform password check if configured
         if self.config.password_hash:
-            ok = bool(bcrypt.checkpw(password.encode("utf-8"), self.config.password_hash.encode("utf-8")))
+            ok = bool(
+                bcrypt.checkpw(password.encode("utf-8"), self.config.password_hash.encode("utf-8"))
+            )
             if not ok:
                 raise AuthenticationError("Invalid credentials")
         session = await self.create_session(username, SecurityLevel.TOTP)
         session.mfa_verified = True  # type: ignore[attr-defined]
         session.backup_code_used = False  # type: ignore[attr-defined]
-        self._log_security_event(event_type="authentication_success", username=username, security_level=SecurityLevel.TOTP, details={"mfa_verified": True})
+        self._log_security_event(
+            event_type="authentication_success",
+            username=username,
+            security_level=SecurityLevel.TOTP,
+            details={"mfa_verified": True},
+        )
         return session
 
     async def authenticate_google_oauth(self, id_token: str) -> UserSession:
@@ -592,7 +635,10 @@ class _AuthServiceFacade:
         try:
             from google.auth.transport.requests import Request  # type: ignore
             from google.oauth2 import id_token as google_id_token  # type: ignore
-            info = google_id_token.verify_oauth2_token(id_token, Request(), audience=self.config.google_auth_config.client_id)
+
+            info = google_id_token.verify_oauth2_token(
+                id_token, Request(), audience=self.config.google_auth_config.client_id
+            )
             email = info.get("email", email)
             domain = email.split("@")[-1]
         except Exception:
@@ -601,7 +647,12 @@ class _AuthServiceFacade:
             raise AuthenticationError("Domain not allowed")
         session = await self.create_session(email, SecurityLevel.GOOGLE_OAUTH)
         session.oauth_provider = "google"  # type: ignore[attr-defined]
-        self._log_security_event(event_type="authentication_success", username=email, security_level=SecurityLevel.GOOGLE_OAUTH, details={})
+        self._log_security_event(
+            event_type="authentication_success",
+            username=email,
+            security_level=SecurityLevel.GOOGLE_OAUTH,
+            details={},
+        )
         return session
 
     async def authenticate_tunnel(self, headers: Dict[str, str]) -> UserSession:
@@ -614,7 +665,12 @@ class _AuthServiceFacade:
         email = headers.get("CF-Access-Authenticated-User-Email", "user@example.com")
         session = await self.create_session(email, SecurityLevel.TUNNEL_AUTH)
         session.tunnel_authenticated = True  # type: ignore[attr-defined]
-        self._log_security_event(event_type="authentication_success", username=email, security_level=SecurityLevel.TUNNEL_AUTH, details={})
+        self._log_security_event(
+            event_type="authentication_success",
+            username=email,
+            security_level=SecurityLevel.TUNNEL_AUTH,
+            details={},
+        )
         return session
 
     async def validate_session(self, session: UserSession) -> bool:
@@ -625,10 +681,14 @@ class _AuthServiceFacade:
         if not any(session in lst for lst in self.active_sessions.values()):
             return False
         # Check expiry and required security level
-        if getattr(session, "expires_at", None) and session.expires_at <= datetime.now(timezone.utc):
+        if getattr(session, "expires_at", None) and session.expires_at <= datetime.now(
+            timezone.utc
+        ):
             return False
         # If config requires higher level than session, it's invalid
-        if session.security_level is not None and int(session.security_level) < int(self.config.security_level):
+        if session.security_level is not None and int(session.security_level) < int(
+            self.config.security_level
+        ):
             return False
         return True
 
@@ -645,6 +705,7 @@ class _AuthServiceFacade:
 
     def generate_backup_codes(self, count: int = 10) -> list[str]:
         import secrets
+
         return ["".join(str(secrets.randbelow(10)) for _ in range(6)) for _ in range(count)]
 
     def _log_security_event(self, **kwargs):

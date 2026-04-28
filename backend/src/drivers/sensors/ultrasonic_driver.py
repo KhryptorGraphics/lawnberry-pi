@@ -14,6 +14,7 @@ GPIO Pin Assignments (from BEAD-040):
 
 ECHO pins require voltage dividers (5V to 3.3V) - see docs/ultrasonic-wiring-guide.md
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -38,12 +39,14 @@ def _ensure_gpio():
     if _lgpio is None:
         try:
             import lgpio
+
             _lgpio = lgpio
         except ImportError:
             pass
     if _gpiozero is None:
         try:
             from gpiozero import DistanceSensor
+
             _gpiozero = DistanceSensor
         except ImportError:
             pass
@@ -52,6 +55,7 @@ def _ensure_gpio():
 @dataclass
 class UltrasonicReading:
     """Single ultrasonic sensor reading."""
+
     sensor_id: str  # "front_left", "front_center", "front_right"
     distance_cm: float  # Distance in centimeters (2-400 typical range)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

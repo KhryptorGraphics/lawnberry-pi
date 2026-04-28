@@ -7,6 +7,7 @@ Test goals (FR-028, FR-033):
 Notes:
 - Placeholder contract: skipped by default unless RUN_PLACEHOLDER_CONTRACT=1
 """
+
 from __future__ import annotations
 
 import os

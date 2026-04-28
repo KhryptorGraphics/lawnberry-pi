@@ -1,4 +1,3 @@
-
 from backend.src.scheduler.weather_api import WeatherAPI, WeatherCache
 from backend.src.scheduler.weather_sensor_fallback import EnvSnapshot, SensorFallbackRules
 from backend.src.scheduler.weather_service import WeatherService
@@ -23,19 +22,28 @@ def test_sensor_fallback_rules_thresholds():
     rules = SensorFallbackRules(max_humidity_percent=85.0, min_pressure_hpa=1000.0)
 
     # Suitable when within thresholds
-    assert rules.is_suitable(
-        EnvSnapshot(temperature_c=20.0, humidity_percent=60.0, pressure_hpa=1013.0)
-    ) is True
+    assert (
+        rules.is_suitable(
+            EnvSnapshot(temperature_c=20.0, humidity_percent=60.0, pressure_hpa=1013.0)
+        )
+        is True
+    )
 
     # High humidity blocks
-    assert rules.is_suitable(
-        EnvSnapshot(temperature_c=20.0, humidity_percent=90.0, pressure_hpa=1013.0)
-    ) is False
+    assert (
+        rules.is_suitable(
+            EnvSnapshot(temperature_c=20.0, humidity_percent=90.0, pressure_hpa=1013.0)
+        )
+        is False
+    )
 
     # Low pressure blocks
-    assert rules.is_suitable(
-        EnvSnapshot(temperature_c=20.0, humidity_percent=60.0, pressure_hpa=990.0)
-    ) is False
+    assert (
+        rules.is_suitable(
+            EnvSnapshot(temperature_c=20.0, humidity_percent=60.0, pressure_hpa=990.0)
+        )
+        is False
+    )
 
 
 def test_weather_service_combines_api_and_sensors(tmp_path):

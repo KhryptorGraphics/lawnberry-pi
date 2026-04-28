@@ -13,6 +13,7 @@ Data Format:
 - Angles in degrees
 - Serializes to MessagePack for efficient storage/transmission
 """
+
 from __future__ import annotations
 
 import uuid
@@ -27,6 +28,7 @@ import numpy as np
 try:
     import msgpack
     import msgpack_numpy as m
+
     m.patch()  # Enable numpy array serialization
     HAS_MSGPACK = True
 except ImportError:
@@ -35,20 +37,22 @@ except ImportError:
 
 class RTKFixType(str, Enum):
     """RTK GPS fix quality types."""
+
     NONE = "none"
-    SINGLE = "single"         # Standard GPS fix
-    FLOAT = "float"           # RTK float solution
-    FIXED = "fixed"           # RTK fixed solution (cm accuracy)
-    DGPS = "dgps"             # Differential GPS
-    PPS = "pps"               # PPS fix
+    SINGLE = "single"  # Standard GPS fix
+    FLOAT = "float"  # RTK float solution
+    FIXED = "fixed"  # RTK fixed solution (cm accuracy)
+    DGPS = "dgps"  # Differential GPS
+    PPS = "pps"  # PPS fix
 
 
 class MowerState(str, Enum):
     """Operational states of the mower."""
+
     IDLE = "idle"
     MOWING = "mowing"
     TURNING = "turning"
-    RETURNING = "returning"   # Returning to dock
+    RETURNING = "returning"  # Returning to dock
     DOCKED = "docked"
     PERIMETER_RECORDING = "perimeter_recording"
     MANUAL = "manual"
@@ -58,36 +62,39 @@ class MowerState(str, Enum):
 
 class ActionSource(str, Enum):
     """Source of control actions."""
-    MANUAL = "manual"         # Human teleop
-    AUTONOMOUS = "autonomous" # AI policy
-    PLAYBACK = "playback"     # Replaying recorded path
-    SAFETY = "safety"         # Safety override
+
+    MANUAL = "manual"  # Human teleop
+    AUTONOMOUS = "autonomous"  # AI policy
+    PLAYBACK = "playback"  # Replaying recorded path
+    SAFETY = "safety"  # Safety override
 
 
 @dataclass
 class GPSData:
     """GPS sensor data."""
+
     latitude: float = 0.0
     longitude: float = 0.0
     altitude: float = 0.0
     rtk_fix_type: RTKFixType = RTKFixType.NONE
-    hdop: float = 99.0        # Horizontal dilution of precision
-    vdop: float = 99.0        # Vertical dilution of precision
+    hdop: float = 99.0  # Horizontal dilution of precision
+    vdop: float = 99.0  # Vertical dilution of precision
     num_satellites: int = 0
-    speed_mps: float = 0.0    # Ground speed in m/s
-    heading: float = 0.0      # GPS-derived heading in degrees
+    speed_mps: float = 0.0  # Ground speed in m/s
+    heading: float = 0.0  # GPS-derived heading in degrees
 
 
 @dataclass
 class IMUData:
     """IMU sensor data (BNO085)."""
-    roll: float = 0.0         # degrees
-    pitch: float = 0.0        # degrees
-    yaw: float = 0.0          # degrees (heading)
+
+    roll: float = 0.0  # degrees
+    pitch: float = 0.0  # degrees
+    yaw: float = 0.0  # degrees (heading)
     linear_accel_x: float = 0.0  # m/s^2
     linear_accel_y: float = 0.0
     linear_accel_z: float = 0.0
-    angular_vel_x: float = 0.0   # rad/s
+    angular_vel_x: float = 0.0  # rad/s
     angular_vel_y: float = 0.0
     angular_vel_z: float = 0.0
     calibration_status: str = "unknown"
@@ -96,6 +103,7 @@ class IMUData:
 @dataclass
 class UltrasonicData:
     """Ultrasonic sensor array data (HC-SR04 x3)."""
+
     front_left_cm: float = 0.0
     front_center_cm: float = 0.0
     front_right_cm: float = 0.0
@@ -105,16 +113,18 @@ class UltrasonicData:
 @dataclass
 class ToFData:
     """Time-of-Flight sensor data (VL53L0X x2)."""
-    left_mm: float = 0.0      # Blade height left
-    right_mm: float = 0.0     # Blade height right
+
+    left_mm: float = 0.0  # Blade height left
+    right_mm: float = 0.0  # Blade height right
 
 
 @dataclass
 class MotorState:
     """Motor controller state."""
-    wheel_speed_left: float = 0.0   # RPM
+
+    wheel_speed_left: float = 0.0  # RPM
     wheel_speed_right: float = 0.0  # RPM
-    blade_speed: float = 0.0        # RPM
+    blade_speed: float = 0.0  # RPM
     blade_enabled: bool = False
     wheel_current_left: float = 0.0  # Amps
     wheel_current_right: float = 0.0
@@ -124,8 +134,9 @@ class MotorState:
 @dataclass
 class ControlAction:
     """Control action being executed."""
-    steering: float = 0.0     # -1.0 (full left) to 1.0 (full right)
-    throttle: float = 0.0     # 0.0 to 1.0
+
+    steering: float = 0.0  # -1.0 (full left) to 1.0 (full right)
+    throttle: float = 0.0  # 0.0 to 1.0
     blade_command: bool = False
     source: ActionSource = ActionSource.MANUAL
 
@@ -133,6 +144,7 @@ class ControlAction:
 @dataclass
 class PowerState:
     """Power system state."""
+
     battery_voltage: float = 0.0
     battery_current: float = 0.0
     battery_soc: float = 0.0  # State of charge 0-100%
@@ -150,16 +162,17 @@ class MowerDataFrame:
 
     All images are stored as numpy arrays in BGR format.
     """
+
     # Identifiers
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     frame_id: int = 0
 
     # Camera data (stored as numpy arrays, dtype=uint8, shape=[H,W,3] BGR)
-    stereo_left: Optional[np.ndarray] = None      # 1280x960 or 960x540
-    stereo_right: Optional[np.ndarray] = None     # 1280x960 or 960x540
-    stereo_depth: Optional[np.ndarray] = None     # Computed disparity map
-    pi_camera_rgb: Optional[np.ndarray] = None    # 1920x1080 or 1280x720
+    stereo_left: Optional[np.ndarray] = None  # 1280x960 or 960x540
+    stereo_right: Optional[np.ndarray] = None  # 1280x960 or 960x540
+    stereo_depth: Optional[np.ndarray] = None  # Computed disparity map
+    pi_camera_rgb: Optional[np.ndarray] = None  # 1920x1080 or 1280x720
 
     # Sensor data
     gps: GPSData = field(default_factory=GPSData)
@@ -226,10 +239,18 @@ class MowerDataFrame:
             result["pi_camera_rgb"] = self.pi_camera_rgb
         else:
             # Include image metadata only
-            result["stereo_left_shape"] = list(self.stereo_left.shape) if self.stereo_left is not None else None
-            result["stereo_right_shape"] = list(self.stereo_right.shape) if self.stereo_right is not None else None
-            result["stereo_depth_shape"] = list(self.stereo_depth.shape) if self.stereo_depth is not None else None
-            result["pi_camera_shape"] = list(self.pi_camera_rgb.shape) if self.pi_camera_rgb is not None else None
+            result["stereo_left_shape"] = (
+                list(self.stereo_left.shape) if self.stereo_left is not None else None
+            )
+            result["stereo_right_shape"] = (
+                list(self.stereo_right.shape) if self.stereo_right is not None else None
+            )
+            result["stereo_depth_shape"] = (
+                list(self.stereo_depth.shape) if self.stereo_depth is not None else None
+            )
+            result["pi_camera_shape"] = (
+                list(self.pi_camera_rgb.shape) if self.pi_camera_rgb is not None else None
+            )
 
         return result
 
@@ -250,7 +271,11 @@ class MowerDataFrame:
         gps = GPSData(**gps_data) if gps_data else GPSData()
 
         imu = IMUData(**data.get("imu", {})) if data.get("imu") else IMUData()
-        ultrasonic = UltrasonicData(**data.get("ultrasonic", {})) if data.get("ultrasonic") else UltrasonicData()
+        ultrasonic = (
+            UltrasonicData(**data.get("ultrasonic", {}))
+            if data.get("ultrasonic")
+            else UltrasonicData()
+        )
         tof = ToFData(**data.get("tof", {})) if data.get("tof") else ToFData()
         motor = MotorState(**data.get("motor", {})) if data.get("motor") else MotorState()
 
@@ -361,6 +386,7 @@ class MowerDataFrame:
 @dataclass
 class RecordingSession:
     """Metadata for a recording session."""
+
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
     start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

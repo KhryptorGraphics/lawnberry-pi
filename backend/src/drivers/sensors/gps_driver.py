@@ -11,6 +11,7 @@ Platform notes:
 - Real hardware access is guarded by lazy imports and not exercised in tests.
 - UART/USB device paths are configurable via config or environment variables.
 """
+
 from __future__ import annotations
 
 import os
@@ -168,14 +169,23 @@ class GPSDriver(HardwareDriver):
                     candidates.append(env_dev)
                 # Configured default
                 default_dev = (
-                    self.cfg.usb_device if self.cfg.mode == GpsMode.F9P_USB else self.cfg.uart_device
+                    self.cfg.usb_device
+                    if self.cfg.mode == GpsMode.F9P_USB
+                    else self.cfg.uart_device
                 )
                 candidates.append(default_dev)
                 # Common fallbacks on Raspberry Pi
-                candidates.extend([
-                    "/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1",
-                    "/dev/ttyAMA0", "/dev/ttyS0", "/dev/serial0",
-                ])
+                candidates.extend(
+                    [
+                        "/dev/ttyACM0",
+                        "/dev/ttyACM1",
+                        "/dev/ttyUSB0",
+                        "/dev/ttyUSB1",
+                        "/dev/ttyAMA0",
+                        "/dev/ttyS0",
+                        "/dev/serial0",
+                    ]
+                )
                 # Add ACM/USB globbed devices if present
                 for pat in ("/dev/ttyACM*", "/dev/ttyUSB*"):
                     for p in glob.glob(pat):
@@ -380,7 +390,16 @@ class GPSDriver(HardwareDriver):
 
     def _parse_gga(
         self, line: str
-    ) -> Optional[tuple[Optional[float], Optional[float], Optional[float], Optional[int], Optional[float], Optional[int]]]:
+    ) -> Optional[
+        tuple[
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[int],
+            Optional[float],
+            Optional[int],
+        ]
+    ]:
         """Parse GGA: returns (lat, lon, altitude_m, satellites, hdop, fix_quality)."""
         try:
             parts = line.split(",")
@@ -402,7 +421,9 @@ class GPSDriver(HardwareDriver):
         except Exception:
             return None
 
-    def _parse_rmc(self, line: str) -> Optional[tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]:
+    def _parse_rmc(
+        self, line: str
+    ) -> Optional[tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]:
         """Parse RMC: returns (lat, lon, speed_knots, course_deg)."""
         try:
             parts = line.split(",")
@@ -480,10 +501,26 @@ class GPSDriver(HardwareDriver):
                             lat = obj.get("lat")
                             lon = obj.get("lon")
                             if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-                                alt = obj.get("alt") if isinstance(obj.get("alt"), (int, float)) else None
-                                spd = obj.get("speed") if isinstance(obj.get("speed"), (int, float)) else None
-                                crs = obj.get("track") if isinstance(obj.get("track"), (int, float)) else None
-                                eph = obj.get("eph") if isinstance(obj.get("eph"), (int, float)) else None
+                                alt = (
+                                    obj.get("alt")
+                                    if isinstance(obj.get("alt"), (int, float))
+                                    else None
+                                )
+                                spd = (
+                                    obj.get("speed")
+                                    if isinstance(obj.get("speed"), (int, float))
+                                    else None
+                                )
+                                crs = (
+                                    obj.get("track")
+                                    if isinstance(obj.get("track"), (int, float))
+                                    else None
+                                )
+                                eph = (
+                                    obj.get("eph")
+                                    if isinstance(obj.get("eph"), (int, float))
+                                    else None
+                                )
                                 return GpsReading(
                                     latitude=float(lat),
                                     longitude=float(lon),

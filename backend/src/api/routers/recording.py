@@ -14,6 +14,7 @@ Endpoints:
 - GET /recording/sessions/{session_id} - Get specific session details
 - DELETE /recording/sessions/{session_id} - Delete a session
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,13 +40,19 @@ router = APIRouter()
 
 class StartRecordingRequest(BaseModel):
     """Request to start a new recording session."""
-    name: str = Field(..., description="Human-readable name for the session", min_length=1, max_length=100)
-    session_type: str = Field("perimeter", description="Type of recording: perimeter, training, calibration")
+
+    name: str = Field(
+        ..., description="Human-readable name for the session", min_length=1, max_length=100
+    )
+    session_type: str = Field(
+        "perimeter", description="Type of recording: perimeter, training, calibration"
+    )
     notes: str = Field("", description="Optional notes about the session", max_length=500)
 
 
 class RecordingSessionResponse(BaseModel):
     """Response containing session metadata."""
+
     session_id: str
     name: str
     start_time: str
@@ -61,6 +68,7 @@ class RecordingSessionResponse(BaseModel):
 
 class RecordingStatusResponse(BaseModel):
     """Response containing current recording status."""
+
     state: str = Field(..., description="Current state: idle, recording, paused, stopping")
     recording: bool
     session_id: Optional[str] = None
@@ -76,12 +84,14 @@ class RecordingStatusResponse(BaseModel):
 
 class SessionListResponse(BaseModel):
     """Response containing list of sessions."""
+
     sessions: List[Dict[str, Any]]
     total_count: int
 
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     service: str
     initialized: bool
     state: str

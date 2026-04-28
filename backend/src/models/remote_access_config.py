@@ -20,7 +20,7 @@ class CloudflareConfig(BaseModel):
 class NgrokConfig(BaseModel):
     authtoken: Optional[str] = None
     region: Optional[str] = None  # e.g., us, eu, ap
-    edge: Optional[str] = None    # reserved domain or edge config
+    edge: Optional[str] = None  # reserved domain or edge config
 
 
 class CustomTunnelConfig(BaseModel):

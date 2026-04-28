@@ -17,6 +17,7 @@ Usage:
     # Continuous monitoring
     python scripts/test_ultrasonic.py --continuous --interval 0.2
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,13 +49,13 @@ def print_reading(reading: UltrasonicReading, show_warning: bool = True):
         status = "\033[91mINVALID\033[0m"  # Red
         distance_str = "---"
     elif reading.distance_cm < 30:
-        status = "\033[91mDANGER\033[0m"   # Red - very close
+        status = "\033[91mDANGER\033[0m"  # Red - very close
         distance_str = f"{reading.distance_cm:6.1f} cm"
     elif reading.distance_cm < 100:
         status = "\033[93mWARNING\033[0m"  # Yellow - close
         distance_str = f"{reading.distance_cm:6.1f} cm"
     else:
-        status = "\033[92mOK\033[0m"       # Green - safe
+        status = "\033[92mOK\033[0m"  # Green - safe
         distance_str = f"{reading.distance_cm:6.1f} cm"
 
     sensor_name = reading.sensor_id.replace("_", " ").title()
@@ -84,7 +85,7 @@ async def test_single_sensor(driver: UltrasonicDriver, sensor_id: str, count: in
     if distances:
         print(f"Min distance: {min(distances):.1f} cm")
         print(f"Max distance: {max(distances):.1f} cm")
-        print(f"Avg distance: {sum(distances)/len(distances):.1f} cm")
+        print(f"Avg distance: {sum(distances) / len(distances):.1f} cm")
 
 
 async def test_all_sensors(driver: UltrasonicDriver, count: int = 10):
@@ -93,7 +94,7 @@ async def test_all_sensors(driver: UltrasonicDriver, count: int = 10):
     print("-" * 60)
 
     for i in range(count):
-        print(f"\nReading #{i+1}:")
+        print(f"\nReading #{i + 1}:")
         readings = await driver.read_all()
         for reading in readings:
             print_reading(reading)
@@ -147,10 +148,10 @@ async def run_health_check(driver: UltrasonicDriver):
     print(f"  GPIO Backend: {health['gpio_backend']}")
     print(f"  Simulation: {health['simulation']}")
 
-    if health.get('last_readings'):
+    if health.get("last_readings"):
         print("\n  Last Readings:")
-        for sensor_id, data in health['last_readings'].items():
-            valid = "Valid" if data['valid'] else "Invalid"
+        for sensor_id, data in health["last_readings"].items():
+            valid = "Valid" if data["valid"] else "Invalid"
             print(f"    {sensor_id}: {data['distance_cm']:.1f} cm ({valid})")
 
 

@@ -21,7 +21,9 @@ from backend.src.services.remote_access_service import (
 )
 
 
-logging.basicConfig(level=logging.INFO, format="[remote-access] %(asctime)s %(levelname)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="[remote-access] %(asctime)s %(levelname)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +36,9 @@ def _config_digest(cfg) -> str:
     return json.dumps(payload, sort_keys=True)
 
 
-async def _polling_loop(service: RemoteAccessService, stop_event: asyncio.Event, poll_seconds: int) -> None:
+async def _polling_loop(
+    service: RemoteAccessService, stop_event: asyncio.Event, poll_seconds: int
+) -> None:
     while not stop_event.is_set():
         try:
             cfg = RemoteAccessService.load_config_from_disk(service.config_path)

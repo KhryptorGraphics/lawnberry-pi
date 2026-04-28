@@ -1,4 +1,5 @@
 """Async NTRIP client for forwarding RTK corrections to the rover GPS."""
+
 from __future__ import annotations
 
 import asyncio
@@ -71,11 +72,11 @@ class NtripForwarder:
         username = os.getenv("NTRIP_USERNAME")
         password = os.getenv("NTRIP_PASSWORD")
         serial_device = (
-            os.getenv("NTRIP_SERIAL_DEVICE")
-            or os.getenv("GPS_DEVICE")
-            or "/dev/ttyAMA0"
+            os.getenv("NTRIP_SERIAL_DEVICE") or os.getenv("GPS_DEVICE") or "/dev/ttyAMA0"
         )
-        default_baud = 115200 if gps_mode in {GpsMode.F9P_USB, GpsMode.F9P_UART, GpsMode.LC29H_UART} else 9600
+        default_baud = (
+            115200 if gps_mode in {GpsMode.F9P_USB, GpsMode.F9P_UART, GpsMode.LC29H_UART} else 9600
+        )
         _baud_raw = os.getenv("NTRIP_SERIAL_BAUD", str(default_baud))
         try:
             baudrate = int(str(_baud_raw).strip() or str(default_baud))
@@ -124,6 +125,7 @@ class NtripForwarder:
         # Timestamp (UTC hhmmss) improves caster acceptance vs. 000000
         try:
             import datetime as _dt
+
             ts = _dt.datetime.utcnow()
             time_str = f"{ts.hour:02d}{ts.minute:02d}{ts.second:02d}"
         except Exception:
@@ -226,7 +228,9 @@ class NtripForwarder:
         if b"200" not in header:
             writer.close()
             await writer.wait_closed()
-            raise RuntimeError(f"NTRIP caster rejected connection: {header.decode('ascii', errors='ignore').strip()}")
+            raise RuntimeError(
+                f"NTRIP caster rejected connection: {header.decode('ascii', errors='ignore').strip()}"
+            )
 
         await self._open_serial()
         gga_task: Optional[asyncio.Task[None]] = None
@@ -336,15 +340,27 @@ class NtripForwarder:
             now = asyncio.get_running_loop().time()
         except Exception:
             now = None
-        window_secs = (now - self._last_log_ts) if (now is not None and self._last_log_ts is not None) else None
+        window_secs = (
+            (now - self._last_log_ts)
+            if (now is not None and self._last_log_ts is not None)
+            else None
+        )
         rate_bps = None
         if window_secs and window_secs > 0:
             try:
                 rate_bps = float(self._bytes_forwarded) / float(window_secs)
             except Exception:
                 rate_bps = None
-        uptime_s = (now - self._started_monotonic) if (now is not None and self._started_monotonic is not None) else None
-        last_fwd_age_s = (now - self._last_forward_monotonic) if (now is not None and self._last_forward_monotonic is not None) else None
+        uptime_s = (
+            (now - self._started_monotonic)
+            if (now is not None and self._started_monotonic is not None)
+            else None
+        )
+        last_fwd_age_s = (
+            (now - self._last_forward_monotonic)
+            if (now is not None and self._last_forward_monotonic is not None)
+            else None
+        )
         return {
             "enabled": True,
             "connected": bool(self._connected),

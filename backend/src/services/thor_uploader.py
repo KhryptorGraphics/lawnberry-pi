@@ -11,6 +11,7 @@ for AI model training. Features:
 
 The Thor server is assumed to expose a REST API for receiving training data.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 # Try to import optional dependencies
 try:
     import aiohttp
+
     HAS_AIOHTTP = True
 except ImportError:
     HAS_AIOHTTP = False
@@ -38,6 +40,7 @@ except ImportError:
 
 try:
     import lz4.frame
+
     HAS_LZ4 = True
 except ImportError:
     HAS_LZ4 = False
@@ -46,6 +49,7 @@ except ImportError:
 
 class UploadStatus(str, Enum):
     """Status of an upload task."""
+
     PENDING = "pending"
     COMPRESSING = "compressing"
     UPLOADING = "uploading"
@@ -58,6 +62,7 @@ class UploadStatus(str, Enum):
 @dataclass
 class UploadTask:
     """Represents a single upload task."""
+
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str = ""
     source_path: str = ""
@@ -105,6 +110,7 @@ class UploadTask:
 @dataclass
 class ThorUploaderConfig:
     """Configuration for Thor uploader."""
+
     # Thor server connection
     thor_base_url: str = "http://thor.local:8000"
     thor_api_key: str = ""
@@ -340,15 +346,12 @@ class ThorUploaderService:
         while self._processing:
             try:
                 # Get pending tasks
-                pending = [
-                    t for t in self._queue.values()
-                    if t.status == UploadStatus.PENDING
-                ]
+                pending = [t for t in self._queue.values() if t.status == UploadStatus.PENDING]
 
                 if pending:
                     # Process tasks with concurrency limit
                     tasks = []
-                    for upload_task in pending[:self.config.max_concurrent_uploads]:
+                    for upload_task in pending[: self.config.max_concurrent_uploads]:
                         tasks.append(self._upload_file(upload_task))
 
                     if tasks:
@@ -388,7 +391,9 @@ class ThorUploaderService:
                     task.compressed_size = task.file_size
 
                 # Calculate chunks
-                task.chunks_total = (task.compressed_size + self.config.chunk_size - 1) // self.config.chunk_size
+                task.chunks_total = (
+                    task.compressed_size + self.config.chunk_size - 1
+                ) // self.config.chunk_size
                 task.status = UploadStatus.UPLOADING
                 self._notify_progress(task)
 
@@ -424,12 +429,16 @@ class ThorUploaderService:
                 if task.retry_count >= self.config.max_retries:
                     task.status = UploadStatus.FAILED
                     self._total_uploads_failed += 1
-                    logger.error(f"Upload failed after {task.retry_count} retries: {task.session_id} - {e}")
+                    logger.error(
+                        f"Upload failed after {task.retry_count} retries: {task.session_id} - {e}"
+                    )
                 else:
                     task.status = UploadStatus.PENDING
                     # Exponential backoff
-                    delay = self.config.retry_delay_base * (2 ** task.retry_count)
-                    logger.warning(f"Upload retry {task.retry_count}/{self.config.max_retries} in {delay}s: {task.session_id}")
+                    delay = self.config.retry_delay_base * (2**task.retry_count)
+                    logger.warning(
+                        f"Upload retry {task.retry_count}/{self.config.max_retries} in {delay}s: {task.session_id}"
+                    )
                     await asyncio.sleep(delay)
 
                 self._notify_progress(task)
@@ -454,7 +463,7 @@ class ThorUploaderService:
         if self.config.thor_api_key:
             headers["Authorization"] = f"Bearer {self.config.thor_api_key}"
 
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             # Skip already uploaded chunks (resume support)
             f.seek(task.chunks_uploaded * self.config.chunk_size)
 
@@ -518,8 +527,10 @@ class ThorUploaderService:
 
         # Run compression in thread pool to avoid blocking
         def compress():
-            with open(source_path, 'rb') as src:
-                with lz4.frame.open(compressed_path, 'wb', compression_level=self.config.compression_level) as dst:
+            with open(source_path, "rb") as src:
+                with lz4.frame.open(
+                    compressed_path, "wb", compression_level=self.config.compression_level
+                ) as dst:
                     while chunk := src.read(self.config.chunk_size):
                         dst.write(chunk)
 
@@ -529,15 +540,18 @@ class ThorUploaderService:
         compressed_size = compressed_path.stat().st_size
         ratio = compressed_size / original_size * 100
 
-        logger.info(f"Compressed {source_path.name}: {original_size/1e6:.1f}MB -> {compressed_size/1e6:.1f}MB ({ratio:.1f}%)")
+        logger.info(
+            f"Compressed {source_path.name}: {original_size / 1e6:.1f}MB -> {compressed_size / 1e6:.1f}MB ({ratio:.1f}%)"
+        )
 
         return compressed_path
 
     async def _calculate_hash(self, file_path: Path) -> str:
         """Calculate SHA256 hash of file."""
+
         def hash_file():
             h = hashlib.sha256()
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 while chunk := f.read(8192):
                     h.update(chunk)
             return h.hexdigest()
@@ -548,7 +562,7 @@ class ThorUploaderService:
         """Load queue from persistent storage."""
         try:
             if self.config.queue_persistence_path.exists():
-                with open(self.config.queue_persistence_path, 'r') as f:
+                with open(self.config.queue_persistence_path, "r") as f:
                     data = json.load(f)
 
                 for task_data in data.get("tasks", []):
@@ -573,7 +587,7 @@ class ThorUploaderService:
                 "saved_at": datetime.now(timezone.utc).isoformat(),
             }
 
-            with open(self.config.queue_persistence_path, 'w') as f:
+            with open(self.config.queue_persistence_path, "w") as f:
                 json.dump(data, f, indent=2)
 
         except Exception as e:
@@ -599,7 +613,9 @@ class ThorUploaderService:
     async def health_check(self) -> Dict[str, Any]:
         """Return health status for /health endpoint."""
         pending_count = len([t for t in self._queue.values() if t.status == UploadStatus.PENDING])
-        uploading_count = len([t for t in self._queue.values() if t.status == UploadStatus.UPLOADING])
+        uploading_count = len(
+            [t for t in self._queue.values() if t.status == UploadStatus.UPLOADING]
+        )
         failed_count = len([t for t in self._queue.values() if t.status == UploadStatus.FAILED])
 
         return {

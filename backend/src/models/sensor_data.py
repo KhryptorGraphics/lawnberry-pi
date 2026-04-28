@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class SensorType(str, Enum):
     """Available sensor types"""
+
     GPS = "gps"
     IMU = "imu"
     TOF_LEFT = "tof_left"
@@ -24,6 +25,7 @@ class SensorType(str, Enum):
 
 class SensorStatus(str, Enum):
     """Sensor operational status"""
+
     ONLINE = "online"
     OFFLINE = "offline"
     ERROR = "error"
@@ -33,6 +35,7 @@ class SensorStatus(str, Enum):
 
 class GpsMode(str, Enum):
     """GPS module configuration"""
+
     F9P_USB = "f9p_usb"  # u-blox ZED-F9P via USB with RTK
     F9P_UART = "f9p_uart"  # u-blox ZED-F9P via UART with RTK
     NEO8M_UART = "neo8m_uart"  # u-blox Neo-8M via UART
@@ -41,6 +44,7 @@ class GpsMode(str, Enum):
 
 class SensorReading(BaseModel):
     """Individual sensor data reading"""
+
     sensor_type: SensorType
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     value: Dict[str, Any]
@@ -52,6 +56,7 @@ class SensorReading(BaseModel):
 
 class GpsReading(BaseModel):
     """GPS-specific sensor reading"""
+
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     altitude: Optional[float] = None
@@ -67,6 +72,7 @@ class GpsReading(BaseModel):
 
 class ImuReading(BaseModel):
     """IMU (BNO085) sensor reading"""
+
     roll: Optional[float] = None  # degrees
     pitch: Optional[float] = None  # degrees
     yaw: Optional[float] = None  # degrees
@@ -85,6 +91,7 @@ class ImuReading(BaseModel):
 
 class TofReading(BaseModel):
     """Time-of-Flight sensor reading"""
+
     distance: Optional[float] = None  # millimeters
     signal_strength: Optional[float] = None
     ambient_light: Optional[float] = None
@@ -95,6 +102,7 @@ class TofReading(BaseModel):
 
 class EnvironmentalReading(BaseModel):
     """Environmental sensor (BME280) reading"""
+
     temperature: Optional[float] = None  # °C
     humidity: Optional[float] = None  # %RH
     pressure: Optional[float] = None  # hPa
@@ -104,6 +112,7 @@ class EnvironmentalReading(BaseModel):
 
 class PowerReading(BaseModel):
     """Power monitoring (INA3221) reading"""
+
     battery_voltage: Optional[float] = None  # V
     battery_current: Optional[float] = None  # A
     battery_power: Optional[float] = None  # W
@@ -118,6 +127,7 @@ class PowerReading(BaseModel):
 
 class SensorData(BaseModel):
     """Complete sensor data snapshot"""
+
     gps: Optional[GpsReading] = None
     imu: Optional[ImuReading] = None
     tof_left: Optional[TofReading] = None
@@ -127,5 +137,5 @@ class SensorData(BaseModel):
     sensor_health: Dict[SensorType, SensorStatus] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     hardware_baseline_id: Optional[str] = None  # Reference to hardware configuration
-    
+
     model_config = ConfigDict(use_enum_values=True)

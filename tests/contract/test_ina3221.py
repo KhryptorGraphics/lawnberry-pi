@@ -6,6 +6,7 @@ Goals (FR-024, NFR-008):
 
 Placeholder contract; skipped by default unless RUN_PLACEHOLDER_CONTRACT=1.
 """
+
 from __future__ import annotations
 
 import os

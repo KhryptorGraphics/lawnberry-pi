@@ -17,6 +17,7 @@ async def test_etag_and_if_none_match_on_map_zones():
         r2 = await client.get("/api/v2/map/zones", headers={"If-None-Match": etag})
         assert r2.status_code == 304
 
+
 @pytest.mark.asyncio
 async def test_last_modified_and_if_modified_since_on_settings():
     transport = httpx.ASGITransport(app=app)
@@ -29,6 +30,7 @@ async def test_last_modified_and_if_modified_since_on_settings():
         # Conditional GET with If-Modified-Since
         r2 = await client.get("/api/v2/settings/system", headers={"If-Modified-Since": last_mod})
         assert r2.status_code == 304
+
 
 @pytest.mark.asyncio
 async def test_etag_changes_after_update_locations():

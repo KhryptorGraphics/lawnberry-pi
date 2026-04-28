@@ -30,8 +30,7 @@ def pytest_collection_modifyitems(config, items):
 
     skip_placeholder = pytest.mark.skip(
         reason=(
-            "Placeholder contract test skipped by default. "
-            "Set RUN_PLACEHOLDER_CONTRACT=1 to run."
+            "Placeholder contract test skipped by default. Set RUN_PLACEHOLDER_CONTRACT=1 to run."
         )
     )
 

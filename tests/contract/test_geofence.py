@@ -7,6 +7,7 @@ Test goals (FR-030):
 Notes:
 - Placeholder: uses /api/v2/debug/geofence and /api/v2/nav/status if implemented.
 """
+
 from __future__ import annotations
 
 import os

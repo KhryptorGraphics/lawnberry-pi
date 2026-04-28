@@ -33,7 +33,9 @@ def parse_nmea_coord(val: str, hemi: str) -> Optional[float]:
         return None
 
 
-def parse_gga(line: str) -> Tuple[Optional[float], Optional[float], Optional[int], Optional[float], Optional[int]]:
+def parse_gga(
+    line: str,
+) -> Tuple[Optional[float], Optional[float], Optional[int], Optional[float], Optional[int]]:
     # returns (lat, lon, sats, hdop, fix_quality)
     parts = line.split(",")
     lat = parse_nmea_coord(parts[2], parts[3]) if len(parts) > 4 else None
@@ -57,7 +59,7 @@ def parse_gst(line: str) -> Optional[float]:
         if sd_lat is None or sd_lon is None:
             return None
         # horiz 1-sigma meters
-        return (sd_lat ** 2 + sd_lon ** 2) ** 0.5
+        return (sd_lat**2 + sd_lon**2) ** 0.5
     except Exception:
         return None
 
@@ -88,10 +90,12 @@ def main() -> int:
     print("\n=== GPS Summary ===")
     if last_gga:
         lat, lon, sats, hdop, q = last_gga
-        print(f"Lat,Lon: {lat:.6f if lat is not None else 'n/a'}, {lon:.6f if lon is not None else 'n/a'}")
+        print(
+            f"Lat,Lon: {lat:.6f if lat is not None else 'n/a'}, {lon:.6f if lon is not None else 'n/a'}"
+        )
         print(f"Satellites: {sats}")
         print(f"HDOP: {hdop}")
-        quality_map = {0: 'NO_FIX', 1: 'GPS', 2: 'DGPS', 4: 'RTK_FIXED', 5: 'RTK_FLOAT'}
+        quality_map = {0: "NO_FIX", 1: "GPS", 2: "DGPS", 4: "RTK_FIXED", 5: "RTK_FLOAT"}
         q_name = quality_map.get(q, str(q))
         print(f"GGA Fix Quality: {q} ({q_name})")
     else:

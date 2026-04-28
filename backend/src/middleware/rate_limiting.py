@@ -117,7 +117,9 @@ def register_global_rate_limiter(app: FastAPI) -> None:
     burst = int(os.getenv("GLOBAL_RATE_LIMIT_BURST", "20"))
     # Exempt core health/docs and low-risk settings endpoints by default to avoid
     # test flakiness and allow bursty UI saves; can be overridden via env.
-    exempt_default = "/health,/metrics,/docs,/openapi.json,/api/v2/settings/maps,/api/v2/camera/stream.mjpeg"
+    exempt_default = (
+        "/health,/metrics,/docs,/openapi.json,/api/v2/settings/maps,/api/v2/camera/stream.mjpeg"
+    )
     exempt = os.getenv("GLOBAL_RATE_LIMIT_EXEMPT", exempt_default).split(",")
     override_str = os.getenv("GLOBAL_RATE_LIMIT_OVERRIDES", "")
     overrides: list[tuple[str, float, int]] = []

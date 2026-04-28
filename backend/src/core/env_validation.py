@@ -25,7 +25,9 @@ def validate_environment() -> bool:
         ok = False
 
     # Validate API key if required
-    if os.getenv("API_KEY_REQUIRED", "0") == "1" and not sm.get("API_KEY_SECRET", default=None, purpose="startup"):
+    if os.getenv("API_KEY_REQUIRED", "0") == "1" and not sm.get(
+        "API_KEY_SECRET", default=None, purpose="startup"
+    ):
         _log.error("API_KEY_REQUIRED=1 but API_KEY_SECRET is not configured")
         ok = False
 

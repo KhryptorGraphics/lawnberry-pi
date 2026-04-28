@@ -213,6 +213,7 @@ def ultrasonic_probe() -> Dict[str, Any]:
     # Try to import lgpio for Pi 5
     try:
         import lgpio  # type: ignore
+
         chip = lgpio.gpiochip_open(4)  # Pi 5 uses chip 4
         report["available"] = True
 
@@ -224,9 +225,17 @@ def ultrasonic_probe() -> Dict[str, Any]:
                 lgpio.gpio_write(chip, pins["trig"], 0)
                 lgpio.gpio_free(chip, pins["trig"])
                 lgpio.gpio_free(chip, pins["echo"])
-                report["sensors"][sensor_name] = {"trig": pins["trig"], "echo": pins["echo"], "accessible": True}
+                report["sensors"][sensor_name] = {
+                    "trig": pins["trig"],
+                    "echo": pins["echo"],
+                    "accessible": True,
+                }
             except Exception:
-                report["sensors"][sensor_name] = {"trig": pins["trig"], "echo": pins["echo"], "accessible": False}
+                report["sensors"][sensor_name] = {
+                    "trig": pins["trig"],
+                    "echo": pins["echo"],
+                    "accessible": False,
+                }
 
         lgpio.gpiochip_close(chip)
     except Exception as e:
@@ -234,10 +243,15 @@ def ultrasonic_probe() -> Dict[str, Any]:
         try:
             from gpiozero import Device, DigitalOutputDevice  # type: ignore
             from gpiozero.pins.lgpio import LGPIOFactory  # type: ignore
+
             Device.pin_factory = LGPIOFactory()
             report["available"] = True
             for sensor_name, pins in ULTRASONIC_GPIO_PINS.items():
-                report["sensors"][sensor_name] = {"trig": pins["trig"], "echo": pins["echo"], "accessible": "gpiozero"}
+                report["sensors"][sensor_name] = {
+                    "trig": pins["trig"],
+                    "echo": pins["echo"],
+                    "accessible": "gpiozero",
+                }
         except Exception as e2:
             report["error"] = f"lgpio: {e}, gpiozero: {e2}"
 
@@ -298,6 +312,7 @@ def picamera_probe() -> Dict[str, Any]:
 
     # Check via rpicam-hello output
     import subprocess
+
     try:
         result = subprocess.run(
             ["rpicam-hello", "--list-cameras"],
@@ -370,14 +385,17 @@ def run_selftest() -> Dict[str, Any]:
 
     # Overall health: at minimum need either GPS or I2C sensors working
     overall_ok = (
-        (summary["i2c_bus_present"] and (
-            summary["bme280_present"] or
-            summary["ina3221_present"] or
-            summary["vl53l0x_present"] or
-            summary["bno085_present"]
-        )) or
-        summary["gps_present"] or
-        summary["serial_open_ok"]
+        (
+            summary["i2c_bus_present"]
+            and (
+                summary["bme280_present"]
+                or summary["ina3221_present"]
+                or summary["vl53l0x_present"]
+                or summary["bno085_present"]
+            )
+        )
+        or summary["gps_present"]
+        or summary["serial_open_ok"]
     )
 
     return {

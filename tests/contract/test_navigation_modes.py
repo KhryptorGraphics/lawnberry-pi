@@ -6,6 +6,7 @@ Test goals (FR-032):
 Notes:
 - Placeholder uses /api/v2/nav/mode endpoints if present.
 """
+
 from __future__ import annotations
 
 import os

@@ -7,6 +7,7 @@ Usage:
 
 Shows whether NTRIP is connected, bytes forwarded and rate, and current GPS RTK status.
 """
+
 from __future__ import annotations
 
 import argparse

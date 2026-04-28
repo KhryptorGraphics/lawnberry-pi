@@ -44,14 +44,20 @@ class WeatherService:
             if isinstance(forecast, dict):
                 # If the forecast explicitly signals unsuitable weather
                 unsuitable = bool(forecast.get("unsuitable", False))
-            return WeatherSuitability(suitable=not unsuitable, source="api_or_cache", details={"forecast": forecast})
+            return WeatherSuitability(
+                suitable=not unsuitable, source="api_or_cache", details={"forecast": forecast}
+            )
 
         # No forecast available — use sensor fallback
         suitable = self.rules.is_suitable(sensor_env)
-        return WeatherSuitability(suitable=suitable, source="sensors", details={
-            "humidity_percent": sensor_env.humidity_percent,
-            "pressure_hpa": sensor_env.pressure_hpa,
-        })
+        return WeatherSuitability(
+            suitable=suitable,
+            source="sensors",
+            details={
+                "humidity_percent": sensor_env.humidity_percent,
+                "pressure_hpa": sensor_env.pressure_hpa,
+            },
+        )
 
     def make_predicate(
         self,

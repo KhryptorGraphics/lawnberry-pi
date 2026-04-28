@@ -8,6 +8,7 @@ path continues to use the richer Zone-based models stored in
 fixtures lightweight while still allowing the service to bridge the two
 representations when necessary.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

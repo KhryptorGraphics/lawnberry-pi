@@ -10,6 +10,7 @@ Design goals:
 This module is intentionally minimal and side-effect free for tests.
 Hardware access is encapsulated behind a tiny adapter that can be stubbed.
 """
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -57,7 +58,9 @@ class IBT4BladeDriver(HardwareDriver):
     - name: optional identifier
     """
 
-    def __init__(self, config: dict[str, Any] | None = None, gpio_adapter: Optional[_GPIOAdapter] = None):
+    def __init__(
+        self, config: dict[str, Any] | None = None, gpio_adapter: Optional[_GPIOAdapter] = None
+    ):
         super().__init__(config)
         pins = (config or {}).get("pins", {})
         self.in1 = int(pins.get("in1", 24))

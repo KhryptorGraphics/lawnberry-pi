@@ -9,6 +9,7 @@ Notes:
 - Placeholder contract: skipped by default unless RUN_PLACEHOLDER_CONTRACT=1
 - When implemented, this should use a SIM_MODE mock driver publishing on message bus
 """
+
 from __future__ import annotations
 
 import os

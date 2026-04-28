@@ -5,6 +5,7 @@ optionally subtracting obstacle polygons. Uses shapely for robust clipping.
 
 All public functions are pure and typed to ease testing.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from typing import Iterable, List, Sequence, Tuple
 # Shapely is a required dependency in production, but we avoid importing at
 # module import time to keep test environments without Shapely importable.
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from shapely.affinity import rotate as _rotate  # type: ignore
     from shapely.geometry import LineString as _LineString, Polygon as _Polygon  # type: ignore
@@ -55,6 +57,7 @@ def _to_ll(x: float, y: float, origin_lat: float, origin_lon: float) -> Tuple[fl
 
 def _poly_from_positions(boundary: Sequence[Position]):
     from shapely.geometry import Polygon  # type: ignore
+
     if len(boundary) < 3:
         raise ValueError("boundary must have at least 3 vertices")
     origin_lat = boundary[0].latitude
@@ -71,9 +74,12 @@ def _poly_from_positions(boundary: Sequence[Position]):
     return poly
 
 
-def _obstacles_union(obstacles: Iterable[Sequence[Position]] | None, origin_lat: float, origin_lon: float):
+def _obstacles_union(
+    obstacles: Iterable[Sequence[Position]] | None, origin_lat: float, origin_lon: float
+):
     from shapely.ops import unary_union  # type: ignore
     from shapely.geometry import Polygon  # type: ignore
+
     if not obstacles:
         return None
     polys: List[Polygon] = []
@@ -116,6 +122,7 @@ def generate_lawnmower(
 
     # Align stripes by rotating so that stripes are axis-aligned in local frame
     from shapely.affinity import rotate  # type: ignore
+
     rotated = rotate(cover_area, -cfg.heading_deg, origin=(0, 0), use_radians=False)
 
     effective_width = max(0.01, cfg.swath_width_m * (1.0 - cfg.overlap))
@@ -128,6 +135,7 @@ def generate_lawnmower(
 
     while y <= maxy:
         from shapely.geometry import LineString  # type: ignore
+
         line = LineString([(minx - 1.0, y), (maxx + 1.0, y)])
         segs = rotated.intersection(line)
         if segs.is_empty:
@@ -154,7 +162,12 @@ def generate_lawnmower(
                 ls = rotate(ls, cfg.heading_deg, origin=(0, 0), use_radians=False)
                 xx, yy = list(ls.coords)[-1]
                 lat, lon = _to_ll(xx, yy, origin_lat, origin_lon)
-                waypoints.append(Waypoint(position=Position(latitude=lat, longitude=lon), target_speed=cfg.waypoint_speed_ms))
+                waypoints.append(
+                    Waypoint(
+                        position=Position(latitude=lat, longitude=lon),
+                        target_speed=cfg.waypoint_speed_ms,
+                    )
+                )
         direction *= -1
         y += effective_width
 

@@ -14,6 +14,7 @@ router = APIRouter()
 
 # ----------------------- Status Models -----------------------
 
+
 class Position(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
@@ -21,12 +22,14 @@ class Position(BaseModel):
     accuracy: float | None = None
     gps_mode: str | None = None
 
+
 class SafetyStatus(BaseModel):
     emergency_stop_active: bool = False
     tilt_detected: bool = False
     obstacle_detected: bool = False
     blade_safety_ok: bool = True
     safety_interlocks: list[str] = []
+
 
 class MowerStatus(BaseModel):
     position: Position | None = None
@@ -37,10 +40,12 @@ class MowerStatus(BaseModel):
     blade_active: bool = False
     last_updated: datetime = datetime.now(timezone.utc)
 
+
 class SensorHealthResponse(BaseModel):
     initialized: bool
     components: dict[str, dict[str, Any]]
     timestamp: str
+
 
 class ToFProbe(BaseModel):
     sensor_side: str
@@ -52,11 +57,13 @@ class ToFProbe(BaseModel):
     last_distance_mm: int | None = None
     last_read_age_s: float | None = None
 
+
 class ToFStatusResponse(BaseModel):
     sim_mode: bool
     left: ToFProbe | None
     right: ToFProbe | None
     timestamp: str
+
 
 class GPSSummary(BaseModel):
     mode: str | None = None
@@ -65,10 +72,12 @@ class GPSSummary(BaseModel):
     last_read_age_s: float | None = None
     last_reading: dict[str, Any] | None = None
 
+
 class RtkDiagnosticsResponse(BaseModel):
     ntrip: dict[str, Any]
     gps: dict[str, Any]
     hardware: dict[str, Any]
+
 
 class IMUSummary(BaseModel):
     initialized: bool | None = None
@@ -76,11 +85,13 @@ class IMUSummary(BaseModel):
     last_read_age_s: float | None = None
     last_reading: dict[str, Any] | None = None
 
+
 class EnvSummary(BaseModel):
     initialized: bool | None = None
     running: bool | None = None
     last_read_age_s: float | None = None
     last_reading: dict[str, Any] | None = None
+
 
 class PowerSummary(BaseModel):
     initialized: bool | None = None
@@ -88,12 +99,15 @@ class PowerSummary(BaseModel):
     last_read_age_s: float | None = None
     last_reading: dict[str, Any] | None = None
 
+
 # ----------------------- Endpoints -----------------------
+
 
 @router.get("/dashboard/status", response_model=MowerStatus)
 def dashboard_status():
     # Placeholder data; will be wired to services later
     return MowerStatus()
+
 
 @router.get("/sensors/health")
 async def get_sensors_health() -> SensorHealthResponse:
@@ -107,6 +121,7 @@ async def get_sensors_health() -> SensorHealthResponse:
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore
+
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
 
@@ -116,12 +131,14 @@ async def get_sensors_health() -> SensorHealthResponse:
         # Map to simple response
         # Map statuses to strings and apply fault injection overrides
         from ...testing.fault_injector import enabled, any_enabled  # lightweight
+
         def _as_str(v: object) -> str:
             try:
                 s = str(v)
             except Exception:
                 s = "unknown"
             return s
+
         components = {
             "gps": {"status": _as_str(status.get("gps_status", "unknown"))},
             "imu": {"status": _as_str(status.get("imu_status", "unknown"))},
@@ -172,6 +189,7 @@ async def get_tof_status() -> ToFStatusResponse:
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore
+
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -183,22 +201,30 @@ async def get_tof_status() -> ToFStatusResponse:
                 sensor_side="left",
                 backend=getattr(left, "_driver_backend", None),
                 i2c_bus=getattr(left, "_i2c_bus", None),
-                i2c_address=hex(getattr(left, "_i2c_address", 0)) if getattr(left, "_i2c_address", None) is not None else None,
+                i2c_address=hex(getattr(left, "_i2c_address", 0))
+                if getattr(left, "_i2c_address", None) is not None
+                else None,
                 initialized=getattr(left, "initialized", None),
                 running=getattr(left, "running", None),
                 last_distance_mm=getattr(left, "_last_distance_mm", None),
-                last_read_age_s=(time.time() - getattr(left, "_last_read_ts", time.time())) if getattr(left, "_last_read_ts", None) else None,
+                last_read_age_s=(time.time() - getattr(left, "_last_read_ts", time.time()))
+                if getattr(left, "_last_read_ts", None)
+                else None,
             )
         if right is not None:
             right_probe = ToFProbe(
                 sensor_side="right",
                 backend=getattr(right, "_driver_backend", None),
                 i2c_bus=getattr(right, "_i2c_bus", None),
-                i2c_address=hex(getattr(right, "_i2c_address", 0)) if getattr(right, "_i2c_address", None) is not None else None,
+                i2c_address=hex(getattr(right, "_i2c_address", 0))
+                if getattr(right, "_i2c_address", None) is not None
+                else None,
                 initialized=getattr(right, "initialized", None),
                 running=getattr(right, "running", None),
                 last_distance_mm=getattr(right, "_last_distance_mm", None),
-                last_read_age_s=(time.time() - getattr(right, "_last_read_ts", time.time())) if getattr(right, "_last_read_ts", None) else None,
+                last_read_age_s=(time.time() - getattr(right, "_last_read_ts", time.time()))
+                if getattr(right, "_last_read_ts", None)
+                else None,
             )
     except Exception:
         pass
@@ -217,6 +243,7 @@ async def get_gps_status() -> GPSSummary:
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore
+
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -281,9 +308,21 @@ async def get_rtk_diagnostics() -> RtkDiagnosticsResponse:
                         "satellites": getattr(reading, "satellites", None),
                         "rtk_status": getattr(reading, "rtk_status", None),
                     }
-                gps_block["last_hdop"] = gps_block["reading"].get("hdop") if isinstance(gps_block["reading"], dict) else None
-                gps_block["rtk_status"] = gps_block["reading"].get("rtk_status") if isinstance(gps_block["reading"], dict) else None
-                gps_block["satellites"] = gps_block["reading"].get("satellites") if isinstance(gps_block["reading"], dict) else None
+                gps_block["last_hdop"] = (
+                    gps_block["reading"].get("hdop")
+                    if isinstance(gps_block["reading"], dict)
+                    else None
+                )
+                gps_block["rtk_status"] = (
+                    gps_block["reading"].get("rtk_status")
+                    if isinstance(gps_block["reading"], dict)
+                    else None
+                )
+                gps_block["satellites"] = (
+                    gps_block["reading"].get("satellites")
+                    if isinstance(gps_block["reading"], dict)
+                    else None
+                )
             # Attach last observed NMEA sentences for diagnostics when available
             try:
                 getter = getattr(getattr(sm, "gps", None), "get_last_nmea", None)
@@ -322,6 +361,7 @@ async def get_imu_status() -> IMUSummary:
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore
+
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -344,6 +384,7 @@ async def get_env_status() -> EnvSummary:
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore
+
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -375,6 +416,7 @@ async def get_power_status() -> PowerSummary:
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore
+
             websocket_hub._sensor_manager = SensorManager()
             await websocket_hub._sensor_manager.initialize()
         sm = websocket_hub._sensor_manager
@@ -399,11 +441,14 @@ async def get_power_status() -> PowerSummary:
     except Exception:
         return PowerSummary()
 
+
 # ----------------------- Debug Injection -----------------------
+
 
 class InjectToFRequest(BaseModel):
     position: str  # "left" or "right"
     distance_m: float
+
 
 @router.post("/debug/sensors/inject-tof")
 async def inject_tof(req: InjectToFRequest):
@@ -422,18 +467,28 @@ async def inject_tof(req: InjectToFRequest):
     try:
         from ...core.config_loader import ConfigLoader
         from ...safety.safety_triggers import get_safety_trigger_manager
+
         limits = ConfigLoader().get()[1]
         safety = get_safety_trigger_manager()
         if safety.trigger_obstacle(req.distance_m, limits.tof_obstacle_distance_meters):
-            safety_hint = {"interlock": "obstacle_detected", "threshold_m": limits.tof_obstacle_distance_meters}
+            safety_hint = {
+                "interlock": "obstacle_detected",
+                "threshold_m": limits.tof_obstacle_distance_meters,
+            }
     except Exception:
         pass
 
-    return {"ok": True, "override": {"position": pos, "distance_m": req.distance_m}, "safety": safety_hint}
+    return {
+        "ok": True,
+        "override": {"position": pos, "distance_m": req.distance_m},
+        "safety": safety_hint,
+    }
+
 
 class InjectTiltRequest(BaseModel):
     roll_deg: float | None = None
     pitch_deg: float | None = None
+
 
 @router.post("/debug/sensors/inject-tilt")
 async def inject_tilt(req: InjectTiltRequest):
@@ -448,12 +503,15 @@ async def inject_tilt(req: InjectTiltRequest):
     try:
         from ...core.config_loader import ConfigLoader
         from ...safety.safety_triggers import get_safety_trigger_manager
+
         limits = ConfigLoader().get()[1]
         safety = get_safety_trigger_manager()
-        if safety.trigger_obstacle(req.roll_deg, limits.tilt_threshold_degrees) or safety.trigger_obstacle(req.pitch_deg, limits.tilt_threshold_degrees):
-             # Note: The original code in rest.py called safety.trigger_tilt(roll, pitch, limits.tilt_threshold_degrees)
-             # I should check the original code again to be exact.
-             pass
+        if safety.trigger_obstacle(
+            req.roll_deg, limits.tilt_threshold_degrees
+        ) or safety.trigger_obstacle(req.pitch_deg, limits.tilt_threshold_degrees):
+            # Note: The original code in rest.py called safety.trigger_tilt(roll, pitch, limits.tilt_threshold_degrees)
+            # I should check the original code again to be exact.
+            pass
         roll = abs(_debug_overrides.get("imu_roll_deg", 0.0))
         pitch = abs(_debug_overrides.get("imu_pitch_deg", 0.0))
         over_threshold = safety.trigger_tilt(roll, pitch, limits.tilt_threshold_degrees)

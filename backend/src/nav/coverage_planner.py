@@ -19,9 +19,7 @@ LatLng = Tuple[float, float]
 Interval = Tuple[float, float]
 
 
-def _horizontal_intersections(
-    polygon: Iterable[LatLng], y: float
-) -> List[float]:
+def _horizontal_intersections(polygon: Iterable[LatLng], y: float) -> List[float]:
     """Compute longitudes where a horizontal scanline at latitude y intersects the polygon.
 
     Uses half-open edge inclusion to avoid double counting at vertices.
@@ -69,11 +67,11 @@ def _subtract_intervals(source: List[Interval], holes: List[List[Interval]]) -> 
     result = source[:]
     for hole_list in holes:
         new_result: List[Interval] = []
-        for (a, b) in result:
+        for a, b in result:
             cur: List[Interval] = [(a, b)]
-            for (h1, h2) in hole_list:
+            for h1, h2 in hole_list:
                 tmp: List[Interval] = []
-                for (s1, s2) in cur:
+                for s1, s2 in cur:
                     # No overlap
                     if h2 <= s1 or h1 >= s2:
                         tmp.append((s1, s2))
@@ -148,11 +146,13 @@ def plan_coverage(
                 hxs = _horizontal_intersections(hole, y)
                 hole_intervals.append(_intervals_from_intersections(hxs))
 
-        intervals = _subtract_intervals(b_intervals, hole_intervals) if hole_intervals else b_intervals
+        intervals = (
+            _subtract_intervals(b_intervals, hole_intervals) if hole_intervals else b_intervals
+        )
         # Traverse intervals in serpentine order
         if row_idx % 2 == 0:
             # left -> right per interval order
-            for (xa, xb) in intervals:
+            for xa, xb in intervals:
                 a = (y, xa)
                 b = (y, xb)
                 # Add points
@@ -162,7 +162,7 @@ def plan_coverage(
                 length_m += haversine_m(a[0], a[1], b[0], b[1])
         else:
             # right -> left reverse intervals
-            for (xa, xb) in reversed(intervals):
+            for xa, xb in reversed(intervals):
                 a = (y, xb)
                 b = (y, xa)
                 if not path or path[-1] != a:
