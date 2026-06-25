@@ -6,22 +6,23 @@ concurrency:
 jobs:
   build-ui:
     runs-on: ubuntu-latest
+    # Use the official Playwright image: Chromium + all system libs are prebaked,
+    # so we avoid the slow/flaky `playwright install --with-deps` apt step.
+    container:
+      image: mcr.microsoft.com/playwright:v1.48.0-jammy
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 'lts/*', cache: 'npm', cache-dependency-path: 'frontend/package-lock.json' }
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
       - name: Build frontend
         working-directory: frontend
         run: npm run build
-      - name: Install Playwright dependencies
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
       - name: Run e2e tests
-        # Playwright serves the built frontend itself (webServer: npm run preview);
-        # no separate backend process is started here (the previous step used `uv`,
-        # which isn't installed in this workflow, and a malformed module path).
+        # The e2e specs mock the backend (tests/e2e/utils/mock-backend.ts) and
+        # Playwright serves the built frontend itself (webServer: npm run preview).
         working-directory: frontend
-        run: npm run test:e2e
+        run: npx playwright test
+        env:
+          CI: 'true'
