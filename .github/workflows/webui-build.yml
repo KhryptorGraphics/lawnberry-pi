@@ -1,5 +1,8 @@
 name: webui-build
 on: [pull_request]
+concurrency:
+  group: webui-build-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build-ui:
     runs-on: ubuntu-latest

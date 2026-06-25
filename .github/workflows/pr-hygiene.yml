@@ -1,5 +1,8 @@
 name: pr-hygiene
 on: [pull_request]
+concurrency:
+  group: pr-hygiene-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   guard:
     runs-on: ubuntu-latest
