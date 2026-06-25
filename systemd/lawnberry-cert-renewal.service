@@ -1,6 +1,6 @@
 [Unit]
 Description=LawnBerry Pi certificate renewal and validation
-Documentation=README.md
+Documentation=https://github.com/acredsfan/lawnberry_pi
 Wants=network-online.target
 After=network-online.target
 ConditionPathExists=/apps/lawnberry-pi/scripts/renew_certificates.sh
