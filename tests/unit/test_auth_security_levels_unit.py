@@ -6,6 +6,10 @@ Tests the configurable authentication system with multiple security levels
 from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
+# Ensure the google submodules are importable so the patch targets below resolve
+# under either the real google-auth package (CI) or the compat stub (local).
+import google.auth.transport.requests  # noqa: E402, F401
+import google.oauth2.id_token  # noqa: E402, F401
 import pytest
 
 from backend.src.models.auth_security_config import (

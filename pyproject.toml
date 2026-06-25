@@ -34,6 +34,8 @@ dependencies = [
     "python-dotenv>=1.0.1",
     # Google OAuth ID-token verification (pure-python, aarch64-friendly)
     "google-auth>=2.28.0",
+    # Image handling for camera frame processing / AI preprocessing (aarch64 wheels)
+    "pillow>=10.0.0",
 ]
 
 # Optional extras for hardware backends (install with: pip install .[hardware])
