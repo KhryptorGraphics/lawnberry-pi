@@ -37,9 +37,17 @@ test.describe('Manual control access', () => {
     await expect(page.getByRole('heading', { name: 'Movement Controls' })).toBeVisible()
 
     const joystick = page.getByRole('slider', { name: /joystick/i })
-    await joystick.dispatchEvent('mousedown', { clientX: 110, clientY: 0 })
+    // VirtualJoystick listens for pointer events; drive a real drag from the
+    // centre toward the right edge so it emits a non-zero movement vector.
+    const box = await joystick.boundingBox()
+    if (!box) throw new Error('joystick not visible')
+    const cx = box.x + box.width / 2
+    const cy = box.y + box.height / 2
+    await page.mouse.move(cx, cy)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width, cy, { steps: 6 })
 
-    await expect.poll(() => backend.driveCommands.length).toBe(1)
+    await expect.poll(() => backend.driveCommands.length).toBeGreaterThanOrEqual(1)
     const lockoutActive = await page.evaluate(() => {
       return Boolean((window as any).__APP_TEST_HOOKS__?.controlStore?.lockout)
     })

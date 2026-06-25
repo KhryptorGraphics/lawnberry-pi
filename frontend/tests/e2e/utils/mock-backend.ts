@@ -513,6 +513,22 @@ export class MockBackend {
       return respond(200, this.trainingDataset)
     }
 
+    if (method === 'GET' && pathname === '/api/v2/ai/datasets') {
+      return respond(200, [
+        { id: 'grass-detection', name: 'Grass Detection', label_count: 420 },
+        { id: 'obstacle-detection', name: 'Obstacle Detection', label_count: 128 },
+      ])
+    }
+
+    if (method === 'POST' && /^\/api\/v2\/ai\/datasets\/[^/]+\/export$/.test(pathname)) {
+      this.trainingRequests.push({ type: 'export', payload: body })
+      return respond(202, {
+        export_id: `exp-${Date.now()}`,
+        status: 'started',
+        format: body?.format,
+      })
+    }
+
     if (method === 'POST' && pathname === '/api/v2/training/start') {
       this.trainingRequests.push({ type: 'start', payload: body })
       return respond(200, { ok: true, job_id: `train-${Date.now()}` })
