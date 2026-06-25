@@ -16,10 +16,9 @@ jobs:
       - name: Install Playwright dependencies
         working-directory: frontend
         run: npx playwright install --with-deps chromium
-      - name: Start backend server and run e2e tests
-        run: |
-          uv venv
-          source .venv/bin/activate
-          uvicorn backend/src/main:app --host 0.0.0.0 --port 8000 &
-          cd frontend
-          npm run test:e2e
+      - name: Run e2e tests
+        # Playwright serves the built frontend itself (webServer: npm run preview);
+        # no separate backend process is started here (the previous step used `uv`,
+        # which isn't installed in this workflow, and a malformed module path).
+        working-directory: frontend
+        run: npm run test:e2e
