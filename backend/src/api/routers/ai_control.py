@@ -26,6 +26,7 @@ from ...services.ai_inference_service import (
     AIInferenceService,
     get_ai_inference_service,
 )
+from ..deps import require_operator_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -437,7 +438,9 @@ async def list_datasets() -> list[dict[str, Any]]:
     return list(_DATASETS.values())
 
 
-@router.post("/datasets/{dataset_id}/export", status_code=202)
+@router.post(
+    "/datasets/{dataset_id}/export", status_code=202, dependencies=[Depends(require_operator_auth)]
+)
 async def export_dataset(dataset_id: str, payload: DatasetExportRequest) -> dict[str, Any]:
     """Start an asynchronous dataset export job."""
     if dataset_id not in _DATASETS:

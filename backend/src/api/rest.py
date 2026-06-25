@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
+from .deps import require_operator_auth
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any
@@ -843,7 +844,9 @@ def _known_requirements() -> set[str]:
     return found
 
 
-@router.post("/verification-artifacts", status_code=201)
+@router.post(
+    "/verification-artifacts", status_code=201, dependencies=[Depends(require_operator_auth)]
+)
 async def post_verification_artifact(body: dict):
     """Record a verification artifact, enforcing requirement traceability."""
     linked = body.get("linked_requirements") or []

@@ -15,8 +15,10 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
+
+from ..deps import require_operator_auth
 
 router = APIRouter()
 
@@ -160,7 +162,7 @@ async def get_map_configuration(
     return config
 
 
-@router.put("/map/configuration")
+@router.put("/map/configuration", dependencies=[Depends(require_operator_auth)])
 async def put_map_configuration(payload: dict, request: Request) -> JSONResponse:
     conflicts = _find_overlaps(payload)
     if conflicts:

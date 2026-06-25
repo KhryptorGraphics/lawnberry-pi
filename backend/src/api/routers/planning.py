@@ -14,8 +14,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
+
+from ..deps import require_operator_auth
 
 router = APIRouter()
 
@@ -55,7 +57,7 @@ async def list_planning_jobs() -> list[dict[str, Any]]:
     return list(_load_jobs().values())
 
 
-@router.post("/planning/jobs")
+@router.post("/planning/jobs", dependencies=[Depends(require_operator_auth)])
 async def create_planning_job(payload: dict) -> JSONResponse:
     job_id = str(uuid.uuid4())
     job = {
@@ -73,7 +75,7 @@ async def create_planning_job(payload: dict) -> JSONResponse:
     return JSONResponse(status_code=201, content=job)
 
 
-@router.delete("/planning/jobs/{job_id}")
+@router.delete("/planning/jobs/{job_id}", dependencies=[Depends(require_operator_auth)])
 async def delete_planning_job(job_id: str) -> Response:
     jobs = _load_jobs()
     if job_id not in jobs:

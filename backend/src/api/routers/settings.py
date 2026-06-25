@@ -23,8 +23,10 @@ from email.utils import format_datetime, parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
+
+from ..deps import require_operator_auth
 
 router = APIRouter()
 
@@ -133,7 +135,7 @@ async def get_settings() -> dict[str, Any]:
     return profile
 
 
-@router.put("/settings")
+@router.put("/settings", dependencies=[Depends(require_operator_auth)])
 async def put_settings(payload: dict) -> Response:
     current = _load_store(_PROFILE_FILE, _default_profile())
     current_version = current.get("profile_version", "1.0.0")
@@ -228,7 +230,7 @@ async def get_settings_system(request: Request) -> Response:
     )
 
 
-@router.put("/settings/system")
+@router.put("/settings/system", dependencies=[Depends(require_operator_auth)])
 async def put_settings_system(payload: dict) -> Response:
     """Apply a partial system settings update (e.g. telemetry cadence)."""
     profile = _load_store(_PROFILE_FILE, _default_profile())
@@ -263,7 +265,7 @@ async def get_settings_security() -> dict[str, Any]:
     return _load_store(_SECURITY_FILE, _default_security())
 
 
-@router.put("/settings/security")
+@router.put("/settings/security", dependencies=[Depends(require_operator_auth)])
 async def put_settings_security(payload: dict) -> Response:
     level = payload.get("level")
     if level is not None and level not in _SECURITY_LEVELS:
@@ -292,7 +294,7 @@ async def get_settings_maps() -> dict[str, Any]:
     return _load_store(_MAPS_FILE, _default_maps())
 
 
-@router.put("/settings/maps")
+@router.put("/settings/maps", dependencies=[Depends(require_operator_auth)])
 async def put_settings_maps(payload: dict) -> Response:
     provider = payload.get("provider")
     if provider is not None and provider not in _MAP_PROVIDERS:
@@ -321,7 +323,7 @@ async def get_settings_remote_access() -> dict[str, Any]:
     return _load_store(_REMOTE_FILE, _default_remote_access())
 
 
-@router.put("/settings/remote-access")
+@router.put("/settings/remote-access", dependencies=[Depends(require_operator_auth)])
 async def put_settings_remote_access(payload: dict) -> Response:
     provider = payload.get("provider")
     if provider is not None and provider not in _REMOTE_PROVIDERS:
