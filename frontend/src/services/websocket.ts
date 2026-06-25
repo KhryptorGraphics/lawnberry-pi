@@ -45,10 +45,25 @@ export class WebSocketService {
     }
   }
 
+  // Browsers cannot set an Authorization header on a WebSocket handshake, so the
+  // backend (_authorize_websocket) accepts the bearer token as a query param.
+  private appendToken(url: string): string {
+    let token = ''
+    try {
+      token = (typeof localStorage !== 'undefined' && localStorage.getItem('auth_token')) || ''
+    } catch {
+      token = ''
+    }
+    if (!token) return url
+    const sep = url.includes('?') ? '&' : '?'
+    return `${url}${sep}access_token=${encodeURIComponent(token)}`
+  }
+
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       const tryConnect = () => {
-        const target = this.urlCandidates[this.urlIndex] || this.urlCandidates[0]
+        const base = this.urlCandidates[this.urlIndex] || this.urlCandidates[0]
+        const target = this.appendToken(base)
         try {
           this.ws = new WebSocket(target)
         
@@ -56,7 +71,7 @@ export class WebSocketService {
             console.log('WebSocket connected:', target)
             this.reconnectAttempts = 0
             // Remember working endpoint and stick to it across reconnects
-            const goodIndex = this.urlCandidates.indexOf(target)
+            const goodIndex = this.urlCandidates.indexOf(base)
             if (goodIndex >= 0) this.urlIndex = goodIndex
           
           // Re-subscribe to topics after reconnection
