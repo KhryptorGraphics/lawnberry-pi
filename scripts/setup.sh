@@ -159,7 +159,7 @@ echo "[setup] Complete. You can now run the backend."
 
 # Load .env if present to discover TLS configuration
 if [[ -f "$ROOT_DIR/.env" ]]; then
-  # shellcheck source=.env
+  # shellcheck source=/dev/null
   source "$ROOT_DIR/.env"
 fi
 

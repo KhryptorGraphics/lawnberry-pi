@@ -10,8 +10,7 @@ jobs:
         with:
           python-version: '3.11'
       - uses: astral-sh/setup-uv@v3
-      - run: uv sync --frozen --all-extras --dev
       - name: Ruff lint
-        run: uv run ruff check .
+        run: uvx ruff@0.15.19 check .
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uvx ruff@0.15.19 format --check .

@@ -15,7 +15,7 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
 # Load .env if present
 if [[ -f "$REPO_ROOT/.env" ]]; then
-  # shellcheck source=.env
+  # shellcheck source=/dev/null
   source "$REPO_ROOT/.env"
 fi
 
