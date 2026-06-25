@@ -540,7 +540,9 @@ async def control_blade_v2(cmd: dict, request: Request):
             desired = (
                 True
                 if str(cmd.get("action")).lower() in {"enable", "on", "start"}
-                else False if str(cmd.get("action")).lower() in {"disable", "off", "stop"} else None
+                else False
+                if str(cmd.get("action")).lower() in {"disable", "off", "stop"}
+                else None
             )
         elif isinstance(cmd, dict) and "active" in cmd:
             desired = bool(cmd.get("active"))

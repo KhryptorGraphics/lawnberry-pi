@@ -10,12 +10,33 @@ No heavy geometry deps; uses horizontal line intersection against polygon
 edges and interval subtraction to avoid holes.
 """
 
+import math  # noqa: E402
 from collections.abc import Iterable  # noqa: E402
 
 from .geoutils import haversine_m  # noqa: E402
 
 LatLng = tuple[float, float]
 Interval = tuple[float, float]
+
+
+def _rotate_points(points: Iterable[LatLng], pivot: LatLng, theta_deg: float) -> list[LatLng]:
+    """Rotate lat/lng points about a pivot by theta degrees.
+
+    Uses an equirectangular scaling (longitude scaled by cos(lat)) so the
+    rotation preserves real-world distances for a local area.
+    """
+    lat0, lng0 = pivot
+    coslat = math.cos(math.radians(lat0)) or 1e-9
+    theta = math.radians(theta_deg)
+    cos_t, sin_t = math.cos(theta), math.sin(theta)
+    rotated: list[LatLng] = []
+    for lat, lng in points:
+        x = (lng - lng0) * coslat
+        y = lat - lat0
+        xr = x * cos_t - y * sin_t
+        yr = x * sin_t + y * cos_t
+        rotated.append((lat0 + yr, lng0 + xr / coslat))
+    return rotated
 
 
 def _horizontal_intersections(polygon: Iterable[LatLng], y: float) -> list[float]:
@@ -107,14 +128,23 @@ def plan_coverage(
 ) -> tuple[list[LatLng], int, float]:
     """Compute a serpentine coverage path across boundary with optional holes.
 
-    Currently supports angle=0 only (east-west passes).
+    ``angle_deg`` rotates the pass direction; 0 produces east-west passes.
     Returns (path_points, row_count, length_m).
     """
     if not boundary or len(boundary) < 3:
         return ([], 0, 0.0)
     if abs(angle_deg) > 1e-6:
-        # Not implemented: only support 0 degrees for now
-        return ([], 0, 0.0)
+        # Rotate the field so passes run east-west, plan, then rotate back.
+        pivot = (
+            sum(p[0] for p in boundary) / len(boundary),
+            sum(p[1] for p in boundary) / len(boundary),
+        )
+        rot_boundary = _rotate_points(boundary, pivot, -angle_deg)
+        rot_excl = [_rotate_points(poly, pivot, -angle_deg) for poly in (exclusion_polys or [])]
+        path, rows, length_m = plan_coverage(
+            rot_boundary, rot_excl or None, spacing_m, 0.0, max_rows
+        )
+        return (_rotate_points(path, pivot, angle_deg), rows, length_m)
 
     ys = [p[0] for p in boundary]
     xs = [p[1] for p in boundary]
