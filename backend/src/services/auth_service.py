@@ -124,13 +124,60 @@ class JWTManager:
 
 
 class RateLimiter:
-    """Failure-driven rate limiter used for authentication attempts."""
+    """Rate limiter for authentication attempts.
 
-    def __init__(self, *, failure_limit: int = 3, lockout_seconds: int = 60) -> None:
-        self.failure_limit = max(1, failure_limit)
-        self.lockout_seconds = max(1, lockout_seconds)
+    Two independent controls, both keyed per client and configurable via env so
+    deployments (and tests) can tune them without code changes:
+
+    - **Attempt rate limit** — at most ``attempt_limit`` login attempts (success
+      OR failure) per sliding ``window_seconds``; the next attempt returns 429.
+    - **Failure lockout** — after ``failure_limit`` consecutive failures the
+      client is locked out for ``lockout_seconds`` (429).
+    """
+
+    def __init__(self, *, failure_limit: int = 5, lockout_seconds: int = 30) -> None:
+        self._failure_limit_default = max(1, failure_limit)
+        self._lockout_seconds_default = max(1, lockout_seconds)
         self._failures: dict[str, int] = {}
         self._lockout_until: dict[str, datetime] = {}
+        self._attempts: dict[str, list[datetime]] = {}
+
+    @staticmethod
+    def _env_int(name: str, default: int) -> int:
+        value = os.getenv(name)
+        if value in (None, ""):
+            return default
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return default
+
+    @property
+    def failure_limit(self) -> int:
+        return self._env_int("AUTH_LOCKOUT_FAILURES", self._failure_limit_default)
+
+    @property
+    def lockout_seconds(self) -> int:
+        return self._env_int("AUTH_LOCKOUT_SECONDS", self._lockout_seconds_default)
+
+    @property
+    def attempt_limit(self) -> int:
+        return self._env_int("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 10)
+
+    @property
+    def window_seconds(self) -> int:
+        return self._env_int("AUTH_RATE_LIMIT_WINDOW", 60)
+
+    def record_attempt(self, key: str) -> int | None:
+        """Count a login attempt; return retry-after seconds if the rate is exceeded."""
+        now = datetime.now(UTC)
+        window = self.window_seconds
+        recent = [t for t in self._attempts.get(key, []) if (now - t).total_seconds() < window]
+        recent.append(now)
+        self._attempts[key] = recent
+        if len(recent) > self.attempt_limit:
+            return int(window)
+        return None
 
     def lockout_remaining(self, key: str) -> int | None:
         now = datetime.now(UTC)
@@ -243,6 +290,19 @@ class AuthService:
 
         key = self._client_key(client_identifier, client_ip)
         self.rate_limiter.assert_not_locked(key)
+
+        # Throttle the attempt rate (counts successes and failures alike).
+        retry_after = self.rate_limiter.record_attempt(key)
+        if retry_after is not None:
+            logger.warning(
+                "auth.login.rate_limited",
+                extra={"correlation_id": get_correlation_id(), "client_key": key},
+            )
+            raise AuthenticationError(
+                "Too many authentication attempts",
+                status_code=429,
+                retry_after=retry_after,
+            )
 
         if not credential:
             retry_after = self.rate_limiter.record_failure(key)
@@ -622,21 +682,32 @@ class _AuthServiceFacade:
     async def authenticate_google_oauth(self, id_token: str) -> UserSession:
         if not self.config.google_auth_config:
             raise AuthenticationError("Google OAuth not configured")
-        email = "user@example.com"
-        domain = email.split("@")[-1]
         allowed = self.config.google_auth_config.allowed_domains or []
-        # Try to verify token via google stub
+
+        # Verify the Google ID token. We FAIL CLOSED: if the verification library
+        # is unavailable or verification raises/returns an unusable result, the
+        # login is rejected. Never fall back to an unverified/hardcoded identity.
         try:
             from google.auth.transport.requests import Request  # type: ignore
             from google.oauth2 import id_token as google_id_token  # type: ignore
+        except ImportError as exc:  # pragma: no cover - depends on deployment env
+            raise AuthenticationError(
+                "Google OAuth verification unavailable (google-auth not installed)"
+            ) from exc
 
+        try:
             info = google_id_token.verify_oauth2_token(
                 id_token, Request(), audience=self.config.google_auth_config.client_id
             )
-            email = info.get("email", email)
-            domain = email.split("@")[-1]
-        except Exception:
-            pass
+        except Exception as exc:
+            raise AuthenticationError("Google ID token verification failed") from exc
+
+        email = (info or {}).get("email")
+        if not email:
+            raise AuthenticationError("Google ID token missing email claim")
+        if not (info or {}).get("email_verified", False):
+            raise AuthenticationError("Google account email is not verified")
+        domain = email.split("@")[-1]
         if allowed and domain not in allowed:
             raise AuthenticationError("Domain not allowed")
         session = await self.create_session(email, SecurityLevel.GOOGLE_OAUTH)

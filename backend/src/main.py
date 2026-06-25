@@ -17,9 +17,13 @@ from .api.rest_v1 import router as rest_v1_router
 from .api.routers import ai_control as ai_control_router
 from .api.routers import auth as auth_router
 from .api.routers import maintenance as maintenance_router
+from .api.routers import maps as maps_router
+from .api.routers import planning as planning_router
 from .api.routers import recording as recording_router
 from .api.routers import sensors as sensors_router
+from .api.routers import settings as settings_router
 from .api.routers import telemetry as telemetry_router
+from .api.routers import weather as weather_router
 from .api.safety import router as safety_router
 from .api.status import router as status_router
 from .core.config_loader import ConfigLoader
@@ -181,6 +185,10 @@ app.include_router(sensors_router.router, prefix="/api/v2")
 app.include_router(maintenance_router.router, prefix="/api/v2")
 app.include_router(recording_router.router, prefix="/api/v2/recording", tags=["recording"])
 app.include_router(ai_control_router.router, prefix="/api/v2/ai", tags=["ai"])
+app.include_router(maps_router.router, prefix="/api/v2", tags=["maps"])
+app.include_router(settings_router.router, prefix="/api/v2", tags=["settings"])
+app.include_router(weather_router.router, prefix="/api/v2", tags=["weather"])
+app.include_router(planning_router.router, prefix="/api/v2", tags=["planning"])
 app.include_router(rest_legacy_router)
 app.include_router(metrics_router)
 app.include_router(status_router)

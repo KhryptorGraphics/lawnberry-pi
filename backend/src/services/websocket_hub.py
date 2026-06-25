@@ -24,31 +24,8 @@ from ..services.remote_access_service import (
 )
 from ..services.weather_service import weather_service
 
-# We need to import _remote_access_settings from somewhere or pass it in.
-# In rest.py it was a global. We should probably make WebSocketHub self-contained or
-# pass dependencies in `__init__` or `bind_app_state`.
-# For now, I will assume we can access it via app_state or similar, or I'll need to refactor how it's accessed.  # noqa: E501
-# Actually, looking at rest.py, `_remote_access_settings` is a global loaded from disk.
-# I'll duplicate the loading logic here or better, make it a property of the hub that loads it?
-# Or maybe just import the service and load it when needed.
-
-# Also `_safety_state` is a global in rest.py.
-# This is tricky. Globals are bad.
-# I should probably move `_safety_state` to a service or a shared module.
-# For now, I'll define it here as well, but this effectively duplicates state if not careful.
-# Wait, `rest.py` uses `_safety_state` in `_generate_telemetry`.
-# If I move `_generate_telemetry` to `WebSocketHub`, I need access to `_safety_state`.
-# I should probably create a `SafetyService` or similar.
-# But to avoid over-engineering right now, I might just have to pass it in or keep it in a shared place.  # noqa: E501
-# Let's look at where `_safety_state` is defined. Line 2255 in rest.py.
-# It's just a dict.
-
-# I'll create a `backend/src/core/state.py` to hold these shared globals if they are truly global.
-# Or I can put them in `backend/src/services/safety_service.py`?
-# Let's check if there is a safety service.
-# `backend/src/safety/safety_triggers.py` exists.
-
-# Let's create `backend/src/core/globals.py` for now to hold these shared states to avoid circular imports and duplication.  # noqa: E501
+# Shared mutable state (safety flags, remote-access settings) lives in
+# backend.src.core.globals to avoid circular imports between rest.py and this hub.
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +276,24 @@ class WebSocketHub:
                     disconnected_clients.append(client_id)
 
         # Clean up disconnected clients
+        for client_id in disconnected_clients:
+            self.disconnect(client_id)
+
+    async def broadcast(self, message: Any) -> None:
+        """Send a message to every connected client, regardless of topic.
+
+        Accepts a pre-serialized string or any JSON-serializable object.
+        """
+        if not isinstance(message, str):
+            message = json.dumps(jsonable_encoder(message), default=str)
+
+        disconnected_clients = []
+        for client_id, client in list(self.clients.items()):
+            try:
+                await client.send_text(message)
+            except Exception:
+                disconnected_clients.append(client_id)
+
         for client_id in disconnected_clients:
             self.disconnect(client_id)
 
@@ -558,9 +553,9 @@ class WebSocketHub:
                 "altitude_m": env.get("altitude_m"),
                 "wind_speed_ms": None,
                 "precipitation_mm": None,
-                "source": telemetry_data.get("source", "hardware")
-                if telemetry_data
-                else "hardware",
+                "source": (
+                    telemetry_data.get("source", "hardware") if telemetry_data else "hardware"
+                ),
             }
 
         if weather_data is None and self._sensor_manager is not None:
@@ -595,12 +590,16 @@ class WebSocketHub:
                     "humidity_percent": snapshot.get("humidity_percent"),
                     "pressure_hpa": snapshot.get("pressure_hpa"),
                     "altitude_m": snapshot.get("altitude_m"),
-                    "wind_speed_ms": snapshot.get("wind_speed_ms")
-                    if snapshot.get("wind_speed_ms") is not None
-                    else None,
-                    "precipitation_mm": snapshot.get("precipitation_mm")
-                    if snapshot.get("precipitation_mm") is not None
-                    else None,
+                    "wind_speed_ms": (
+                        snapshot.get("wind_speed_ms")
+                        if snapshot.get("wind_speed_ms") is not None
+                        else None
+                    ),
+                    "precipitation_mm": (
+                        snapshot.get("precipitation_mm")
+                        if snapshot.get("precipitation_mm") is not None
+                        else None
+                    ),
                     "source": snapshot.get("source", "simulated"),
                 }
 
@@ -637,9 +636,8 @@ class WebSocketHub:
         }
         await self.broadcast_to_topic("system.performance", perf_data)
 
-        # Connectivity status
-        # FIXME: This relies on _remote_access_settings being available.
-        # For now, I'll load it here to be safe.
+        # Connectivity status. Load the remote-access settings from disk on
+        # demand so the hub stays decoupled from request-scoped globals.
         from ..services.remote_access_service import CONFIG_PATH as REMOTE_ACCESS_CONFIG_PATH
 
         try:
@@ -795,9 +793,11 @@ class WebSocketHub:
                         "angular": {"x": None, "y": None, "z": getattr(imu, "gyro_z", None)},
                     },
                     "motor_status": "idle",
-                    "safety_state": "emergency_stop"
-                    if _safety_state.get("emergency_stop_active", False)
-                    else "nominal",
+                    "safety_state": (
+                        "emergency_stop"
+                        if _safety_state.get("emergency_stop_active", False)
+                        else "nominal"
+                    ),
                     "uptime_seconds": time.time(),
                 }
 
@@ -954,9 +954,11 @@ class WebSocketHub:
                             "fps": camera_service.stream.statistics.current_fps,
                             "frame_count": camera_service.stream.statistics.frames_captured,
                             "client_count": camera_service.stream.client_count,
-                            "last_frame": camera_frame.metadata.timestamp.isoformat()
-                            if camera_frame
-                            else None,
+                            "last_frame": (
+                                camera_frame.metadata.timestamp.isoformat()
+                                if camera_frame
+                                else None
+                            ),
                         }
                     else:
                         telemetry["camera"] = {
@@ -996,9 +998,9 @@ class WebSocketHub:
                 "angular": {"x": None, "y": None, "z": None},
             },
             "motor_status": "idle",
-            "safety_state": "emergency_stop"
-            if _safety_state.get("emergency_stop_active", False)
-            else "nominal",
+            "safety_state": (
+                "emergency_stop" if _safety_state.get("emergency_stop_active", False) else "nominal"
+            ),
             "uptime_seconds": time.time(),
         }
         telemetry["environmental"] = {

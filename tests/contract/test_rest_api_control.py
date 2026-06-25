@@ -1,7 +1,5 @@
 """Contract tests for manual control REST endpoints."""
 
-import uuid
-
 import httpx
 import pytest
 
@@ -10,8 +8,21 @@ from backend.src.main import app
 BASE_URL = "http://test"
 
 
-def _session_id() -> str:
-    return str(uuid.uuid4())
+async def _establish_session(client: httpx.AsyncClient) -> str:
+    """Authenticate a manual-control session and return its server-issued session_id.
+
+    Manual control is gated behind an authenticated session (see
+    ``backend/src/api/routers/auth.py``); commands must reference a session_id
+    that was issued by ``/control/manual-unlock`` rather than a client-invented id.
+    """
+    response = await client.post(
+        "/api/v2/control/manual-unlock",
+        json={"method": "password", "password": "contract-test"},
+    )
+    assert response.status_code == 200, response.text
+    session_id = response.json().get("session_id")
+    assert session_id, "manual-unlock did not return a session_id"
+    return session_id
 
 
 @pytest.mark.asyncio
@@ -37,10 +48,11 @@ async def test_post_drive_command_returns_audit_id_and_snapshot():
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
+        session_id = await _establish_session(client)
         response = await client.post(
             "/api/v2/control/drive",
             json={
-                "session_id": _session_id(),
+                "session_id": session_id,
                 "vector": {"linear": 0.4, "angular": -0.1},
                 "duration_ms": 500,
                 "reason": "manual_override",
@@ -66,10 +78,11 @@ async def test_post_blade_command_surfaces_lockout_reason():
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
+        session_id = await _establish_session(client)
         response = await client.post(
             "/api/v2/control/blade",
             json={
-                "session_id": _session_id(),
+                "session_id": session_id,
                 "action": "engage",
                 "reason": "safety_lockout",
             },
@@ -89,9 +102,10 @@ async def test_post_emergency_stop_acknowledges_and_audits():
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
+        session_id = await _establish_session(client)
         response = await client.post(
             "/api/v2/control/emergency",
-            json={"session_id": _session_id()},
+            json={"session_id": session_id},
         )
 
         assert response.status_code == 202, response.text

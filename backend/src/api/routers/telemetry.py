@@ -94,27 +94,14 @@ def _validate_websocket_upgrade(request: Request, *, expected_protocol: str) -> 
 
 
 def _require_bearer_auth(request: Request) -> None:
+    """Require a bearer token on the documented WebSocket topics.
+
+    There is no loopback bypass: on-device UI clients must present a token just
+    like remote clients. This keeps the telemetry/control/settings/notifications
+    channels authenticated even from localhost.
+    """
     token = _extract_bearer_token(request.headers.get("Authorization"))
     if token:
-        return
-
-    client = request.client
-    if client is not None:
-        host = (
-            client[0] if isinstance(client, (list, tuple)) else getattr(client, "host", None)
-        ) or ""
-        host = str(host)
-    else:
-        host = request.headers.get("host", "")
-
-    host_lower = host.lower()
-    if host_lower.startswith("127.") or host_lower in {
-        "::1",
-        "localhost",
-        "testserver",
-        "testclient",
-    }:
-        # Loopback access (tests, on-device UI) is allowed without a token.
         return
 
     logger.warning(
@@ -296,12 +283,14 @@ async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: str |
                     "status": s.get("status", "healthy"),
                     "metadata": {
                         "rtk_fix": "fallback",
-                        "rtk_fallback_reason": "SIMULATED"
-                        if os.environ.get("SIM_MODE") == "1"
-                        else None,
-                        "rtk_status_message": "RTK fallback active"
-                        if os.environ.get("SIM_MODE") == "1"
-                        else "RTK stable",
+                        "rtk_fallback_reason": (
+                            "SIMULATED" if os.environ.get("SIM_MODE") == "1" else None
+                        ),
+                        "rtk_status_message": (
+                            "RTK fallback active"
+                            if os.environ.get("SIM_MODE") == "1"
+                            else "RTK stable"
+                        ),
                         "orientation": {"type": "euler", "roll": 0, "pitch": 0, "yaw": 0},
                     },
                 }

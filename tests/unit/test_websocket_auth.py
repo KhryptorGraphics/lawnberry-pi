@@ -47,6 +47,8 @@ def test_handshake_allows_missing_subprotocol_header():
             "upgrade": "websocket",
             "sec-websocket-version": "13",
             "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+            # WebSocket topics require a bearer token (no loopback bypass).
+            "authorization": "Bearer test-token",
         },
     )
     assert response.status_code == 101
