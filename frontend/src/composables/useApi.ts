@@ -366,22 +366,24 @@ export const weatherApi = {
     if (params?.lon !== undefined) query.append('lon', String(params.lon))
     const path = query.toString() ? `/weather/current?${query}` : '/weather/current'
     const response = await apiClient.get(path)
+    // Backend contract (GET /api/v2/weather/current):
+    // { timestamp, source, temperature_c, humidity_percent, pressure_hpa }
     return response.data as {
+      timestamp: string
+      source: string
       temperature_c: number
       humidity_percent: number
-      wind_speed_mps: number
-      condition: string
-      source: string
-      ts: string
+      pressure_hpa: number
     }
   },
 
   getPlanningAdvice: async () => {
     const response = await apiClient.get('/weather/planning-advice')
+    // Backend contract (GET /api/v2/weather/planning-advice):
+    // { advice: 'proceed' | 'avoid' | 'insufficient-data', reasons: string[] }
     return response.data as {
-      advice: 'proceed' | 'avoid' | 'caution'
-      reason: string
-      next_review_at: string
+      advice: 'proceed' | 'avoid' | 'insufficient-data'
+      reasons: string[]
     }
   },
 }

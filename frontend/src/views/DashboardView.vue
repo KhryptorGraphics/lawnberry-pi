@@ -1311,8 +1311,8 @@ const loadWeatherData = async () => {
     if (typeof weather.humidity_percent === 'number' && humidity.value === null) {
       humidity.value = weather.humidity_percent
     }
-    if (pressure.value === null && (weather as any)?.pressure_hpa !== undefined) {
-      const pressureValue = Number((weather as any).pressure_hpa)
+    if (pressure.value === null && weather?.pressure_hpa !== undefined) {
+      const pressureValue = Number(weather.pressure_hpa)
       if (!Number.isNaN(pressureValue)) {
         pressure.value = pressureValue
       }
