@@ -115,7 +115,7 @@ def register_sanitization_middleware(app: FastAPI) -> None:
     # The settings surface returns operator-managed config (incl. the maps API
     # key) and the auth endpoints must return usable bearer tokens, so neither is
     # subject to response-body secret redaction.
-    skip = os.getenv("SANITIZE_SKIP", "/api/v2/settings,/api/v2/auth")
+    skip = os.getenv("SANITIZE_SKIP", "/api/v2/settings,/api/v2/auth,/api/v1/auth")
     app.add_middleware(
         SanitizationMiddleware,
         skip_prefixes=[s.strip() for s in skip.split(",") if s.strip()],
