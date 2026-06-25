@@ -323,12 +323,27 @@ class JobsService:
         job.progress.percentage_complete = 100.0
         job.execution_logs.append("Return-to-home dispatched")
 
-    def _waypoints_for_job(self, job: Job) -> list:
-        """Best-effort coverage waypoints for the job's zones.
+    # Default cutting swath (m) before overlap, and the global waypoint cap.
+    _BASE_SWATH_M = 0.6
+    _MAX_WAYPOINTS = 2000
 
-        Reads the persisted map configuration and generates a serpentine path
-        over the first boundary zone. Returns an empty list when no geometry is
-        available (the mission then completes immediately).
+    @staticmethod
+    def _ring_latlng(zone: dict) -> list[tuple[float, float]]:
+        """Convert a zone's GeoJSON ring ([lng, lat]) to (lat, lng) tuples."""
+        coords = (zone.get("geometry") or {}).get("coordinates") or []
+        ring = coords[0] if coords and isinstance(coords[0], list) else coords
+        return [
+            (float(p[1]), float(p[0])) for p in ring if isinstance(p, (list, tuple)) and len(p) >= 2
+        ]
+
+    def _waypoints_for_job(self, job: Job) -> list:
+        """Coverage waypoints for the job's zones.
+
+        Resolves ``job.zones`` (IDs) against the persisted map configuration,
+        treats exclusion zones as holes, and generates a serpentine coverage path
+        for EACH matching boundary zone. ``overlap_factor`` tightens the swath
+        spacing. Returns ``[]`` when no geometry is available (the mission then
+        completes immediately).
         """
         import json
         import os
@@ -344,21 +359,33 @@ class JobsService:
             if not config_path.exists():
                 return []
             config = json.loads(config_path.read_text())
-            boundary: list[tuple[float, float]] = []
-            for zone in config.get("zones") or []:
-                if zone.get("zone_type") != "boundary":
-                    continue
-                coords = (zone.get("geometry") or {}).get("coordinates") or []
-                ring = coords[0] if coords and isinstance(coords[0], list) else coords
-                boundary = [(float(p[1]), float(p[0])) for p in ring if len(p) >= 2]
-                break
-            if len(boundary) < 3:
-                return []
-            path, _, _ = plan_coverage(boundary, spacing_m=0.6)
-            return [
-                MissionWaypoint(lat=lat, lon=lng, blade_on=True, speed=50)
-                for (lat, lng) in path[:500]
+            zones = config.get("zones") or []
+
+            wanted = set(job.zones or [])
+            boundaries = [
+                z
+                for z in zones
+                if z.get("zone_type") == "boundary" and (not wanted or z.get("zone_id") in wanted)
             ]
+            exclusions = [self._ring_latlng(z) for z in zones if z.get("zone_type") == "exclusion"]
+            exclusions = [e for e in exclusions if len(e) >= 3]
+
+            overlap = min(max(float(getattr(job, "overlap_factor", 0.1) or 0.0), 0.0), 0.5)
+            spacing = max(self._BASE_SWATH_M * (1.0 - overlap), 0.1)
+
+            waypoints: list[MissionWaypoint] = []
+            for zone in boundaries:
+                ring = self._ring_latlng(zone)
+                if len(ring) < 3:
+                    continue
+                path, _, _ = plan_coverage(
+                    ring, exclusion_polys=exclusions or None, spacing_m=spacing
+                )
+                for lat, lng in path:
+                    waypoints.append(MissionWaypoint(lat=lat, lon=lng, blade_on=True, speed=50))
+                    if len(waypoints) >= self._MAX_WAYPOINTS:
+                        return waypoints
+            return waypoints
         except Exception:
             return []
 
