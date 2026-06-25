@@ -4,6 +4,7 @@ Manages camera capture, streaming, and IPC communication
 """
 
 import asyncio
+import inspect
 import io
 import json
 import logging
@@ -90,6 +91,12 @@ class CameraStreamService:
         self.camera = None
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.hardware_available = False
+
+        # AI frame analysis: an optional decoupled consumer analyzer plus a
+        # lazily-created on-board Hailo object detector.
+        self._ai_analyzer: Callable[[CameraFrame], Any] | None = None
+        self._ai_detector: Any = None
+        self._ai_detector_lock = asyncio.Lock()
 
         # Frame storage
         self.storage_dir = Path("data/camera")
@@ -810,24 +817,106 @@ class CameraStreamService:
         except Exception as e:
             logger.error(f"Single frame processing error: {e}")
 
+    def register_ai_analyzer(self, analyzer: Callable[[CameraFrame], Any]) -> None:
+        """Register a per-frame AI analyzer.
+
+        The analyzer receives a :class:`CameraFrame` and returns (or awaits) a
+        list of annotation dicts. This keeps the camera owner decoupled from AI
+        consumers, per the constitution (camera-stream owns the camera; other
+        services consume frames). When set, it takes precedence over the
+        on-board detector.
+        """
+        self._ai_analyzer = analyzer
+
+    def clear_ai_analyzer(self) -> None:
+        self._ai_analyzer = None
+
+    async def _ensure_ai_detector(self):
+        """Lazily build and start a shared Hailo object-detection driver."""
+        if self._ai_detector is not None:
+            return self._ai_detector or None
+        async with self._ai_detector_lock:
+            if self._ai_detector is not None:
+                return self._ai_detector or None
+            try:
+                from ..drivers.ai.hailo_driver import HailoDriver
+
+                driver = HailoDriver({"model": "yolov8m"})
+                await driver.initialize()
+                await driver.start()
+                self._ai_detector = driver
+            except Exception as exc:  # pragma: no cover - hardware/init failure
+                logger.warning("On-board AI detector unavailable: %s", exc)
+                self._ai_detector = False  # sentinel: tried and failed
+        return self._ai_detector or None
+
+    def _frame_to_tensor(self, frame: CameraFrame):
+        """Decode a frame into the detector's input tensor (zeros if undecodable)."""
+        import numpy as np
+
+        shape = (1, 640, 640, 3)
+        raw = frame.get_frame_data()
+        if raw:
+            try:
+                import cv2
+
+                arr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+                if arr is not None:
+                    arr = cv2.resize(arr, (640, 640))
+                    return arr.reshape(shape).astype(np.float32) / 255.0
+            except Exception:
+                pass
+        return np.zeros(shape, dtype=np.float32)
+
+    def _decode_detections(self, result) -> list[dict[str, Any]]:
+        """Turn a Hailo inference result into annotation dicts."""
+        model = (getattr(result, "model_name", "") or "").lower()
+        annotation: dict[str, Any] = {
+            "type": "object_detection",
+            "model": getattr(result, "model_name", "unknown"),
+            "processing_time_ms": round(getattr(result, "inference_time_ms", 0.0), 2),
+        }
+        if "sim" in model:
+            # Representative output for simulation/testing.
+            annotation["source"] = "simulation"
+            annotation["objects"] = [
+                {"class": "grass", "confidence": 0.95, "bbox": [0, 0, 100, 100]},
+            ]
+        else:
+            # Real inference ran on hardware; model-specific output decoding is
+            # wired per deployed model. We report no objects rather than
+            # fabricate detections until that decoder is in place.
+            annotation["source"] = "hardware"
+            annotation["objects"] = []
+        return [annotation]
+
     async def _process_frame_for_ai(self, frame: CameraFrame):
-        """Process frame for AI analysis (placeholder)."""
+        """Run AI analysis on a frame and attach annotations.
+
+        Order of preference: a registered consumer analyzer, then the on-board
+        Hailo object detector. If neither is available, the frame is marked
+        processed with no (fabricated) annotations.
+        """
         try:
-            # This would integrate with AI processing service
-            # For now, just mark as processed
             frame.processed_for_ai = True
 
-            # Add dummy AI annotations in simulation mode
-            if self.sim_mode:
-                frame.ai_annotations = [
-                    {
-                        "type": "object_detection",
-                        "objects": [
-                            {"class": "grass", "confidence": 0.95, "bbox": [0, 0, 100, 100]}
-                        ],
-                        "processing_time_ms": 15.5,
-                    }
-                ]
+            if self._ai_analyzer is not None:
+                result = self._ai_analyzer(frame)
+                if inspect.isawaitable(result):
+                    result = await result
+                frame.ai_annotations = list(result or [])
+                return
+
+            detector = await self._ensure_ai_detector()
+            if detector is not None:
+                try:
+                    inference = await detector.infer(self._frame_to_tensor(frame))
+                    frame.ai_annotations = self._decode_detections(inference)
+                    return
+                except Exception as exc:
+                    logger.debug("AI inference skipped: %s", exc)
+
+            frame.ai_annotations = []
 
         except Exception as e:
             logger.warning(f"AI processing error: {e}")
