@@ -83,3 +83,39 @@ async def delete_planning_job(job_id: str) -> Response:
     del jobs[job_id]
     _save_jobs(jobs)
     return Response(status_code=204)
+
+
+# Job lifecycle: a planning job is an autonomous mowing run over its zones.
+_JOB_ACTIONS = {"start", "pause", "resume", "cancel"}
+
+
+@router.post("/planning/jobs/{job_id}/{action}", dependencies=[Depends(require_operator_auth)])
+async def planning_job_action(job_id: str, action: str) -> JSONResponse:
+    if action not in _JOB_ACTIONS:
+        raise HTTPException(status_code=422, detail=f"Unknown action: {action}")
+    jobs = _load_jobs()
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Planning job not found")
+
+    from ...services.autonomy_service import get_autonomy_service
+
+    autonomy = get_autonomy_service()
+    job = jobs[job_id]
+
+    if action == "start":
+        result = await autonomy.start(job.get("zones") or None)
+        job["status"] = "running"
+        job["mission_id"] = result.get("mission_id")
+    elif action == "pause":
+        result = await autonomy.pause()
+        job["status"] = "paused"
+    elif action == "resume":
+        result = await autonomy.resume()
+        job["status"] = "running"
+    else:  # cancel
+        result = await autonomy.stop()
+        job["status"] = "cancelled"
+
+    jobs[job_id] = job
+    _save_jobs(jobs)
+    return JSONResponse(status_code=200, content={"job": job, "autonomy": result})
