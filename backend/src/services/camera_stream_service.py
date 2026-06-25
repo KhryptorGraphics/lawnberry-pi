@@ -877,17 +877,24 @@ class CameraStreamService:
             "processing_time_ms": round(getattr(result, "inference_time_ms", 0.0), 2),
         }
         if "sim" in model:
-            # Representative output for simulation/testing.
+            # Representative output for simulation/testing (the sim tensor is
+            # random noise, so we don't run NMS over it).
             annotation["source"] = "simulation"
             annotation["objects"] = [
                 {"class": "grass", "confidence": 0.95, "bbox": [0, 0, 100, 100]},
             ]
         else:
-            # Real inference ran on hardware; model-specific output decoding is
-            # wired per deployed model. We report no objects rather than
-            # fabricate detections until that decoder is in place.
+            # Real hardware inference: decode the YOLOv8 output tensor.
             annotation["source"] = "hardware"
-            annotation["objects"] = []
+            try:
+                from ..drivers.ai.yolo_postprocess import decode_yolov8
+
+                outputs = getattr(result, "outputs", {}) or {}
+                tensor = next(iter(outputs.values())) if outputs else None
+                annotation["objects"] = decode_yolov8(tensor) if tensor is not None else []
+            except Exception as exc:
+                logger.debug("YOLO decode skipped: %s", exc)
+                annotation["objects"] = []
         return [annotation]
 
     async def _process_frame_for_ai(self, frame: CameraFrame):
