@@ -66,15 +66,36 @@ are the things that can only be confirmed on-device.
 - [ ] Promote to production (`ACME_STAGING=0`), issue, and confirm nginx serves HTTPS.
 - [ ] `lawnberry-acme-renew.timer` runs and `acme_renew` renews certs within the 30-day window.
 
-## 8. Planning / jobs
+## 8. Autonomous control & jobs
+
+Direct autonomous control API (auth-gated writes; status is open):
+
+- [ ] With a boundary drawn, `POST /api/v2/navigation/start` (optionally `{"zones":[...]}`)
+      returns `{status:"started", mode:"autonomous", mission_id, waypoint_count>0}` and the
+      mower begins driving the coverage path.
+- [ ] `GET /api/v2/navigation/status` reflects `mode`/`active`/`completion_percentage` as the
+      run progresses.
+- [ ] `POST /api/v2/navigation/pause` halts motion (mode `paused`); `/resume` continues;
+      `/stop` aborts and returns to `idle`.
+- [ ] `POST /api/v2/control/mode {"mode":"autonomous"|"idle"|"manual"}` starts/stops a run.
+- [ ] **E-stop during an autonomous run** aborts the mission cleanly and the status returns to idle.
+
+Planning jobs (a saved job = an autonomous run over its zones):
 
 - [ ] Create a boundary + exclusion in the map UI, then a scheduled mow job over those zones.
-- [ ] Starting the job dispatches a real mission (coverage waypoints generated from the zones,
-      avoiding exclusions); job progress tracks mission completion; e-stop aborts cleanly.
+- [ ] `POST /api/v2/planning/jobs/{id}/start` dispatches a real mission (coverage waypoints from
+      the zones, avoiding exclusions); `/pause`, `/resume`, `/cancel` drive the run; job
+      `status` updates accordingly.
 
 ## 9. Frontend integration
 
 - [ ] `npm run build` artifact served by `lawnberry-frontend`; dashboard loads.
+- [ ] **Login issues a usable bearer token** (the sanitization exemption is in place) that the
+      API client attaches; protected writes succeed authenticated and 401 without.
+- [ ] **Telemetry WebSocket authenticates remotely**: the client appends `?access_token=` and
+      `/api/v2/ws/telemetry` upgrades (101) from a non-loopback origin.
+- [ ] Control view drives manually (auto manual-unlock session); Planning "Quick Mow" / job
+      Start triggers an autonomous run and progress is visible.
 - [ ] Map planner reads/writes `/api/v2/map/configuration`; settings, weather, planning, and
       telemetry views populate from the live backend (no console 404s/shape errors).
 
