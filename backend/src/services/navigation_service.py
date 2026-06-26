@@ -724,9 +724,16 @@ class NavigationService:
         ai_service = get_ai_inference_service()
         await ai_service.disable()
 
-        # Stop motors
+        # Stop motion: tractor (pedal off + blade off) or differential motors.
         try:
-            await self.set_speed(0.0, 0.0)
+            from .tractor_service import get_tractor_service
+
+            tractor = get_tractor_service()
+            if tractor.enabled:
+                await tractor.set_ground_speed(0.0)
+                await tractor.engage_blade(False)
+            else:
+                await self.set_speed(0.0, 0.0)
         except Exception:
             pass
 
@@ -756,16 +763,29 @@ class NavigationService:
             logger.warning(f"AI prediction confidence too low: {prediction.confidence:.2f}")
             return False
 
+        from .tractor_service import get_tractor_service
+
+        tractor = get_tractor_service()
+
         # Check for safety override
         if prediction.safety_override:
             logger.warning("AI prediction has safety override - stopping")
-            await self.set_speed(0.0, 0.0)
+            if tractor.enabled:
+                await tractor.emergency_stop()
+            else:
+                await self.set_speed(0.0, 0.0)
             return True
 
-        # Convert prediction to motor commands
-        motor_commands = prediction.to_motor_commands()
+        if tractor.enabled:
+            # Ride-on tractor: steering + ground-speed pedal + blade PTO. Interlocks
+            # (engine running, authorized) in the service gate actual motion.
+            cmd = prediction.to_tractor_command()
+            cmd.ground_speed = cmd.ground_speed * self.navigation_state.target_velocity
+            await tractor.apply(cmd)
+            return True
 
-        # Apply scaling based on target velocity
+        # Differential-drive path: convert prediction to left/right motor speeds.
+        motor_commands = prediction.to_motor_commands()
         scale = self.navigation_state.target_velocity
         left_speed = motor_commands["left_speed"] * scale
         right_speed = motor_commands["right_speed"] * scale

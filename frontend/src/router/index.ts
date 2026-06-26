@@ -23,6 +23,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/tractor',
+      name: 'Tractor',
+      component: () => import('@/views/TractorControlView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/maps',
       name: 'Maps',
       component: () => import('@/views/MapsView.vue'),

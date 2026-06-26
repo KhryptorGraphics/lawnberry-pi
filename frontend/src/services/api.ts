@@ -89,6 +89,47 @@ export async function planningJobAction(
   const response = await apiService.post(`/api/v2/planning/jobs/${jobId}/${action}`, {})
   return response.data
 }
+
+// --- Ride-on lawn tractor actuation ---
+export type TractorGear = 'forward' | 'neutral' | 'reverse'
+
+export async function getTractorState() {
+  return (await apiService.get('/api/v2/tractor/state')).data
+}
+export async function tractorSteering(value: number) {
+  return (await apiService.post('/api/v2/tractor/steering', { value })).data
+}
+export async function tractorThrottle(value: number) {
+  return (await apiService.post('/api/v2/tractor/throttle', { value })).data
+}
+export async function tractorSpeed(value: number) {
+  return (await apiService.post('/api/v2/tractor/speed', { value })).data
+}
+export async function tractorClutch(value: number) {
+  return (await apiService.post('/api/v2/tractor/clutch', { value })).data
+}
+export async function tractorGear(gear: TractorGear) {
+  return (await apiService.post('/api/v2/tractor/gear', { gear })).data
+}
+export async function tractorBlade(engaged: boolean) {
+  return (await apiService.post('/api/v2/tractor/blade', { engaged })).data
+}
+export async function tractorStart() {
+  return (await apiService.post('/api/v2/tractor/starter', {})).data
+}
+export async function tractorStopEngine() {
+  return (await apiService.post('/api/v2/tractor/stop-engine', {})).data
+}
+export async function tractorEmergencyStop() {
+  return (await apiService.post('/api/v2/tractor/emergency-stop', {})).data
+}
+export async function tractorClearEmergency() {
+  return (await apiService.post('/api/v2/tractor/clear-emergency', {})).data
+}
+export async function tractorAuthorize(authorized: boolean) {
+  const path = authorized ? '/api/v2/tractor/authorize' : '/api/v2/tractor/revoke'
+  return (await apiService.post(path, {})).data
+}
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse } from 'axios'
 import { useAuthStore } from '@/stores/auth'

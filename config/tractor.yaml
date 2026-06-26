@@ -1,0 +1,39 @@
+# Craftsman-class ride-on lawn tractor actuation config.
+#
+# Positional actuators (steering, throttle, gas/ground-speed pedal, clutch, gear)
+# are RC-PWM channels emitted by the RoboHAT RP2040; the firmware must accept
+# `pwm_line_format` (default `pwm,<channel>,<us>`). Starter and blade PTO are
+# GPIO relays on the Pi. Calibrate the microsecond endpoints on the bench so each
+# actuator hits its real mechanical limits before driving the machine.
+#
+# Set enabled: true on the converted tractor.
+enabled: false
+
+pwm_line_format: "pwm,{channel},{us}"
+
+actuators:
+  # Steering: bidirectional, -1 (full left) .. +1 (full right), centered.
+  steering:   { channel: 1, us_min: 1000, us_center: 1500, us_max: 2000, bidirectional: true }
+  # Engine throttle (RPM lever): 0 (idle) .. 1 (full).
+  throttle:   { channel: 2, us_min: 1100, us_max: 1900, bidirectional: false }
+  # Ground-speed / gas pedal: 0 (stop) .. 1 (full).
+  gas_pedal:  { channel: 3, us_min: 1100, us_max: 1900, bidirectional: false }
+  # Clutch/brake pedal: 0 (released/driving) .. 1 (fully pressed = declutched + braked).
+  clutch:     { channel: 4, us_min: 1100, us_max: 1900, bidirectional: false }
+  # Gear selector: three discrete positions.
+  gear:       { channel: 5, us_forward: 1900, us_neutral: 1500, us_reverse: 1100 }
+
+relays:
+  # Momentary starter solenoid (crank for pulse_ms, then release).
+  starter:    { gpio: 5, active_high: true, pulse_ms: 800 }
+  # Electric PTO clutch (blade engage/disengage), latching on/off.
+  blade_pto:  { gpio: 6, active_high: true }
+
+# Standard lawn-tractor safety interlocks (ANSI/OPEI-style).
+interlocks:
+  require_neutral_to_start: true        # engine cranks only in NEUTRAL
+  require_clutch_to_start: true         # ...with the clutch/brake pressed
+  require_blade_off_to_start: true      # ...and the blade/PTO disengaged
+  require_engine_running_for_blade: true # PTO engages only with the engine running
+  disengage_blade_in_reverse: true      # Reverse Operation System: no blade in reverse
+  clutch_pressed_threshold: 0.9         # clutch value considered "pressed"

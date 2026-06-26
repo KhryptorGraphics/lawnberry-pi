@@ -115,6 +115,24 @@ class ActionPrediction:
             "blade_enabled": self.blade,
         }
 
+    def to_tractor_command(self, engine_throttle: float = 0.75) -> "TractorCommand":  # noqa: F821
+        """Map the VLA action to a ride-on lawn-tractor command.
+
+        steering -> steering; throttle (desired speed) -> the ground-speed/gas
+        pedal while in FORWARD with the clutch released; blade -> PTO. The engine
+        throttle (RPM) is held at a steady mowing value, not driven by the model.
+        """
+        from .tractor_control import TractorCommand, Transmission
+
+        return TractorCommand(
+            steering=self.steering,
+            throttle=engine_throttle,
+            ground_speed=max(0.0, self.throttle),
+            gear=Transmission.FORWARD,
+            clutch=0.0,
+            blade_engaged=bool(self.blade),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {

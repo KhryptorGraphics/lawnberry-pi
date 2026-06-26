@@ -24,6 +24,7 @@ from .api.routers import recording as recording_router
 from .api.routers import sensors as sensors_router
 from .api.routers import settings as settings_router
 from .api.routers import telemetry as telemetry_router
+from .api.routers import tractor as tractor_router
 from .api.routers import weather as weather_router
 from .api.safety import router as safety_router
 from .api.status import router as status_router
@@ -188,6 +189,7 @@ app.include_router(recording_router.router, prefix="/api/v2/recording", tags=["r
 app.include_router(ai_control_router.router, prefix="/api/v2/ai", tags=["ai"])
 app.include_router(maps_router.router, prefix="/api/v2", tags=["maps"])
 app.include_router(autonomy_router.router, prefix="/api/v2", tags=["autonomy"])
+app.include_router(tractor_router.router, prefix="/api/v2", tags=["tractor"])
 app.include_router(settings_router.router, prefix="/api/v2", tags=["settings"])
 app.include_router(weather_router.router, prefix="/api/v2", tags=["weather"])
 app.include_router(planning_router.router, prefix="/api/v2", tags=["planning"])

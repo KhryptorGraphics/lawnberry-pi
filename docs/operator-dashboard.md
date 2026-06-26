@@ -7,6 +7,7 @@ REST + WebSocket. Routes are auth-gated (`requiresAuth`) except `/login`.
 |-------|------|--------------|
 | `/` | Dashboard | Live telemetry tiles + map, WebSocket-driven |
 | `/control` | Manual Control | Joystick drive, blade, **emergency stop**, and system controls (return-to-base / pause / resume) wired to the navigation API |
+| `/tractor` | Tractor Control | Manual actuation of the ride-on tractor (steering, throttle, gas pedal, clutch, gear, blade PTO, starter) with live state, via `/api/v2/tractor/*` — see `tractor-platform.md` |
 | `/maps` | Maps | The polygon editor — draw/edit boundary, exclusion, and mowing zones; set home/sun markers |
 | `/planning` | Planning | Jobs, schedules, and a **Zones** tab that lists the real mowing zones from the saved map configuration (Add/Edit opens the Maps editor) |
 | `/ai` | AI & Model Control | Enable/disable autonomous AI, deploy a `.hef` model, live inference metrics, dataset export — all via `/api/v2/ai/*` |

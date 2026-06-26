@@ -12,6 +12,7 @@
         <div class="nav-links">
           <router-link to="/" class="nav-link">Dashboard</router-link>
           <router-link to="/control" class="nav-link">Control</router-link>
+          <router-link to="/tractor" class="nav-link">Tractor</router-link>
           <router-link to="/maps" class="nav-link">Maps</router-link>
           <router-link to="/planning" class="nav-link">Planning</router-link>
           <router-link to="/mission-planner" class="nav-link">Mission Planner</router-link>

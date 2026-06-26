@@ -1984,3 +1984,35 @@ Notes:
   unused spec models (`models/webui_contracts.py`), not defects. RoboHAT encoder
   feedback + Google-based manual unlock are hardware/product-deferred.
 
+## 2026-06-26 — Ride-on lawn tractor actuation platform
+
+The target mower is a converted Craftsman-class ride-on lawn tractor (Ackermann
+steering, gas engine), not a differential-drive robot. Built the correct
+actuation subsystem for its seven actuators.
+
+Actions:
+- `models/tractor_control.py`: Transmission (F/N/R), TractorCommand, TractorState.
+- `drivers/actuators/tractor_actuators.py`: ServoActuator (value->µs, pure),
+  GearActuator (3-position), RelayActuator (SIM-safe GPIO + momentary pulse).
+- `services/tractor_service.py`: TractorControlService — steering / throttle /
+  ground-speed pedal / clutch / gear via RoboHAT RC-PWM, starter + blade PTO via
+  GPIO relays, with the standard lawn-tractor interlocks (start needs
+  authorized+neutral+clutch+blade-off; blade only with engine running and not in
+  reverse; reverse auto-disengages blade; e-stop disengages drive+blade and
+  brakes but leaves the engine running).
+- `config/tractor.yaml` (per-actuator calibration + interlock flags, disabled by
+  default); `api/routers/tractor.py` (14 endpoints, mounted at /api/v2/tractor).
+- VLA mapping `ActionPrediction.to_tractor_command()`; wired the autonomous loop
+  (`navigation_service.apply_ai_prediction` / `stop_ai_navigation`) to drive the
+  tractor when `tractor.enabled`, keeping the differential path otherwise.
+- Frontend: `TractorControlView.vue` (`/tractor`) + `api.ts` tractor functions +
+  nav entry. Docs: `docs/tractor-platform.md`.
+
+Validation:
+- ruff + format clean; 13 new tractor unit tests + full backend suite PASS;
+  frontend vue-tsc + 83 vitest + vite build green; app mounts 14 tractor routes.
+
+Notes:
+- RoboHAT firmware currently emits 2 PWM channels (`pwm,a,b`); 5 servo channels
+  need the firmware to accept the per-channel `pwm,<ch>,<us>` form (documented).
+
