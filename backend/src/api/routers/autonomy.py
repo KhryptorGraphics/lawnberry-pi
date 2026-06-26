@@ -39,6 +39,12 @@ async def navigation_resume() -> dict[str, Any]:
     return await get_autonomy_service().resume()
 
 
+@router.post("/navigation/return", dependencies=[Depends(require_operator_auth)])
+async def navigation_return() -> dict[str, Any]:
+    """Navigate back to the home/dock position."""
+    return await get_autonomy_service().return_to_base()
+
+
 @router.get("/navigation/status")
 async def navigation_status() -> dict[str, Any]:
     return await get_autonomy_service().status()

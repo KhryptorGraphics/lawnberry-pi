@@ -61,6 +61,11 @@ export async function resumeAutonomous() {
   return response.data
 }
 
+export async function returnToBase() {
+  const response = await apiService.post('/api/v2/navigation/return', {})
+  return response.data
+}
+
 export async function getNavigationStatus() {
   const response = await apiService.get('/api/v2/navigation/status')
   return response.data

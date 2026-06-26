@@ -52,3 +52,23 @@ Branch `feat/pi-location-aware-ai-loop` (consolidates the earlier
 
 New unit tests for location features, preprocess, and the loop; full unit suite
 + ruff green.
+
+## 2026-06-26 — Frontend completeness pass
+
+Audited the operator dashboard (type-check/build/83 vitest all green) and fixed
+the real gaps (see docs/operator-dashboard.md):
+
+- **ControlView**: return-to-base / pause / resume were no-op placeholder
+  toasts; wired to the navigation API. Added `POST /api/v2/navigation/return`
+  (`autonomy_service.return_to_base` → `NavigationService.return_home`).
+- **TelemetryView**: was a "coming soon" stub; rebuilt as a live RTK/IMU/power/
+  hardware-stream view with diagnostic export, from the system telemetry store.
+- **PlanningView** zones: replaced mock zones with the real mowing zones from the
+  saved map configuration (areas computed from polygons); Add/Edit now open the
+  Maps polygon editor instead of dead-ending at "coming soon".
+- **AIView**: replaced a 1764-line mock image-labeling/training studio (which
+  called non-existent `/api/v2/training/*` endpoints) with a real ~370-line
+  AI & Model Control panel wired to `/api/v2/ai/*` (status, enable/disable,
+  model deploy, metrics + reset, health, datasets + export).
+
+Verified: vue-tsc, vitest 83/83, vite build, backend ruff + autonomy tests green.

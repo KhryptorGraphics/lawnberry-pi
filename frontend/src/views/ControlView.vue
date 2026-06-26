@@ -74,7 +74,7 @@
             </div>
           </div>
 
-          <div class="auth-actions" v-if="securityConfig.auth_level !== 'cloudflare'">
+          <div v-if="securityConfig.auth_level !== 'cloudflare'" class="auth-actions">
             <button 
               class="btn btn-primary" 
               :disabled="authenticating || !canAuthenticate"
@@ -305,7 +305,12 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios, { type AxiosError } from 'axios'
 import { storeToRefs } from 'pinia'
 import { useControlStore } from '@/stores/control'
-import { useApiService } from '@/services/api'
+import {
+  useApiService,
+  pauseAutonomous,
+  resumeAutonomous,
+  returnToBase as returnToBaseApi,
+} from '@/services/api'
 import { useToastStore } from '@/stores/toast'
 import { usePreferencesStore } from '@/stores/preferences'
 import VirtualJoystick from '@/components/ui/VirtualJoystick.vue'
@@ -1368,15 +1373,43 @@ async function toggleMowing() {
 }
 
 async function returnToBase() {
-  showStatus('Return to base command queued (placeholder)', true)
+  setPerforming(true)
+  try {
+    const result = await returnToBaseApi()
+    if (result?.status === 'error') {
+      showStatus(result.detail || 'Return to base unavailable (no home position set)', false)
+    } else {
+      showStatus('Return to base command sent', true)
+    }
+  } catch (error) {
+    showStatus('Failed to send return-to-base command', false)
+  } finally {
+    setPerforming(false)
+  }
 }
 
 async function pauseSystem() {
-  showStatus('System paused (placeholder)', true)
+  setPerforming(true)
+  try {
+    await pauseAutonomous()
+    showStatus('System paused', true)
+  } catch (error) {
+    showStatus('Failed to pause', false)
+  } finally {
+    setPerforming(false)
+  }
 }
 
 async function resumeSystem() {
-  showStatus('System resume command queued (placeholder)', true)
+  setPerforming(true)
+  try {
+    await resumeAutonomous()
+    showStatus('System resumed', true)
+  } catch (error) {
+    showStatus('Failed to resume', false)
+  } finally {
+    setPerforming(false)
+  }
 }
 
 // Reactive updates from store events

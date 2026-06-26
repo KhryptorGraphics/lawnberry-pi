@@ -69,6 +69,17 @@ class AutonomyService:
             pass
         return {"status": "running", "mode": "autonomous", "mission_id": self._mission_id}
 
+    async def return_to_base(self) -> dict[str, Any]:
+        """Command the mower to navigate back to its home/dock position."""
+        nav = NavigationService.get_instance()
+        ok = await nav.return_home()
+        return {
+            "status": "returning" if ok else "error",
+            "mode": "return_home" if ok else "idle",
+            "mission_id": self._mission_id,
+            "detail": None if ok else "No home position set or no current position fix",
+        }
+
     async def status(self) -> dict[str, Any]:
         mission_service = self._mission_service()
         mission_status: str | None = None

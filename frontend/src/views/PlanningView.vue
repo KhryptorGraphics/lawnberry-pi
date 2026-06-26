@@ -282,6 +282,10 @@
               </div>
             </div>
           </div>
+          <p v-if="!zones.length" class="empty-zones text-muted">
+            No mowing zones defined yet. Draw your boundary and zones in the
+            <button class="link-btn" type="button" @click="goToMaps">Maps editor</button>.
+          </p>
         </div>
       </div>
     </div>
@@ -414,8 +418,12 @@ import { storeToRefs } from 'pinia'
 import { useApiService, startAutonomous } from '@/services/api'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useMapStore } from '@/stores/map'
+import { useRouter } from 'vue-router'
 
 const api = useApiService()
+const router = useRouter()
+const mapStore = useMapStore()
 const { connected, connect, subscribe, unsubscribe } = useWebSocket()
 const preferences = usePreferencesStore()
 
@@ -501,32 +509,50 @@ const schedules = ref([
   }
 ])
 
-const zones = ref([
-  {
-    id: 'front_lawn',
-    name: 'Front Lawn',
-    area_m2: 200,
-    cutting_height: 35,
-    priority: 'high',
-    last_mowed: '2024-09-26T10:00:00'
-  },
-  {
-    id: 'back_garden',
-    name: 'Back Lawn',
-    area_m2: 150,
-    cutting_height: 40,
-    priority: 'medium',
-    last_mowed: '2024-09-25T14:00:00'
-  },
-  {
-    id: 'side_garden',
-    name: 'Side Lawn',
-    area_m2: 75,
-    cutting_height: 30,
-    priority: 'low',
-    last_mowed: '2024-09-24T16:00:00'
+// Real mowing zones come from the saved map configuration (the polygon editor
+// lives in the Maps view). Boundary is shown as the implicit full-yard zone
+// when no explicit mowing zones are defined.
+function polygonAreaM2(poly: Array<{ latitude: number; longitude: number }> | undefined): number {
+  if (!poly || poly.length < 3) return 0
+  const R = 6378137
+  const lat0 = (poly[0].latitude * Math.PI) / 180
+  const pts = poly.map((p) => ({
+    x: ((p.longitude * Math.PI) / 180) * R * Math.cos(lat0),
+    y: ((p.latitude * Math.PI) / 180) * R,
+  }))
+  let area = 0
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length
+    area += pts[i].x * pts[j].y - pts[j].x * pts[i].y
   }
-])
+  return Math.abs(area) / 2
+}
+
+function priorityLabel(p: unknown): 'high' | 'medium' | 'low' {
+  if (typeof p === 'number') return p >= 8 ? 'high' : p >= 4 ? 'medium' : 'low'
+  const s = String(p ?? '').toLowerCase()
+  return s === 'high' || s === 'low' ? s : 'medium'
+}
+
+function mapZoneToCard(z: any, defaultPriority: 'high' | 'medium' | 'low') {
+  return {
+    id: z.id,
+    name: z.name || z.id,
+    area_m2: polygonAreaM2(z.polygon),
+    cutting_height: null as number | null,
+    priority: z.priority != null ? priorityLabel(z.priority) : defaultPriority,
+    last_mowed: null as string | null,
+  }
+}
+
+const zones = computed(() => {
+  const cfg = mapStore.configuration
+  if (!cfg) return [] as any[]
+  const mow = (cfg.mowing_zones || []).filter((z) => z.polygon?.length)
+  if (mow.length) return mow.map((z) => mapZoneToCard(z, 'medium'))
+  if (cfg.boundary_zone?.polygon?.length) return [mapZoneToCard(cfg.boundary_zone, 'high')]
+  return [] as any[]
+})
 
 const patterns = ref([
   {
@@ -818,14 +844,19 @@ async function mowZone(zone: any) {
   }
 }
 
-function openZoneModal() {
-  // Placeholder for zone creation modal
-  showStatus('Zone management coming soon', true)
+function goToMaps() {
+  router.push('/maps')
 }
 
-function editZone(zone: any) {
-  // Placeholder for zone editing
-  showStatus('Zone editing coming soon', true)
+function openZoneModal() {
+  // Zone geometry is drawn/edited in the Maps view (the polygon editor).
+  showStatus('Opening the map editor to add a zone…', true)
+  goToMaps()
+}
+
+function editZone(_zone: any) {
+  showStatus('Opening the map editor to edit zones…', true)
+  goToMaps()
 }
 
 function formatJobStatus(status: string): string {
@@ -862,7 +893,8 @@ function formatDateTime(dateString: string): string {
   }
 }
 
-function formatRelativeTime(dateString: string): string {
+function formatRelativeTime(dateString: string | null | undefined): string {
+  if (!dateString) return 'Never'
   try {
     const date = new Date(dateString)
     const now = new Date()
@@ -889,7 +921,14 @@ function showStatus(message: string, success: boolean) {
 
 onMounted(async () => {
   await connect()
-  
+
+  // Load real mowing zones from the saved map configuration (best-effort).
+  try {
+    await mapStore.loadConfiguration()
+  } catch {
+    /* zones tab will show an empty state */
+  }
+
   // Subscribe to job progress updates
   subscribe('jobs.progress', (data) => {
     const job = jobs.value.find(j => j.id === data.job_id)
@@ -1219,6 +1258,20 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1rem;
+}
+
+.empty-zones {
+  padding: 1rem 0;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary-color, #2563eb);
+  cursor: pointer;
+  text-decoration: underline;
+  font: inherit;
 }
 
 .zone-card {
