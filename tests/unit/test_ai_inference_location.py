@@ -31,9 +31,7 @@ def _frame() -> MowerDataFrame:
         num_satellites=20,
     )
     f.imu = IMUData(roll=10.0, pitch=-5.0, yaw=90.0)
-    f.ultrasonic = UltrasonicData(
-        front_left_cm=100.0, front_center_cm=150.0, front_right_cm=120.0
-    )
+    f.ultrasonic = UltrasonicData(front_left_cm=100.0, front_center_cm=150.0, front_right_cm=120.0)
     f.pi_camera_rgb = (np.random.rand(72, 128, 3) * 255).astype(np.uint8)
     return f
 

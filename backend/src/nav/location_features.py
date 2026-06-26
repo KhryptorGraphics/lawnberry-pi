@@ -43,9 +43,7 @@ _FIX_QUALITY = {
 _EARTH_R = 6378137.0  # WGS84 equatorial radius (m)
 
 
-def latlon_to_enu(
-    lat: float, lon: float, lat0: float, lon0: float
-) -> tuple[float, float]:
+def latlon_to_enu(lat: float, lon: float, lat0: float, lon0: float) -> tuple[float, float]:
     """Equirectangular lat/lon -> local east/north metres about a datum."""
     lat0r = math.radians(lat0)
     east = math.radians(lon - lon0) * _EARTH_R * math.cos(lat0r)
@@ -134,9 +132,7 @@ class CoverageMap:
         if not (0 <= row < self.n and 0 <= col < self.n):
             return
         r = self.stamp
-        self.grid[
-            max(0, row - r) : row + r + 1, max(0, col - r) : col + r + 1
-        ] = 1.0
+        self.grid[max(0, row - r) : row + r + 1, max(0, col - r) : col + r + 1] = 1.0
 
 
 __all__ = [

@@ -666,9 +666,7 @@ class NavigationService:
                 try:
                     frame = await recorder.capture_frame()
                     if frame is not None:
-                        snapshot = (
-                            self._coverage.snapshot() if self._coverage is not None else None
-                        )
+                        snapshot = self._coverage.snapshot() if self._coverage is not None else None
                         prediction = await ai_service.infer(
                             frame, coverage_grid=snapshot, datum=self._ai_datum
                         )
