@@ -1,0 +1,24 @@
+[Unit]
+Description=LawnBerry Thor training-data ingest server (receives Pi recordings)
+Documentation=https://github.com/acredsfan/lawnberry_pi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust User/paths to your Thor deployment location.
+User=kp
+WorkingDirectory=/home/kp/thordrive/lawnberry-pi
+Environment=PYTHONPATH=/home/kp/thordrive/lawnberry-pi
+Environment=THOR_INGEST_DIR=/home/kp/thordrive/data/thor_ingest
+Environment=THOR_INGEST_HOST=0.0.0.0
+Environment=THOR_INGEST_PORT=8000
+# Set a shared secret and configure the same value as THOR_API_KEY on the Pi.
+# Environment=THOR_API_KEY=change-me
+EnvironmentFile=-/home/kp/thordrive/lawnberry-pi/.env
+ExecStart=/home/kp/thordrive/lawnberry-pi/.venv/bin/python -m backend.src.thor_ingest.server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
