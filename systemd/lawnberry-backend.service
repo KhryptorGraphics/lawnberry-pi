@@ -19,6 +19,10 @@ Environment=SIM_MODE=0
 Environment=PYTHONUNBUFFERED=1
 # Require operator authentication on config-changing write endpoints.
 Environment=OPERATOR_AUTH_REQUIRED=1
+# Auto-upload recorded mowing sessions to the Thor training server.
+# Set THOR_UPLOAD_ENABLED=1 and THOR_BASE_URL to Thor's receiver (host:port).
+Environment=THOR_UPLOAD_ENABLED=0
+Environment=THOR_BASE_URL=http://192.168.1.64:15454
 # Load runtime secrets and configuration (e.g., NTRIP_*) from .env if present
 EnvironmentFile=-/apps/lawnberry-pi/.env
 
