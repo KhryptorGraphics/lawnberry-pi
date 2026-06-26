@@ -28,3 +28,27 @@ Brought the project from a red test suite to a production-ready control surface
 
 Backend suite: 368 passed / 0 failed (was 51 failed). Frontend: build + 83
 vitest tests green.
+
+## 2026-06-26 — Pi→Thor data path + location-aware autonomy
+
+Branch `feat/pi-location-aware-ai-loop` (consolidates the earlier
+`feat/thor-ingest-and-pi-setup` work):
+
+- **Pi→Thor upload:** recordings auto-queue for upload to the Thor training
+  receiver on stop (`THOR_UPLOAD_ENABLED`/`THOR_BASE_URL`); env-driven uploader
+  config; systemd env wiring.
+- **Location-aware inference:** new `backend/src/nav/location_features.py`
+  (runtime port of the training feature builder) turns RTK GPS into local-ENU
+  location features + a causal 64×64 coverage map. `ai_inference_service`
+  `_preprocess` now emits `image` + `sensors(20)` + `coverage_map` for the
+  distilled student/HEF.
+- **Autonomous loop:** implemented the previously-missing AI inference loop in
+  `navigation_service` (build frame via `perimeter_recorder.capture_frame` →
+  infer with live coverage snapshot → `apply_ai_prediction` → causally mark
+  mowed cells). Datum from home/geofence. Safety: refuses autonomy on hardware
+  when no real model is loaded.
+- **Docs:** `docs/ai-training-pipeline.md` (record → upload → train → distill →
+  deploy → autonomous, incl. the yard-datum contract).
+
+New unit tests for location features, preprocess, and the loop; full unit suite
++ ruff green.
