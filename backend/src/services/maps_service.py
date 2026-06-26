@@ -280,7 +280,17 @@ class MapsService:
             }
 
     def _get_minimal_tile(self) -> bytes:
-        return b"minimal_tile_placeholder"
+        """Return a valid 1x1 transparent PNG when no real tile can be fetched.
+
+        Used as the offline/fallback tile so clients receive decodable image
+        bytes (a transparent pixel) instead of an invalid body.
+        """
+        import base64
+
+        return base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+            "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )
 
     @staticmethod
     def _tile_to_lat_lng(zoom: int, x: int, y: int) -> tuple[float, float]:

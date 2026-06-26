@@ -135,7 +135,7 @@ def _update_geofence_and_waypoint() -> None:
     mgr = get_robot_state_manager()
     st = mgr.get_state()
 
-    # Geofence effect: if outside, switch to EMERGENCY_STOP (placeholder behavior)
+    # Geofence breach is a safety event: leaving the boundary forces EMERGENCY_STOP.
     if _active_geofence and st.position.latitude is not None and st.position.longitude is not None:
         pts = [(p.latitude, p.longitude) for p in _active_geofence.boundary]
         inside = point_in_polygon(st.position.latitude, st.position.longitude, pts)

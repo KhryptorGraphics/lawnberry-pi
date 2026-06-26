@@ -1955,3 +1955,32 @@ Tasks:
 Next Steps:
 - Proceed with documentation tasks T088–T090 (OPERATIONS, setup guide updates, hardware integration guide), then final validation T091–T093.
 
+## 2026-06-26 — Whole-project review: develop out remaining incomplete parts
+
+Reviewed every subsystem (backend SIM pytest exit 0, frontend type-check/83
+vitest/build green, ruff/eslint clean) and scanned for incompleteness markers.
+Backend has no `TODO(vX)` backlog, no reachable `NotImplementedError`, and no
+empty-stub returns. Fixed the three genuine gaps:
+
+Actions:
+- Removed `backend/src/auth/service.py` — an orphan Phase-0 placeholder
+  `AuthService` with hardcoded `admin/admin` + a fake token issuer that nothing
+  imported (real auth is `services/auth_service.py`). Dead code that resembled a
+  credential backdoor.
+- `services/maps_service._get_minimal_tile` now returns a valid 1x1 transparent
+  PNG instead of `b"minimal_tile_placeholder"`, so the offline/fallback tile is
+  decodable image bytes.
+- `api/navigation.py` geofence-breach handler: corrected a misleading
+  "placeholder behavior" comment — forcing EMERGENCY_STOP on boundary exit is
+  the intended safety behavior.
+
+Validation:
+- ruff + format clean on changed files; full app import OK; maps + navigation
+  contract tests PASS; tile verified as PNG (magic bytes).
+
+Notes:
+- Remaining stubs are intentional SIM/hardware scaffolding (sensor/motor/AI
+  drivers, driver_registry mocks, compat_stubs, the unused L298N controller) or
+  unused spec models (`models/webui_contracts.py`), not defects. RoboHAT encoder
+  feedback + Google-based manual unlock are hardware/product-deferred.
+
