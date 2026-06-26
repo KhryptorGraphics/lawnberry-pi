@@ -8,6 +8,8 @@ on all responses as a backstop.
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Iterable
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -40,9 +42,19 @@ def _redact(obj: Any) -> Any:
 
 
 class SanitizationMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: FastAPI, *, max_process_bytes: int = 256_000) -> None:
+    def __init__(
+        self,
+        app: FastAPI,
+        *,
+        max_process_bytes: int = 256_000,
+        skip_prefixes: Iterable[str] | None = None,
+    ) -> None:
         super().__init__(app)
         self._max = max(1024, int(max_process_bytes))
+        # Paths whose responses are NOT redacted. The authenticated settings
+        # surface is the system of record for provider API keys and must return
+        # them so the operator UI can display the configured values.
+        self._skip = tuple(skip_prefixes or ())
 
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
@@ -50,6 +62,9 @@ class SanitizationMiddleware(BaseHTTPMiddleware):
         # Apply security headers if missing
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
+
+        if any(request.url.path.startswith(p) for p in self._skip):
+            return response
 
         # Redact JSON bodies up to a reasonable size to avoid overhead
         ctype = (response.headers.get("Content-Type") or "").lower()
@@ -97,4 +112,11 @@ class SanitizationMiddleware(BaseHTTPMiddleware):
 
 
 def register_sanitization_middleware(app: FastAPI) -> None:
-    app.add_middleware(SanitizationMiddleware)
+    # The settings surface returns operator-managed config (incl. the maps API
+    # key) and the auth endpoints must return usable bearer tokens, so neither is
+    # subject to response-body secret redaction.
+    skip = os.getenv("SANITIZE_SKIP", "/api/v2/settings,/api/v2/auth,/api/v1/auth")
+    app.add_middleware(
+        SanitizationMiddleware,
+        skip_prefixes=[s.strip() for s in skip.split(",") if s.strip()],
+    )

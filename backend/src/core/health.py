@@ -117,9 +117,14 @@ class HealthService:
             for origin, rate in rates.items()
         }
 
+        # Core platform subsystem rollup (message_bus, drivers, persistence,
+        # safety) hoisted to the top level for the /health contract.
+        core = self.platform_summary()
+
         return {
             "timestamp": now.isoformat(),
             "overall_status": overall.value,
+            "status": core["status"],
             "hardware": hardware,
             "sensor_health": sensor_health,
             "subsystems": subsystems,
@@ -127,6 +132,57 @@ class HealthService:
             "metrics": metrics,
             "alerts": alerts,
             "error_rates": error_rates,
+            "message_bus": core["message_bus"],
+            "drivers": core["drivers"],
+            "persistence": core["persistence"],
+            "safety": core["safety"],
+        }
+
+    def platform_summary(self) -> dict[str, Any]:
+        """Compact platform health for the ``/health`` contract.
+
+        Reports the four core subsystems the operator dashboard depends on
+        (message bus, drivers, persistence, safety) and an overall ``status``.
+        Each check verifies the subsystem is wired and importable; a definitive
+        failure degrades the overall status.
+        """
+
+        def _probe(loader) -> dict[str, Any]:
+            try:
+                loader()
+                return {"status": HealthLevel.HEALTHY.value, "detail": "ok"}
+            except Exception as exc:  # pragma: no cover - failure path
+                return {"status": HealthLevel.CRITICAL.value, "detail": str(exc)}
+
+        def _check_message_bus() -> None:
+            from .message_bus import MessageBus  # noqa: F401
+
+        def _check_drivers() -> None:
+            from .driver_registry import DriverRegistry  # noqa: F401
+
+        def _check_persistence() -> None:
+            from .persistence import persistence  # noqa: F401
+
+        def _check_safety() -> None:
+            from ..safety.safety_monitor import get_safety_monitor
+
+            get_safety_monitor()
+
+        checks = {
+            "message_bus": _probe(_check_message_bus),
+            "drivers": _probe(_check_drivers),
+            "persistence": _probe(_check_persistence),
+            "safety": _probe(_check_safety),
+        }
+
+        overall = HealthLevel.HEALTHY
+        for component in checks.values():
+            overall = _merge_status(overall, _coerce_level(component.get("status")))
+
+        return {
+            "status": overall.value,
+            "timestamp": datetime.now(UTC).isoformat(),
+            **checks,
         }
 
     def _evaluate_sensor_health(self) -> dict[str, Any]:

@@ -10,7 +10,11 @@ health_service = HealthService()
 
 @router.get("/health")
 def health_root() -> dict:
-    """Return aggregated health status for platform monitoring."""
+    """Return aggregated health status for platform monitoring.
+
+    ``evaluate()`` includes the core subsystem rollup (status, message_bus,
+    drivers, persistence, safety) used by platform monitors.
+    """
 
     return health_service.evaluate()
 

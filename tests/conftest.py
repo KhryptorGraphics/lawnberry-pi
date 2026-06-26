@@ -58,6 +58,9 @@ for optional_module in ("bcrypt", "pyotp", "google", "jwt", "psutil", "timezonef
 
 # Ensure SIM_MODE=1 for all tests unless explicitly overridden
 os.environ.setdefault("SIM_MODE", "1")
+# Operator auth on write endpoints is secure-by-default in production; disable it
+# for the suite so existing contract tests can call writes without a token.
+os.environ.setdefault("OPERATOR_AUTH_REQUIRED", "0")
 os.environ.setdefault("GLOBAL_RATE_LIMIT_RATE", "1000")
 os.environ.setdefault("GLOBAL_RATE_LIMIT_BURST", "10000")
 os.environ.setdefault("AUTH_RATE_LIMIT_WINDOW", "60")

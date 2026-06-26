@@ -5,6 +5,7 @@ Tests WebSocket telemetry performance, latency, and throughput
 
 import asyncio
 import json
+import os
 import statistics
 import time
 from unittest.mock import AsyncMock
@@ -12,6 +13,17 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.src.services.websocket_hub import WebSocketHub
+
+# These assert absolute timing/throughput budgets that are only meaningful on the
+# target hardware (Raspberry Pi 5). They are flaky on shared CI/dev machines, so
+# they are skipped unless explicitly enabled with RUN_PERF_TESTS=1.
+pytestmark = [
+    pytest.mark.perf,
+    pytest.mark.skipif(
+        os.getenv("RUN_PERF_TESTS", "0") != "1",
+        reason="Pi-target performance thresholds; set RUN_PERF_TESTS=1 to run.",
+    ),
+]
 
 
 class TestTelemetryPerformance:

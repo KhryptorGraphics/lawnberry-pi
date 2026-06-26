@@ -570,7 +570,9 @@ async function loadAllSettings() {
       api.get('/api/v2/settings/security'),
       api.get('/api/v2/settings/remote-access'),
       api.get('/api/v2/settings/maps'),
-      api.get('/api/v2/settings/gps-policy')
+      // gps-policy has no backend endpoint yet; tolerate its absence so the
+      // contract-valid settings sections above still load.
+      api.get('/api/v2/settings/gps-policy').catch(() => ({ data: {} }))
     ])
     
     const systemData = system.data || {}

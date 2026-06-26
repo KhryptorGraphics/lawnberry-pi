@@ -4,6 +4,29 @@ import pytest
 from backend.src.main import app
 
 
+@pytest.fixture(autouse=True)
+def _strict_auth_limits(monkeypatch):
+    """Apply strict login limits and reset limiter state for these tests.
+
+    The global test config keeps auth limits permissive so unrelated tests can
+    log in freely; this hardening suite exercises the limits, so it sets them
+    low (3 attempts / 3 failures) and clears prior state per test.
+    """
+    from backend.src.services.auth_service import primary_auth_service
+
+    monkeypatch.setenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("AUTH_RATE_LIMIT_WINDOW", "60")
+    monkeypatch.setenv("AUTH_LOCKOUT_FAILURES", "3")
+    monkeypatch.setenv("AUTH_LOCKOUT_SECONDS", "60")
+
+    limiter = primary_auth_service.rate_limiter
+    for store in (limiter._attempts, limiter._failures, limiter._lockout_until):
+        store.clear()
+    yield
+    for store in (limiter._attempts, limiter._failures, limiter._lockout_until):
+        store.clear()
+
+
 @pytest.mark.asyncio
 async def test_auth_login_rate_limit():
     transport = httpx.ASGITransport(app=app)

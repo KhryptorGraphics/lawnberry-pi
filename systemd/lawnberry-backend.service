@@ -17,6 +17,8 @@ Environment=LAWNBERRY_LOG_DIR=/apps/lawnberry-pi/logs
 Environment=LAWNBERRY_DATA_DIR=/apps/lawnberry-pi/data
 Environment=SIM_MODE=0
 Environment=PYTHONUNBUFFERED=1
+# Require operator authentication on config-changing write endpoints.
+Environment=OPERATOR_AUTH_REQUIRED=1
 # Load runtime secrets and configuration (e.g., NTRIP_*) from .env if present
 EnvironmentFile=-/apps/lawnberry-pi/.env
 

@@ -3,10 +3,13 @@ import io
 
 import numpy as np
 import pytest
-from PIL import Image
 
 import backend.src.services.camera_stream_service as camera_module
 from backend.src.services.camera_stream_service import CameraStreamService
+
+# Pillow is an on-device image dependency, not part of the base/CI env; skip the
+# whole module (rather than fail collection) when it is unavailable.
+Image = pytest.importorskip("PIL.Image")
 
 
 @pytest.mark.asyncio

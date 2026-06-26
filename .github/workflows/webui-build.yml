@@ -1,25 +1,28 @@
 name: webui-build
 on: [pull_request]
+concurrency:
+  group: webui-build-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build-ui:
     runs-on: ubuntu-latest
+    # Use the official Playwright image: Chromium + all system libs are prebaked,
+    # so we avoid the slow/flaky `playwright install --with-deps` apt step.
+    container:
+      image: mcr.microsoft.com/playwright:v1.48.0-jammy
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 'lts/*', cache: 'npm', cache-dependency-path: 'frontend/package-lock.json' }
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
       - name: Build frontend
         working-directory: frontend
         run: npm run build
-      - name: Install Playwright dependencies
+      - name: Run e2e tests
+        # The e2e specs mock the backend (tests/e2e/utils/mock-backend.ts) and
+        # Playwright serves the built frontend itself (webServer: npm run preview).
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
-      - name: Start backend server and run e2e tests
-        run: |
-          uv venv
-          source .venv/bin/activate
-          uvicorn backend/src/main:app --host 0.0.0.0 --port 8000 &
-          cd frontend
-          npm run test:e2e
+        run: npx playwright test
+        env:
+          CI: 'true'

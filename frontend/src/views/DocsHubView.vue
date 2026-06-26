@@ -549,10 +549,13 @@ async function selectDoc(doc: DocInfo) {
   // Load content from API if not already loaded
   if (!doc.content && !doc.steps) {
     try {
-      const response = await api.get(`/documentation/${doc.id}?format=html`)
-      if (response.data && response.data.content) {
+      // Backend contract: GET /api/v2/docs/{path} returns the raw markdown body
+      // as text/plain (doc.id holds the document's relative path).
+      const response = await api.get(`/docs/${doc.id}`)
+      if (typeof response.data === 'string' && response.data.length > 0) {
+        doc.content = response.data
+      } else if (response.data && typeof response.data.content === 'string') {
         doc.content = response.data.content
-        doc.lastUpdated = new Date(response.data.last_modified)
       }
     } catch (error) {
       console.error(`Failed to load documentation content for ${doc.id}:`, error)
@@ -699,6 +702,18 @@ function showStatus(message: string, success = false) {
   }, 3000)
 }
 
+// Derive a human-readable title from a backend document path
+// (e.g. "guides/hardware-overview.md" -> "Hardware Overview").
+function docTitleFromPath(docPath: string): string {
+  const base = docPath.split('/').pop() ?? docPath
+  const stem = base.replace(/\.md$/i, '')
+  return stem
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
 // Map documentation categories from backend
 function mapDocCategory(docId: string): string {
   if (docId.includes('install') || docId.includes('setup') || docId.includes('quick')) return 'getting-started'
@@ -719,20 +734,27 @@ async function loadDocumentation() {
     
     // Try to load real documentation from backend API
     try {
-      const response = await api.get('/documentation')
-      if (response.data && response.data.docs) {
-        const backendDocs: DocInfo[] = response.data.docs.map((doc: any) => ({
-          id: doc.id,
-          title: doc.title,
-          type: 'reference' as const,
-          category: mapDocCategory(doc.id),
-          icon: '📄',
-          lastUpdated: new Date(doc.last_modified),
-          readTime: `${Math.ceil(doc.size / 1000)} min`,
-          tags: [doc.id, 'documentation'],
-          // Content will be loaded on-demand when doc is selected
-        }))
-        
+      // Backend contract: GET /api/v2/docs/list -> [{ path, size_bytes, last_modified }]
+      const response = await api.get('/docs/list')
+      const entries: any[] = Array.isArray(response.data)
+        ? response.data
+        : (response.data?.docs ?? [])
+      if (entries.length > 0) {
+        const backendDocs: DocInfo[] = entries.map((doc: any) => {
+          const docPath: string = doc.path ?? doc.id
+          return {
+            id: docPath,
+            title: docTitleFromPath(docPath),
+            type: 'reference' as const,
+            category: mapDocCategory(docPath),
+            icon: '📄',
+            lastUpdated: new Date(doc.last_modified),
+            readTime: `${Math.max(1, Math.ceil((doc.size_bytes ?? doc.size ?? 0) / 1000))} min`,
+            tags: [docPath, 'documentation'],
+            // Content will be loaded on-demand when doc is selected
+          }
+        })
+
         // Replace offline docs with real backend docs
         docs.value = [...featuredGuides.value, ...backendDocs]
         console.log(`Loaded ${backendDocs.length} documentation files from backend`)

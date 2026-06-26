@@ -39,6 +39,51 @@ export async function triggerMapProviderFallback() {
   const response = await apiService.post('/api/v2/map/provider-fallback')
   return response.data
 }
+
+// Autonomous navigation control
+export async function startAutonomous(zones?: string[]) {
+  const response = await apiService.post('/api/v2/navigation/start', zones ? { zones } : {})
+  return response.data
+}
+
+export async function stopAutonomous() {
+  const response = await apiService.post('/api/v2/navigation/stop', {})
+  return response.data
+}
+
+export async function pauseAutonomous() {
+  const response = await apiService.post('/api/v2/navigation/pause', {})
+  return response.data
+}
+
+export async function resumeAutonomous() {
+  const response = await apiService.post('/api/v2/navigation/resume', {})
+  return response.data
+}
+
+export async function getNavigationStatus() {
+  const response = await apiService.get('/api/v2/navigation/status')
+  return response.data
+}
+
+export async function setControlMode(
+  mode: 'manual' | 'autonomous' | 'idle',
+  zones?: string[]
+) {
+  const payload: Record<string, unknown> = { mode }
+  if (zones) payload.zones = zones
+  const response = await apiService.post('/api/v2/control/mode', payload)
+  return response.data
+}
+
+// Planning job lifecycle
+export async function planningJobAction(
+  jobId: string,
+  action: 'start' | 'pause' | 'resume' | 'cancel'
+) {
+  const response = await apiService.post(`/api/v2/planning/jobs/${jobId}/${action}`, {})
+  return response.data
+}
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse } from 'axios'
 import { useAuthStore } from '@/stores/auth'

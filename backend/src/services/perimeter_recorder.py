@@ -408,15 +408,21 @@ class PerimeterRecordingService:
                         if r.get("valid", False)
                     ]
                     frame.ultrasonic = UltrasonicData(
-                        front_left_cm=ultrasonic_readings[0].get("distance_cm", 0.0)
-                        if len(ultrasonic_readings) > 0
-                        else 0.0,
-                        front_center_cm=ultrasonic_readings[1].get("distance_cm", 0.0)
-                        if len(ultrasonic_readings) > 1
-                        else 0.0,
-                        front_right_cm=ultrasonic_readings[2].get("distance_cm", 0.0)
-                        if len(ultrasonic_readings) > 2
-                        else 0.0,
+                        front_left_cm=(
+                            ultrasonic_readings[0].get("distance_cm", 0.0)
+                            if len(ultrasonic_readings) > 0
+                            else 0.0
+                        ),
+                        front_center_cm=(
+                            ultrasonic_readings[1].get("distance_cm", 0.0)
+                            if len(ultrasonic_readings) > 1
+                            else 0.0
+                        ),
+                        front_right_cm=(
+                            ultrasonic_readings[2].get("distance_cm", 0.0)
+                            if len(ultrasonic_readings) > 2
+                            else 0.0
+                        ),
                         min_distance_cm=min(distances) if distances else 0.0,
                     )
 
@@ -433,10 +439,15 @@ class PerimeterRecordingService:
                 frame.power = PowerState(
                     battery_voltage=power.battery_voltage or 0.0,
                     battery_current=power.battery_current or 0.0,
-                    battery_soc=self._estimate_soc(power.battery_voltage)
-                    if power.battery_voltage
-                    else 0.0,
-                    charging=False,  # TODO(v3): wire charging state from power service — Issue #N
+                    battery_soc=(
+                        self._estimate_soc(power.battery_voltage) if power.battery_voltage else 0.0
+                    ),
+                    # Charging when current flows into the battery or solar is
+                    # actively producing power.
+                    charging=bool(
+                        (power.battery_current or 0.0) > 0.05
+                        or (getattr(power, "solar_power", 0.0) or 0.0) > 1.0
+                    ),
                 )
 
         except Exception as e:

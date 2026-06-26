@@ -1,5 +1,8 @@
 name: config-lint
 on: [pull_request]
+concurrency:
+  group: config-lint-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -13,4 +16,16 @@ jobs:
       - name: Validate systemd units
         run: |
           sudo apt-get update && sudo apt-get install -y systemd
-          for f in systemd/*.service; do [ -f "$f" ] && systemd-analyze verify "$f"; done
+          status=0
+          for f in systemd/*.service; do
+            [ -f "$f" ] || continue
+            out=$(systemd-analyze verify "$f" 2>&1) || true
+            # The units reference on-device deploy paths (e.g. /apps/lawnberry-pi/.venv/...)
+            # that don't exist in CI; ignore those ExecStart-missing errors but fail on
+            # any genuine unit-file problem.
+            filtered=$(printf '%s\n' "$out" | grep -viE "is not executable|No such file or directory" || true)
+            if [ -n "$filtered" ]; then
+              echo "Unit issues in $f:"; printf '%s\n' "$out"; status=1
+            fi
+          done
+          exit $status

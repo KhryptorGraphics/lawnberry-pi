@@ -411,7 +411,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useApiService } from '@/services/api'
+import { useApiService, startAutonomous } from '@/services/api'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
 
@@ -652,16 +652,12 @@ const lastRain = computed(() => '2 days ago')
 // Methods
 async function startQuickMow() {
   try {
-    await api.post('/api/v2/mow/jobs', {
-      name: 'Quick Mow',
-      zones: ['front_lawn'],
-      pattern: 'parallel',
-      start_immediately: true
-    })
-    showStatus('Quick mow started successfully!', true)
+    // Begin an autonomous mowing run over all boundary zones immediately.
+    await startAutonomous()
+    showStatus('Autonomous mowing started!', true)
     await refreshJobs()
   } catch (error) {
-    showStatus('Failed to start quick mow', false)
+    showStatus('Failed to start autonomous mowing', false)
   }
 }
 
@@ -708,8 +704,9 @@ async function saveSchedule() {
 
 async function refreshJobs() {
   try {
-    const response = await api.get('/api/v2/mow/jobs')
-    jobs.value = response.data.active || []
+    // Backend contract: GET /api/v2/planning/jobs -> plain list of jobs
+    const response = await api.get('/api/v2/planning/jobs')
+    jobs.value = Array.isArray(response.data) ? response.data : (response.data?.active || [])
   } catch (error) {
     console.error('Failed to refresh jobs:', error)
   }
@@ -726,7 +723,7 @@ async function refreshSchedules() {
 
 async function startJob(job: any) {
   try {
-    await api.post(`/api/v2/mow/jobs/${job.id}/start`)
+    await api.post(`/api/v2/planning/jobs/${job.id}/start`)
     job.status = 'running'
     showStatus('Job started!', true)
   } catch (error) {
@@ -736,7 +733,7 @@ async function startJob(job: any) {
 
 async function pauseJob(job: any) {
   try {
-    await api.post(`/api/v2/mow/jobs/${job.id}/pause`)
+    await api.post(`/api/v2/planning/jobs/${job.id}/pause`)
     job.status = 'paused'
     showStatus('Job paused', true)
   } catch (error) {
@@ -746,7 +743,7 @@ async function pauseJob(job: any) {
 
 async function resumeJob(job: any) {
   try {
-    await api.post(`/api/v2/mow/jobs/${job.id}/resume`)
+    await api.post(`/api/v2/planning/jobs/${job.id}/resume`)
     job.status = 'running'
     showStatus('Job resumed!', true)
   } catch (error) {
@@ -758,7 +755,7 @@ async function cancelJob(job: any) {
   if (!confirm(`Cancel job "${job.name}"?`)) return
   
   try {
-    await api.delete(`/api/v2/mow/jobs/${job.id}`)
+    await api.delete(`/api/v2/planning/jobs/${job.id}`)
     const index = jobs.value.findIndex(j => j.id === job.id)
     if (index > -1) jobs.value.splice(index, 1)
     showStatus('Job cancelled', true)
@@ -808,7 +805,7 @@ function selectZone(zone: any) {
 
 async function mowZone(zone: any) {
   try {
-    await api.post('/api/v2/mow/jobs', {
+    await api.post('/api/v2/planning/jobs', {
       name: `${zone.name} - Quick Mow`,
       zones: [zone.id],
       pattern: 'parallel',

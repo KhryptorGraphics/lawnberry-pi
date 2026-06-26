@@ -1,10 +1,15 @@
 name: pr-hygiene
 on: [pull_request]
+concurrency:
+  group: pr-hygiene-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   guard:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Block deletion of workflows without owner approval
         run: |
           base=${{ github.event.pull_request.base.sha }}

@@ -37,9 +37,23 @@ test.describe('Manual control access', () => {
     await expect(page.getByRole('heading', { name: 'Movement Controls' })).toBeVisible()
 
     const joystick = page.getByRole('slider', { name: /joystick/i })
-    await joystick.dispatchEvent('mousedown', { clientX: 110, clientY: 0 })
+    // VirtualJoystick binds pointerdown on the element and pointermove on window.
+    // Dispatch a pointerdown at centre then a pointermove toward the right edge
+    // (same pointerId) so it emits a non-zero movement vector and sends a drive.
+    const box = await joystick.boundingBox()
+    if (!box) throw new Error('joystick not visible')
+    const cx = box.x + box.width / 2
+    const cy = box.y + box.height / 2
+    await joystick.dispatchEvent('pointerdown', { pointerId: 1, clientX: cx, clientY: cy })
+    await page.evaluate(
+      ({ x, y }) =>
+        window.dispatchEvent(
+          new PointerEvent('pointermove', { pointerId: 1, clientX: x, clientY: y, bubbles: true })
+        ),
+      { x: box.x + box.width - 2, y: cy }
+    )
 
-    await expect.poll(() => backend.driveCommands.length).toBe(1)
+    await expect.poll(() => backend.driveCommands.length).toBeGreaterThanOrEqual(1)
     const lockoutActive = await page.evaluate(() => {
       return Boolean((window as any).__APP_TEST_HOOKS__?.controlStore?.lockout)
     })

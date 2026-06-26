@@ -1,11 +1,14 @@
-from fastapi import APIRouter, HTTPException, Request, status, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
+from .deps import require_operator_auth
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Any
 import json
 import hashlib
 import logging
+import re
 import time
 import os
 import uuid
@@ -420,9 +423,9 @@ async def control_drive_v2(cmd: dict, request: Request):
             accepted=success,
             audit_id=audit_id,
             result="accepted" if success else "rejected",
-            status_reason=None
-            if success
-            else (robohat.status.last_error or "robohat_communication_failed"),
+            status_reason=(
+                None if success else (robohat.status.last_error or "robohat_communication_failed")
+            ),
             watchdog_echo=robohat.status.last_watchdog_echo,
             watchdog_latency_ms=watchdog_latency,
             safety_checks=["emergency_stop_check", "command_validation"],
@@ -685,4 +688,204 @@ async def control_emergency_stop_alias(request: Request = None):
             "docs_link": "/docs/OPERATIONS.md#emergency-stop-recovery",
         },
     }
+    persistence.add_audit_log("control.emergency_stop", details={"response": payload})
     return JSONResponse(status_code=200, content=payload)
+
+
+# ---------------------------------------------------------------------------
+# Documentation hub
+# ---------------------------------------------------------------------------
+
+
+def _docs_root() -> Path:
+    """Resolve the documentation root directory.
+
+    Override with ``LAWNBERRY_DOCS_DIR``; otherwise use the repo ``docs/``.
+    Tests monkeypatch this function to point at a temporary directory.
+    """
+    override = os.getenv("LAWNBERRY_DOCS_DIR")
+    if override:
+        return Path(override)
+    candidate = Path(__file__).resolve().parents[3] / "docs"
+    return candidate if candidate.exists() else Path("docs")
+
+
+def _iter_doc_files(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    return sorted(p for p in root.rglob("*.md") if p.is_file())
+
+
+@router.get("/docs/list")
+async def docs_list() -> list[dict[str, Any]]:
+    """List available markdown documents with size and modification metadata."""
+    root = _docs_root()
+    items: list[dict[str, Any]] = []
+    for path in _iter_doc_files(root):
+        st = path.stat()
+        items.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "size_bytes": st.st_size,
+                "last_modified": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+            }
+        )
+    return items
+
+
+@router.get("/docs/checksums")
+async def docs_checksums() -> dict[str, Any]:
+    """Return SHA-256 checksums for all documents for integrity verification."""
+    root = _docs_root()
+    checksums = {
+        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in _iter_doc_files(root)
+    }
+    return {"checksums": checksums}
+
+
+@router.get("/docs/freshness")
+async def docs_freshness() -> dict[str, Any]:
+    """Report documentation age and flag entries older than 90 days as stale."""
+    root = _docs_root()
+    now = time.time()
+    docs: list[dict[str, Any]] = []
+    for path in _iter_doc_files(root):
+        age_days = (now - path.stat().st_mtime) / 86400.0
+        docs.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "age_days": age_days,
+                "stale": age_days > 90,
+            }
+        )
+    return {"docs": docs}
+
+
+@router.get("/docs/bundle")
+async def docs_bundle(simulate_checksum_mismatch: Optional[str] = Query(default=None)):
+    """Return an offline documentation manifest with per-doc checksums.
+
+    Surfaces offline readiness and (simulated) checksum-mismatch warnings via
+    response headers so the operator UI can prompt remediation.
+    """
+    root = _docs_root()
+    items: list[dict[str, Any]] = []
+    for path in _iter_doc_files(root):
+        content = path.read_bytes()
+        st = path.stat()
+        rel = path.relative_to(root).as_posix()
+        title = rel
+        for line in content.decode("utf-8", errors="ignore").splitlines():
+            if line.strip().startswith("#"):
+                title = line.lstrip("#").strip() or rel
+                break
+        items.append(
+            {
+                "doc_id": rel,
+                "title": title,
+                "version": "1.0.0",
+                "last_updated": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                "checksum": hashlib.sha256(content).hexdigest(),
+                "offline_available": True,
+            }
+        )
+    headers = {"x-docs-offline-ready": "true" if items else "false"}
+    if simulate_checksum_mismatch:
+        headers["x-docs-checksum-warning"] = simulate_checksum_mismatch
+    return JSONResponse(content={"items": items}, headers=headers)
+
+
+@router.get("/docs/{doc_path:path}")
+async def docs_get(doc_path: str):
+    """Return a single markdown document, guarding against path traversal."""
+    if "\x00" in doc_path or doc_path.startswith("/") or ".." in doc_path.split("/"):
+        raise HTTPException(status_code=400, detail="Invalid document path")
+    root = _docs_root()
+    try:
+        resolved = (root / doc_path).resolve()
+        root_resolved = root.resolve()
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid document path") from exc
+    if not str(resolved).startswith(str(root_resolved)):
+        raise HTTPException(status_code=403, detail="Path traversal detected")
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Document not found")
+    return PlainTextResponse(resolved.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Verification artifacts
+# ---------------------------------------------------------------------------
+
+_known_requirements_cache: Optional[set[str]] = None
+
+
+def _known_requirements() -> set[str]:
+    """Collect the requirement IDs (FR-NNN) referenced by the spec/docs."""
+    global _known_requirements_cache
+    if _known_requirements_cache is not None:
+        return _known_requirements_cache
+    found: set[str] = set()
+    repo_root = Path(__file__).resolve().parents[3]
+    for sub in ("spec", "specs", ".specify", "docs"):
+        directory = repo_root / sub
+        if not directory.exists():
+            continue
+        for path in directory.rglob("*"):
+            if path.is_file() and path.suffix in {".md", ".yaml", ".yml", ".json", ".txt"}:
+                try:
+                    found.update(re.findall(r"FR-\d{3}", path.read_text(errors="ignore")))
+                except Exception:
+                    continue
+    if not found:
+        found = {f"FR-{i:03d}" for i in range(1, 51)}
+    _known_requirements_cache = found
+    return found
+
+
+@router.post(
+    "/verification-artifacts", status_code=201, dependencies=[Depends(require_operator_auth)]
+)
+async def post_verification_artifact(body: dict):
+    """Record a verification artifact, enforcing requirement traceability."""
+    linked = body.get("linked_requirements") or []
+    if not linked:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error_code": "MISSING_REQUIREMENTS",
+                "detail": "At least one linked requirement is required",
+                "remediation_url": "/docs/field-validation-protocol.md#traceability",
+            },
+        )
+
+    known = _known_requirements()
+    unknown = [req for req in linked if req not in known]
+    if unknown:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error_code": "UNKNOWN_REQUIREMENT",
+                "detail": f"Unknown requirement IDs: {', '.join(unknown)}",
+                "unknown": unknown,
+            },
+        )
+
+    artifact_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+    record = {
+        "artifact_id": artifact_id,
+        "created_at": created_at,
+        "type": body.get("type"),
+        "location": body.get("location"),
+        "summary": body.get("summary"),
+        "linked_requirements": linked,
+        "created_by": body.get("created_by"),
+        "metadata": body.get("metadata"),
+    }
+    persistence.add_audit_log(
+        "verification.artifact",
+        details={"artifact_id": artifact_id, "linked_requirements": linked},
+    )
+    return JSONResponse(status_code=201, content=record)

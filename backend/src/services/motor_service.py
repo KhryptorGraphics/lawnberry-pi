@@ -44,20 +44,34 @@ class RoboHATCytronController:
             return False
 
     async def send_drive_command(self, command: DriveCommand) -> bool:
-        """Send drive command to RoboHAT"""
+        """Send a drive command to the RoboHAT over the live serial bridge.
+
+        Delegates to the long-lived ``RoboHATService`` (real UART write). When no
+        serial bridge is present (e.g. SIM_MODE), the command is recorded but not
+        transmitted.
+        """
         if not self.initialized:
             return False
 
         try:
-            # Convert to RoboHAT protocol
-            left_speed = int(command.left_motor_speed * 100)  # -100 to 100
-            right_speed = int(command.right_motor_speed * 100)
+            left = max(-1.0, min(1.0, float(command.left_motor_speed)))
+            right = max(-1.0, min(1.0, float(command.right_motor_speed)))
 
-            # Send command via UART (placeholder)
-            logger.debug(f"RoboHAT command: L={left_speed}, R={right_speed}")
+            ok = True
+            try:
+                from .robohat_service import get_robohat_service
+
+                robohat = get_robohat_service()
+            except Exception:
+                robohat = None
+
+            if robohat is not None and hasattr(robohat, "send_motor_command"):
+                ok = await robohat.send_motor_command(left, right)
+            else:
+                logger.debug("RoboHAT command (no serial bridge): L=%.2f R=%.2f", left, right)
 
             self.last_command = command
-            return True
+            return bool(ok)
         except Exception as e:
             logger.error(f"Failed to send RoboHAT command: {e}")
             return False

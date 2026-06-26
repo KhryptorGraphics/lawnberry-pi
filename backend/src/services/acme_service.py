@@ -1,3 +1,5 @@
+import os
+import shutil
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -9,13 +11,29 @@ logger = observability.get_logger(__name__)
 
 
 class ACMEService:
-    """ACME TLS certificate management service."""
+    """ACME TLS certificate management service.
+
+    Real issuance/renewal/revocation is delegated to the system ``certbot``
+    binary (HTTP-01 via the configured webroot). Live ACME calls are gated so
+    they only run when explicitly invoked; ``staging``/``dry_run`` avoid hitting
+    the production Let's Encrypt rate limits. All operations fail closed: on any
+    error the certificate is marked failed rather than reported as valid.
+    """
 
     def __init__(self):
         self.certificates: dict[str, dict[str, Any]] = {}
         self.challenges: dict[str, str] = {}  # token -> file_content
-        self.cert_dir = Path("/etc/lawnberry/certs")
-        self.challenge_dir = Path("/var/www/.well-known/acme-challenge")
+        self.cert_dir = Path(os.getenv("LAWNBERRY_CERT_DIR", "/etc/lawnberry/certs"))
+        self.challenge_dir = Path(
+            os.getenv("ACME_CHALLENGE_DIR", "/var/www/.well-known/acme-challenge")
+        )
+        # Webroot whose /.well-known/acme-challenge/ is served on port 80.
+        self.webroot = Path(os.getenv("ACME_WEBROOT", "/var/www"))
+        # certbot keeps its account/config/live state under this directory.
+        self.le_dir = Path(os.getenv("ACME_LE_DIR", "/etc/letsencrypt"))
+        self.certbot_bin = os.getenv("ACME_CERTBOT_BIN", shutil.which("certbot") or "certbot")
+        # Use the Let's Encrypt staging environment unless explicitly disabled.
+        self.staging = os.getenv("ACME_STAGING", "1") == "1"
         self.auto_renewal_enabled = True
 
     def initialize(self):
@@ -23,29 +41,139 @@ class ACMEService:
         self.cert_dir.mkdir(parents=True, exist_ok=True)
         self.challenge_dir.mkdir(parents=True, exist_ok=True)
 
-    def request_certificate(self, domain: str, email: str) -> dict[str, Any]:
-        """Request a new certificate from Let's Encrypt."""
+    # --- certbot plumbing ---------------------------------------------------
+
+    def _live_dir(self, domain: str) -> Path:
+        return self.le_dir / "live" / domain
+
+    def _run_certbot(self, args: list[str]) -> subprocess.CompletedProcess:
+        cmd = [
+            self.certbot_bin,
+            *args,
+            "--config-dir",
+            str(self.le_dir),
+            "--work-dir",
+            str(self.le_dir / "work"),
+            "--logs-dir",
+            str(self.le_dir / "logs"),
+            "--non-interactive",
+        ]
+        logger.info("Running certbot", extra={"command": " ".join(cmd)})
+        return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+    def _certificate_expiry(self, domain: str) -> datetime | None:
+        """Read the real notAfter from the issued certificate, if present."""
+        cert_path = self._live_dir(domain) / "fullchain.pem"
+        if not cert_path.exists():
+            return None
         try:
-            # Placeholder for ACME certificate request
-            # In production, this would use a proper ACME client like certbot
+            from cryptography import x509
 
-            result = {
+            cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+            expiry = getattr(cert, "not_valid_after_utc", None)
+            if expiry is None:
+                expiry = cert.not_valid_after.replace(tzinfo=UTC)
+            return expiry
+        except Exception:
+            pass
+        try:
+            result = subprocess.run(
+                ["openssl", "x509", "-enddate", "-noout", "-in", str(cert_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and "notAfter=" in result.stdout:
+                value = result.stdout.strip().split("notAfter=", 1)[1]
+                return datetime.strptime(value, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=UTC)
+        except Exception:
+            pass
+        return None
+
+    def request_certificate(
+        self,
+        domain: str,
+        email: str,
+        *,
+        staging: bool | None = None,
+        dry_run: bool = False,
+        webroot: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """Request a new certificate from Let's Encrypt via certbot (HTTP-01)."""
+        use_staging = self.staging if staging is None else staging
+        webroot_path = str(webroot or self.webroot)
+        requested_at = datetime.now(UTC)
+        try:
+            args = [
+                "certonly",
+                "--webroot",
+                "-w",
+                webroot_path,
+                "-d",
+                domain,
+                "--agree-tos",
+                "-m",
+                email,
+                "--keep-until-expiring",
+            ]
+            if use_staging:
+                args.append("--staging")
+            if dry_run:
+                args.append("--dry-run")
+
+            result = self._run_certbot(args)
+            if result.returncode != 0:
+                logger.error(
+                    "certbot certonly failed",
+                    extra={"domain": domain, "stderr": result.stderr[-500:]},
+                )
+                observability.record_error(
+                    origin="acme",
+                    message="certbot certonly failed",
+                    metadata={"domain": domain, "returncode": result.returncode},
+                )
+                return {
+                    "domain": domain,
+                    "status": "failed",
+                    "error": result.stderr.strip()[-500:] or "certbot failed",
+                    "requested_at": requested_at,
+                }
+
+            expires_at = self._certificate_expiry(domain) or (requested_at + timedelta(days=90))
+            record = {
                 "domain": domain,
-                "status": "requested",
-                "requested_at": datetime.now(UTC),
-                "expires_at": datetime.now(UTC) + timedelta(days=90),
+                # dry-run validates the flow without persisting a usable cert.
+                "status": "validated" if dry_run else "issued",
+                "requested_at": requested_at,
+                "issued_at": requested_at,
+                "expires_at": expires_at,
+                "staging": use_staging,
                 "auto_renew": True,
+                "cert_path": str(self._live_dir(domain) / "fullchain.pem"),
+                "key_path": str(self._live_dir(domain) / "privkey.pem"),
             }
+            self.certificates[domain] = record
+            return record
 
-            self.certificates[domain] = result
-            return result
-
+        except FileNotFoundError as exc:
+            # certbot binary missing -> fail closed.
+            logger.error("certbot binary not found", exc_info=True)
+            return {
+                "domain": domain,
+                "status": "failed",
+                "error": f"certbot not available: {exc}",
+                "requested_at": requested_at,
+            }
         except Exception as e:
+            logger.error("Certificate request failed", exc_info=True)
+            observability.record_error(
+                origin="acme", message="Certificate request failed", exception=e
+            )
             return {
                 "domain": domain,
                 "status": "failed",
                 "error": str(e),
-                "requested_at": datetime.now(UTC),
+                "requested_at": requested_at,
             }
 
     def create_challenge_file(self, token: str, key_auth: str) -> str:
@@ -99,39 +227,76 @@ class ACMEService:
         """Check if certificate needs renewal."""
         return not self.is_certificate_valid(domain)
 
-    def renew_certificate(self, domain: str) -> dict[str, Any]:
-        """Renew an existing certificate."""
+    def renew_certificate(self, domain: str, *, dry_run: bool = False) -> dict[str, Any]:
+        """Renew an existing certificate via ``certbot renew --cert-name``."""
         cert_info = self.certificates.get(domain)
-        if not cert_info:
+        if not cert_info and not self._live_dir(domain).exists():
             return {"error": "Certificate not found"}
 
         try:
-            # Placeholder renewal logic
-            cert_info.update(
+            args = ["renew", "--cert-name", domain]
+            if dry_run:
+                args.append("--dry-run")
+            result = self._run_certbot(args)
+            if result.returncode != 0:
+                observability.record_error(
+                    origin="acme",
+                    message="certbot renew failed",
+                    metadata={"domain": domain, "returncode": result.returncode},
+                )
+                return {"error": result.stderr.strip()[-500:] or "certbot renew failed"}
+
+            expires_at = self._certificate_expiry(domain) or (
+                datetime.now(UTC) + timedelta(days=90)
+            )
+            record = self.certificates.setdefault(domain, {"domain": domain, "auto_renew": True})
+            record.update(
                 {
-                    "status": "renewed",
+                    "status": "issued",
                     "renewed_at": datetime.now(UTC),
-                    "expires_at": datetime.now(UTC) + timedelta(days=90),
+                    "expires_at": expires_at,
                 }
             )
-
-            return cert_info
+            return record
 
         except Exception as e:
+            logger.error("Certificate renewal failed", exc_info=True)
+            observability.record_error(
+                origin="acme", message="Certificate renewal failed", exception=e
+            )
             return {"error": str(e)}
 
     def revoke_certificate(self, domain: str) -> bool:
-        """Revoke a certificate."""
-        if domain not in self.certificates:
+        """Revoke a certificate via ``certbot revoke`` and forget it."""
+        cert_path = self._live_dir(domain) / "fullchain.pem"
+        if domain not in self.certificates and not cert_path.exists():
             return False
 
         try:
-            # Placeholder revocation logic
+            if cert_path.exists():
+                result = self._run_certbot(
+                    [
+                        "revoke",
+                        "--cert-path",
+                        str(cert_path),
+                        "--delete-after-revoke",
+                    ]
+                )
+                if result.returncode != 0:
+                    observability.record_error(
+                        origin="acme",
+                        message="certbot revoke failed",
+                        metadata={"domain": domain, "returncode": result.returncode},
+                    )
+                    return False
+
+            self.certificates.setdefault(domain, {"domain": domain})
             self.certificates[domain]["status"] = "revoked"
             self.certificates[domain]["revoked_at"] = datetime.now(UTC)
             return True
 
         except Exception:
+            logger.error("Certificate revocation failed", exc_info=True)
             return False
 
     def get_certificates_needing_renewal(self) -> list[str]:

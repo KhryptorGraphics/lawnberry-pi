@@ -711,12 +711,22 @@ const filteredImages = computed(() => {
 // Methods
 async function refreshDataset() {
   try {
-    const response = await api.get('/api/v2/training/dataset')
+    // Backend contract: GET /api/v2/ai/datasets -> list of datasets available for export
+    const response = await api.get('/api/v2/ai/datasets')
     // Update dataset statistics
     showStatus('Dataset refreshed', true)
   } catch (error) {
     showStatus('Failed to refresh dataset', false)
   }
+}
+
+// Map a UI category name to a backend dataset id. The Pi exposes
+// `grass-detection` and `obstacle-detection` datasets (see ai_control router).
+function categoryToDatasetId(category: string): string {
+  const normalized = category.toLowerCase()
+  if (normalized.startsWith('grass')) return 'grass-detection'
+  if (normalized.startsWith('obstacle')) return 'obstacle-detection'
+  return `${normalized}-detection`
 }
 
 function toggleImageSelection(imageId: string) {
@@ -742,10 +752,13 @@ function labelCategory(category: any) {
 
 async function exportCategory(category: any) {
   try {
-    const response = await api.post('/api/v2/training/export', {
-      categories: [category.name],
-      format: selectedExportFormat.value,
-      ...exportConfig.value
+    // Backend contract: POST /api/v2/ai/datasets/{id}/export with
+    // { format, include_unlabeled, min_confidence } -> 202 { export_id, status }
+    const datasetId = categoryToDatasetId(category.name)
+    const response = await api.post(`/api/v2/ai/datasets/${datasetId}/export`, {
+      format: selectedExportFormat.value.toUpperCase(),
+      include_unlabeled: exportConfig.value.includeUnlabeled,
+      min_confidence: 0.0
     })
     showStatus(`Export started for ${category.name}`, true)
   } catch (error) {

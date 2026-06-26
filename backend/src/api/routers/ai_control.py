@@ -26,6 +26,7 @@ from ...services.ai_inference_service import (
     AIInferenceService,
     get_ai_inference_service,
 )
+from ..deps import require_operator_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -202,7 +203,9 @@ async def disable_ai_control(
 
 
 @router.get("/status", response_model=StatusResponse)
-async def get_ai_status(service: AIInferenceService = Depends(get_service)) -> StatusResponse:  # noqa: B008
+async def get_ai_status(
+    service: AIInferenceService = Depends(get_service),  # noqa: B008
+) -> StatusResponse:
     """Get current AI control status.
 
     Returns comprehensive status including model state, inference metrics,
@@ -288,7 +291,9 @@ async def load_model(
 
 
 @router.get("/metrics", response_model=MetricsResponse)
-async def get_metrics(service: AIInferenceService = Depends(get_service)) -> MetricsResponse:  # noqa: B008
+async def get_metrics(
+    service: AIInferenceService = Depends(get_service),  # noqa: B008
+) -> MetricsResponse:
     """Get inference performance metrics.
 
     Returns detailed statistics about inference performance including
@@ -306,9 +311,11 @@ async def get_metrics(service: AIInferenceService = Depends(get_service)) -> Met
             failed_inferences=metrics.failed_inferences,
             safety_overrides=metrics.safety_overrides,
             avg_inference_time_ms=round(metrics.avg_inference_time_ms, 2),
-            min_inference_time_ms=round(metrics.min_inference_time_ms, 2)
-            if metrics.min_inference_time_ms != float("inf")
-            else 0.0,
+            min_inference_time_ms=(
+                round(metrics.min_inference_time_ms, 2)
+                if metrics.min_inference_time_ms != float("inf")
+                else 0.0
+            ),
             max_inference_time_ms=round(metrics.max_inference_time_ms, 2),
             avg_total_time_ms=round(metrics.avg_total_time_ms, 2),
             inferences_per_second=round(metrics.inferences_per_second, 2),
@@ -331,7 +338,9 @@ async def get_metrics(service: AIInferenceService = Depends(get_service)) -> Met
 
 
 @router.post("/metrics/reset")
-async def reset_metrics(service: AIInferenceService = Depends(get_service)) -> dict[str, Any]:  # noqa: B008
+async def reset_metrics(
+    service: AIInferenceService = Depends(get_service),  # noqa: B008
+) -> dict[str, Any]:
     """Reset inference performance metrics.
 
     Clears all accumulated statistics and starts fresh.
@@ -350,7 +359,9 @@ async def reset_metrics(service: AIInferenceService = Depends(get_service)) -> d
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(service: AIInferenceService = Depends(get_service)) -> HealthResponse:  # noqa: B008
+async def health_check(
+    service: AIInferenceService = Depends(get_service),  # noqa: B008
+) -> HealthResponse:
     """Health check for AI inference service.
 
     Returns service health status for monitoring.
@@ -394,6 +405,72 @@ async def health_check(service: AIInferenceService = Depends(get_service)) -> He
             hardware_available=False,
             message=f"Health check failed: {str(e)}",
         )
+
+
+# ----------------------- Dataset export -----------------------
+
+# Labeled datasets available for export to training formats. The Pi only runs
+# inference; exports are handed off to the Thor training server.
+_DATASETS: dict[str, dict[str, Any]] = {
+    "grass-detection": {"id": "grass-detection", "name": "Grass Detection", "label_count": 0},
+    "obstacle-detection": {
+        "id": "obstacle-detection",
+        "name": "Obstacle Detection",
+        "label_count": 0,
+    },
+}
+
+# In-memory record of export jobs started this process lifetime.
+_EXPORT_JOBS: dict[str, dict[str, Any]] = {}
+
+
+class DatasetExportRequest(BaseModel):
+    """Request to export a labeled dataset to a training format."""
+
+    format: str = Field("COCO", description="Export format, e.g. COCO or YOLO")
+    include_unlabeled: bool = Field(False, description="Include frames without labels")
+    min_confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+
+@router.get("/datasets")
+async def list_datasets() -> list[dict[str, Any]]:
+    """List datasets available for export."""
+    return list(_DATASETS.values())
+
+
+@router.post(
+    "/datasets/{dataset_id}/export", status_code=202, dependencies=[Depends(require_operator_auth)]
+)
+async def export_dataset(dataset_id: str, payload: DatasetExportRequest) -> dict[str, Any]:
+    """Start an asynchronous dataset export job."""
+    if dataset_id not in _DATASETS:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset: {dataset_id}")
+
+    import uuid
+    from datetime import UTC, datetime
+
+    export_id = str(uuid.uuid4())
+    job = {
+        "export_id": export_id,
+        "dataset_id": dataset_id,
+        "status": "started",
+        "format": payload.format,
+        "include_unlabeled": payload.include_unlabeled,
+        "min_confidence": payload.min_confidence,
+        "started_at": datetime.now(UTC).isoformat(),
+    }
+    _EXPORT_JOBS[export_id] = job
+    logger.info("Started dataset export %s for %s (%s)", export_id, dataset_id, payload.format)
+    try:
+        from ...core.persistence import persistence
+
+        persistence.add_audit_log(
+            "ai.export",
+            details={"export_id": export_id, "dataset_id": dataset_id, "format": payload.format},
+        )
+    except Exception:
+        pass
+    return job
 
 
 __all__ = ["router"]

@@ -25,7 +25,7 @@ test.describe('AI training workflows', () => {
 
     const datasetRequest = backend
       .getRequests()
-      .find((entry) => entry.method === 'GET' && entry.path === '/api/v2/training/dataset')
+      .find((entry) => entry.method === 'GET' && entry.path === '/api/v2/ai/datasets')
     expect(datasetRequest).toBeTruthy()
   })
 

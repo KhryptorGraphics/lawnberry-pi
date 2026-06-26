@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from datetime import UTC, datetime, timedelta
 
 from ..core.observability import observability
@@ -87,7 +88,7 @@ class JobsService:
         job.status = JobStatus.RUNNING
         job.started_at = datetime.now(UTC)
 
-        # Start job execution (placeholder)
+        # Dispatch execution to the navigation/mission pipeline.
         asyncio.create_task(self._execute_job(job))
         return True
 
@@ -239,40 +240,97 @@ class JobsService:
             del self.jobs[job_id]
 
     async def _execute_job(self, job: Job):
-        """Execute a job (placeholder implementation)."""
+        """Execute a job by dispatching it to the navigation/mission pipeline."""
         try:
-            # Initialize progress
-            if not job.progress:
-                from ..models.job import JobProgress
+            from ..models.job import JobProgress
 
+            if not job.progress:
                 job.progress = JobProgress()
 
-            # Simulate job execution
-            for i in range(10):
-                if job.status != JobStatus.RUNNING:
-                    break
+            if job.job_type in (JobType.SCHEDULED_MOW, JobType.MANUAL_MOW, JobType.MAPPING):
+                await self._run_mission_job(job)
+            elif job.job_type == JobType.RETURN_HOME:
+                await self._run_return_home_job(job)
+            else:
+                # MAINTENANCE and any other type: nothing to drive on the robot.
+                job.progress.percentage_complete = 100.0
+                job.execution_logs.append(f"{job.job_type} job acknowledged")
 
-                # Update progress
-                job.progress.percentage_complete = (i + 1) * 10
-                job.progress.runtime_minutes = (i + 1) * 0.5
-
-                # Add execution log
-                job.execution_logs.append(f"Step {i + 1}/10 completed")
-
-                await asyncio.sleep(1)  # Simulate work
-
-            # Complete the job
             if job.status == JobStatus.RUNNING:
                 job.status = JobStatus.COMPLETED
                 job.completed_at = datetime.now(UTC)
                 job.last_run = job.completed_at
-                job.result_message = "Job completed successfully"
+                job.result_message = job.result_message or "Job completed successfully"
 
         except Exception as e:
             job.status = JobStatus.FAILED
             job.completed_at = datetime.now(UTC)
             job.error_message = str(e)
             job.execution_logs.append(f"Job failed: {e}")
+
+    async def _run_mission_job(self, job: Job) -> None:
+        """Create and run a mowing mission, mapping mission status to job progress."""
+        from .mission_service import get_mission_service
+        from .navigation_service import NavigationService
+
+        nav = NavigationService.get_instance()
+        # Prime the mission-service singleton with a real nav service so the
+        # status that execute_mission updates is the one we poll here.
+        mission_service = get_mission_service(nav)
+
+        waypoints = self._waypoints_for_job(job)
+        mission = await mission_service.create_mission(
+            name=job.name or f"job-{job.id}", waypoints=waypoints
+        )
+        await mission_service.start_mission(mission.id)
+        job.execution_logs.append(f"Started mission {mission.id} with {len(waypoints)} waypoint(s)")
+
+        started = datetime.now(UTC)
+        timeout = timedelta(minutes=job.timeout_minutes or 120)
+        while job.status == JobStatus.RUNNING:
+            status = mission_service.mission_statuses.get(mission.id)
+            if status is not None:
+                job.progress.percentage_complete = float(status.completion_percentage)
+                job.progress.runtime_minutes = (datetime.now(UTC) - started).total_seconds() / 60.0
+                if status.status == "completed":
+                    job.progress.percentage_complete = 100.0
+                    job.result_message = "Mowing mission completed"
+                    break
+                if status.status == "failed":
+                    job.status = JobStatus.FAILED
+                    job.error_message = "Mission failed"
+                    break
+                if status.status == "aborted":
+                    job.status = JobStatus.CANCELLED
+                    break
+            if datetime.now(UTC) - started > timeout:
+                await mission_service.abort_mission(mission.id)
+                job.status = JobStatus.FAILED
+                job.error_message = "Mission timed out"
+                break
+            await asyncio.sleep(0.2)
+
+    async def _run_return_home_job(self, job: Job) -> None:
+        """Dispatch a return-to-base request to the navigation service."""
+        from .navigation_service import NavigationService
+
+        nav = NavigationService.get_instance()
+        handler = getattr(nav, "return_to_base", None) or getattr(nav, "return_home", None)
+        if handler is not None:
+            result = handler()
+            if inspect.isawaitable(result):
+                await result
+        job.progress.percentage_complete = 100.0
+        job.execution_logs.append("Return-to-home dispatched")
+
+    def _waypoints_for_job(self, job: Job) -> list:
+        """Coverage waypoints for the job's zones (see nav.zone_coverage)."""
+        from ..nav.zone_coverage import waypoints_from_map_config
+
+        return waypoints_from_map_config(
+            job.zones or None,
+            overlap_factor=float(getattr(job, "overlap_factor", 0.1) or 0.1),
+        )
 
 
 # Global instance

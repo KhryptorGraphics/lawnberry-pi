@@ -1,5 +1,8 @@
 name: sim-tests
 on: [push, pull_request]
+concurrency:
+  group: sim-tests-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   sim:
     runs-on: ubuntu-latest
