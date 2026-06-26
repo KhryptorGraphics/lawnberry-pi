@@ -18,6 +18,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -164,6 +165,20 @@ async def stop_recording(
         session = await recorder.stop_recording()
 
         logger.info(f"Stopped recording session: {session.name}, {session.frame_count} frames")
+
+        # Best-effort: queue the finished session for upload to the Thor training
+        # server. Gated by THOR_UPLOAD_ENABLED so it stays inert until configured.
+        if os.getenv("THOR_UPLOAD_ENABLED", "0") == "1" and session.data_file:
+            try:
+                from ...services.thor_uploader import get_thor_uploader
+
+                uploader = get_thor_uploader()
+                await uploader.initialize()
+                await uploader.start_processing()
+                await uploader.queue_upload(str(session.data_file), session.session_id)
+                logger.info("Queued session %s for Thor upload", session.session_id)
+            except Exception as exc:
+                logger.warning("Failed to queue Thor upload for %s: %s", session.session_id, exc)
 
         return RecordingSessionResponse(
             session_id=session.session_id,

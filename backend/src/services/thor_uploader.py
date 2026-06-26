@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 import uuid
 from collections.abc import Callable
@@ -132,6 +133,14 @@ class ThorUploaderConfig:
     # Cleanup
     delete_after_upload: bool = False
     keep_compressed_cache: bool = False
+
+    @classmethod
+    def from_env(cls) -> ThorUploaderConfig:
+        """Build config from environment (THOR_BASE_URL, THOR_API_KEY)."""
+        cfg = cls()
+        cfg.thor_base_url = os.getenv("THOR_BASE_URL", cfg.thor_base_url)
+        cfg.thor_api_key = os.getenv("THOR_API_KEY", cfg.thor_api_key)
+        return cfg
 
 
 class ThorUploaderService:
@@ -672,10 +681,10 @@ _uploader_instance: ThorUploaderService | None = None
 
 
 def get_thor_uploader() -> ThorUploaderService:
-    """Get or create the ThorUploaderService singleton."""
+    """Get or create the ThorUploaderService singleton (configured from env)."""
     global _uploader_instance
     if _uploader_instance is None:
-        _uploader_instance = ThorUploaderService()
+        _uploader_instance = ThorUploaderService(ThorUploaderConfig.from_env())
     return _uploader_instance
 
 

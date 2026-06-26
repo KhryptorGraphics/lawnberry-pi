@@ -363,6 +363,15 @@ class PerimeterRecordingService:
 
         return frame
 
+    async def capture_frame(self) -> MowerDataFrame | None:
+        """Capture one multi-modal frame on demand, without an active recording.
+
+        Reuses the same sensor/camera assembly as recording so consumers like the
+        autonomous AI inference loop see exactly the modalities the model was
+        trained on. Safe to call when not recording.
+        """
+        return await self._capture_frame()
+
     async def _capture_sensor_data(self, frame: MowerDataFrame) -> None:
         """Capture GPS, IMU, ultrasonic, ToF, and power data."""
         try:
