@@ -384,10 +384,10 @@ class TestPreprocessing:
 
         inputs = service._preprocess(frame)
 
-        # Should create placeholder tensors
-        assert "stereo" in inputs
-        assert "rgb" in inputs
+        # Should create placeholder tensors matching the deployed student inputs.
+        assert "image" in inputs
         assert "sensors" in inputs
+        assert "coverage_map" in inputs
 
     @pytest.mark.asyncio
     async def test_preprocessing_normalizes_sensor_values(self, service, sample_frame):
@@ -396,9 +396,9 @@ class TestPreprocessing:
 
         inputs = service._preprocess(sample_frame)
 
-        # Check sensor features are normalized
+        # 20 sensor features: local-ENU GPS (8) + IMU (9) + ultrasonic (3).
         sensors = inputs["sensors"]
-        assert sensors.shape[-1] == 9  # 9 sensor features
+        assert sensors.shape[-1] == 20
         # All values should be roughly in [-1, 1] range
         assert np.all(sensors >= -2.0)
         assert np.all(sensors <= 2.0)

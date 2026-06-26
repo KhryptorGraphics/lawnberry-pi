@@ -7,6 +7,7 @@ import asyncio
 import logging
 import math
 import os
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -19,6 +20,7 @@ from ..models import (
     SensorData,
     Waypoint,
 )
+from ..nav.location_features import CoverageMap
 from ..nav.path_planner import PathPlanner
 from .robohat_service import get_robohat_service
 
@@ -146,6 +148,12 @@ class NavigationService:
         # State tracking
         self.total_distance = 0.0
         self.last_position: Position | None = None
+
+        # Autonomous AI inference loop state
+        self._ai_task: asyncio.Task | None = None
+        self._coverage: CoverageMap | None = None
+        self._ai_datum: tuple[float, float] | None = None
+        self._ai_loop_hz = 5.0  # inference cadence (Hz)
 
     _instance: Optional["NavigationService"] = None
 
@@ -591,6 +599,16 @@ class NavigationService:
             await ai_service.initialize()
             await ai_service.start()
 
+        # Safety: never drive real motors from placeholder/simulated inference.
+        # On hardware, require a real VLA model to be loaded before autonomy.
+        sim_mode = os.getenv("SIM_MODE", "0") != "0"
+        if not sim_mode and not getattr(ai_service, "_model_loaded", False):
+            logger.error(
+                "Refusing AI navigation: no VLA model loaded (would drive motors "
+                "from placeholder inference). Deploy a model first."
+            )
+            return False
+
         # Enable AI control
         success = await ai_service.enable()
         if not success:
@@ -601,8 +619,87 @@ class NavigationService:
         self.navigation_state.target_velocity = 0.6  # Default AI velocity
         self.navigation_state.operation_start_time = datetime.now(UTC)
 
-        logger.info("Started AI-controlled navigation")
+        # Establish the local frame (yard datum) and a fresh coverage map for
+        # this run, then start the inference loop.
+        self._ai_datum = self._select_ai_datum()
+        self._coverage = CoverageMap(self._ai_datum)
+        self._ai_task = asyncio.create_task(self._ai_inference_loop())
+
+        logger.info("Started AI-controlled navigation (datum=%s)", self._ai_datum)
         return True
+
+    def _select_ai_datum(self) -> tuple[float, float]:
+        """Local-frame origin: home position, else geofence origin, else current
+        position. Must match the training datum (config/training.yaml yard_datum)
+        for the location features to be in the same frame."""
+        hp = self.navigation_state.home_position
+        if hp is not None:
+            return (hp.latitude, hp.longitude)
+        boundaries = self.navigation_state.safety_boundaries
+        if boundaries and boundaries[0]:
+            return (boundaries[0][0].latitude, boundaries[0][0].longitude)
+        cp = self.navigation_state.current_position
+        if cp is not None:
+            return (cp.latitude, cp.longitude)
+        return (0.0, 0.0)
+
+    async def _ai_inference_loop(self) -> None:
+        """Drive autonomous mowing from the VLA model.
+
+        Each tick: build a live multi-modal frame, run inference with the current
+        location features + causal coverage snapshot, apply the prediction, then
+        (causally, after applying) mark the just-mowed cell. Every iteration is
+        gated by the existing safety checks in ``apply_ai_prediction`` and stops
+        on E-stop / mode change.
+        """
+        from .ai_inference_service import get_ai_inference_service
+        from .perimeter_recorder import get_perimeter_recorder
+
+        ai_service = get_ai_inference_service()
+        recorder = get_perimeter_recorder()
+        interval = 1.0 / max(self._ai_loop_hz, 0.1)
+        logger.info("AI inference loop started at %.1f Hz", self._ai_loop_hz)
+
+        try:
+            while self.navigation_state.navigation_mode == NavigationMode.AI:
+                loop_start = time.perf_counter()
+                try:
+                    frame = await recorder.capture_frame()
+                    if frame is not None:
+                        snapshot = (
+                            self._coverage.snapshot() if self._coverage is not None else None
+                        )
+                        prediction = await ai_service.infer(
+                            frame, coverage_grid=snapshot, datum=self._ai_datum
+                        )
+                        applied = await self.apply_ai_prediction(prediction)
+                        # Causally record coverage only after the action is applied,
+                        # when the blade is cutting and we have a usable RTK fix.
+                        if (
+                            applied
+                            and self._coverage is not None
+                            and prediction.blade
+                            and frame.gps is not None
+                            and frame.gps.latitude != 0.0
+                            and frame.gps.longitude != 0.0
+                        ):
+                            self._coverage.mark(frame.gps.latitude, frame.gps.longitude)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # never let one bad tick kill the loop
+                    logger.warning("AI inference tick failed: %s", exc)
+
+                elapsed = time.perf_counter() - loop_start
+                await asyncio.sleep(max(0.0, interval - elapsed))
+        except asyncio.CancelledError:
+            logger.info("AI inference loop cancelled")
+            raise
+        finally:
+            # Make sure motors are stopped if the loop exits for any reason.
+            try:
+                await self.set_speed(0.0, 0.0)
+            except Exception:
+                pass
 
     async def stop_ai_navigation(self) -> bool:
         """Stop AI-controlled navigation and return to manual.
@@ -612,11 +709,22 @@ class NavigationService:
         """
         from .ai_inference_service import get_ai_inference_service
 
-        ai_service = get_ai_inference_service()
-        await ai_service.disable()
-
+        # Flip mode first so the loop's while-condition exits, then cancel it.
         self.navigation_state.navigation_mode = NavigationMode.MANUAL
         self.navigation_state.target_velocity = 0.0
+
+        if self._ai_task is not None:
+            self._ai_task.cancel()
+            try:
+                await self._ai_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._ai_task = None
+        self._coverage = None
+        self._ai_datum = None
+
+        ai_service = get_ai_inference_service()
+        await ai_service.disable()
 
         # Stop motors
         try:

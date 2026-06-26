@@ -29,6 +29,10 @@ from ..models.action_prediction import (
     InferenceMetrics,
 )
 from ..models.mower_data_frame import MowerDataFrame
+from ..nav.location_features import (
+    COVERAGE_GRID_SIZE,
+    gps_feature_vector,
+)
 
 
 @dataclass
@@ -257,11 +261,21 @@ class AIInferenceService(HardwareDriver):
         self._enabled = False
         self._control_mode = ControlMode.MANUAL
 
-    async def infer(self, frame: MowerDataFrame) -> ActionPrediction:
+    async def infer(
+        self,
+        frame: MowerDataFrame,
+        coverage_grid: np.ndarray | None = None,
+        datum: tuple[float, float] | None = None,
+    ) -> ActionPrediction:
         """Run inference on sensor data.
 
         Args:
             frame: MowerDataFrame with current sensor readings.
+            coverage_grid: Optional (G, G) already-mowed occupancy grid from the
+                autonomous loop; zeros are used when omitted.
+            datum: Optional (lat, lon) local-frame origin (the yard datum). When
+                omitted, the frame's own position is used (self-relative), which
+                keeps heading/speed/fix meaningful but zeroes the position.
 
         Returns:
             ActionPrediction with recommended control actions.
@@ -273,7 +287,7 @@ class AIInferenceService(HardwareDriver):
 
         # Preprocess inputs
         preprocess_start = time.perf_counter()
-        model_inputs = self._preprocess(frame)
+        model_inputs = self._preprocess(frame, coverage_grid, datum)
         preprocess_time = (time.perf_counter() - preprocess_start) * 1000
 
         # Run inference
@@ -310,57 +324,67 @@ class AIInferenceService(HardwareDriver):
 
         return prediction
 
-    def _preprocess(self, frame: MowerDataFrame) -> dict[str, np.ndarray]:
-        """Preprocess sensor data into model input tensors.
+    def _preprocess(
+        self,
+        frame: MowerDataFrame,
+        coverage_grid: np.ndarray | None = None,
+        datum: tuple[float, float] | None = None,
+    ) -> dict[str, np.ndarray]:
+        """Preprocess sensor data into the deployed (distilled) model's inputs.
 
-        Converts MowerDataFrame into normalized tensors suitable for
-        the VLA model.
+        Emits the three inputs the edge student / HEF consumes:
+        ``image`` (1, 3, H, W), ``sensors`` (1, 20) and ``coverage_map``
+        (1, 1, G, G). The 20-d sensor vector is local-ENU GPS features
+        (see nav.location_features.gps_feature_vector) + IMU(9) + ultrasonic(3),
+        normalised identically to the training dataset so the model sees the same
+        distribution it learned on.
         """
-        inputs = {}
+        inputs: dict[str, np.ndarray] = {}
 
-        # Process stereo images
-        if frame.stereo_left is not None and frame.stereo_right is not None:
-            stereo_left = self._preprocess_image(
-                frame.stereo_left, self._model_config.stereo_input_size
-            )
-            stereo_right = self._preprocess_image(
-                frame.stereo_right, self._model_config.stereo_input_size
-            )
-            # Stack as batch with channels last
-            inputs["stereo"] = np.stack([stereo_left, stereo_right], axis=0)
-        else:
-            # Create placeholder
-            h, w = self._model_config.stereo_input_size
-            inputs["stereo"] = np.zeros((2, h, w, 3), dtype=np.float32)
-
-        # Process RGB camera
+        # Single RGB image (pi_camera), CHW to match the student ONNX inputs.
         if frame.pi_camera_rgb is not None:
-            rgb = self._preprocess_image(frame.pi_camera_rgb, self._model_config.rgb_input_size)
-            inputs["rgb"] = rgb[np.newaxis, ...]  # Add batch dimension
+            img = self._preprocess_image(frame.pi_camera_rgb, self._model_config.rgb_input_size)
         else:
             h, w = self._model_config.rgb_input_size
-            inputs["rgb"] = np.zeros((1, h, w, 3), dtype=np.float32)
+            img = np.zeros((h, w, 3), dtype=np.float32)
+        img = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+        inputs["image"] = img[np.newaxis, ...].astype(np.float32)  # (1, 3, H, W)
 
-        # Encode sensor data as feature vector
-        sensor_features = np.array(
+        # Sensor vector: local-ENU GPS features (8) + IMU (9) + ultrasonic (3).
+        if datum is None:
+            datum = (frame.gps.latitude, frame.gps.longitude)  # self-relative fallback
+        gps_feat = gps_feature_vector(frame.gps, datum)
+        imu = frame.imu
+        imu_feat = np.array(
             [
-                # GPS features (normalized)
-                frame.gps.hdop / 10.0,  # HDOP 0-10 normalized
-                frame.gps.num_satellites / 20.0,  # Satellites 0-20 normalized
-                1.0 if frame.gps.rtk_fix_type.value in ["fixed", "float"] else 0.0,
-                # IMU features (normalized to [-1, 1])
-                frame.imu.roll / 45.0,  # Roll ±45°
-                frame.imu.pitch / 45.0,  # Pitch ±45°
-                frame.imu.yaw / 180.0,  # Yaw ±180°
-                # Ultrasonic features (normalized, inverted for obstacle proximity)
-                1.0 - min(frame.ultrasonic.front_left_cm, 200) / 200.0,
-                1.0 - min(frame.ultrasonic.front_center_cm, 200) / 200.0,
-                1.0 - min(frame.ultrasonic.front_right_cm, 200) / 200.0,
+                imu.roll / 180.0,
+                imu.pitch / 180.0,
+                imu.yaw / 180.0,
+                imu.linear_accel_x / 10.0,
+                imu.linear_accel_y / 10.0,
+                imu.linear_accel_z / 10.0,
+                imu.angular_vel_x / 5.0,
+                imu.angular_vel_y / 5.0,
+                imu.angular_vel_z / 5.0,
             ],
             dtype=np.float32,
         )
+        ultra = frame.ultrasonic
+        ultra_feat = np.array(
+            [
+                ultra.front_left_cm / 100.0,
+                ultra.front_center_cm / 100.0,
+                ultra.front_right_cm / 100.0,
+            ],
+            dtype=np.float32,
+        )
+        sensors = np.concatenate([gps_feat, imu_feat, ultra_feat]).astype(np.float32)
+        inputs["sensors"] = sensors[np.newaxis, ...]  # (1, 20)
 
-        inputs["sensors"] = sensor_features[np.newaxis, ...]  # Add batch dim
+        # Coverage map (already-mowed grid); zeros when the loop hasn't supplied one.
+        if coverage_grid is None:
+            coverage_grid = np.zeros((COVERAGE_GRID_SIZE, COVERAGE_GRID_SIZE), dtype=np.float32)
+        inputs["coverage_map"] = coverage_grid[np.newaxis, np.newaxis, ...].astype(np.float32)
 
         return inputs
 
