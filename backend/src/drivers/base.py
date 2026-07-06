@@ -8,7 +8,31 @@ inherit from this base class to ensure consistent behavior and safety.
 from __future__ import annotations
 
 import abc
+import os
 from typing import Any
+
+# Pi 5's RP1 GPIO bank is /dev/gpiochip4 (chip 0 is root-only and unopenable by the
+# service user → lgpio "can not open gpiochip"); Pi 4 uses chip 0. Probe 4 then 0.
+# Override with LAWNBERRY_GPIOCHIP=<comma-list>, e.g. "0" on a Pi 4.
+GPIOCHIP_ENV = "LAWNBERRY_GPIOCHIP"
+
+
+def open_gpiochip(lgpio: Any) -> int:
+    """Open the usable GPIO bank via lgpio, returning its handle.
+
+    Probes candidate chip numbers (Pi 5 chip 4 first, then chip 0) so the same
+    code works across Pi models and udev layouts. Raises the last error if none
+    open, matching lgpio.gpiochip_open() semantics for callers that catch it.
+    """
+    override = os.environ.get(GPIOCHIP_ENV)
+    chips = [int(c) for c in override.split(",") if c.strip()] if override else [4, 0]
+    last_err: Exception = RuntimeError("no gpiochip candidates")
+    for chip in chips:
+        try:
+            return lgpio.gpiochip_open(chip)
+        except Exception as e:  # lgpio raises on missing/inaccessible chip
+            last_err = e
+    raise last_err
 
 
 class HardwareDriver(abc.ABC):

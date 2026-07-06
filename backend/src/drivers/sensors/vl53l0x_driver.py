@@ -28,7 +28,7 @@ import time
 from typing import Any
 
 from ...core.simulation import is_simulation_mode
-from ..base import HardwareDriver
+from ..base import HardwareDriver, open_gpiochip
 
 # Shared singletons for Adafruit backend and GPIO control
 _adafruit_i2c = None
@@ -237,7 +237,7 @@ def _gpio_set(pin: int, value: int) -> None:
 
         # Use a global chip handle for simplicity
         if not hasattr(_gpio_set, "_chip"):
-            _gpio_set._chip = lgpio.gpiochip_open(0)  # type: ignore[attr-defined]
+            _gpio_set._chip = open_gpiochip(lgpio)  # type: ignore[attr-defined]
         ch = _gpio_set._chip  # type: ignore[attr-defined]
         lgpio.gpio_claim_output(ch, pin, 0)
         lgpio.gpio_write(ch, pin, 1 if value else 0)
