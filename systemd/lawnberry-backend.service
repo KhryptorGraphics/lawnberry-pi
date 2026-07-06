@@ -45,7 +45,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=false
 ProtectSystem=strict
-ReadWritePaths=/apps/lawnberry-pi/logs /apps/lawnberry-pi/data /apps/lawnberry-pi/config
+# App root must be writable: lgpio creates its .lgd-nfy-* notification FIFO in the
+# process CWD; with only subdirs writable, ultrasonic GPIO init fails (ENOENT).
+ReadWritePaths=/apps/lawnberry-pi
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
