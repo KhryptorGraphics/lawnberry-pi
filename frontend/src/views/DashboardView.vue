@@ -40,67 +40,24 @@
       </div>
 
       <!-- Power / Battery -->
-      <div class="retro-card power-card">
-        <div class="card-header">
-          <h4>POWER SYSTEM</h4>
-          <div class="power-indicator" :class="batteryIconClass" />
-        </div>
-        <div class="card-content power-content">
-          <div class="battery-panel">
-            <div class="battery-shell" :class="batteryBarClass">
-              <span class="battery-percentage" data-testid="battery-percentage">{{ batteryLevelDisplay }}%</span>
-            </div>
-            <div class="battery-terminal" />
-          </div>
-          <div class="power-metrics">
-            <div class="metric-line">
-              <span class="metric-label">Battery Voltage</span>
-              <span class="metric-value" data-testid="battery-voltage">{{ batteryVoltageDisplay }}V</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Battery Current</span>
-              <span class="metric-value">{{ batteryCurrentDisplay }}A</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Battery Power</span>
-              <span class="metric-value">{{ batteryPowerDisplay }}W</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Battery State</span>
-              <span class="metric-value">{{ batteryChargeStateDisplay }}</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Solar Voltage</span>
-              <span class="metric-value">{{ solarVoltageDisplay }}V</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Solar Current</span>
-              <span class="metric-value">{{ solarCurrentDisplay }}A</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Solar Output</span>
-              <span class="metric-value">{{ solarPowerDisplay }}W</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Solar Yield (Today)</span>
-              <span class="metric-value">{{ solarYieldTodayDisplay }}Wh</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Load State</span>
-              <span class="metric-value">{{ loadStateDisplay }}</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Load Current</span>
-              <span class="metric-value">{{ loadCurrentDisplay }}A</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Load Power</span>
-              <span class="metric-value">{{ loadPowerDisplay }}W</span>
-            </div>
-          </div>
-        </div>
-        <div class="metric-status solar-status" :class="solarStatusClass">{{ solarStatus }}</div>
-      </div>
+      <PowerCard
+        :battery-icon-class="batteryIconClass"
+        :battery-bar-class="batteryBarClass"
+        :battery-level-display="batteryLevelDisplay"
+        :battery-voltage-display="batteryVoltageDisplay"
+        :battery-current-display="batteryCurrentDisplay"
+        :battery-power-display="batteryPowerDisplay"
+        :battery-charge-state-display="batteryChargeStateDisplay"
+        :solar-voltage-display="solarVoltageDisplay"
+        :solar-current-display="solarCurrentDisplay"
+        :solar-power-display="solarPowerDisplay"
+        :solar-yield-today-display="solarYieldTodayDisplay"
+        :load-state-display="loadStateDisplay"
+        :load-current-display="loadCurrentDisplay"
+        :load-power-display="loadPowerDisplay"
+        :solar-status-class="solarStatusClass"
+        :solar-status="solarStatus"
+      />
 
       <!-- Speed -->
       <div class="retro-card telemetry-card">
@@ -263,6 +220,7 @@ import { storeToRefs } from 'pinia'
 import { systemApi, telemetryApi, weatherApi, maintenanceApi } from '@/services/api'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
+import PowerCard from '@/components/dashboard/PowerCard.vue'
 
 interface TofState {
   distance: number | null
@@ -1950,91 +1908,6 @@ onMounted(async () => {
   border-bottom: none;
 }
 
-.power-card .power-content {
-  display: flex;
-  align-items: stretch;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.battery-panel {
-  position: relative;
-  width: 160px;
-  height: 70px;
-  border: 2px solid rgba(0, 255, 255, 0.6);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 20, 40, 0.6);
-  box-shadow: inset 0 0 20px rgba(0, 255, 255, 0.2);
-}
-
-.battery-shell {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: linear-gradient(135deg, rgba(0, 255, 255, 0.1), rgba(0, 100, 150, 0.3));
-}
-
-.battery-shell::after {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  border-radius: 4px;
-  background: rgba(0, 255, 255, 0.08);
-}
-
-.battery-percentage {
-  position: relative;
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: #00ffff;
-  z-index: 1;
-  text-shadow: 0 0 12px rgba(0, 255, 255, 0.7);
-}
-
-.battery-terminal {
-  position: absolute;
-  right: -14px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 12px;
-  height: 24px;
-  background: rgba(0, 255, 255, 0.6);
-  border-radius: 3px;
-  box-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
-}
-
-.power-metrics {
-  flex: 1;
-  min-width: 200px;
-  display: grid;
-  gap: 0.6rem;
-}
-
-.power-metrics .metric-line {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.9rem;
-  letter-spacing: 1px;
-}
-
-.power-metrics .metric-label {
-  color: rgba(0, 255, 255, 0.7);
-  text-transform: uppercase;
-}
-
-.power-metrics .metric-value {
-  color: #ffff00;
-  font-weight: 600;
-  font-size: 1.25rem;
-}
 
 .status-label {
   font-weight: 700;
@@ -2480,29 +2353,6 @@ onMounted(async () => {
   font-size: 0.8rem;
   margin-left: 0.25rem;
   color: #00ffff;
-}
-
-.solar-status {
-  margin-top: 0.25rem;
-}
-
-.solar-status.status-active {
-  color: #00ff00;
-  text-shadow: 0 0 10px rgba(0, 255, 0, 0.7);
-}
-
-.solar-status.status-warning {
-  color: #ffff00;
-  text-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
-}
-
-.solar-status.status-error {
-  color: #ff6600;
-  text-shadow: 0 0 10px rgba(255, 102, 0, 0.7);
-}
-
-.solar-status.status-unknown {
-  color: #888;
 }
 
 .speed-trend.trend-down {
