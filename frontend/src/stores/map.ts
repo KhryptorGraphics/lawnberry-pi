@@ -372,7 +372,7 @@ export const useMapStore = defineStore('map', () => {
     error.value = '';
     try {
       const env = configToEnvelope(configuration.value);
-      const response = await apiService.put(
+      await apiService.put(
         `/api/v2/map/configuration?config_id=${configuration.value.config_id}`,
         env
       );
@@ -816,7 +816,9 @@ export const useMapStore = defineStore('map', () => {
             is_home: isHome,
           };
           pushMarker(marker);
-        } catch {}
+        } catch {
+          // skip a single malformed marker rather than aborting the whole config load
+        }
       }
     }
     cfg.markers = markers;

@@ -64,7 +64,7 @@ export class WebSocketService {
   }
 
   connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, _reject) => {
       const tryConnect = () => {
         const base = this.urlCandidates[this.urlIndex] || this.urlCandidates[0]
         const target = this.appendToken(base)
@@ -341,10 +341,6 @@ export class WebSocketService {
     this.handleMessage(message)
   }
 }
-
-// Global WebSocket service instance
-const wsService: WebSocketService | null = null
-
 
 // Factory for telemetry or control WebSocket
 export function useWebSocket(type: 'telemetry' | 'control' = 'telemetry') {

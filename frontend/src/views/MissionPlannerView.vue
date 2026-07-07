@@ -41,13 +41,11 @@ import MissionMap from '@/components/mission/MissionMap.vue';
 import { useMissionStore } from '@/stores/mission';
 import { useMapStore } from '@/stores/map';
 import { useToastStore } from '@/stores/toast';
-import { useApiService } from '@/services/api';
 import { useWebSocket } from '@/services/websocket';
 
 const missionStore = useMissionStore();
 const mapStore = useMapStore();
 const toast = useToastStore();
-const api = useApiService();
 const telemetrySocket = useWebSocket('telemetry');
 
 const missionMapRef = ref<any>(null);

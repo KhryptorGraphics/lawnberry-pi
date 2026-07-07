@@ -19,7 +19,7 @@
           :map-style="settings.style === 'satellite' ? 'satellite' : settings.style === 'hybrid' ? 'hybrid' : settings.style === 'terrain' ? 'terrain' : 'standard'"
           :google-api-key="settings.google_api_key"
           :pick-for-pin="pickForPin"
-          @pinPicked="onPinPicked"
+          @pin-picked="onPinPicked"
         />
       </div>
     </div>
@@ -354,14 +354,9 @@ const defaultScheduleForm = (): ScheduleForm => ({
   }
 })
 
-const showApiKey = ref(false)
-const apiStatus = ref<{valid: boolean, message?: string} | null>(null)
-
 // Preview state
 const previewLat = ref(37.7749)
 const previewLon = ref(-122.4194)
-const previewZoom = ref(15)
-const previewError = ref('')
 
 // Pin management state (for add/edit)
 const showPinEditor = ref(false)
@@ -492,25 +487,6 @@ function summarizeSchedule(marker: MapMarker): string | null {
   return parts.length ? parts.join(' • ') : null
 }
 
-// Computed
-const previewUrl = computed(() => {
-  if (settings.value.provider === 'none') return ''
-  // Only attempt Google preview when we have a key
-  if (settings.value.provider === 'google' && settings.value.google_api_key) {
-    const baseUrl = 'https://maps.googleapis.com/maps/api/staticmap'
-    const params = new URLSearchParams({
-      center: `${previewLat.value},${previewLon.value}`,
-      zoom: previewZoom.value.toString(),
-      size: '400x300',
-      maptype: settings.value.style === 'standard' ? 'roadmap' : settings.value.style,
-      key: settings.value.google_api_key
-    })
-    return `${baseUrl}?${params}`
-  }
-  // For OSM or google-without-key, we skip <img> preview; the editor Leaflet map below is the live preview
-  return ''
-})
-
 // Methods
 async function loadSettings() {
   try {
@@ -525,19 +501,6 @@ async function loadSettings() {
   }
 }
 
-
-function onProviderChange() {
-  apiStatus.value = null
-  previewError.value = ''
-}
-
-function onPreviewError() {
-  previewError.value = 'Failed to load map preview'
-}
-
-function onPreviewLoad() {
-  previewError.value = ''
-}
 
 function showStatus(message: string, success: boolean) {
   statusMessage.value = message
@@ -710,42 +673,6 @@ function onPinPicked(coords: { latitude: number; longitude: number }) {
   pickForPin.value = false
 }
 
-// Apply the current Pin modal coordinates to the live configuration as a marker
-const applyMarkerType = ref<'home'|'am_sun'|'pm_sun'|'custom'>('home')
-async function applyPinToConfiguration() {
-  try {
-    if (!mapStore.configuration) {
-      await mapStore.loadConfiguration('default')
-    }
-    const schedule = applyMarkerType.value === 'home' ? null : toMarkerSchedule(pinForm.value.schedule)
-    const metadata = schedule
-      ? { schedule: { ...schedule, time_windows: schedule.time_windows.map(w => ({ ...w })) } }
-      : undefined
-    mapStore.addMarker(
-      applyMarkerType.value,
-      { latitude: pinForm.value.lat, longitude: pinForm.value.lon },
-      {
-        label: pinForm.value.name || undefined,
-        metadata,
-        schedule,
-        isHome: applyMarkerType.value === 'home'
-      }
-    )
-    await mapStore.saveConfiguration()
-    showStatus('Marker applied to configuration', true)
-  } catch (e) {
-    showStatus('Failed to apply marker', false)
-  }
-}
-
-// Quick actions: Add polygon zones via the map editor
-function addMowingZoneOnMap() {
-  mapStore.setEditMode('mowing')
-}
-function addExclusionZoneOnMap() {
-  mapStore.setEditMode('exclusion')
-}
-
 function addSyntheticMowingZone() {
   if (!mapStore.configuration) return
   const zoneId = `test-zone-${Date.now().toString(36)}`
@@ -826,19 +753,23 @@ async function removeExclusion(z: Zone) {
 }
 
 function editMarkerOnMap(m: MapMarker) {
-  try { editorRef.value?.focusMarker(m.marker_id) } catch {}
+  // best-effort; editorRef may not be mounted yet or may reject an unknown marker id
+  try { editorRef.value?.focusMarker(m.marker_id) } catch { /* ignore */ }
 }
 
 function editZoneOnMap(z: Zone) {
-  try { editorRef.value?.editZoneOnMap(z.id, 'mowing') } catch {}
+  // best-effort; editorRef may not be mounted yet or may reject an unknown zone id
+  try { editorRef.value?.editZoneOnMap(z.id, 'mowing') } catch { /* ignore */ }
 }
 
 function editExclusionOnMap(z: Zone) {
-  try { editorRef.value?.editZoneOnMap(z.id, 'exclusion') } catch {}
+  // best-effort; editorRef may not be mounted yet or may reject an unknown zone id
+  try { editorRef.value?.editZoneOnMap(z.id, 'exclusion') } catch { /* ignore */ }
 }
 
 function editBoundaryOnMap() {
-  try { editorRef.value?.editZoneOnMap('', 'boundary') } catch {}
+  // best-effort; editorRef may not be mounted yet
+  try { editorRef.value?.editZoneOnMap('', 'boundary') } catch { /* ignore */ }
 }
 </script>
 

@@ -368,9 +368,7 @@ const { unitSystem } = storeToRefs(preferences)
 // Store-backed state
 const lockout = computed(() => control.lockout)
 const lockoutReason = computed(() => control.lockoutReason)
-const remediationLink = computed(() => control.remediationLink)
 const lastEcho = computed(() => control.lastEcho)
-const isLoading = computed(() => control.isLoading)
 const lastCommandResult = computed(() => control.lastCommandResult)
 
 // Manual control security configuration and authentication state

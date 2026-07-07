@@ -495,7 +495,7 @@ interface ScheduleForm {
 const api = useApiService()
 const router = useRouter()
 const mapStore = useMapStore()
-const { connected, connect, subscribe, unsubscribe } = useWebSocket()
+const { connect, subscribe } = useWebSocket()
 const preferences = usePreferencesStore()
 
 preferences.ensureInitialized()

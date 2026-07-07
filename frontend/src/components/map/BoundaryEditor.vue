@@ -245,14 +245,15 @@
         />
 
         <!-- Vertex handles for editing current polygon (hidden in marker mode) -->
-        <LMarker
-          v-for="(pt, idx) in currentPolygon"
-          v-if="mode === 'boundary' || mode === 'exclusion' || mode === 'mowing'"
-          :key="`vtx-${idx}`"
-          :lat-lng="[pt.latitude, pt.longitude]"
-          :draggable="true"
-          @moveend="(e:any) => onVertexMoveEnd(idx, e)"
-        />
+        <template v-if="mode === 'boundary' || mode === 'exclusion' || mode === 'mowing'">
+          <LMarker
+            v-for="(pt, idx) in currentPolygon"
+            :key="`vtx-${idx}`"
+            :lat-lng="[pt.latitude, pt.longitude]"
+            :draggable="true"
+            @moveend="(e:any) => onVertexMoveEnd(idx, e)"
+          />
+        </template>
 
         <!-- Markers -->
         <LMarker
@@ -484,7 +485,7 @@ async function ensureBaseLayer() {
   const Lref: any = (window as any).L || L;
   
   try {
-    // @ts-ignore plugin augments gridLayer
+    // Lref is `any`; the GoogleMutant plugin augments L.gridLayer at runtime
     googleBaseLayer = Lref.gridLayer.googleMutant({ type: gmType });
     
     // Add error handling for Google Maps tiles
@@ -748,10 +749,6 @@ const emit = defineEmits<{
   (e: 'saved'): void;
   (e: 'pinPicked', coords: { latitude: number; longitude: number }): void;
 }>();
-
-function emitModeChange() {
-  emit('modeChanged', mode.value);
-}
 
 function onMapClick(e: any) {
   const { latlng } = e;

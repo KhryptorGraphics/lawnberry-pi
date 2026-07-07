@@ -78,7 +78,9 @@ const theme = computed({
 function toggleTheme() {
   const next = theme.value === 'pro' ? 'retro' : 'pro'
   theme.value = next
-  try { localStorage.setItem('lb_theme', next) } catch {}
+  try { localStorage.setItem('lb_theme', next) } catch {
+    // ignore: localStorage may be unavailable (private mode, quota)
+  }
 }
 
 onMounted(async () => {
@@ -102,7 +104,9 @@ onMounted(async () => {
     document.addEventListener(event, handleActivity, { passive: true })
   })
   // Restore theme
-  try { const saved = localStorage.getItem('lb_theme'); if (saved) theme.value = saved } catch {}
+  try { const saved = localStorage.getItem('lb_theme'); if (saved) theme.value = saved } catch {
+    // ignore: localStorage may be unavailable (private mode, quota)
+  }
 })
 </script>
 

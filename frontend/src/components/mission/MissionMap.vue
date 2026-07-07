@@ -54,7 +54,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import {
   LMap,
   LTileLayer,
@@ -166,7 +166,7 @@ async function initializeBaseLayer() {
       const typeMap: Record<string, string> = { standard: 'roadmap', satellite: 'satellite', hybrid: 'hybrid', terrain: 'terrain' };
       const gmType = (typeMap[style] || 'roadmap') as any;
       
-      // @ts-ignore - Leaflet.GoogleMutant is loaded globally
+      // @ts-expect-error - Leaflet.GoogleMutant is loaded globally
       googleLayer = L.gridLayer.googleMutant({ type: gmType });
       googleLayer.addTo(map);
     } catch (error) {

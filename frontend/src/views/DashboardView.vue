@@ -260,11 +260,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { systemApi, controlApi, telemetryApi, weatherApi, maintenanceApi } from '@/services/api'
+import { systemApi, telemetryApi, weatherApi, maintenanceApi } from '@/services/api'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
-import { useAutonomyStore } from '@/stores/autonomy'
-import { useToastStore } from '@/stores/toast'
 
 interface TofState {
   distance: number | null
@@ -282,16 +280,13 @@ interface ImuCalibrationResult {
   steps: Array<Record<string, any>>
 }
 
-const { connected, connecting, connect, subscribe, unsubscribe, setCadence, dispatchTestMessage } = useWebSocket()
+const { connected, connect, subscribe, unsubscribe, setCadence, dispatchTestMessage } = useWebSocket()
 
 // Loading and UI state
-const isLoading = ref(false)
 const dataStreamText = ref('>>> INITIALIZING SYSTEM CONNECTION...')
 
 // Preferences
 const preferences = usePreferencesStore()
-const autonomy = useAutonomyStore()
-const toast = useToastStore()
 preferences.ensureInitialized()
 const { unitSystem } = storeToRefs(preferences)
 
@@ -395,12 +390,6 @@ const gpsHdopDisplay = computed(() => {
 const gpsSatellitesDisplay = computed(() => {
   if (gpsSatellites.value === null) return '--'
   return gpsSatellites.value.toString()
-})
-
-const gpsStatusClass = computed(() => {
-  if (!hasGpsFix.value) return 'status-error'
-  if (gpsAccuracy.value !== null && gpsAccuracy.value > 2.0) return 'status-warning'
-  return 'status-active'
 })
 
 const gpsAccuracySummary = computed(() => {
@@ -1046,81 +1035,12 @@ watch(unitSystem, () => {
   }
 })
 
-// System control methods
-const startSystem = async () => {
-  try {
-    isLoading.value = true
-    addLogEntry('Initiating system startup...', 'info')
-    await autonomy.start()
-    if (autonomy.error) {
-      throw new Error(autonomy.error)
-    }
-    currentMode.value = 'RUNNING'
-    addLogEntry('System started successfully', 'success')
-    toast.show('System started', 'success')
-  } catch (error) {
-    console.error('Failed to start system:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    addLogEntry(`Start failed: ${message}`, 'error')
-    toast.show(`Failed to start system: ${message}`, 'error')
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const pauseSystem = async () => {
-  try {
-    isLoading.value = true
-    addLogEntry('Pausing system operations...', 'info')
-    await autonomy.pause()
-    currentMode.value = 'PAUSED'
-    addLogEntry('System paused', 'warning')
-    toast.show('System paused', 'success')
-  } catch (error) {
-    console.error('Failed to pause system:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    addLogEntry(`Pause failed: ${message}`, 'error')
-    toast.show(`Failed to pause system: ${message}`, 'error')
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const stopSystem = async () => {
-  try {
-    isLoading.value = true
-    addLogEntry('Stopping system operations...', 'info')
-    await autonomy.stop()
-    currentMode.value = 'STOPPED'
-    addLogEntry('System stopped', 'info')
-    toast.show('System stopped', 'success')
-  } catch (error) {
-    console.error('Failed to stop system:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    addLogEntry(`Stop failed: ${message}`, 'error')
-    toast.show(`Failed to stop system: ${message}`, 'error')
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const emergencyStop = async () => {
-  try {
-    isLoading.value = true
-    addLogEntry('EMERGENCY STOP ACTIVATED', 'error')
-    await controlApi.emergencyStop()
-    currentMode.value = 'E-STOP'
-    addLogEntry('Emergency stop complete - system secured', 'error')
-    toast.show('Emergency stop activated - system secured', 'warning', 8000)
-  } catch (error) {
-    console.error('Failed to emergency stop:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    addLogEntry(`E-STOP FAILED: ${message}`, 'error')
-    toast.show(`E-STOP FAILED: ${message}`, 'error', 0)
-  } finally {
-    isLoading.value = false
-  }
-}
+// NOTE: Dashboard previously had local start/pause/stop/e-stop mow controls
+// here. They were repointed to useAutonomyStore in 203c174, but no template
+// button has ever called them in this file's git history (Dashboard's only
+// <button> is the IMU calibration control) - mow control lives in
+// ControlView.vue. Removed as dead code (Tier 3.10). Do not confuse with
+// ControlView.vue's live, template-wired emergencyStop (the real E-stop path).
 
 // Utility methods
 const formatTime = (timestamp: Date) => {
