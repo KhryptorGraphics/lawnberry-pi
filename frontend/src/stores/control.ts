@@ -2,6 +2,9 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { sendControlCommand, getRoboHATStatus } from '../services/api';
 import { useWebSocket } from '../services/websocket';
+import type { ControlResponseV2, BladeCommandResponse, RoboHATStatus } from '../types/control';
+
+type CommandResult = ControlResponseV2 | BladeCommandResponse
 
 export const useControlStore = defineStore('control', () => {
   // State
@@ -11,11 +14,11 @@ export const useControlStore = defineStore('control', () => {
   const lockoutUntil = ref(null as string | null);
   const lastEcho = ref(null as null | Record<string, any>);
   const lastCommandEcho = ref(null as null | Record<string, any>);
-  const lastCommandResult = ref(null as null | { result: string; status_reason?: string });
+  const lastCommandResult = ref<CommandResult | { result: 'error'; status_reason: string } | null>(null);
   const remediationLink = ref('');
   const isLoading = ref(false);
   const commandInProgress = ref(false);
-  const robohatStatus = ref(null as null | Record<string, any>);
+  const robohatStatus = ref<RoboHATStatus | null>(null);
 
   // Safety-lockout push: the backend broadcasts interlock activate/clear events on the
   // "system.safety" topic over the (hub-wired) /ws/telemetry socket — /ws/control is a
@@ -52,11 +55,11 @@ export const useControlStore = defineStore('control', () => {
   const ws = useWebSocket('telemetry');
 
   // Actions
-  async function submitCommand(command: string, payload: any = {}) {
+  async function submitCommand(command: 'drive' | 'blade' | 'emergency', payload: Record<string, unknown> = {}) {
     if (lockoutActive.value) {
       throw new Error(`Control locked out: ${lockoutReason.value}`);
     }
-    
+
     commandInProgress.value = true;
     isLoading.value = true;
     try {
@@ -67,7 +70,8 @@ export const useControlStore = defineStore('control', () => {
         lockout.value = true;
         lockoutActive.value = true;
         lockoutReason.value = result.status_reason || 'SAFETY_LOCKOUT';
-        remediationLink.value = result.remediation_link || '';
+        // BladeBlockedResponse carries remediation_url; ControlResponseV2 carries remediation.docs_link
+        remediationLink.value = ('remediation_url' in result ? result.remediation_url : result.remediation?.docs_link) || '';
       }
       return result;
     } catch (e: any) {
@@ -75,7 +79,10 @@ export const useControlStore = defineStore('control', () => {
       lockout.value = true;
       lockoutActive.value = true;
       lockoutReason.value = e?.message || 'Unknown error';
-      remediationLink.value = e?.remediation_link || '';
+      // Non-2xx (blocked/rejected) responses come back as thrown axios errors — the
+      // remediation link, if any, lives in the response body, not on the error itself.
+      const responseData = e?.response?.data;
+      remediationLink.value = responseData?.remediation_url || responseData?.remediation?.docs_link || '';
       throw e;
     } finally {
       commandInProgress.value = false;

@@ -1239,8 +1239,11 @@ const runImuCalibration = async () => {
 const loadSystemStatus = async () => {
   try {
     const status = await systemApi.getStatus()
-    systemStatus.value = status.status || 'Unknown'
-    uptime.value = status.uptime || '0h 0m'
+    // MowerStatus has no `status`/`uptime` fields; uptime is owned by the
+    // telemetry.system WS handler below. Derive status from real fields.
+    systemStatus.value = status.safety_status?.emergency_stop_active
+      ? 'Emergency Stop'
+      : status.navigation_state || 'Unknown'
     connectionStatus.value = 'Connected'
     dataStreamText.value = '>>> SYSTEM ONLINE - DATA STREAMING ACTIVE'
   } catch (error) {
