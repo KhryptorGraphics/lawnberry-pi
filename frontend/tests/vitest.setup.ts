@@ -1,5 +1,13 @@
 import { beforeEach, vi } from 'vitest'
 
+// The real plugin is a bare-global IIFE that assumes `window === globalThis`
+// (true in a real browser, false under Vitest's jsdom environment, where
+// arbitrary properties assigned onto `window` are not mirrored onto the
+// bare global scope). It has no unit-testable behavior of its own here -
+// components only call `L.gridLayer.googleMutant(...)` behind an online-only,
+// real-Google-Maps-API code path - so replace it with a no-op in tests.
+vi.mock('leaflet.gridlayer.googlemutant/dist/Leaflet.GoogleMutant.js', () => ({}))
+
 class LocalStorageMock {
   private store = new Map<string, string>()
 

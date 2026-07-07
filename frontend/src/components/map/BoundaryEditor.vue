@@ -310,7 +310,9 @@ import { ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick } fr
 import { LMap, LTileLayer, LMarker, LPolygon } from '@vue-leaflet/vue-leaflet';
 import { LPolyline } from '@vue-leaflet/vue-leaflet';
 import L from 'leaflet';
-// Register Google Mutant plugin (adds L.gridLayer.googleMutant)
+// Bundled (not CDN) so GoogleMutant works offline; registers L.gridLayer.googleMutant
+// as a side effect onto the same L instance leaflet's own bundle exposes via window.L.
+import 'leaflet.gridlayer.googlemutant/dist/Leaflet.GoogleMutant.js';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -398,19 +400,6 @@ const tileLayerKey = ref(0);
 const useGlobalLeaflet = computed(() => useGoogleMutant.value);
 const leafletOptions = computed(() => ({ attributionControl: !useGoogleMutant.value }));
 
-function loadScriptOnce(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const existing = Array.from(document.getElementsByTagName('script')).find(s => s.src === src);
-    if (existing) { resolve(); return; }
-    const el = document.createElement('script');
-    el.src = src;
-    el.async = true;
-    el.onload = () => resolve();
-    el.onerror = () => reject(new Error(`Failed to load ${src}`));
-    document.head.appendChild(el);
-  });
-}
-
 async function ensureBaseLayer() {
   await nextTick();
   const map: L.Map | undefined = mapRef.value?.leafletObject as L.Map | undefined;
@@ -463,16 +452,13 @@ async function ensureBaseLayer() {
     return;
   }
 
-  // Load Google JS API using official loader
+  // Load Google JS API using official loader (GoogleMutant itself is bundled,
+  // not CDN-loaded - see the top-of-file import)
   try {
     const { Loader } = await import('@googlemaps/js-api-loader');
     if (!(window as any).google?.maps) {
       const loader = new Loader({ apiKey: String(props.googleApiKey), version: 'weekly' });
       await loader.load();
-    }
-    // Load the Leaflet Google Mutant plugin via CDN to avoid bundler issues
-    if (!(window as any).L?.gridLayer?.googleMutant && !(L as any).gridLayer?.googleMutant) {
-      await loadScriptOnce('https://unpkg.com/leaflet.gridlayer.googlemutant@0.13.5/dist/Leaflet.GoogleMutant.js');
     }
   } catch (e) {
     console.warn('Google Maps JS API failed to load. Falling back to standard tiles.', e)

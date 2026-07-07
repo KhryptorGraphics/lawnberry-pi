@@ -66,6 +66,9 @@ import {
 } from '@vue-leaflet/vue-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+// Bundled (not CDN) so GoogleMutant works offline; registers L.gridLayer.googleMutant
+// as a side effect onto the same L instance leaflet's own bundle exposes via window.L.
+import 'leaflet.gridlayer.googlemutant/dist/Leaflet.GoogleMutant.js';
 
 import { useMapStore } from '@/stores/map';
 import { getOsmTileLayer, shouldUseGoogleProvider } from '@/utils/mapProviders';
@@ -184,19 +187,11 @@ async function initializeBaseLayer() {
 }
 
 async function loadGoogleMapsApi(apiKey: string) {
+  // GoogleMutant itself is bundled, not CDN-loaded - see the top-of-file import.
   const { Loader } = await import('@googlemaps/js-api-loader');
   if (!(window as any).google?.maps) {
     const loader = new Loader({ apiKey, version: 'weekly' });
     await loader.load();
-  }
-  if (!(L as any).gridLayer?.googleMutant) {
-    await new Promise<void>((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/leaflet.gridlayer.googlemutant@0.13.5/dist/Leaflet.GoogleMutant.js';
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error('Failed to load Leaflet.GoogleMutant'));
-      document.head.appendChild(script);
-    });
   }
 }
 
