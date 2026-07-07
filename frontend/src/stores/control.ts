@@ -49,7 +49,7 @@ export const useControlStore = defineStore('control', () => {
     }
   }
 
-  const ws = useWebSocket('telemetry', {});
+  const ws = useWebSocket('telemetry');
 
   // Actions
   async function submitCommand(command: string, payload: any = {}) {
