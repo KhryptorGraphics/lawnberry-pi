@@ -1112,12 +1112,11 @@ async function authenticateControl() {
     const axiosError = error as AxiosError
     const status = axiosError.response?.status
     if (status === 404 || status === 501) {
-      // Backend fallback not implemented – unlock locally with warning
-      session.value = ensureSession()
-      updateSessionTimer()
-      isControlUnlocked.value = true
-      toast.show('Manual control unlocked locally (offline mode)', 'warning', 4000)
-      showStatus('Manual control unlocked (local mode)', true)
+      // Backend endpoint unavailable – fail closed, do not grant control.
+      const message = 'Manual control unlock is unavailable (backend endpoint missing).'
+      authError.value = message
+      toast.show(message, 'error', 5000)
+      showStatus(message, false)
     } else {
       const message = (axiosError.response?.data as any)?.detail || axiosError.message || 'Authentication failed'
       authError.value = message
@@ -1159,11 +1158,10 @@ async function verifyCloudflareAuth() {
       showStatus('Cloudflare verification failed', false)
     }
   } catch (error) {
-    console.warn('Cloudflare verification failed, falling back to local unlock.', error)
-    session.value = ensureSession()
-    updateSessionTimer()
-    isControlUnlocked.value = true
-    showStatus('Cloudflare Access assumed (offline mode)', true)
+    console.warn('Cloudflare verification failed.', error)
+    const message = 'Cloudflare Access verification failed. Manual control remains locked.'
+    toast.show(message, 'error', 5000)
+    showStatus(message, false)
   }
 }
 

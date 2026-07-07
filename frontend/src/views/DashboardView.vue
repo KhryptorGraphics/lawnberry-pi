@@ -263,6 +263,7 @@ import { storeToRefs } from 'pinia'
 import { systemApi, controlApi, telemetryApi, weatherApi, maintenanceApi } from '@/composables/useApi'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useAutonomyStore } from '@/stores/autonomy'
 
 interface TofState {
   distance: number | null
@@ -288,6 +289,7 @@ const dataStreamText = ref('>>> INITIALIZING SYSTEM CONNECTION...')
 
 // Preferences
 const preferences = usePreferencesStore()
+const autonomy = useAutonomyStore()
 preferences.ensureInitialized()
 const { unitSystem } = storeToRefs(preferences)
 
@@ -1047,7 +1049,10 @@ const startSystem = async () => {
   try {
     isLoading.value = true
     addLogEntry('Initiating system startup...', 'info')
-    await controlApi.start()
+    await autonomy.start()
+    if (autonomy.error) {
+      throw new Error(autonomy.error)
+    }
     currentMode.value = 'RUNNING'
     addLogEntry('System started successfully', 'success')
   } catch (error) {
@@ -1062,7 +1067,7 @@ const pauseSystem = async () => {
   try {
     isLoading.value = true
     addLogEntry('Pausing system operations...', 'info')
-    await controlApi.pause()
+    await autonomy.pause()
     currentMode.value = 'PAUSED'
     addLogEntry('System paused', 'warning')
   } catch (error) {
@@ -1077,7 +1082,7 @@ const stopSystem = async () => {
   try {
     isLoading.value = true
     addLogEntry('Stopping system operations...', 'info')
-    await controlApi.stop()
+    await autonomy.stop()
     currentMode.value = 'STOPPED'
     addLogEntry('System stopped', 'info')
   } catch (error) {
