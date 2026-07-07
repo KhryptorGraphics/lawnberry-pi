@@ -2,22 +2,15 @@ import { describe, it, beforeEach, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 
-vi.mock('@/composables/useApi', () => ({
+vi.mock('@/services/api', () => ({
   systemApi: {
     getStatus: vi.fn().mockResolvedValue({ status: 'Active', uptime: '1h 0m' }),
   },
   settingsApi: {
     getSettings: vi.fn().mockResolvedValue({ system: { unit_system: 'metric' } }),
-    updateSettings: vi.fn(),
-    resetToDefaults: vi.fn(),
   },
   controlApi: {
-    start: vi.fn().mockResolvedValue(undefined),
-    pause: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
     emergencyStop: vi.fn().mockResolvedValue(undefined),
-    resume: vi.fn().mockResolvedValue(undefined),
-    getStatus: vi.fn().mockResolvedValue(undefined),
   },
   telemetryApi: {
     getCurrent: vi.fn(),
@@ -52,7 +45,7 @@ vi.mock('@/services/websocket', () => ({
 }))
 
 import DashboardView from '@/views/DashboardView.vue'
-import { telemetryApi } from '@/composables/useApi'
+import { telemetryApi } from '@/services/api'
 
 const makePowerTelemetry = () => ({
   battery: { percentage: 77.1, voltage: 12.6 },

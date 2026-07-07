@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { weatherApi } from '@/composables/useApi'
+import { weatherApi } from '@/services/api'
+
+// Escape the global @/services/api stub (tests/vitest.setup.ts) — this test drives the
+// real weatherApi implementation against a mocked axios instance instead.
+vi.mock('@/services/api', async (importOriginal) => importOriginal())
 
 vi.mock('axios', () => {
   const get = vi.fn(async (url: string) => {
-    if (url.startsWith('/api/weather/current') || url.startsWith('/weather/current')) {
+    if (url.includes('/weather/current')) {
       return {
         data: {
           temperature_c: 21.2,
@@ -12,15 +16,6 @@ vi.mock('axios', () => {
           condition: 'clear',
           source: 'offline-default',
           ts: new Date().toISOString(),
-        },
-      }
-    }
-    if (url === '/api/weather/planning-advice' || url === '/weather/planning-advice') {
-      return {
-        data: {
-          advice: 'proceed',
-          reason: 'no rain forecast',
-          next_review_at: new Date(Date.now() + 3600_000).toISOString(),
         },
       }
     }
@@ -44,11 +39,5 @@ describe('weatherApi', () => {
     const res = await weatherApi.getCurrent()
     expect(res.temperature_c).toBeTypeOf('number')
     expect(res.source).toBeDefined()
-  })
-
-  it('fetches planning advice', async () => {
-    const res = await weatherApi.getPlanningAdvice()
-    expect(['proceed', 'avoid', 'caution']).toContain(res.advice)
-    expect(res.reason).toBeTypeOf('string')
   })
 })

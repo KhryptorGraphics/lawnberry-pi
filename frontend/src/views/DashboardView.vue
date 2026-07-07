@@ -260,7 +260,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { systemApi, controlApi, telemetryApi, weatherApi, maintenanceApi } from '@/composables/useApi'
+import { systemApi, controlApi, telemetryApi, weatherApi, maintenanceApi } from '@/services/api'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useAutonomyStore } from '@/stores/autonomy'

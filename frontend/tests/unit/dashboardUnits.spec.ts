@@ -4,17 +4,12 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia, storeToRefs } from 'pinia'
 
 // Mock API modules first, before importing components
-vi.mock('@/composables/useApi', () => ({
+vi.mock('@/services/api', () => ({
   systemApi: {
     getStatus: vi.fn(),
   },
   controlApi: {
-    start: vi.fn().mockResolvedValue(undefined),
-    pause: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
     emergencyStop: vi.fn().mockResolvedValue(undefined),
-    resume: vi.fn().mockResolvedValue(undefined),
-    getStatus: vi.fn().mockResolvedValue(undefined),
   },
   telemetryApi: {
     getCurrent: vi.fn(),
@@ -24,8 +19,6 @@ vi.mock('@/composables/useApi', () => ({
   },
   settingsApi: {
     getSettings: vi.fn(),
-    updateSettings: vi.fn(),
-    resetToDefaults: vi.fn(),
   },
   maintenanceApi: {
     getImuCalibrationStatus: vi.fn(),
@@ -53,7 +46,7 @@ vi.mock('@/services/websocket', () => ({
 // Import after mocking
 import DashboardView from '@/views/DashboardView.vue'
 import { usePreferencesStore } from '@/stores/preferences'
-import { systemApi, controlApi, telemetryApi, weatherApi, settingsApi, maintenanceApi } from '@/composables/useApi'
+import { systemApi, controlApi, telemetryApi, weatherApi, settingsApi, maintenanceApi } from '@/services/api'
 
 // Create telemetry factory function
 const createTelemetryPayload = () => ({

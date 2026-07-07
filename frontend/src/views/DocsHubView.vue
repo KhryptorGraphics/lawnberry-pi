@@ -271,7 +271,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { renderMarkdownSafe } from '@/utils/markdown'
-import api from '@/composables/useApi'
+import api from '@/services/api'
 
 interface DocInfo {
   id: string
@@ -532,7 +532,7 @@ async function selectDoc(doc: DocInfo) {
     try {
       // Backend contract: GET /api/v2/docs/{path} returns the raw markdown body
       // as text/plain (doc.id holds the document's relative path).
-      const response = await api.get(`/docs/${doc.id}`)
+      const response = await api.get(`/api/v2/docs/${doc.id}`)
       if (typeof response.data === 'string' && response.data.length > 0) {
         doc.content = response.data
       } else if (response.data && typeof response.data.content === 'string') {
@@ -699,7 +699,7 @@ async function loadDocumentation() {
     // Try to load real documentation from backend API
     try {
       // Backend contract: GET /api/v2/docs/list -> [{ path, size_bytes, last_modified }]
-      const response = await api.get('/docs/list')
+      const response = await api.get('/api/v2/docs/list')
       const entries: any[] = Array.isArray(response.data)
         ? response.data
         : (response.data?.docs ?? [])
