@@ -256,23 +256,6 @@
                 </button>
               </div>
             </div>
-
-            <!-- Feedback Section -->
-            <div class="feedback-section">
-              <h4>💬 Was this helpful?</h4>
-              <div class="feedback-buttons">
-                <button class="btn btn-success" @click="submitFeedback('helpful')">👍 Yes</button>
-                <button class="btn btn-secondary" @click="submitFeedback('not-helpful')">👎 No</button>
-              </div>
-              <div v-if="showFeedbackForm" class="feedback-form">
-                <textarea 
-                  v-model="feedbackText"
-                  placeholder="Tell us how we can improve this documentation..."
-                  class="feedback-textarea"
-                />
-                <button class="btn btn-primary" @click="submitDetailedFeedback">Send Feedback</button>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -329,8 +312,6 @@ const expandedSections = ref<string[]>(['getting-started'])
 const currentStep = ref(1)
 
 // UI state
-const showFeedbackForm = ref(false)
-const feedbackText = ref('')
 const statusMessage = ref('')
 const statusSuccess = ref(false)
 
@@ -651,23 +632,6 @@ function completeGuide() {
   showStatus('🎉 Guide completed! Great job!', true)
   // Could track completion status in localStorage
   localStorage.setItem(`guide_completed_${selectedDoc.value?.id}`, 'true')
-}
-
-// Methods - Feedback
-function submitFeedback(type: 'helpful' | 'not-helpful') {
-  if (type === 'not-helpful') {
-    showFeedbackForm.value = true
-  } else {
-    showStatus('Thank you for your feedback!', true)
-  }
-}
-
-function submitDetailedFeedback() {
-  // Send feedback to backend
-  console.log('Feedback submitted:', feedbackText.value)
-  showStatus('Thank you for your detailed feedback!', true)
-  showFeedbackForm.value = false
-  feedbackText.value = ''
 }
 
 // Methods - Utilities
@@ -1587,47 +1551,6 @@ watch(searchQuery, (newQuery) => {
   font-size: 0.875rem;
 }
 
-/* Feedback Section */
-.feedback-section {
-  background: #1a2332;
-  border: 1px solid #2c3e50;
-  border-radius: 8px;
-  padding: 1.5rem;
-  margin: 2rem 0;
-}
-
-.feedback-section h4 {
-  color: #00ff9f;
-  margin-bottom: 1rem;
-}
-
-.feedback-buttons {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.feedback-form {
-  margin-top: 1rem;
-}
-
-.feedback-textarea {
-  width: 100%;
-  min-height: 100px;
-  padding: 0.75rem;
-  background: #0b111b;
-  border: 1px solid #2c3e50;
-  border-radius: 4px;
-  color: #e6e6e6;
-  resize: vertical;
-  margin-bottom: 1rem;
-}
-
-.feedback-textarea:focus {
-  outline: none;
-  border-color: #00ff9f;
-}
-
 /* Buttons */
 .btn {
   padding: 0.5rem 1rem;
@@ -1744,11 +1667,7 @@ watch(searchQuery, (newQuery) => {
   .step-actions {
     flex-direction: column;
   }
-  
-  .feedback-buttons {
-    flex-direction: column;
-  }
-  
+
   .alert {
     position: relative;
     top: auto;
