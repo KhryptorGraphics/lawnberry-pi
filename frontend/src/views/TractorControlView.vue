@@ -5,8 +5,6 @@
       <p class="text-muted">Manual actuation of the ride-on lawn tractor</p>
     </div>
 
-    <p v-if="message" class="status-banner" :class="ok ? 'ok' : 'err'">{{ message }}</p>
-
     <div class="tractor-grid">
       <!-- Status + engine/authorization -->
       <div class="card">
@@ -155,6 +153,7 @@ import {
   tractorThrottle,
   type TractorGear,
 } from '@/services/api'
+import { useToastStore } from '@/stores/toast'
 
 interface TractorState {
   steering: number
@@ -178,18 +177,13 @@ const throttle = ref(0)
 const groundSpeed = ref(0)
 const clutch = ref(1)
 const busy = ref(false)
-const message = ref('')
-const ok = ref(true)
+const toast = useToastStore()
 let timer: ReturnType<typeof setInterval> | null = null
 
 const locked = computed(() => busy.value || !!state.value.emergency_stop_active)
 
 function notify(msg: string, good = true) {
-  message.value = msg
-  ok.value = good
-  setTimeout(() => {
-    if (message.value === msg) message.value = ''
-  }, 4000)
+  toast.show(msg, good ? 'success' : 'error')
 }
 
 function syncFromState() {
@@ -253,9 +247,6 @@ onUnmounted(() => {
 .tractor-view { padding: 0; }
 .page-header { margin-bottom: 1.5rem; }
 .page-header h1 { margin-bottom: 0.25rem; }
-.status-banner { padding: 0.6rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-weight: 600; }
-.status-banner.ok { background: #d1f7e0; color: #0c7a43; }
-.status-banner.err { background: #fde2e1; color: #b42318; }
 .tractor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; }
 .card { background: var(--card-bg, #fff); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 .card-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color, #eee); }

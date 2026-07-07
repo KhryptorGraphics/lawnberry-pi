@@ -41,11 +41,13 @@ import MissionWaypointList from '@/components/MissionWaypointList.vue';
 import MissionMap from '@/components/mission/MissionMap.vue';
 import { useMissionStore } from '@/stores/mission';
 import { useMapStore } from '@/stores/map';
+import { useToastStore } from '@/stores/toast';
 import { useApiService } from '@/services/api';
 import { useWebSocket } from '@/services/websocket';
 
 const missionStore = useMissionStore();
 const mapStore = useMapStore();
+const toast = useToastStore();
 const api = useApiService();
 const telemetrySocket = useWebSocket('telemetry');
 
@@ -169,10 +171,22 @@ function undoLastWaypoint() {
   missionStore.removeLastWaypoint();
 }
 
-const startMission = () => missionStore.startCurrentMission();
-const pauseMission = () => missionStore.pauseCurrentMission();
-const resumeMission = () => missionStore.resumeCurrentMission();
-const abortMission = () => missionStore.abortCurrentMission();
+const startMission = async () => {
+  const ok = await missionStore.startCurrentMission();
+  toast.show(ok ? 'Mission started' : 'Failed to start mission', ok ? 'success' : 'error');
+};
+const pauseMission = async () => {
+  const ok = await missionStore.pauseCurrentMission();
+  toast.show(ok ? 'Mission paused' : 'Failed to pause mission', ok ? 'success' : 'error');
+};
+const resumeMission = async () => {
+  const ok = await missionStore.resumeCurrentMission();
+  toast.show(ok ? 'Mission resumed' : 'Failed to resume mission', ok ? 'success' : 'error');
+};
+const abortMission = async () => {
+  const ok = await missionStore.abortCurrentMission();
+  toast.show(ok ? 'Mission aborted' : 'Failed to abort mission', ok ? 'success' : 'error');
+};
 
 </script>
 

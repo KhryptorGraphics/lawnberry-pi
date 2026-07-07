@@ -264,6 +264,7 @@ import { systemApi, controlApi, telemetryApi, weatherApi, maintenanceApi } from 
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useAutonomyStore } from '@/stores/autonomy'
+import { useToastStore } from '@/stores/toast'
 
 interface TofState {
   distance: number | null
@@ -290,6 +291,7 @@ const dataStreamText = ref('>>> INITIALIZING SYSTEM CONNECTION...')
 // Preferences
 const preferences = usePreferencesStore()
 const autonomy = useAutonomyStore()
+const toast = useToastStore()
 preferences.ensureInitialized()
 const { unitSystem } = storeToRefs(preferences)
 
@@ -342,9 +344,9 @@ const imuSupported = ref(true)
 let calibrationPollHandle: number | null = null
 
 // Event log
-const recentEvents = ref([
-  { id: Date.now(), timestamp: new Date(), message: 'System initializing...', level: 'info' },
-])
+const recentEvents = ref<
+  { id: number; timestamp: Date; message: string; level: 'info' | 'success' | 'warning' | 'error' }[]
+>([])
 
 // Computed properties for styling and display
 const systemStatusClass = computed(() => {
@@ -1055,9 +1057,11 @@ const startSystem = async () => {
     }
     currentMode.value = 'RUNNING'
     addLogEntry('System started successfully', 'success')
+    toast.show('System started', 'success')
   } catch (error) {
     console.error('Failed to start system:', error)
     addLogEntry(`Start failed: ${error.message || 'Unknown error'}`, 'error')
+    toast.show(`Failed to start system: ${error.message || 'Unknown error'}`, 'error')
   } finally {
     isLoading.value = false
   }
@@ -1070,9 +1074,11 @@ const pauseSystem = async () => {
     await autonomy.pause()
     currentMode.value = 'PAUSED'
     addLogEntry('System paused', 'warning')
+    toast.show('System paused', 'success')
   } catch (error) {
     console.error('Failed to pause system:', error)
     addLogEntry(`Pause failed: ${error.message || 'Unknown error'}`, 'error')
+    toast.show(`Failed to pause system: ${error.message || 'Unknown error'}`, 'error')
   } finally {
     isLoading.value = false
   }
@@ -1085,9 +1091,11 @@ const stopSystem = async () => {
     await autonomy.stop()
     currentMode.value = 'STOPPED'
     addLogEntry('System stopped', 'info')
+    toast.show('System stopped', 'success')
   } catch (error) {
     console.error('Failed to stop system:', error)
     addLogEntry(`Stop failed: ${error.message || 'Unknown error'}`, 'error')
+    toast.show(`Failed to stop system: ${error.message || 'Unknown error'}`, 'error')
   } finally {
     isLoading.value = false
   }
@@ -1100,9 +1108,11 @@ const emergencyStop = async () => {
     await controlApi.emergencyStop()
     currentMode.value = 'E-STOP'
     addLogEntry('Emergency stop complete - system secured', 'error')
+    toast.show('Emergency stop activated - system secured', 'warning', 8000)
   } catch (error) {
     console.error('Failed to emergency stop:', error)
     addLogEntry(`E-STOP FAILED: ${error.message || 'Unknown error'}`, 'error')
+    toast.show(`E-STOP FAILED: ${error.message || 'Unknown error'}`, 'error', 0)
   } finally {
     isLoading.value = false
   }
