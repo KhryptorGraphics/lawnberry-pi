@@ -9,13 +9,31 @@
           <img :src="logoUrl" alt="LawnBerry Pi" class="logo">
           <h1 class="retro-title">LawnBerry Pi v2</h1>
         </div>
-        <div class="nav-links">
+        <button
+          class="nav-hamburger"
+          type="button"
+          aria-label="Toggle navigation menu"
+          :aria-expanded="navOpen"
+          aria-controls="primary-nav-links"
+          @click="navOpen = !navOpen"
+        >
+          <span /><span /><span />
+        </button>
+        <div
+          id="primary-nav-links"
+          class="nav-links"
+          :class="{ open: navOpen }"
+          @click="navOpen = false"
+        >
           <router-link to="/" class="nav-link">Dashboard</router-link>
           <router-link to="/control" class="nav-link">Control</router-link>
           <router-link to="/tractor" class="nav-link">Tractor</router-link>
           <router-link to="/maps" class="nav-link">Maps</router-link>
           <router-link to="/planning" class="nav-link">Planning</router-link>
           <router-link to="/mission-planner" class="nav-link">Mission Planner</router-link>
+          <router-link to="/ai" class="nav-link">AI</router-link>
+          <router-link to="/telemetry" class="nav-link">Telemetry</router-link>
+          <router-link to="/rtk" class="nav-link">RTK</router-link>
           <router-link to="/docs" class="nav-link">📚 Docs</router-link>
           <router-link to="/settings" class="nav-link">Settings</router-link>
         </div>
@@ -52,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from './stores/auth'
 import { useSystemStore } from './stores/system'
 import { usePreferencesStore } from './stores/preferences'
@@ -66,6 +84,7 @@ import logoUrl from '@/assets/logo.png'
 const authStore = useAuthStore()
 const systemStore = useSystemStore()
 const preferencesStore = usePreferencesStore()
+const navOpen = ref(false)
 
 preferencesStore.ensureInitialized()
 
@@ -254,6 +273,24 @@ onMounted(async () => {
   overflow: hidden;
 }
 
+.nav-hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid rgba(0, 255, 255, 0.4);
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+}
+
+.nav-hamburger span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: #00ffff;
+}
+
 .nav-link {
   color: #00ffff;
   text-decoration: none;
@@ -415,13 +452,23 @@ onMounted(async () => {
     gap: 0.75rem;
     padding: 0.75rem;
   }
-  
-  .nav-links {
-    gap: 0.35rem;
-    flex-wrap: wrap;
-    justify-content: center;
+
+  .nav-hamburger {
+    display: flex;
+    align-self: flex-end;
   }
-  
+
+  .nav-links {
+    display: none;
+    flex-direction: column;
+    gap: 0.35rem;
+    width: 100%;
+  }
+
+  .nav-links.open {
+    display: flex;
+  }
+
   .nav-link {
     padding: 0.45rem 0.8rem;
     font-size: 0.85rem;
