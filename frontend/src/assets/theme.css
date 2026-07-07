@@ -9,6 +9,38 @@
   --card: #12141a;
   --card-2: #151823;
   --border: #1e2230;
+
+  /*
+   * The variables below were referenced by ~14 views (ControlView + its
+   * cards, BoundaryEditor, MissionWaypointList, RtkDiagnosticsPanel,
+   * MapsView, PlanningView, RtkDiagnosticsView, SettingsView, AIView,
+   * TelemetryView, TractorControlView) but never actually defined here,
+   * so every var() call silently fell back to initial/inherited styling.
+   * Values are backfilled from each consuming file's own literal colors
+   * (BoundaryEditor's #00FF92, RtkDiagnosticsPanel's #0a0a0a/#00ffff,
+   * this file's own --bg/--text/--muted/--card/--border) to match what
+   * each view's author evidently intended, not a new palette.
+   */
+  --accent-green: #00ff92;
+  --accent-green-hover: #00cc75;
+  --accent-cyan: #00ffff;
+  --primary-dark: #0a0a0a;
+  --secondary-dark: #12141a;
+  --primary-light: #2d3748;
+  --text-color: #e6f0ff;
+  --text-muted: #9db0c6;
+
+  /*
+   * AIView/TractorControlView/TelemetryView already carried explicit
+   * var(--x, fallback) defaults for these three (#fff/#eee/#2563eb) —
+   * those views render a light admin-panel card style on purpose, distinct
+   * from the dark-neon views above. Defining these to match the existing
+   * fallback exactly is a no-op for those views (same resolved value
+   * either way) while still closing the "undefined variable" gap.
+   */
+  --card-bg: #ffffff;
+  --border-color: #eeeeee;
+  --primary-color: #2563eb;
 }
 
 [data-theme="pro"] {
@@ -22,6 +54,19 @@
   --card: #0f1722;
   --card-2: #0b1420;
   --border: #162032;
+
+  /* See :root above for what these backfill and why. */
+  --accent-green: #00ff92;
+  --accent-green-hover: #00cc75;
+  --accent-cyan: #00ffff;
+  --primary-dark: #0c1016;
+  --secondary-dark: #0f1722;
+  --primary-light: #2d3748;
+  --text-color: #e6f0ff;
+  --text-muted: #99a7bd;
+  --card-bg: #ffffff;
+  --border-color: #eeeeee;
+  --primary-color: #2563eb;
 }
 
 body {
