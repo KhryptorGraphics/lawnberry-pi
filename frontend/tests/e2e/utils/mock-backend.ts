@@ -39,6 +39,8 @@ export class MockBackend {
 
   private driveResult: DriveCommandResult = { result: 'ok' }
 
+  private manualUnlockFailure: { status: number; body?: unknown } | null = null
+
   private mapConfiguration: any = {
     config_id: 'default',
     config_version: 1,
@@ -249,6 +251,11 @@ export class MockBackend {
     this.driveResult = result
   }
 
+  /** Force the next manual-unlock POST to fail, to exercise the fail-closed path. */
+  setManualUnlockFailure(status: number, body: unknown = { detail: 'Unlock failed' }) {
+    this.manualUnlockFailure = { status, body }
+  }
+
   setHardwareSnapshot(snapshot: any) {
     this.hardwareSnapshot = { ...this.hardwareSnapshot, ...snapshot }
   }
@@ -447,6 +454,10 @@ export class MockBackend {
 
     // Manual control security config reuses settings/security response
     if (method === 'POST' && pathname === '/api/v2/control/manual-unlock') {
+      if (this.manualUnlockFailure) {
+        const { status, body: failureBody } = this.manualUnlockFailure
+        return respond(status, failureBody)
+      }
       this.manualUnlockSession = {
         sessionId: `session-${Date.now()}`,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
