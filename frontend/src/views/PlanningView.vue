@@ -20,8 +20,8 @@
 
     <!-- Planning Tabs -->
     <div class="planning-tabs">
-      <button 
-        v-for="tab in tabs" 
+      <button
+        v-for="tab in tabs"
         :key="tab.id"
         :class="{ active: activeTab === tab.id }"
         class="tab-button"
@@ -33,293 +33,69 @@
 
     <!-- Current Jobs -->
     <div v-if="activeTab === 'current'" class="tab-content">
-      <div class="card">
-        <div class="card-header">
-          <h3>Current & Queued Jobs</h3>
-          <button class="btn btn-sm btn-secondary" @click="refreshJobs">
-            🔄 Refresh
-          </button>
-        </div>
-        <div class="card-body">
-          <div v-if="jobs.length === 0" class="empty-state">
-            <p>No active or queued jobs</p>
-            <button class="btn btn-primary" @click="openScheduleModal">
-              Schedule First Job
-            </button>
-          </div>
-          
-          <div v-else class="jobs-list">
-            <div 
-              v-for="job in jobs" 
-              :key="job.id"
-              class="job-item"
-              :class="`status-${job.status}`"
-            >
-              <div class="job-header">
-                <div class="job-title">
-                  <h4>{{ job.name }}</h4>
-                  <span class="status-badge" :class="`status-${job.status}`">
-                    {{ formatJobStatus(job.status) }}
-                  </span>
-                </div>
-                <div class="job-actions">
-                  <button 
-                    v-if="job.status === 'scheduled'"
-                    class="btn btn-xs btn-success"
-                    @click="startJob(job)"
-                  >
-                    ▶️ Start
-                  </button>
-                  <button 
-                    v-if="job.status === 'running'"
-                    class="btn btn-xs btn-warning"
-                    @click="pauseJob(job)"
-                  >
-                    ⏸️ Pause
-                  </button>
-                  <button 
-                    v-if="job.status === 'paused'"
-                    class="btn btn-xs btn-success"
-                    @click="resumeJob(job)"
-                  >
-                    ▶️ Resume
-                  </button>
-                  <button 
-                    class="btn btn-xs btn-danger"
-                    :disabled="job.status === 'completed'"
-                    @click="cancelJob(job)"
-                  >
-                    ❌ Cancel
-                  </button>
-                </div>
-              </div>
-              
-              <div class="job-details">
-                <div class="job-info">
-                  <span>Zones: {{ job.zones.join(', ') }}</span>
-                  <span>Pattern: {{ job.pattern }}</span>
-                  <span v-if="job.scheduled_start">Start: {{ formatDateTime(job.scheduled_start) }}</span>
-                </div>
-                
-                <div v-if="job.status === 'running'" class="job-progress">
-                  <div class="progress-bar">
-                    <div class="progress-fill" :style="{ width: `${job.progress}%` }" />
-                  </div>
-                  <span class="progress-text">{{ job.progress }}% complete</span>
-                  <span v-if="job.estimated_remaining" class="time-remaining">
-                    ~{{ job.estimated_remaining }} min remaining
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Job History -->
-      <div class="card">
-        <div class="card-header">
-          <h3>Recent Job History</h3>
-        </div>
-        <div class="card-body">
-          <div class="history-list">
-            <div 
-              v-for="job in completedJobs" 
-              :key="job.id"
-              class="history-item"
-            >
-              <div class="history-header">
-                <span class="job-name">{{ job.name }}</span>
-                <span class="completion-time">{{ formatDateTime(job.completed_at) }}</span>
-              </div>
-              <div class="history-details">
-                <span>Duration: {{ job.actual_duration }} min</span>
-                <span>Area: {{ formatArea(job.area_covered) }} {{ areaUnit }}</span>
-                <span class="success-indicator">✅ Completed</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <JobsCard
+        :jobs="jobs"
+        :completed-jobs="completedJobs"
+        :area-unit="areaUnit"
+        :format-job-status="formatJobStatus"
+        :format-date-time="formatDateTime"
+        :format-area="formatArea"
+        @refresh="refreshJobs"
+        @schedule="openScheduleModal"
+        @start="startJob"
+        @pause="pauseJob"
+        @resume="resumeJob"
+        @cancel="cancelJob"
+      />
     </div>
 
     <!-- Scheduling -->
     <div v-if="activeTab === 'schedule'" class="tab-content">
-      <div class="card">
-        <div class="card-header">
-          <h3>Recurring Schedules</h3>
-          <button class="btn btn-sm btn-primary" @click="openScheduleModal">
-            ➕ Add Schedule
-          </button>
-        </div>
-        <div class="card-body">
-          <div v-if="schedules.length === 0" class="empty-state">
-            <p>No recurring schedules configured</p>
-          </div>
-          
-          <div v-else class="schedules-list">
-            <div 
-              v-for="schedule in schedules" 
-              :key="schedule.id"
-              class="schedule-item"
-            >
-              <div class="schedule-header">
-                <div class="schedule-info">
-                  <h4>{{ schedule.name }}</h4>
-                  <span class="schedule-frequency">{{ formatFrequency(schedule.frequency) }}</span>
-                </div>
-                <div class="schedule-actions">
-                  <button 
-                    class="btn btn-xs"
-                    :class="schedule.enabled ? 'btn-warning' : 'btn-success'"
-                    @click="toggleSchedule(schedule)"
-                  >
-                    {{ schedule.enabled ? '⏸️ Disable' : '▶️ Enable' }}
-                  </button>
-                  <button class="btn btn-xs btn-secondary" @click="editSchedule(schedule)">
-                    ✏️ Edit
-                  </button>
-                  <button class="btn btn-xs btn-danger" @click="deleteSchedule(schedule)">
-                    🗑️ Delete
-                  </button>
-                </div>
-              </div>
-              
-              <div class="schedule-details">
-                <span>Zones: {{ schedule.zones.join(', ') }}</span>
-                <span>Pattern: {{ schedule.pattern }}</span>
-                <span>Next run: {{ formatDateTime(schedule.next_run) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Weather & Conditions -->
-      <div class="card">
-        <div class="card-header">
-          <h3>Current Conditions</h3>
-        </div>
-        <div class="card-body">
-          <div class="conditions-grid">
-            <div class="condition-item">
-              <div class="condition-label">Weather</div>
-              <div class="condition-value" :class="weatherClass">
-                {{ currentWeather.condition || 'Loading...' }}
-              </div>
-              <div class="condition-detail">
-                {{ weatherTemperatureDisplay }}{{ temperatureUnit }}, {{ currentWeather.humidity_percent }}% humidity
-              </div>
-            </div>
-            
-            <div class="condition-item">
-              <div class="condition-label">Mowing Recommendation</div>
-              <div class="condition-value" :class="recommendationClass">
-                {{ recommendation.advice }}
-              </div>
-              <div class="condition-detail">{{ recommendation.reason }}</div>
-            </div>
-            
-            <div class="condition-item">
-              <div class="condition-label">Ground Conditions</div>
-              <div class="condition-value" :class="groundClass">
-                {{ groundCondition }}
-              </div>
-              <div class="condition-detail">Last rain: {{ lastRain }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <SchedulesCard
+        :schedules="schedules"
+        :current-weather="currentWeather"
+        :weather-class="weatherClass"
+        :weather-temperature-display="weatherTemperatureDisplay"
+        :temperature-unit="temperatureUnit"
+        :recommendation="recommendation"
+        :recommendation-class="recommendationClass"
+        :ground-class="groundClass"
+        :ground-condition="groundCondition"
+        :last-rain="lastRain"
+        :format-frequency="formatFrequency"
+        :format-date-time="formatDateTime"
+        @add="openScheduleModal"
+        @toggle="toggleSchedule"
+        @edit="editSchedule"
+        @delete="deleteSchedule"
+      />
     </div>
 
     <!-- Zone Management -->
     <div v-if="activeTab === 'zones'" class="tab-content">
-      <div class="card">
-        <div class="card-header">
-          <h3>Mowing Zones</h3>
-          <button class="btn btn-sm btn-primary" @click="openZoneModal">
-            ➕ Add Zone
-          </button>
-        </div>
-        <div class="card-body">
-          <div class="zones-grid">
-            <div 
-              v-for="zone in zones" 
-              :key="zone.id"
-              class="zone-card"
-              :class="{ active: selectedZone?.id === zone.id }"
-              @click="selectZone(zone)"
-            >
-              <div class="zone-header">
-                <h4>{{ zone.name }}</h4>
-                <span class="zone-priority" :class="`priority-${zone.priority}`">
-                  {{ formatPriority(zone.priority) }}
-                </span>
-              </div>
-              
-              <div class="zone-stats">
-                <div class="stat">
-                  <span class="stat-label">Area</span>
-                  <span class="stat-value">{{ formatArea(zone.area_m2) }} {{ areaUnit }}</span>
-                </div>
-                <div class="stat">
-                  <span class="stat-label">Height</span>
-                  <span class="stat-value">{{ formatCuttingHeight(zone.cutting_height) }} {{ cuttingHeightUnit }}</span>
-                </div>
-                <div class="stat">
-                  <span class="stat-label">Last Cut</span>
-                  <span class="stat-value">{{ formatRelativeTime(zone.last_mowed) }}</span>
-                </div>
-              </div>
-              
-              <div class="zone-actions">
-                <button class="btn btn-xs btn-success" @click.stop="mowZone(zone)">
-                  🌱 Mow Now
-                </button>
-                <button class="btn btn-xs btn-secondary" @click.stop="editZone(zone)">
-                  ✏️ Edit
-                </button>
-              </div>
-            </div>
-          </div>
-          <p v-if="!zones.length" class="empty-zones text-muted">
-            No mowing zones defined yet. Draw your boundary and zones in the
-            <button class="link-btn" type="button" @click="goToMaps">Maps editor</button>.
-          </p>
-        </div>
-      </div>
+      <ZonesCard
+        :zones="zones"
+        :selected-zone-id="selectedZone?.id ?? null"
+        :area-unit="areaUnit"
+        :cutting-height-unit="cuttingHeightUnit"
+        :format-priority="formatPriority"
+        :format-area="formatArea"
+        :format-cutting-height="formatCuttingHeight"
+        :format-relative-time="formatRelativeTime"
+        @add="openZoneModal"
+        @select="selectZone"
+        @mow="mowZone"
+        @edit="editZone"
+        @go-maps="goToMaps"
+      />
     </div>
 
     <!-- Patterns -->
     <div v-if="activeTab === 'patterns'" class="tab-content">
-      <div class="card">
-        <div class="card-header">
-          <h3>Mowing Patterns</h3>
-        </div>
-        <div class="card-body">
-          <div class="patterns-grid">
-            <div 
-              v-for="pattern in patterns" 
-              :key="pattern.id"
-              class="pattern-card"
-              :class="{ selected: selectedPattern === pattern.id }"
-              @click="selectedPattern = pattern.id"
-            >
-              <div class="pattern-preview">
-                <div class="pattern-visual" :class="`pattern-${pattern.id}`" />
-              </div>
-              <div class="pattern-info">
-                <h4>{{ pattern.name }}</h4>
-                <p>{{ pattern.description }}</p>
-                <div class="pattern-stats">
-                  <span>Efficiency: {{ pattern.efficiency }}%</span>
-                  <span>Coverage: {{ pattern.coverage }}%</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PatternsCard
+        v-model:selected-pattern="selectedPattern"
+        :patterns="patterns"
+      />
     </div>
 
     <!-- Schedule Job Modal -->
@@ -334,13 +110,13 @@
             <label>Job Name</label>
             <input v-model="scheduleForm.name" type="text" class="form-control">
           </div>
-          
+
           <div class="form-group">
             <label>Zones to Mow</label>
             <div class="zone-checkboxes">
               <label v-for="zone in zones" :key="zone.id" class="checkbox-label">
-                <input 
-                  v-model="scheduleForm.zones" 
+                <input
+                  v-model="scheduleForm.zones"
                   type="checkbox"
                   :value="zone.id"
                 >
@@ -348,7 +124,7 @@
               </label>
             </div>
           </div>
-          
+
           <div class="form-group">
             <label>Mowing Pattern</label>
             <select v-model="scheduleForm.pattern" class="form-control">
@@ -357,7 +133,7 @@
               </option>
             </select>
           </div>
-          
+
           <div class="form-group">
             <label>Schedule Type</label>
             <select v-model="scheduleForm.type" class="form-control">
@@ -365,16 +141,16 @@
               <option value="recurring">Recurring schedule</option>
             </select>
           </div>
-          
+
           <div v-if="scheduleForm.type === 'once'" class="form-group">
             <label>Start Time</label>
-            <input 
-              v-model="scheduleForm.startTime" 
-              type="datetime-local" 
+            <input
+              v-model="scheduleForm.startTime"
+              type="datetime-local"
               class="form-control"
             >
           </div>
-          
+
           <div v-if="scheduleForm.type === 'recurring'" class="recurring-options">
             <div class="form-group">
               <label>Frequency</label>
@@ -385,12 +161,12 @@
                 <option value="monthly">Monthly</option>
               </select>
             </div>
-            
+
             <div class="form-group">
               <label>Time of Day</label>
-              <input 
-                v-model="scheduleForm.timeOfDay" 
-                type="time" 
+              <input
+                v-model="scheduleForm.timeOfDay"
+                type="time"
                 class="form-control"
               >
             </div>
@@ -422,6 +198,10 @@ import { useMapStore } from '@/stores/map'
 import type { Zone } from '@/stores/map'
 import { useConfirmStore } from '@/stores/confirm'
 import { useRouter } from 'vue-router'
+import JobsCard from '@/components/planning/JobsCard.vue'
+import SchedulesCard from '@/components/planning/SchedulesCard.vue'
+import ZonesCard from '@/components/planning/ZonesCard.vue'
+import PatternsCard from '@/components/planning/PatternsCard.vue'
 
 // Backend contract: GET/POST/DELETE /api/v2/planning/jobs
 // (backend/src/api/routers/planning.py). On create, the backend only ever
@@ -781,19 +561,19 @@ function closeScheduleModal() {
 
 async function saveSchedule() {
   try {
-    const endpoint = editingSchedule.value 
+    const endpoint = editingSchedule.value
       ? `/api/v2/schedules/${editingSchedule.value.id}`
       : '/api/v2/schedules'
-    
+
     const method = editingSchedule.value ? 'put' : 'post'
-    
+
     await api[method](endpoint, scheduleForm.value)
-    
+
     showStatus(
-      editingSchedule.value ? 'Schedule updated!' : 'Schedule created!', 
+      editingSchedule.value ? 'Schedule updated!' : 'Schedule created!',
       true
     )
-    
+
     closeScheduleModal()
     await refreshSchedules()
   } catch (error) {
@@ -852,7 +632,7 @@ async function resumeJob(job: MowJob) {
 
 async function cancelJob(job: MowJob) {
   if (!(await confirmStore.ask(`Cancel job "${job.name}"?`))) return
-  
+
   try {
     await api.delete(`/api/v2/planning/jobs/${job.id}`)
     const index = jobs.value.findIndex(j => j.id === job.id)
@@ -871,7 +651,7 @@ async function toggleSchedule(schedule: MowSchedule) {
     })
     schedule.enabled = !schedule.enabled
     showStatus(
-      schedule.enabled ? 'Schedule enabled' : 'Schedule disabled', 
+      schedule.enabled ? 'Schedule enabled' : 'Schedule disabled',
       true
     )
   } catch (error) {
@@ -889,7 +669,7 @@ function editSchedule(schedule: MowSchedule) {
 
 async function deleteSchedule(schedule: MowSchedule) {
   if (!(await confirmStore.ask(`Delete schedule "${schedule.name}"?`))) return
-  
+
   try {
     await api.delete(`/api/v2/schedules/${schedule.id}`)
     const index = schedules.value.findIndex(s => s.id === schedule.id)
@@ -978,7 +758,7 @@ function formatRelativeTime(dateString: string | null | undefined): string {
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-    
+
     if (diffDays === 0) return 'Today'
     if (diffDays === 1) return 'Yesterday'
     if (diffDays < 7) return `${diffDays} days ago`
@@ -1024,7 +804,7 @@ onMounted(async () => {
       humidity_percent: data.humidity_percent ?? currentWeather.value.humidity_percent
     }
   })
-  
+
   await refreshJobs()
   await refreshSchedules()
 })
@@ -1101,427 +881,9 @@ onMounted(async () => {
   }
 }
 
-.card {
-  background: var(--secondary-dark);
-  border: 1px solid var(--primary-light);
-  border-radius: 8px;
-  margin-bottom: 2rem;
-}
-
-.card-header {
-  background: var(--primary-dark);
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--primary-light);
-  border-radius: 8px 8px 0 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.card-header h3 {
-  margin: 0;
-  color: var(--accent-green);
-  font-size: 1.25rem;
-}
-
-.card-body {
-  padding: 1.5rem;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 3rem 1rem;
-  color: var(--text-muted);
-}
-
-.jobs-list, .schedules-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.job-item, .schedule-item {
-  background: var(--primary-dark);
-  border: 1px solid var(--primary-light);
-  border-radius: 8px;
-  padding: 1rem;
-  transition: all 0.3s ease;
-}
-
-.job-item:hover, .schedule-item:hover {
-  border-color: var(--accent-green);
-}
-
-.job-header, .schedule-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1rem;
-}
-
-.job-title, .schedule-info {
-  flex: 1;
-}
-
-.job-title h4, .schedule-info h4 {
-  margin: 0 0 0.5rem 0;
-  color: var(--text-color);
-}
-
-.status-badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.status-scheduled {
-  background: rgba(0, 123, 255, 0.2);
-  color: #007bff;
-  border: 1px solid #007bff;
-}
-
-.status-running {
-  background: rgba(0, 255, 146, 0.2);
-  color: var(--accent-green);
-  border: 1px solid var(--accent-green);
-}
-
-.status-paused {
-  background: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
-  border: 1px solid #ffc107;
-}
-
-.status-completed {
-  background: rgba(40, 167, 69, 0.2);
-  color: #28a745;
-  border: 1px solid #28a745;
-}
-
-.job-actions, .schedule-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.job-details, .schedule-details {
-  color: var(--text-muted);
-  font-size: 0.875rem;
-}
-
-.job-info, .schedule-details {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-bottom: 1rem;
-}
-
-.job-progress {
-  margin-top: 1rem;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 8px;
-  background: var(--primary-light);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 0.5rem;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--accent-green);
-  transition: width 0.3s ease;
-}
-
-.progress-text, .time-remaining {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  margin-right: 1rem;
-}
-
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.history-item {
-  background: var(--primary-dark);
-  padding: 0.75rem;
-  border-radius: 4px;
-  border-left: 3px solid var(--accent-green);
-}
-
-.history-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.job-name {
-  font-weight: 500;
-  color: var(--text-color);
-}
-
-.completion-time {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-}
-
-.history-details {
-  display: flex;
-  gap: 1rem;
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  flex-wrap: wrap;
-}
-
-.success-indicator {
-  color: var(--accent-green);
-}
-
-.schedule-frequency {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-}
-
-.conditions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-}
-
-.condition-item {
-  background: var(--primary-dark);
-  padding: 1rem;
-  border-radius: 8px;
-  text-align: center;
-}
-
-.condition-label {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
-}
-
-.condition-value {
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-}
-
-.condition-good {
-  color: var(--accent-green);
-}
-
-.condition-warn {
-  color: #ffc107;
-}
-
-.condition-bad {
-  color: #ff4343;
-}
-
-.condition-detail {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-}
-
-.zones-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1rem;
-}
-
-.empty-zones {
-  padding: 1rem 0;
-}
-
-.link-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--primary-color, #2563eb);
-  cursor: pointer;
-  text-decoration: underline;
-  font: inherit;
-}
-
-.zone-card {
-  background: var(--primary-dark);
-  border: 1px solid var(--primary-light);
-  border-radius: 8px;
-  padding: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.zone-card:hover {
-  border-color: var(--accent-green);
-  transform: translateY(-2px);
-}
-
-.zone-card.active {
-  border-color: var(--accent-green);
-  background: rgba(0, 255, 146, 0.1);
-}
-
-.zone-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.zone-header h4 {
-  margin: 0;
-  color: var(--text-color);
-}
-
-.zone-priority {
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.priority-high {
-  background: rgba(255, 67, 67, 0.2);
-  color: #ff4343;
-}
-
-.priority-medium {
-  background: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
-}
-
-.priority-low {
-  background: rgba(0, 255, 146, 0.2);
-  color: var(--accent-green);
-}
-
-.zone-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.stat {
-  text-align: center;
-}
-
-.stat-label {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-bottom: 0.25rem;
-}
-
-.stat-value {
-  font-weight: 600;
-  color: var(--text-color);
-}
-
-.zone-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.patterns-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1rem;
-}
-
-.pattern-card {
-  background: var(--primary-dark);
-  border: 1px solid var(--primary-light);
-  border-radius: 8px;
-  padding: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.pattern-card:hover {
-  border-color: var(--accent-green);
-}
-
-.pattern-card.selected {
-  border-color: var(--accent-green);
-  background: rgba(0, 255, 146, 0.1);
-}
-
-.pattern-preview {
-  height: 100px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 1rem;
-  background: var(--secondary-dark);
-  border-radius: 4px;
-}
-
-.pattern-visual {
-  width: 60px;
-  height: 60px;
-  border-radius: 4px;
-}
-
-.pattern-parallel {
-  background: linear-gradient(to right, var(--accent-green) 0%, transparent 0%, transparent 20%, var(--accent-green) 20%, var(--accent-green) 40%, transparent 40%, transparent 60%, var(--accent-green) 60%, var(--accent-green) 80%, transparent 80%);
-}
-
-.pattern-spiral {
-  background: radial-gradient(circle, transparent 30%, var(--accent-green) 30%, var(--accent-green) 40%, transparent 40%);
-  border: 2px solid var(--accent-green);
-  border-radius: 50%;
-}
-
-.pattern-random {
-  background: var(--accent-green);
-  clip-path: polygon(20% 0%, 80% 0%, 100% 20%, 80% 40%, 100% 60%, 75% 100%, 25% 100%, 0% 80%, 20% 60%, 0% 40%);
-}
-
-.pattern-edge {
-  border: 3px solid var(--accent-green);
-  position: relative;
-}
-
-.pattern-edge::after {
-  content: '';
-  position: absolute;
-  top: 20%;
-  left: 20%;
-  right: 20%;
-  bottom: 20%;
-  background: var(--accent-green);
-  opacity: 0.5;
-}
-
-.pattern-info h4 {
-  margin: 0 0 0.5rem 0;
-  color: var(--text-color);
-}
-
-.pattern-info p {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  margin-bottom: 1rem;
-}
-
-.pattern-stats {
-  display: flex;
-  gap: 1rem;
-  font-size: 0.875rem;
-  color: var(--text-muted);
-}
-
+/* Button primitives — still used by the quick-actions bar and the schedule
+ * modal below. The planning cards carry their own copies (Vue scoped CSS
+ * doesn't reach into child components); keep those in sync with these. */
 .btn {
   padding: 0.75rem 1.5rem;
   border: none;
@@ -1546,18 +908,8 @@ onMounted(async () => {
   color: white;
 }
 
-.btn-warning {
-  background: #ffc107;
-  color: #000;
-}
-
 .btn-info {
   background: #17a2b8;
-  color: white;
-}
-
-.btn-danger {
-  background: #ff4343;
   color: white;
 }
 
@@ -1573,11 +925,6 @@ onMounted(async () => {
 .btn-sm {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
-}
-
-.btn-xs {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
 }
 
 .modal-overlay {
@@ -1705,35 +1052,16 @@ onMounted(async () => {
   .quick-actions {
     flex-direction: column;
   }
-  
+
   .planning-tabs {
     flex-direction: column;
   }
-  
+
   .tab-button {
     padding: 0.75rem 1rem;
     text-align: left;
   }
-  
-  .job-header, .schedule-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: stretch;
-  }
-  
-  .job-info, .schedule-details {
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  
-  .conditions-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .zones-grid, .patterns-grid {
-    grid-template-columns: 1fr;
-  }
-  
+
   .zone-checkboxes {
     grid-template-columns: 1fr;
   }
