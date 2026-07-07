@@ -10,34 +10,15 @@
 
     <div class="dashboard-grid">
       <!-- System Status -->
-      <div class="retro-card status-card">
-        <div class="card-header">
-          <h3>◢ SYSTEM STATUS ◣</h3>
-          <div class="status-indicator" :class="systemStatusClass" />
-        </div>
-        <div class="card-content">
-          <div class="status-row">
-            <span class="status-label">UPTIME:</span>
-            <span class="status-value uptime">{{ uptime }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">CONNECTION:</span>
-            <span class="status-value" :class="connectionStatusClass">{{ connectionStatus }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">STATUS:</span>
-            <span class="status-value" :class="systemStatusClass">{{ systemStatus }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">MODE:</span>
-            <span class="status-value">{{ currentMode }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">PROGRESS:</span>
-            <span class="status-value">{{ progress.toFixed(0) }}%</span>
-          </div>
-        </div>
-      </div>
+      <StatusCard
+        :system-status-class="systemStatusClass"
+        :uptime="uptime"
+        :connection-status-class="connectionStatusClass"
+        :connection-status="connectionStatus"
+        :system-status="systemStatus"
+        :current-mode="currentMode"
+        :progress="progress"
+      />
 
       <!-- Power / Battery -->
       <PowerCard
@@ -60,85 +41,37 @@
       />
 
       <!-- Speed -->
-      <div class="retro-card telemetry-card">
-        <div class="card-header">
-          <h4>VELOCITY</h4>
-          <div class="speed-icon">🚀</div>
-        </div>
-        <div class="card-content">
-          <div class="metric-value" data-testid="speed-value">{{ speedDisplay }} <span class="unit">{{ speedUnit }}</span></div>
-          <div class="speed-trend" :class="speedTrendClass">
-            {{ speedTrend > 0 ? '▲' : speedTrend < 0 ? '▼' : '▬' }} {{ Math.abs(speedTrend) }}%
-          </div>
-        </div>
-      </div>
+      <SpeedCard
+        :speed-display="speedDisplay"
+        :speed-unit="speedUnit"
+        :speed-trend-class="speedTrendClass"
+        :speed-trend="speedTrend"
+      />
 
       <!-- GPS Metrics -->
-      <div class="retro-card telemetry-card gps-card">
-        <div class="card-header">
-          <h4>GPS NAVIGATION</h4>
-          <div class="gps-icon">🧭</div>
-        </div>
-        <div class="card-content gps-content">
-          <div class="gps-status-line" data-testid="gps-status">{{ gpsStatus }}</div>
-          <div class="gps-grid">
-            <div class="gps-metric">
-              <span class="metric-label">Latitude</span>
-              <span class="metric-value">{{ gpsLatitude ?? '--' }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">Longitude</span>
-              <span class="metric-value">{{ gpsLongitude ?? '--' }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">Accuracy</span>
-              <span class="metric-value">{{ gpsAccuracySummary }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">Satellites</span>
-              <span class="metric-value">{{ gpsSatellitesDisplay }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">HDOP</span>
-              <span class="metric-value">{{ gpsHdopDisplay }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">RTK</span>
-              <span class="metric-value">{{ gpsRtkStatus ?? 'N/A' }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      
+      <GpsCard
+        :gps-status="gpsStatus"
+        :gps-latitude="gpsLatitude"
+        :gps-longitude="gpsLongitude"
+        :gps-accuracy-summary="gpsAccuracySummary"
+        :gps-satellites-display="gpsSatellitesDisplay"
+        :gps-hdop-display="gpsHdopDisplay"
+        :gps-rtk-status="gpsRtkStatus"
+      />
+
       <!-- Environmental Sensors -->
-      <div class="retro-card telemetry-card environmental-card">
-        <div class="card-header">
-          <h4>ENVIRONMENT</h4>
-          <div class="temp-icon">🌡️</div>
-        </div>
-        <div class="card-content">
-          <div class="env-grid">
-            <div class="env-metric">
-              <span class="metric-label">Temp</span>
-              <span class="metric-value" data-testid="temperature-value">{{ temperatureDisplay }}<span class="unit">{{ temperatureUnit }}</span></span>
-              <span class="metric-status" :class="tempStatusClass">{{ tempStatus }}</span>
-            </div>
-            <div class="env-metric">
-              <span class="metric-label">Humidity</span>
-              <span class="metric-value" data-testid="humidity-value">{{ humidityDisplay }}<span class="unit">%</span></span>
-            </div>
-            <div class="env-metric">
-              <span class="metric-label">Pressure</span>
-              <span class="metric-value" data-testid="pressure-value">{{ pressureDisplay }}<span class="unit">{{ pressureUnit }}</span></span>
-            </div>
-            <div class="env-metric">
-              <span class="metric-label">Altitude</span>
-              <span class="metric-value" data-testid="altitude-value">{{ altitudeDisplay }}<span class="unit">{{ altitudeUnit }}</span></span>
-            </div>
-          </div>
-          <div class="env-source">Source: {{ environmentalSourceLabel }}</div>
-        </div>
-      </div>
+      <EnvironmentalCard
+        :temperature-display="temperatureDisplay"
+        :temperature-unit="temperatureUnit"
+        :temp-status-class="tempStatusClass"
+        :temp-status="tempStatus"
+        :humidity-display="humidityDisplay"
+        :pressure-display="pressureDisplay"
+        :pressure-unit="pressureUnit"
+        :altitude-display="altitudeDisplay"
+        :altitude-unit="altitudeUnit"
+        :environmental-source-label="environmentalSourceLabel"
+      />
 
       <!-- ToF Sensors -->
       <div class="retro-card telemetry-card tof-card">
@@ -221,6 +154,10 @@ import { systemApi, telemetryApi, weatherApi, maintenanceApi } from '@/services/
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
 import PowerCard from '@/components/dashboard/PowerCard.vue'
+import StatusCard from '@/components/dashboard/StatusCard.vue'
+import SpeedCard from '@/components/dashboard/SpeedCard.vue'
+import GpsCard from '@/components/dashboard/GpsCard.vue'
+import EnvironmentalCard from '@/components/dashboard/EnvironmentalCard.vue'
 
 interface TofState {
   distance: number | null
@@ -1706,40 +1643,6 @@ onMounted(async () => {
   padding: 1.5rem;
 }
 
-.environmental-card .env-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 1rem;
-}
-
-.environmental-card .env-metric .metric-label {
-  display: block;
-  font-size: 0.8rem;
-  letter-spacing: 2px;
-  color: #00ffff;
-  margin-bottom: 0.25rem;
-}
-
-.environmental-card .env-metric .metric-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #ffff00;
-}
-
-.environmental-card .env-metric .metric-status {
-  font-size: 0.75rem;
-  letter-spacing: 1px;
-  display: inline-block;
-  margin-top: 0.35rem;
-}
-
-.environmental-card .env-source {
-  margin-top: 1rem;
-  font-size: 0.75rem;
-  letter-spacing: 2px;
-  color: rgba(0, 255, 255, 0.7);
-  text-transform: uppercase;
-}
 
 .tof-card .tof-grid {
   display: flex;
@@ -1894,91 +1797,7 @@ onMounted(async () => {
   color: #00ffff;
 }
 
-/* Status Display */
-.status-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(0, 255, 255, 0.2);
-}
 
-.status-row:last-child {
-  border-bottom: none;
-}
-
-
-.status-label {
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: #ffff00;
-  text-shadow: 0 0 5px rgba(255, 255, 0, 0.5);
-}
-
-.status-value {
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.status-value.status-active, .status-value.uptime {
-  color: #00ff00;
-  text-shadow: 0 0 10px rgba(0, 255, 0, 0.7);
-}
-
-.status-value.status-warning {
-  color: #ffff00;
-  text-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
-}
-
-.status-value.status-error {
-  color: #ff0040;
-  text-shadow: 0 0 10px rgba(255, 0, 64, 0.7);
-}
-
-.status-value.status-unknown {
-  color: #666;
-}
-
-.gps-card .gps-content {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.gps-status-line {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #00ff00;
-  text-transform: uppercase;
-  text-shadow: 0 0 12px rgba(0, 255, 0, 0.7);
-}
-
-.gps-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0.75rem;
-}
-
-.gps-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.9rem;
-  letter-spacing: 1px;
-}
-
-.gps-metric .metric-label {
-  color: rgba(0, 255, 255, 0.7);
-  text-transform: uppercase;
-}
-
-.gps-metric .metric-value {
-  color: #ffff00;
-  font-weight: 600;
-  font-size: 1.1rem;
-}
 
 /* Control Panel */
 .control-grid {
@@ -2223,11 +2042,6 @@ onMounted(async () => {
   text-shadow: 0 0 12px rgba(255, 0, 64, 0.6);
 }
 
-.gps-icon, .battery-icon, .speed-icon, .temp-icon {
-  font-size: 1.5rem;
-  filter: drop-shadow(0 0 10px currentColor);
-}
-
 /* Battery Specific */
 .battery-card .metric-value {
   color: #00ff00;
@@ -2298,17 +2112,6 @@ onMounted(async () => {
   50% { opacity: 0.3; }
 }
 
-/* Speed Trends */
-.speed-trend {
-  font-size: 1.2rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.speed-trend.trend-up {
-  color: #00ff00;
-  text-shadow: 0 0 10px rgba(0, 255, 0, 0.7);
-}
 
 .solar-card .metric-value {
   color: #ffff00;
@@ -2353,16 +2156,6 @@ onMounted(async () => {
   font-size: 0.8rem;
   margin-left: 0.25rem;
   color: #00ffff;
-}
-
-.speed-trend.trend-down {
-  color: #ff0040;
-  text-shadow: 0 0 10px rgba(255, 0, 64, 0.7);
-}
-
-.speed-trend.trend-stable {
-  color: #ffff00;
-  text-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
 }
 
 /* Event Log */
