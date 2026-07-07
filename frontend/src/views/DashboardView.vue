@@ -74,76 +74,32 @@
       />
 
       <!-- ToF Sensors -->
-      <div class="retro-card telemetry-card tof-card">
-        <div class="card-header">
-          <h4>TOF RANGE</h4>
-          <div class="tof-icon">🛰️</div>
-        </div>
-        <div class="card-content tof-grid">
-          <div class="tof-column">
-            <div class="metric-label">LEFT</div>
-            <div class="metric-value">{{ tofLeftDisplay }}<span class="unit">{{ tofUnit }}</span></div>
-            <div class="metric-status" :class="tofStatusClass(tofLeft.status)">{{ formatTofStatus(tofLeft.status) }}</div>
-          </div>
-          <div class="tof-column">
-            <div class="metric-label">RIGHT</div>
-            <div class="metric-value">{{ tofRightDisplay }}<span class="unit">{{ tofUnit }}</span></div>
-            <div class="metric-status" :class="tofStatusClass(tofRight.status)">{{ formatTofStatus(tofRight.status) }}</div>
-          </div>
-        </div>
-      </div>
+      <ToFCard
+        :tof-left="tofLeft"
+        :tof-right="tofRight"
+        :tof-left-display="tofLeftDisplay"
+        :tof-right-display="tofRightDisplay"
+        :tof-unit="tofUnit"
+        :tof-status-class="tofStatusClass"
+        :format-tof-status="formatTofStatus"
+      />
     </div>
 
     <!-- IMU Calibration -->
-    <div class="retro-card calibration-card">
-      <div class="card-header">
-        <h3>◢ IMU CALIBRATION ◣</h3>
-        <div class="calibration-indicator" :class="calibrationStatusClass" />
-      </div>
-      <div class="card-content">
-        <div class="calibration-row">
-          <span class="metric-label">Status</span>
-          <span class="metric-value">{{ imuCalibrationLabel }}</span>
-        </div>
-        <div class="calibration-row">
-          <span class="metric-label">Score</span>
-          <span class="metric-value">{{ imuCalibrationScore }} / 3</span>
-        </div>
-        <div class="calibration-row">
-          <span class="metric-label">Last Run</span>
-          <span class="metric-value">{{ lastCalibrationSummary }}</span>
-        </div>
-        <button class="retro-btn calibrate-btn" :disabled="imuCalibrating || !imuSupported" @click="runImuCalibration">
-          <span class="btn-icon">♻</span>
-          {{ !imuSupported ? 'NOT SUPPORTED' : imuCalibrating ? 'CALIBRATING…' : 'RUN CALIBRATION' }}
-        </button>
-        <p v-if="calibrationError" class="calibration-error">⚠ {{ calibrationError }}</p>
-        <p v-else-if="!imuSupported" class="calibration-note unsupported">IMU calibration not supported on this hardware.</p>
-        <p v-else-if="lastCalibration?.notes" class="calibration-note">{{ lastCalibration?.notes }}</p>
-      </div>
-    </div>
+    <CalibrationCard
+      :calibration-status-class="calibrationStatusClass"
+      :imu-calibration-label="imuCalibrationLabel"
+      :imu-calibration-score="imuCalibrationScore"
+      :last-calibration-summary="lastCalibrationSummary"
+      :imu-calibrating="imuCalibrating"
+      :imu-supported="imuSupported"
+      :calibration-error="calibrationError"
+      :last-calibration="lastCalibration"
+      @calibrate="runImuCalibration"
+    />
 
     <!-- Event Log -->
-    <div class="retro-card events-card">
-      <div class="card-header">
-        <h3>◢ SYSTEM LOG ◣</h3>
-        <div class="log-indicator" />
-      </div>
-      <div class="card-content">
-        <div class="events-terminal">
-          <div
-            v-for="event in recentEvents"
-            :key="event.id"
-            class="log-entry"
-            :class="event.level"
-          >
-            <span class="log-time">[{{ formatTime(event.timestamp) }}]</span>
-            <span class="log-level">{{ event.level.toUpperCase() }}:</span>
-            <span class="log-message">{{ event.message }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
+    <EventsCard :recent-events="recentEvents" :format-time="formatTime" />
   </div>
 </template>
 
@@ -158,6 +114,9 @@ import StatusCard from '@/components/dashboard/StatusCard.vue'
 import SpeedCard from '@/components/dashboard/SpeedCard.vue'
 import GpsCard from '@/components/dashboard/GpsCard.vue'
 import EnvironmentalCard from '@/components/dashboard/EnvironmentalCard.vue'
+import ToFCard from '@/components/dashboard/ToFCard.vue'
+import CalibrationCard from '@/components/dashboard/CalibrationCard.vue'
+import EventsCard from '@/components/dashboard/EventsCard.vue'
 
 interface TofState {
   distance: number | null
@@ -1498,11 +1457,6 @@ onMounted(async () => {
   50% { opacity: 1; width: 300px; }
 }
 
-@keyframes metricUnderline {
-  0%, 100% { opacity: 0.4; transform: scaleX(0.8); }
-  50% { opacity: 0.8; transform: scaleX(1.2); }
-}
-
 .data-stream {
   font-size: 0.95rem;
   text-align: center;
@@ -1621,180 +1575,8 @@ onMounted(async () => {
   100% { transform: translateX(100%); }
 }
 
-.card-header {
-  background: rgba(0, 255, 255, 0.1);
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid #00ffff;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.card-header h3, .card-header h4 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: #00ffff;
-  text-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
-}
-
-.card-content {
-  padding: 1.5rem;
-}
-
-
-.tof-card .tof-grid {
-  display: flex;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  justify-content: space-between;
-}
-
-.tof-card .tof-column {
-  flex: 1 1 150px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.tof-card .metric-label {
-  font-size: 0.8rem;
-  letter-spacing: 2px;
-  color: #00ffff;
-}
-
-.tof-card .metric-value {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #ffff00;
-}
-
-.tof-card .metric-status {
-  font-size: 0.8rem;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
 .calibration-card {
   margin-bottom: 2rem;
-}
-
-.calibration-card .card-header {
-  align-items: center;
-}
-
-.calibration-indicator {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #666;
-  box-shadow: 0 0 15px currentColor;
-}
-
-.calibration-indicator.status-active {
-  background: #00ff00;
-  color: #00ff00;
-}
-
-.calibration-indicator.status-warning {
-  background: #ffff00;
-  color: #ffff00;
-}
-
-.calibration-indicator.status-error {
-  background: #ff0040;
-  color: #ff0040;
-}
-
-.calibration-indicator.status-unknown {
-  background: #888;
-  color: #888;
-}
-
-.calibration-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-family: 'Courier New', monospace;
-  letter-spacing: 1px;
-  margin-bottom: 0.75rem;
-  text-transform: uppercase;
-}
-
-.calibration-row .metric-value {
-  color: #ffff00;
-  font-weight: 700;
-}
-
-.calibrate-btn {
-  margin-top: 1rem;
-  width: 100%;
-  background: rgba(0, 255, 255, 0.1);
-  border: 1px solid #00ffff;
-}
-
-.calibrate-btn:hover:not(:disabled) {
-  background: rgba(0, 255, 255, 0.2);
-}
-
-.calibration-error {
-  margin-top: 0.75rem;
-  color: #ff4343;
-  font-size: 0.85rem;
-  letter-spacing: 1px;
-}
-
-.calibration-note {
-  margin-top: 0.75rem;
-  font-size: 0.85rem;
-  color: rgba(0, 255, 255, 0.7);
-  letter-spacing: 1px;
-}
-
-.calibration-note.unsupported {
-  color: rgba(255, 255, 0, 0.9);
-  text-transform: uppercase;
-}
-
-/* Status Indicators */
-.status-indicator, .power-indicator, .activity-pulse, .log-indicator {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #666;
-  box-shadow: 0 0 15px currentColor;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); opacity: 0.8; }
-  50% { transform: scale(1.3); opacity: 1; }
-}
-
-.status-indicator.active, .power-indicator.active {
-  background: #00ff00;
-  color: #00ff00;
-}
-
-.status-indicator.warning {
-  background: #ffff00;
-  color: #ffff00;
-}
-
-.status-indicator.error {
-  background: #ff0040;
-  color: #ff0040;
-}
-
-.activity-pulse {
-  background: #ff00ff;
-  color: #ff00ff;
-}
-
-.log-indicator {
-  background: #00ffff;
-  color: #00ffff;
 }
 
 
@@ -1805,54 +1587,6 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
   margin-bottom: 1rem;
-}
-
-.retro-btn {
-  background: linear-gradient(135deg, #1a1a2e, #16213e, #0f0f23);
-  border: 2px solid #00ffff;
-  color: #00ffff;
-  padding: 1.2rem 1.5rem;
-  font-family: 'Orbitron', 'Courier New', monospace;
-  font-weight: 700;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  border-radius: 6px;
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-  box-shadow: 
-    0 4px 15px rgba(0, 255, 255, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.retro-btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transition: left 0.5s ease;
-}
-
-.retro-btn:hover::before {
-  left: 100%;
-}
-
-.retro-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #00ffff, #0a0a0a);
-  color: #000;
-  box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
-  text-shadow: none;
-}
-
-.retro-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .retro-btn.start-btn:hover:not(:disabled) {
@@ -1881,10 +1615,6 @@ onMounted(async () => {
   50% { box-shadow: 0 0 40px rgba(255, 0, 64, 1); }
 }
 
-.btn-icon {
-  margin-right: 0.5rem;
-  font-size: 1.2rem;
-}
 
 .mode-display {
   text-align: center;
@@ -1949,50 +1679,6 @@ onMounted(async () => {
     transparent 9px,
     rgba(0, 255, 255, 0.3) 10px
   );
-}
-
-/* Telemetry Cards */
-.telemetry-card .card-content {
-  text-align: center;
-}
-
-.metric-value {
-  font-size: 2rem;
-  font-weight: 900;
-  color: #00ffff;
-  font-family: 'Orbitron', 'Courier New', monospace;
-  text-shadow: 
-    0 0 20px rgba(0, 255, 255, 0.8),
-    0 0 40px rgba(0, 255, 255, 0.4),
-    0 2px 4px rgba(0, 0, 0, 0.8);
-  margin-bottom: 0.8rem;
-  letter-spacing: 3px;
-  position: relative;
-  text-transform: uppercase;
-}
-
-.metric-value::after {
-  content: '';
-  position: absolute;
-  bottom: -4px;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, #00ffff, transparent);
-  opacity: 0.6;
-  animation: metricUnderline 2s ease-in-out infinite;
-}
-
-.metric-value .unit {
-  font-size: 1.5rem;
-  color: #ffff00;
-}
-
-.metric-status {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
 }
 
 .gps-value {
@@ -2163,61 +1849,6 @@ onMounted(async () => {
   grid-column: 1 / -1;
 }
 
-.events-terminal {
-  background: #000;
-  border: 2px solid #00ffff;
-  padding: 1rem;
-  max-height: 300px;
-  overflow-y: auto;
-  font-family: 'Courier New', monospace;
-}
-
-.log-entry {
-  display: flex;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-
-.log-time {
-  color: #666;
-  margin-right: 1rem;
-  min-width: 80px;
-}
-
-.log-level {
-  margin-right: 1rem;
-  min-width: 60px;
-  font-weight: 700;
-}
-
-.log-entry.info .log-level {
-  color: #00ffff;
-}
-
-.log-entry.success .log-level {
-  color: #00ff00;
-}
-
-.log-entry.warning .log-level {
-  color: #ffff00;
-}
-
-.log-entry.error .log-level {
-  color: #ff0040;
-  animation: errorBlink 2s ease-in-out infinite;
-}
-
-@keyframes errorBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-.log-message {
-  flex: 1;
-  color: #00ffff;
-}
-
 /* Responsive Design */
 @media (max-width: 768px) {
   .retro-title {
@@ -2237,15 +1868,7 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
   
-  .metric-value {
-    font-size: 1.6rem;
-  }
-  
   .retro-header {
-    padding: 1rem;
-  }
-  
-  .card-content {
     padding: 1rem;
   }
 }
@@ -2255,15 +1878,11 @@ onMounted(async () => {
     font-size: 1.5rem;
     letter-spacing: 2px;
   }
-  
+
   .telemetry-grid {
     grid-template-columns: 1fr;
   }
-  
-  .metric-value {
-    font-size: 1.4rem;
-  }
-  
+
   .progress-label {
     font-size: 1.5rem;
   }
