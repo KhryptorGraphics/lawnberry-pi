@@ -16,7 +16,7 @@
         <BoundaryEditor
           ref="editorRef"
           :map-provider="settings.provider === 'google' ? 'google' : (settings.provider === 'osm' ? 'osm' : 'none')"
-          :map-style="settings.style"
+          :map-style="settings.style === 'satellite' ? 'satellite' : settings.style === 'hybrid' ? 'hybrid' : settings.style === 'terrain' ? 'terrain' : 'standard'"
           :google-api-key="settings.google_api_key"
           :pick-for-pin="pickForPin"
           @pinPicked="onPinPicked"
@@ -132,7 +132,7 @@
     <div v-if="showPinEditor" class="modal-overlay" @click="closePinEditor">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h3>{{ editingPin ? 'Edit Pin' : 'Add Pin' }}</h3>
+          <h3>{{ editingMarkerId ? 'Edit Pin' : 'Add Pin' }}</h3>
           <button class="btn btn-sm btn-secondary" @click="closePinEditor">✖️</button>
         </div>
         <div class="modal-body">

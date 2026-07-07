@@ -931,19 +931,19 @@ onMounted(async () => {
 
   // Subscribe to job progress updates
   subscribe('jobs.progress', (data) => {
-    const job = jobs.value.find(j => j.id === data.job_id)
+    const job = jobs.value.find(j => j.name === data.current_job)
     if (job) {
       job.progress = data.progress_percent
       job.estimated_remaining = data.remaining_time_min
     }
   })
-  
+
   // Subscribe to weather updates
   subscribe('telemetry.weather', (data) => {
     currentWeather.value = {
+      ...currentWeather.value,
       temperature_c: data.temperature_c ?? currentWeather.value.temperature_c,
-      humidity_percent: data.humidity_percent || currentWeather.value.humidity_percent,
-      condition: data.condition || currentWeather.value.condition
+      humidity_percent: data.humidity_percent ?? currentWeather.value.humidity_percent
     }
   })
   

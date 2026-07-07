@@ -305,7 +305,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { LMap, LTileLayer, LMarker, LPolygon } from '@vue-leaflet/vue-leaflet';
 import { LPolyline } from '@vue-leaflet/vue-leaflet';
 import L from 'leaflet';
@@ -527,7 +527,11 @@ async function ensureBaseLayer() {
 
 // Live mower marker (GPS position)
 const mowerLatLng = ref<[number, number] | null>(null);
-const mowerIcon = ref<L.Icon | null>(null);
+// shallowRef: Leaflet's Icon has internal (protected) state that Vue's deep ref-unwrapping
+// strips down to a structural type, breaking assignability back to L.Icon. We only ever
+// swap the whole icon, never mutate its fields, so shallow reactivity is also the correct
+// semantics here, not just the type fix.
+const mowerIcon = shallowRef<L.Icon | null>(null);
 const firstLockCentered = ref(false);
 const followMower = ref(false);
 const gpsAccuracyMeters = ref<number | null>(null);
@@ -540,13 +544,13 @@ const snapToBoundary = ref(false);
 // Derived geometry from store
 const boundaryPolygon = computed(() => {
   const bz = mapStore.configuration?.boundary_zone;
-  return bz?.polygon?.map(p => [p.latitude, p.longitude]) || [];
+  return bz?.polygon?.map((p): [number, number] => [p.latitude, p.longitude]) || [];
 });
 
 const exclusionPolygons = computed(() => {
   return (mapStore.configuration?.exclusion_zones || []).map(z => ({
     id: z.id,
-    points: z.polygon.map(p => [p.latitude, p.longitude])
+    points: z.polygon.map((p): [number, number] => [p.latitude, p.longitude])
   }));
 });
 
@@ -555,11 +559,11 @@ const markers = computed(() => mapStore.configuration?.markers || []);
 const mowingPolygons = computed(() => {
   return (mapStore.configuration?.mowing_zones || []).map(z => ({
     id: z.id,
-    points: z.polygon.map(p => [p.latitude, p.longitude])
+    points: z.polygon.map((p): [number, number] => [p.latitude, p.longitude])
   }));
 });
 
-const currentPolygonLatLng = computed(() => currentPolygon.value.map(p => [p.latitude, p.longitude]));
+const currentPolygonLatLng = computed(() => currentPolygon.value.map((p): [number, number] => [p.latitude, p.longitude]));
 
 const isPolygonMode = computed(() => mode.value === 'boundary' || mode.value === 'exclusion' || mode.value === 'mowing');
 const showPolygonToolbar = computed(() => isPolygonMode.value && currentPolygon.value.length > 0 && !props.pickForPin);
@@ -583,15 +587,17 @@ const loadingMessage = computed(() => {
 });
 
 // Methods
-function markerDivIcon(m: any) {
+function markerDivIcon(m: any): L.Icon<L.IconOptions> {
   const emoji = m.marker_type === 'home' ? '🏠' : m.marker_type === 'am_sun' ? '☀️' : m.marker_type === 'pm_sun' ? '🌅' : '📍'
   const cls = `lb-marker ${m.marker_type}`
+  // @vue-leaflet/vue-leaflet's <l-marker :icon> prop is typed as L.Icon<L.IconOptions>
+  // only, but Leaflet's real Marker.options.icon accepts Icon | DivIcon at runtime.
   return L.divIcon({
     className: cls,
     html: `<span>${emoji}</span>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14]
-  })
+  }) as unknown as L.Icon<L.IconOptions>
 }
 
 function setMode(newMode: 'view' | 'boundary' | 'exclusion' | 'mowing' | 'marker') {
@@ -730,8 +736,9 @@ async function saveChanges() {
       successMessage.value = null;
     }, 3000);
   } catch (e: any) {
-    error.value = mapStore.error || e?.message || 'Failed to save changes';
-    toast.show(error.value, 'error', 4000)
+    const message = mapStore.error || e?.message || 'Failed to save changes';
+    error.value = message;
+    toast.show(message, 'error', 4000)
   }
 }
 
@@ -1111,7 +1118,7 @@ onMounted(async () => {
     // Connect to telemetry and track navigation updates
     const { connect, subscribe } = useWebSocket('telemetry');
     await connect();
-    subscribe('telemetry.navigation', (payload: any) => {
+    subscribe('telemetry.navigation', (payload) => {
       const pos = payload?.position;
       const lat = Number(pos?.latitude)
       const lon = Number(pos?.longitude)

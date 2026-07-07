@@ -196,9 +196,9 @@ function syncFromState() {
 async function refresh() {
   try {
     const s = await getTractorState()
-    s.moving =
+    const moving =
       s.engine === 'running' && s.gear !== 'neutral' && s.clutch < 0.5 && s.ground_speed > 0
-    state.value = s
+    state.value = { ...s, moving }
   } catch {
     /* keep last */
   }

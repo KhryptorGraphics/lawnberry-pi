@@ -163,10 +163,10 @@
                   <div class="progress-bar">
                     <div 
                       class="progress-fill" 
-                      :style="{ width: `${(currentStep / selectedDoc.steps.length) * 100}%` }"
+                      :style="{ width: `${(currentStep / (selectedDoc.steps?.length ?? 1)) * 100}%` }"
                     />
                   </div>
-                  <span class="progress-text">Step {{ currentStep }} of {{ selectedDoc.steps.length }}</span>
+                  <span class="progress-text">Step {{ currentStep }} of {{ selectedDoc.steps?.length ?? 0 }}</span>
                 </div>
 
                 <div class="step-content">
@@ -204,7 +204,7 @@
                           ← Previous
                         </button>
                         <button 
-                          v-if="index < selectedDoc.steps.length - 1"
+                          v-if="index < (selectedDoc.steps?.length ?? 0) - 1"
                           class="btn btn-primary"
                           @click="currentStep = index + 2"
                         >
@@ -224,7 +224,7 @@
               </div>
 
               <div v-else class="standard-content">
-                <div class="content" v-html="renderMarkdown(selectedDoc.content)" />
+                <div class="content" v-html="renderMarkdown(selectedDoc.content ?? '')" />
                 
                 <!-- Table of Contents for longer documents -->
                 <div v-if="selectedDoc.toc && selectedDoc.toc.length > 0" class="toc">
@@ -294,6 +294,8 @@ interface DocInfo {
     warning?: string
   }[]
   estimatedTime?: string
+  // Attached by performSearch()'s extractExcerpt() — only present on search-result entries.
+  excerpt?: string
 }
 
 interface DocSection {

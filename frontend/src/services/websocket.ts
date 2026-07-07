@@ -1,4 +1,5 @@
 import { ref, onUnmounted } from 'vue'
+import type { TelemetryTopicPayloadMap } from '@/types/telemetry'
 
 export interface WebSocketMessage {
   event: string
@@ -222,6 +223,11 @@ export class WebSocketService {
     }
   }
 
+  onTopic<K extends keyof TelemetryTopicPayloadMap>(
+    topic: K,
+    callback: (data: TelemetryTopicPayloadMap[K]) => void
+  ): void
+  onTopic(topic: string, callback: (data: unknown) => void): void
   onTopic(topic: string, callback: (data: any) => void) {
     if (!this.listeners.has(topic)) {
       this.listeners.set(topic, [])
@@ -238,6 +244,11 @@ export class WebSocketService {
     }
   }
 
+  offTopic<K extends keyof TelemetryTopicPayloadMap>(
+    topic: K,
+    callback?: (data: TelemetryTopicPayloadMap[K]) => void
+  ): void
+  offTopic(topic: string, callback?: (data: unknown) => void): void
   offTopic(topic: string, callback?: (data: any) => void) {
     if (callback) {
       const topicListeners = this.listeners.get(topic)
@@ -382,12 +393,26 @@ export function useWebSocket(type: 'telemetry' | 'control' = 'telemetry') {
     connected.value = false
   }
 
-  const subscribe = (topic: string, callback: (data: any) => void) => {
+  type SubscribeFn = {
+    <K extends keyof TelemetryTopicPayloadMap>(
+      topic: K,
+      callback: (data: TelemetryTopicPayloadMap[K]) => void
+    ): () => void
+    (topic: string, callback: (data: unknown) => void): () => void
+  }
+  const subscribe: SubscribeFn = (topic: any, callback: any) => {
     wsService.onTopic(topic, callback)
     return () => wsService.offTopic(topic, callback)
   }
 
-  const unsubscribe = (topic: string, callback?: (data: any) => void) => {
+  type UnsubscribeFn = {
+    <K extends keyof TelemetryTopicPayloadMap>(
+      topic: K,
+      callback?: (data: TelemetryTopicPayloadMap[K]) => void
+    ): void
+    (topic: string, callback?: (data: unknown) => void): void
+  }
+  const unsubscribe: UnsubscribeFn = (topic: any, callback?: any) => {
     wsService.offTopic(topic, callback)
   }
 

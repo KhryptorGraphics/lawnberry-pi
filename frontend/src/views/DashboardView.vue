@@ -1060,8 +1060,9 @@ const startSystem = async () => {
     toast.show('System started', 'success')
   } catch (error) {
     console.error('Failed to start system:', error)
-    addLogEntry(`Start failed: ${error.message || 'Unknown error'}`, 'error')
-    toast.show(`Failed to start system: ${error.message || 'Unknown error'}`, 'error')
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    addLogEntry(`Start failed: ${message}`, 'error')
+    toast.show(`Failed to start system: ${message}`, 'error')
   } finally {
     isLoading.value = false
   }
@@ -1077,8 +1078,9 @@ const pauseSystem = async () => {
     toast.show('System paused', 'success')
   } catch (error) {
     console.error('Failed to pause system:', error)
-    addLogEntry(`Pause failed: ${error.message || 'Unknown error'}`, 'error')
-    toast.show(`Failed to pause system: ${error.message || 'Unknown error'}`, 'error')
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    addLogEntry(`Pause failed: ${message}`, 'error')
+    toast.show(`Failed to pause system: ${message}`, 'error')
   } finally {
     isLoading.value = false
   }
@@ -1094,8 +1096,9 @@ const stopSystem = async () => {
     toast.show('System stopped', 'success')
   } catch (error) {
     console.error('Failed to stop system:', error)
-    addLogEntry(`Stop failed: ${error.message || 'Unknown error'}`, 'error')
-    toast.show(`Failed to stop system: ${error.message || 'Unknown error'}`, 'error')
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    addLogEntry(`Stop failed: ${message}`, 'error')
+    toast.show(`Failed to stop system: ${message}`, 'error')
   } finally {
     isLoading.value = false
   }
@@ -1111,8 +1114,9 @@ const emergencyStop = async () => {
     toast.show('Emergency stop activated - system secured', 'warning', 8000)
   } catch (error) {
     console.error('Failed to emergency stop:', error)
-    addLogEntry(`E-STOP FAILED: ${error.message || 'Unknown error'}`, 'error')
-    toast.show(`E-STOP FAILED: ${error.message || 'Unknown error'}`, 'error', 0)
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    addLogEntry(`E-STOP FAILED: ${message}`, 'error')
+    toast.show(`E-STOP FAILED: ${message}`, 'error', 0)
   } finally {
     isLoading.value = false
   }
@@ -1424,7 +1428,7 @@ function registerTelemetrySubscriptions() {
   })
 
   subscribe('telemetry.environmental', (data) => {
-    const env = data.environmental || {}
+    const env = data.environmental
     if (env.temperature_c !== undefined) {
       temperature.value = env.temperature_c
     }
@@ -1448,9 +1452,6 @@ function registerTelemetrySubscriptions() {
     if (data.imu) {
       imuCalibrationScore.value = data.imu.calibration ?? imuCalibrationScore.value
       imuCalibrationStatus.value = data.imu.calibration_status ?? imuCalibrationStatus.value
-    }
-    if (data.tof) {
-      applyTofMetrics(data)
     }
   })
 

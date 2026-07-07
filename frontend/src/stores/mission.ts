@@ -18,12 +18,20 @@ export interface Mission {
   created_at: string;
 }
 
+// GET /api/v2/missions/{id}/status (response_model=MissionStatus, backend/src/models/mission.py)
+export interface MissionStatus {
+  mission_id: string;
+  status: string;
+  current_waypoint_index?: number | null;
+  completion_percentage: number;
+}
+
 export const useMissionStore = defineStore('mission', () => {
   const waypoints = ref<Waypoint[]>([]);
   const currentMission = ref<Mission | null>(null);
   const missionStatus = ref(''); // e.g., 'idle', 'running', 'paused'
   const progress = ref(0); // 0-100%
-  let statusPollInterval: any = null;
+  let statusPollInterval: ReturnType<typeof setInterval> | null = null;
 
   const addWaypoint = (lat: number, lon: number) => {
     const newWaypoint: Waypoint = {
@@ -67,7 +75,7 @@ export const useMissionStore = defineStore('mission', () => {
         name,
         waypoints: waypoints.value,
       });
-      currentMission.value = response.data as any;
+      currentMission.value = response.data;
       missionStatus.value = 'idle';
     } catch (error) {
       console.error('Error creating mission:', error);
@@ -130,8 +138,8 @@ export const useMissionStore = defineStore('mission', () => {
   const pollMissionStatus = async () => {
     if (!currentMission.value) return;
     try {
-      const response = await apiService.get(`/api/v2/missions/${currentMission.value.id}/status`);
-      const status: any = response.data;
+      const response = await apiService.get<MissionStatus>(`/api/v2/missions/${currentMission.value.id}/status`);
+      const status = response.data;
       missionStatus.value = status.status;
       progress.value = status.completion_percentage;
       if (status.status === 'completed' || status.status === 'aborted' || status.status === 'failed') {

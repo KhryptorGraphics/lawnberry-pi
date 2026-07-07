@@ -66,6 +66,21 @@ export interface RoboHATStatus {
   last_error?: string | null
   motor_controller_ok?: boolean
   encoder_feedback_ok?: boolean
+  // Bolted on by GET /api/v2/hardware/robohat (backend/src/api/rest.py get_robohat_status)
+  // from a hardware telemetry snapshot; only present once that snapshot succeeds.
+  telemetry_source?: 'hardware' | 'simulated' | 'unknown'
+  velocity?: {
+    linear: { x: number | null; y: number | null; z: number | null }
+    angular: { x: number | null; y: number | null; z: number | null }
+  }
+  camera?: {
+    active: boolean
+    mode: string
+    fps?: number
+    frame_count?: number
+    client_count?: number
+    last_frame?: string | null
+  }
 }
 
 // Autonomy/navigation surface — autonomy_service.py methods return dict[str, Any], not

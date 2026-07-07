@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { sendControlCommand, getRoboHATStatus } from '../services/api';
 import { useWebSocket } from '../services/websocket';
 import type { ControlResponseV2, BladeCommandResponse, RoboHATStatus } from '../types/control';
+import type { SystemSafetyMessage, SystemSafetyInterlock } from '../types/telemetry';
 
 type CommandResult = ControlResponseV2 | BladeCommandResponse
 
@@ -28,11 +29,11 @@ export const useControlStore = defineStore('control', () => {
   // none remain, otherwise a single cleared interlock would wrongly unlock the machine.
   const activeInterlocks = new Map<string, string>();
 
-  function describeInterlock(interlock: any): string {
+  function describeInterlock(interlock: SystemSafetyInterlock | undefined): string {
     return interlock?.description || interlock?.interlock_type || 'Safety interlock active';
   }
 
-  function handleSafetyEvent(data: any) {
+  function handleSafetyEvent(data: SystemSafetyMessage) {
     const interlockType = data?.interlock?.interlock_type;
     if (!interlockType) return;
     if (data.action === 'activate') {

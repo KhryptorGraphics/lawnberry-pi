@@ -464,7 +464,7 @@ export const useMapStore = defineStore('map', () => {
   function removeExclusionZone(zoneId: string) {
     if (!configuration.value) return;
     configuration.value.exclusion_zones = configuration.value.exclusion_zones.filter(
-      z => z.zone_id !== zoneId && z.id !== zoneId
+      z => z.id !== zoneId
     );
     configuration.value.last_modified = new Date().toISOString();
     isDirty.value = true;

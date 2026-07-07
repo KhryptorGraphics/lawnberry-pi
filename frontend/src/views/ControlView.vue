@@ -313,6 +313,7 @@ import {
 } from '@/services/api'
 import { useToastStore } from '@/stores/toast'
 import { usePreferencesStore } from '@/stores/preferences'
+import type { RoboHATStatus } from '@/types/control'
 import VirtualJoystick from '@/components/ui/VirtualJoystick.vue'
 
 interface ManualControlSecurityConfig {
@@ -333,7 +334,7 @@ interface ControlTelemetry {
   safety_state?: string
   velocity?: { linear?: { x?: number | null } }
   telemetry_source?: 'hardware' | 'simulated' | 'unknown'
-  camera?: CameraStatusSummary
+  camera?: RoboHATStatus['camera']
 }
 
 interface CameraStatusSummary {
@@ -447,6 +448,7 @@ interface JoystickHandle {
 }
 
 interface DriveCommandPayload {
+  [key: string]: unknown
   session_id: string
   vector: { linear: number; angular: number }
   duration_ms: number

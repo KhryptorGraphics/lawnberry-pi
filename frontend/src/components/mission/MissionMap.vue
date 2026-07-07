@@ -104,17 +104,19 @@ const providerBadge = ref('');
 let googleLayer: any = null;
 
 // Computed properties for rendering
-const waypointLatLngs = computed(() => props.waypoints.map(wp => [wp.lat, wp.lon]));
-const mowerLatLng = computed(() => (props.mowerPosition ? [props.mowerPosition.lat, props.mowerPosition.lon] : null));
+const waypointLatLngs = computed(() => props.waypoints.map((wp): [number, number] => [wp.lat, wp.lon]));
+const mowerLatLng = computed<[number, number] | null>(() => (props.mowerPosition ? [props.mowerPosition.lat, props.mowerPosition.lon] : null));
 const accuracyRadius = computed(() => props.mowerPosition?.accuracy || 0);
 
-function waypointIcon(index: number) {
+function waypointIcon(index: number): L.Icon<L.IconOptions> {
+  // @vue-leaflet/vue-leaflet's <l-marker :icon> prop is typed as L.Icon<L.IconOptions>
+  // only, but Leaflet's real Marker.options.icon accepts Icon | DivIcon at runtime.
   return L.divIcon({
     html: `<div class='wp-pin'><span>${index}</span></div>`,
     className: 'wp-pin-wrap',
     iconSize: [24, 24],
     iconAnchor: [12, 12],
-  });
+  }) as unknown as L.Icon<L.IconOptions>;
 }
 
 // --- Lifecycle ---
