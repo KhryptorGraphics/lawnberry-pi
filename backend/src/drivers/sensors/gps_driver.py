@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import glob
 import json
+import logging
 import math
 import os
 import socket
@@ -26,6 +27,8 @@ from typing import Any
 from ...core.simulation import is_simulation_mode
 from ...models.sensor_data import GpsMode, GpsReading
 from ..base import HardwareDriver
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -61,6 +64,9 @@ class GPSDriver(HardwareDriver):
         self._first_read_done = False
         # Last observed NMEA sentences (for diagnostics)
         self._last_nmea: dict[str, str] = {}
+        # Rate-limit state for hardware failure diagnostics (see _diag)
+        self._diag_last_ts: float = 0.0
+        self._diag_last_reason: str | None = None
         # Cached baudrates to try for different modules
         self._baud_candidates = [self.cfg.baudrate]
         if self.cfg.mode in (GpsMode.F9P_USB, GpsMode.F9P_UART):
@@ -117,6 +123,21 @@ class GPSDriver(HardwareDriver):
             "last_read_age_s": (time.time() - self._last_read_ts) if self._last_read_ts else None,
             "simulation": is_simulation_mode() or os.environ.get("SIM_MODE") == "1",
         }
+
+    def _diag(self, reason: str, message: str) -> None:
+        """Rate-limited WARNING for hardware GPS failures (~once/30s per reason).
+
+        read_position() runs at ~1 Hz, so unconditional logging would flood the
+        journal. This surfaces *why* GPS is blank (permission / missing device /
+        no NMEA) — otherwise these failures are swallowed and the dashboard just
+        shows "SEARCHING" with no clue in the logs.
+        """
+        now = time.time()
+        if reason == self._diag_last_reason and (now - self._diag_last_ts) < 30.0:
+            return
+        self._diag_last_reason = reason
+        self._diag_last_ts = now
+        logger.warning("GPS %s: %s", reason, message)
 
     async def read_position(self) -> GpsReading | None:
         """Read current GPS position.
@@ -192,6 +213,8 @@ class GPSDriver(HardwareDriver):
                         if p not in candidates:
                             candidates.append(p)
 
+                last_open_error: Exception | None = None
+                opened_but_no_nmea = False
                 for dev in candidates:
                     for baud in self._baud_candidates:
                         try:
@@ -214,11 +237,13 @@ class GPSDriver(HardwareDriver):
                                 self.cfg.baudrate = baud
                                 break
                             else:
+                                opened_but_no_nmea = True
                                 try:
                                     ser.close()
                                 except Exception:
                                     pass
-                        except Exception:  # pragma: no cover - hardware dependent
+                        except Exception as exc:  # pragma: no cover - hardware dependent
+                            last_open_error = exc
                             try:
                                 ser.close()  # type: ignore
                             except Exception:
@@ -226,8 +251,28 @@ class GPSDriver(HardwareDriver):
                             continue
                     if self._serial is not None:
                         break
-                # If not opened, keep last reading
+                # If not opened, keep last reading — but surface *why* (rate-limited)
+                # so blank GPS is diagnosable from the logs instead of silent.
                 if self._serial is None:
+                    if isinstance(last_open_error, PermissionError):
+                        self._diag(
+                            "serial-permission",
+                            f"cannot open GPS serial ({last_open_error!r}); add the service "
+                            "user to the 'dialout' group and restart the service",
+                        )
+                    elif opened_but_no_nmea:
+                        self._diag(
+                            "no-nmea",
+                            f"opened a serial port ({self.cfg.mode.value}) but saw no NMEA "
+                            "($GxGGA/$GxRMC) — check module power/wiring and baud "
+                            f"(tried {self._baud_candidates})",
+                        )
+                    else:
+                        self._diag(
+                            "no-device",
+                            f"no GPS serial device streaming NMEA (tried {candidates} at "
+                            f"baud {self._baud_candidates}; last error: {last_open_error!r})",
+                        )
                     return self._last_read
 
             # Read NMEA lines for a short window and parse
@@ -351,8 +396,9 @@ class GPSDriver(HardwareDriver):
 
             # If parsing failed, return last known
             return self._last_read
-        except Exception:
-            # On errors, keep last reading and mark running
+        except Exception as exc:
+            # On errors, keep last reading; surface the cause (rate-limited).
+            self._diag("read-error", f"GPS read failed: {exc!r}")
             return self._last_read
 
     def get_last_nmea(self) -> dict[str, str]:

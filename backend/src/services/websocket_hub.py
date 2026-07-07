@@ -68,24 +68,36 @@ class WebSocketHub:
 
         gps_mode = GpsMode.NEO8M_UART
         ntrip_enabled = False
+
+        hw_cfg = None
         if self._app_state is not None:
             try:
                 hw_cfg = getattr(self._app_state, "hardware_config", None)
             except Exception:
                 hw_cfg = None
-            if hw_cfg and getattr(hw_cfg, "gps_type", None) in {
-                GPSType.ZED_F9P_USB,
-                GPSType.ZED_F9P_UART,
-            }:
-                gps_mode = (
-                    GpsMode.F9P_USB
-                    if getattr(hw_cfg, "gps_type", None) == GPSType.ZED_F9P_USB
-                    else GpsMode.F9P_UART
-                )
-                ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
-            elif hw_cfg and getattr(hw_cfg, "gps_type", None) == GPSType.LC29H_DA:
-                gps_mode = GpsMode.LC29H_UART
-                ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
+        if hw_cfg is None:
+            # Defensive fallback: app.state may not carry hardware_config (a
+            # standalone/background hub, or a lifespan that didn't populate it).
+            # Load it directly so an RTK-configured mower never silently runs in
+            # the non-RTK NEO8M default — that default picks the wrong serial
+            # baud for an LC29H/F9P and yields no GPS fix (blank GPS tiles).
+            try:
+                from ..core.config_loader import ConfigLoader
+
+                hw_cfg, _ = ConfigLoader(
+                    config_dir=os.environ.get("LAWNBERRY_CONFIG_DIR") or None
+                ).load()
+            except Exception as exc:
+                logger.warning("hardware_config fallback load failed: %s", exc)
+                hw_cfg = None
+
+        gps_type = getattr(hw_cfg, "gps_type", None) if hw_cfg is not None else None
+        if gps_type in {GPSType.ZED_F9P_USB, GPSType.ZED_F9P_UART}:
+            gps_mode = GpsMode.F9P_USB if gps_type == GPSType.ZED_F9P_USB else GpsMode.F9P_UART
+            ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
+        elif gps_type == GPSType.LC29H_DA:
+            gps_mode = GpsMode.LC29H_UART
+            ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
 
         # Hint GPS device if a common device node is present
         try:
