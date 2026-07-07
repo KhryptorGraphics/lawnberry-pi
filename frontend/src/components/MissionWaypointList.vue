@@ -7,7 +7,12 @@
         <button class="btn btn-xs btn-danger" @click="clearAll">Clear all</button>
       </div>
     </div>
-    <Draggable v-model="localWaypoints" item-key="id" @end="onDragEnd">
+    <Draggable
+      v-model="localWaypoints"
+      tag="ul"
+      item-key="id"
+      @end="onDragEnd"
+    >
       <template #item="{ element: waypoint, index }">
         <li class="waypoint-item">
           <span>Waypoint {{ index + 1 }}: ({{ waypoint.lat.toFixed(4) }}, {{ waypoint.lon.toFixed(4) }})</span>
@@ -36,8 +41,10 @@ import { ref, watch } from 'vue';
 import { useMissionStore } from '@/stores/mission';
 import type { Waypoint } from '@/stores/mission';
 import { VueDraggableNext as Draggable } from 'vue-draggable-next';
+import { useConfirmStore } from '@/stores/confirm';
 
 const missionStore = useMissionStore();
+const confirmStore = useConfirmStore();
 const localWaypoints = ref([...missionStore.waypoints]);
 
 watch(() => missionStore.waypoints, (newWaypoints) => {
@@ -56,8 +63,8 @@ const onDragEnd = () => {
   missionStore.reorderWaypoints(localWaypoints.value);
 };
 
-function clearAll() {
-  if (missionStore.waypoints.length && confirm('Clear all waypoints?')) {
+async function clearAll() {
+  if (missionStore.waypoints.length && await confirmStore.ask('Clear all waypoints?')) {
     missionStore.clearWaypoints();
   }
 }

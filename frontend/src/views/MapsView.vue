@@ -318,11 +318,13 @@ import { useApiService } from '@/services/api'
 import BoundaryEditor from '@/components/map/BoundaryEditor.vue'
 import { useMapStore } from '@/stores/map'
 import { useToastStore } from '@/stores/toast'
+import { useConfirmStore } from '@/stores/confirm'
 import type { MarkerSchedule, MapMarker, Zone } from '@/stores/map'
 
 const api = useApiService()
 const mapStore = useMapStore()
 const toast = useToastStore()
+const confirmStore = useConfirmStore()
 const editorRef = ref<InstanceType<typeof BoundaryEditor> | null>(null)
 const isE2ETestMode = computed(() => typeof window !== 'undefined' && (window.location.search.includes('e2e=1') || window.location.search.includes('e2e=true')))
 
@@ -548,7 +550,7 @@ function editMarker(m: MapMarker) {
 }
 
 async function deleteMarker(m: MapMarker) {
-  if (!confirm(`Delete marker "${m.label || m.marker_type}"?`)) return
+  if (!(await confirmStore.ask(`Delete marker "${m.label || m.marker_type}"?`))) return
   try {
     mapStore.removeMarker(m.marker_id)
     await mapStore.saveConfiguration()
@@ -716,7 +718,7 @@ function iconForMarker(type: string) {
 }
 
 async function removeMow(z: Zone) {
-  if (!confirm(`Delete mowing zone "${z.name}"?`)) return
+  if (!(await confirmStore.ask(`Delete mowing zone "${z.name}"?`))) return
   try {
     mapStore.removeMowingZone(z.id)
     await mapStore.saveConfiguration()
@@ -741,7 +743,7 @@ async function renameZone(z: Zone) {
 }
 
 async function removeExclusion(z: Zone) {
-  if (!confirm(`Delete exclusion zone "${z.name}"?`)) return
+  if (!(await confirmStore.ask(`Delete exclusion zone "${z.name}"?`))) return
   try {
     mapStore.removeExclusionZone(z.id)
     await mapStore.saveConfiguration()

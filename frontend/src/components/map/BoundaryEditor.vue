@@ -318,10 +318,12 @@ import { useWebSocket } from '@/services/websocket';
 import { useMapStore } from '../../stores/map';
 import type { Point } from '../../stores/map';
 import { useToastStore } from '@/stores/toast';
+import { useConfirmStore } from '@/stores/confirm';
 import { shouldUseGoogleProvider, getOsmTileLayer, type TileLayerConfig } from '@/utils/mapProviders';
 
 const mapStore = useMapStore();
 const toast = useToastStore();
+const confirmStore = useConfirmStore();
 
 // Props
 interface Props {
@@ -634,10 +636,10 @@ async function deleteEditingZone() {
   const zoneId = editingZoneId.value;
   try {
     if (mode.value === 'mowing') {
-      if (!confirm('Delete this mowing zone?')) return;
+      if (!(await confirmStore.ask('Delete this mowing zone?'))) return;
       mapStore.removeMowingZone(zoneId);
     } else if (mode.value === 'exclusion') {
-      if (!confirm('Delete this exclusion zone?')) return;
+      if (!(await confirmStore.ask('Delete this exclusion zone?'))) return;
       mapStore.removeExclusionZone(zoneId);
     } else {
       return;

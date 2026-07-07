@@ -420,6 +420,7 @@ import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useMapStore } from '@/stores/map'
 import type { Zone } from '@/stores/map'
+import { useConfirmStore } from '@/stores/confirm'
 import { useRouter } from 'vue-router'
 
 // Backend contract: GET/POST/DELETE /api/v2/planning/jobs
@@ -495,6 +496,7 @@ interface ScheduleForm {
 const api = useApiService()
 const router = useRouter()
 const mapStore = useMapStore()
+const confirmStore = useConfirmStore()
 const { connect, subscribe } = useWebSocket()
 const preferences = usePreferencesStore()
 
@@ -849,7 +851,7 @@ async function resumeJob(job: MowJob) {
 }
 
 async function cancelJob(job: MowJob) {
-  if (!confirm(`Cancel job "${job.name}"?`)) return
+  if (!(await confirmStore.ask(`Cancel job "${job.name}"?`))) return
   
   try {
     await api.delete(`/api/v2/planning/jobs/${job.id}`)
@@ -886,7 +888,7 @@ function editSchedule(schedule: MowSchedule) {
 }
 
 async function deleteSchedule(schedule: MowSchedule) {
-  if (!confirm(`Delete schedule "${schedule.name}"?`)) return
+  if (!(await confirmStore.ask(`Delete schedule "${schedule.name}"?`))) return
   
   try {
     await api.delete(`/api/v2/schedules/${schedule.id}`)

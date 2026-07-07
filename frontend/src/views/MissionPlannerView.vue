@@ -3,9 +3,30 @@
     <h1>Mission Planner</h1>
     <div class="map-toolbar">
       <label class="follow-toggle"><input v-model="followMower" type="checkbox"> Follow mower</label>
-      <button class="btn" :disabled="!mowerLatLng" @click="recenterToMower">🎯 Recenter</button>
-      <button class="btn" :disabled="missionStore.waypoints.length === 0" @click="undoLastWaypoint">↩️ Undo last</button>
-      <button class="btn btn-danger" :disabled="missionStore.waypoints.length === 0" @click="clearAllWaypoints">🗑️ Clear all</button>
+      <button
+        class="btn"
+        :disabled="!mowerLatLng"
+        aria-label="Recenter map on mower"
+        @click="recenterToMower"
+      >
+        🎯 Recenter
+      </button>
+      <button
+        class="btn"
+        :disabled="missionStore.waypoints.length === 0"
+        aria-label="Undo last waypoint"
+        @click="undoLastWaypoint"
+      >
+        ↩️ Undo last
+      </button>
+      <button
+        class="btn btn-danger"
+        :disabled="missionStore.waypoints.length === 0"
+        aria-label="Clear all waypoints"
+        @click="clearAllWaypoints"
+      >
+        🗑️ Clear all
+      </button>
     </div>
     <div class="map-container">
       <MissionMap
@@ -20,7 +41,8 @@
     </div>
     <MissionWaypointList />
     <div class="mission-controls">
-      <input v-model="missionName" placeholder="Mission Name">
+      <label for="mission-name-input" class="visually-hidden">Mission Name</label>
+      <input id="mission-name-input" v-model="missionName" placeholder="Mission Name">
       <button :disabled="!missionName || missionStore.waypoints.length === 0" @click="createMission">Create Mission</button>
       <button :disabled="!missionStore.currentMission" @click="startMission">Start Mission</button>
       <button :disabled="missionStore.missionStatus !== 'running'" @click="pauseMission">Pause</button>
@@ -41,11 +63,13 @@ import MissionMap from '@/components/mission/MissionMap.vue';
 import { useMissionStore } from '@/stores/mission';
 import { useMapStore } from '@/stores/map';
 import { useToastStore } from '@/stores/toast';
+import { useConfirmStore } from '@/stores/confirm';
 import { useWebSocket } from '@/services/websocket';
 
 const missionStore = useMissionStore();
 const mapStore = useMapStore();
 const toast = useToastStore();
+const confirmStore = useConfirmStore();
 const telemetrySocket = useWebSocket('telemetry');
 
 const missionMapRef = ref<any>(null);
@@ -158,8 +182,8 @@ const createMission = () => {
   }
 };
 
-function clearAllWaypoints() {
-  if (missionStore.waypoints.length && confirm('Clear all waypoints from this mission plan?')) {
+async function clearAllWaypoints() {
+  if (missionStore.waypoints.length && await confirmStore.ask('Clear all waypoints from this mission plan?')) {
     missionStore.clearWaypoints();
   }
 }
@@ -188,6 +212,13 @@ const abortMission = async () => {
 </script>
 
 <style scoped>
+.visually-hidden {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
 .mission-planner-view {
   display: flex;
   flex-direction: column;

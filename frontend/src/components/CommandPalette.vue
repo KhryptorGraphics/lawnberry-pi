@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFocusTrap } from '@/composables/useFocusTrap'
 
 const router = useRouter()
 const open = ref(false)
@@ -74,6 +75,7 @@ function openPalette() {
   nextTick(() => inputRef.value?.focus())
 }
 function close() { open.value = false }
+useFocusTrap(modalRef, open, close)
 function go(path: string) { close(); router.push(path) }
 function move(dir: number) {
   if (!filtered.value.length) return

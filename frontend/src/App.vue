@@ -31,6 +31,7 @@
     
     <main id="main-content" class="app-main">
       <ToastHost />
+      <ConfirmDialog />
       <CommandPalette />
       <router-view />
     </main>
@@ -57,6 +58,7 @@ import { useSystemStore } from './stores/system'
 import { usePreferencesStore } from './stores/preferences'
 import UserMenu from './components/UserMenu.vue'
 import ToastHost from './components/ToastHost.vue'
+import ConfirmDialog from './components/ui/ConfirmDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import TopProgress from './components/TopProgress.vue'
 import logoUrl from '@/assets/logo.png'
