@@ -12,7 +12,7 @@ function getControlWsEntry() {
   }>
   for (let i = instances.length - 1; i >= 0; i -= 1) {
     const candidate = instances[i]
-    if (candidate.type === 'control') {
+    if (candidate.type === 'telemetry') {
       return candidate
     }
   }
@@ -150,67 +150,71 @@ describe('Control Store', () => {
   })
 
   describe('WebSocket integration', () => {
-    it('subscribes to control WebSocket on initialization', () => {
-      const { store, wsEntry } = createStoreWithWs()
+    // The backend broadcasts interlock activate/clear events on the "system.safety" topic
+    // over the (hub-wired) /ws/telemetry socket — see safety_monitor.handle_interlock_event
+    // and websocket_hub.broadcast_to_topic. /ws/control is a separate, isolated echo-only
+    // connection that never emits this data.
+    function emitSafetyEvent(wsEntry: ReturnType<typeof getControlWsEntry>, payload: any) {
+      const callbacks = wsEntry.topicCallbacks.get('system.safety') as
+        | Array<{ callback: (data: any) => void }>
+        | undefined
+      callbacks?.forEach((entry) => entry.callback(payload))
+    }
 
-      expect(wsEntry.instance.subscribe).toHaveBeenCalledWith('control', expect.any(Function))
+    it('subscribes to the system.safety topic on initialization', () => {
+      const { wsEntry } = createStoreWithWs()
+
+      expect(wsEntry.instance.subscribe).toHaveBeenCalledWith('system.safety', expect.any(Function))
     })
 
-    it('handles command echo messages from WebSocket', () => {
+    it('locks out on an interlock activate event', () => {
       const { store, wsEntry } = createStoreWithWs()
-      const echoMessage = {
-        type: 'command_echo',
-        payload: {
-          command_id: 'cmd123',
-          command: 'FORWARD',
-          status: 'executed',
-          timestamp: new Date().toISOString(),
-        },
-      }
 
-      wsEntry.handlers?.onMessage?.(echoMessage)
-
-      expect(store.lastCommandEcho).toEqual(echoMessage.payload)
-    })
-
-    it('handles lockout messages from WebSocket', () => {
-      const { store, wsEntry } = createStoreWithWs()
-      const lockoutMessage = {
-        type: 'lockout',
-        active: true,
-        reason: 'Low battery',
-        until: new Date(Date.now() + 30000).toISOString(),
-        remediation_link: '/docs/troubleshooting#low-battery',
-      }
-
-      wsEntry.handlers?.onMessage?.(lockoutMessage)
+      emitSafetyEvent(wsEntry, {
+        action: 'activate',
+        interlock: { interlock_type: 'low_battery', description: 'Battery voltage below threshold' },
+      })
 
       expect(store.lockoutActive).toBe(true)
-      expect(store.lockoutReason).toBe('Low battery')
-      expect(store.lockoutUntil).toBe(lockoutMessage.until)
-      expect(store.remediationLink).toBe('/docs/troubleshooting#low-battery')
+      expect(store.lockoutReason).toBe('Battery voltage below threshold')
     })
 
-    it('clears lockout when receiving unlock message', () => {
+    it('clears lockout when the last active interlock clears', () => {
       const { store, wsEntry } = createStoreWithWs()
-      store.lockoutActive = true
-      store.lockoutReason = 'Test lockout'
-      store.lockoutUntil = new Date().toISOString()
-      store.remediationLink = '/docs/test'
 
-      const unlockMessage = {
-        type: 'unlock',
-        reason: '',
-        until: null,
-        remediation_link: '',
-      }
-
-      wsEntry.handlers?.onMessage?.(unlockMessage)
+      emitSafetyEvent(wsEntry, {
+        action: 'activate',
+        interlock: { interlock_type: 'low_battery', description: 'Battery voltage below threshold' },
+      })
+      emitSafetyEvent(wsEntry, {
+        action: 'clear',
+        interlock: { interlock_type: 'low_battery', description: 'Battery voltage below threshold' },
+      })
 
       expect(store.lockoutActive).toBe(false)
       expect(store.lockoutReason).toBe('')
-      expect(store.lockoutUntil).toBeNull()
-      expect(store.remediationLink).toBe('')
+    })
+
+    it('stays locked out while a second interlock remains active', () => {
+      const { store, wsEntry } = createStoreWithWs()
+
+      emitSafetyEvent(wsEntry, {
+        action: 'activate',
+        interlock: { interlock_type: 'low_battery', description: 'Battery voltage below threshold' },
+      })
+      emitSafetyEvent(wsEntry, {
+        action: 'activate',
+        interlock: { interlock_type: 'tilt_detected', description: 'Tilt threshold exceeded' },
+      })
+      // Clearing only the first interlock must NOT unlock the machine while the second
+      // is still active — this is the exact bug the interlock-set tracking prevents.
+      emitSafetyEvent(wsEntry, {
+        action: 'clear',
+        interlock: { interlock_type: 'low_battery', description: 'Battery voltage below threshold' },
+      })
+
+      expect(store.lockoutActive).toBe(true)
+      expect(store.lockoutReason).toBe('Tilt threshold exceeded')
     })
   })
 
@@ -259,7 +263,7 @@ describe('Control Store', () => {
   describe('cleanup', () => {
     it('unsubscribes from WebSocket on cleanup', () => {
       const { store, wsEntry } = createStoreWithWs()
-      const callbacks = wsEntry.topicCallbacks.get('control') as any[] | undefined
+      const callbacks = wsEntry.topicCallbacks.get('system.safety') as any[] | undefined
       expect(callbacks).toBeDefined()
       expect((callbacks?.length ?? 0)).toBeGreaterThan(0)
       const unsubscribeSpy = callbacks![0]?.unsubscribe

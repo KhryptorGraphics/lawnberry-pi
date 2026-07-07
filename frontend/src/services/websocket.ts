@@ -392,6 +392,7 @@ export function useWebSocket(type: 'telemetry' | 'control' = 'telemetry', handle
 
   const subscribe = (topic: string, callback: (data: any) => void) => {
     wsService.onTopic(topic, callback)
+    return () => wsService.offTopic(topic, callback)
   }
 
   const unsubscribe = (topic: string, callback?: (data: any) => void) => {
