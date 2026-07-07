@@ -559,11 +559,6 @@ export class MockBackend {
       return respond(200, { ok: true })
     }
 
-    if (pathname === '/api/v2/map/provider-fallback' && method === 'POST') {
-      this.settingsState.maps.provider = 'osm'
-      return respond(200, { success: true })
-    }
-
     // Default fallback: succeed with empty payload
     return respond(200, {})
   }

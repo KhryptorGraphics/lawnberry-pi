@@ -757,10 +757,9 @@ async function loadDocumentation() {
 
         // Replace offline docs with real backend docs
         docs.value = [...featuredGuides.value, ...backendDocs]
-        console.log(`Loaded ${backendDocs.length} documentation files from backend`)
       }
     } catch (error) {
-      console.log('Backend docs API not available, using offline documentation')
+      // Backend docs API not available — fall through to offline documentation below
     }
     
     // Add fallback offline documentation if backend fetch failed

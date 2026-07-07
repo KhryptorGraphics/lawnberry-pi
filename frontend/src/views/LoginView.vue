@@ -50,12 +50,6 @@
           {{ isLoading ? 'Signing In...' : 'Sign In' }}
         </button>
       </form>
-      
-      <div class="login-footer">
-        <p class="text-muted text-center">
-          Default credentials: admin / admin
-        </p>
-      </div>
     </div>
   </div>
 </template>

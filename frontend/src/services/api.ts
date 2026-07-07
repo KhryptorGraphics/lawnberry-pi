@@ -35,11 +35,6 @@ export async function saveMapConfiguration(configId: string, config: any) {
   return response.data
 }
 
-export async function triggerMapProviderFallback() {
-  const response = await apiService.post('/api/v2/map/provider-fallback')
-  return response.data
-}
-
 // Autonomous navigation control
 export async function startAutonomous(zones?: string[]) {
   const response = await apiService.post('/api/v2/navigation/start', zones ? { zones } : {})

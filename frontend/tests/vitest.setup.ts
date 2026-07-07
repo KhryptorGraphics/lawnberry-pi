@@ -41,7 +41,6 @@ const sendControlCommand = vi.fn()
 const getRoboHATStatus = vi.fn()
 const getMapConfiguration = vi.fn()
 const saveMapConfiguration = vi.fn()
-const triggerMapProviderFallback = vi.fn()
 
 vi.mock('@/services/api', () => ({
   __esModule: true,
@@ -51,7 +50,6 @@ vi.mock('@/services/api', () => ({
   getRoboHATStatus,
   getMapConfiguration,
   saveMapConfiguration,
-  triggerMapProviderFallback,
 }))
 
 type TopicCallbackEntry = {
@@ -151,7 +149,6 @@ beforeEach(() => {
   getRoboHATStatus.mockReset()
   getMapConfiguration.mockReset()
   saveMapConfiguration.mockReset()
-  triggerMapProviderFallback.mockReset()
   useWebSocketMock.mockClear()
   localStorage.clear()
 })

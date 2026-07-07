@@ -170,7 +170,6 @@ export const useMapStore = defineStore('map', () => {
   const isDirty = ref(false);
   const selectedZoneId = ref<string | null>(null);
   const editMode = ref<'view' | 'boundary' | 'exclusion' | 'mowing' | 'marker'>('view');
-  const providerFallbackActive = ref(false);
 
   // Watch for changes and save to localStorage
   watch(
@@ -309,27 +308,6 @@ export const useMapStore = defineStore('map', () => {
     }
   }
 
-  async function triggerProviderFallback() {
-    loading.value = true;
-    isLoading.value = true;
-    error.value = '';
-    try {
-      const response = await apiService.post('/api/v2/map/provider-fallback');
-      if (response && response.data && response.data.success) {
-        providerFallbackActive.value = true;
-        if (configuration.value) {
-          configuration.value.provider = 'osm';
-        }
-      }
-      return response ? response.data : response;
-    } catch (e: any) {
-      error.value = e?.response?.data?.message || e?.message || 'Failed to trigger provider fallback';
-      throw e;
-    } finally {
-      loading.value = false;
-      isLoading.value = false;
-    }
-  }
 
   function addMarker(
     markerType: 'home' | 'am_sun' | 'pm_sun' | 'custom',
@@ -766,8 +744,7 @@ export const useMapStore = defineStore('map', () => {
     isDirty,
     selectedZoneId,
     editMode,
-    providerFallbackActive,
-    
+
     // Computed
     hasConfiguration,
     hasUnsavedChanges,
@@ -779,7 +756,6 @@ export const useMapStore = defineStore('map', () => {
     // Actions
     loadConfiguration,
     saveConfiguration,
-    triggerProviderFallback,
     addMarker,
     removeMarker,
     updateMarker,
