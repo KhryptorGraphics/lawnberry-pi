@@ -133,3 +133,68 @@ def get_mission_service(
     if _mission_service_instance is None:
         _mission_service_instance = MissionService(nav_service)
     return _mission_service_instance
+
+
+def current_mission_service() -> "MissionService | None":
+    """Return the active MissionService singleton if one has been created (via
+    the API's dependency injection), else None.
+
+    Lets background consumers such as the telemetry WebSocket hub read live
+    mission progress without forcing creation or needing a NavigationService
+    for FastAPI dependency injection.
+    """
+    return _mission_service_instance
+
+
+async def build_jobs_progress_payload(
+    service: "MissionService | None",
+) -> dict[str, object]:
+    """Build the ``jobs.progress`` WebSocket payload from live mission state.
+
+    Replaces the former random stub in the telemetry hub with real progress:
+    the first running (else paused) mission's completion percentage and status,
+    or an idle payload when nothing is active.
+
+    ``current_job`` is the mission's name. Reconciling it with the separate
+    Planning-job store (the frontend matches ``jobs.progress`` to a Planning
+    job by name) is best-effort until missions and planning jobs share an
+    identity; ``remaining_time_min`` is not tracked yet and is reported as 0
+    (the dashboard hides it when zero).
+    """
+    idle: dict[str, object] = {
+        "current_job": "",
+        "progress_percent": 0.0,
+        "remaining_time_min": 0,
+        "status": "idle",
+        "source": "idle",
+    }
+    if service is None:
+        return idle
+
+    # Prefer a running mission; fall back to a paused one.
+    active_id: str | None = None
+    for mission_id, mission_status in service.mission_statuses.items():
+        if mission_status.status == "running":
+            active_id = mission_id
+            break
+        if mission_status.status == "paused" and active_id is None:
+            active_id = mission_id
+    if active_id is None:
+        return idle
+
+    status = await service.get_mission_status(active_id)
+    mission = service.missions.get(active_id)
+    ui_status = (
+        "running"
+        if status.status == "running"
+        else "paused"
+        if status.status == "paused"
+        else "idle"
+    )
+    return {
+        "current_job": mission.name if mission is not None else active_id,
+        "progress_percent": round(float(status.completion_percentage or 0.0), 1),
+        "remaining_time_min": 0,
+        "status": ui_status,
+        "source": "mission",
+    }

@@ -616,14 +616,25 @@ class WebSocketHub:
 
         await self.broadcast_to_topic("telemetry.weather", weather_data)
 
-        # Job status (simulated)
-        job_data = {
-            "current_job": "mowing_zone_1",
-            "progress_percent": round(random.uniform(0, 100), 1),
-            "remaining_time_min": random.randint(5, 60),
-            "status": random.choice(["running", "paused", "idle"]),
-            "source": "simulated",
-        }
+        # Job status — real mowing-job progress derived from the active mission
+        # (idle payload when nothing is running), replacing the former random
+        # stub. See mission_service.build_jobs_progress_payload.
+        from ..services.mission_service import (
+            build_jobs_progress_payload,
+            current_mission_service,
+        )
+
+        try:
+            job_data = await build_jobs_progress_payload(current_mission_service())
+        except Exception:
+            # Telemetry must never break on job-progress derivation.
+            job_data = {
+                "current_job": "",
+                "progress_percent": 0.0,
+                "remaining_time_min": 0,
+                "status": "idle",
+                "source": "idle",
+            }
         await self.broadcast_to_topic("jobs.progress", job_data)
 
         # System performance
