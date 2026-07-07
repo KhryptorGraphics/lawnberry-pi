@@ -419,7 +419,78 @@ import { useApiService, startAutonomous } from '@/services/api'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useMapStore } from '@/stores/map'
+import type { Zone } from '@/stores/map'
 import { useRouter } from 'vue-router'
+
+// Backend contract: GET/POST/DELETE /api/v2/planning/jobs
+// (backend/src/api/routers/planning.py). On create, the backend only ever
+// writes id/name/zones/schedule/priority/enabled/created_at — `pattern` and
+// `scheduled_start`, sent in the create payload by mowZone()/saveSchedule()
+// below, are silently dropped (never read back). `status`/`mission_id` are
+// added only once a lifecycle action (start/pause/resume/cancel) has run —
+// a freshly created job has NO `status` at all, so the template's
+// `job.status === 'scheduled'` Start-button check never matches it against
+// real data (flagged, not fixed — out of scope for this typing pass).
+// `progress`/`estimated_remaining` are never sent by the REST endpoints;
+// they arrive only via the `jobs.progress` WS topic subscribed in onMounted.
+interface MowJob {
+  id: string
+  name: string
+  zones: string[]
+  status?: 'scheduled' | 'running' | 'paused' | 'completed' | 'cancelled' | 'failed'
+  pattern?: string
+  scheduled_start?: string
+  progress?: number
+  estimated_remaining?: number | null
+}
+
+// Job History card. Nothing ever refreshes this from the backend — it stays
+// fixed at its seed value. UI-only mock data, not a backend contract.
+interface CompletedJob {
+  id: number
+  name: string
+  completed_at: string
+  actual_duration: number
+  area_covered: number
+}
+
+// NOTE: no `/api/v2/schedules` route exists on the backend (confirmed via
+// `grep -rn schedules backend/src/` — only an internal
+// `_update_recurring_schedules()` job-service method, not an HTTP route).
+// refreshSchedules/saveSchedule/toggleSchedule/deleteSchedule below all call
+// this nonexistent endpoint and will always fail into their catch blocks;
+// this tab runs on mock seed data only. Typed to that seed/mock shape, not a
+// real backend contract.
+interface MowSchedule {
+  id: number
+  name: string
+  frequency: string
+  zones: string[]
+  pattern: string
+  enabled: boolean
+  next_run: string
+}
+
+interface ZoneCard {
+  id: string
+  name: string
+  area_m2: number
+  cutting_height: number | null
+  priority: 'high' | 'medium' | 'low'
+  last_mowed: string | null
+}
+
+// Local-only shape for the schedule-job modal (not a backend contract —
+// see saveSchedule/MowSchedule above).
+interface ScheduleForm {
+  name: string
+  zones: string[]
+  pattern: string
+  type: string
+  startTime: string
+  frequency: string
+  timeOfDay: string
+}
 
 const api = useApiService()
 const router = useRouter()
@@ -433,8 +504,8 @@ const { unitSystem } = storeToRefs(preferences)
 // State
 const activeTab = ref('current')
 const showScheduleModal = ref(false)
-const editingSchedule = ref<any>(null)
-const selectedZone = ref<any>(null)
+const editingSchedule = ref<MowSchedule | null>(null)
+const selectedZone = ref<ZoneCard | null>(null)
 const selectedPattern = ref('parallel')
 const statusMessage = ref('')
 const statusSuccess = ref(false)
@@ -448,9 +519,9 @@ const tabs = [
 ]
 
 // Data
-const jobs = ref([
+const jobs = ref<MowJob[]>([
   {
-    id: 1,
+    id: '1',
     name: 'Front Lawn Weekly',
     status: 'running',
     zones: ['Front Lawn', 'Side Lawn'],
@@ -460,7 +531,7 @@ const jobs = ref([
     scheduled_start: '2024-09-28T10:00:00'
   },
   {
-    id: 2,
+    id: '2',
     name: 'Back Lawn Maintenance',
     status: 'scheduled',
     zones: ['Back Lawn'],
@@ -471,7 +542,7 @@ const jobs = ref([
   }
 ])
 
-const completedJobs = ref([
+const completedJobs = ref<CompletedJob[]>([
   {
     id: 3,
     name: 'Full Property Mow',
@@ -488,7 +559,7 @@ const completedJobs = ref([
   }
 ])
 
-const schedules = ref([
+const schedules = ref<MowSchedule[]>([
   {
     id: 1,
     name: 'Weekly Full Property',
@@ -534,24 +605,24 @@ function priorityLabel(p: unknown): 'high' | 'medium' | 'low' {
   return s === 'high' || s === 'low' ? s : 'medium'
 }
 
-function mapZoneToCard(z: any, defaultPriority: 'high' | 'medium' | 'low') {
+function mapZoneToCard(z: Zone, defaultPriority: 'high' | 'medium' | 'low'): ZoneCard {
   return {
     id: z.id,
     name: z.name || z.id,
     area_m2: polygonAreaM2(z.polygon),
-    cutting_height: null as number | null,
+    cutting_height: null,
     priority: z.priority != null ? priorityLabel(z.priority) : defaultPriority,
-    last_mowed: null as string | null,
+    last_mowed: null,
   }
 }
 
-const zones = computed(() => {
+const zones = computed<ZoneCard[]>(() => {
   const cfg = mapStore.configuration
-  if (!cfg) return [] as any[]
+  if (!cfg) return []
   const mow = (cfg.mowing_zones || []).filter((z) => z.polygon?.length)
   if (mow.length) return mow.map((z) => mapZoneToCard(z, 'medium'))
   if (cfg.boundary_zone?.polygon?.length) return [mapZoneToCard(cfg.boundary_zone, 'high')]
-  return [] as any[]
+  return []
 })
 
 const patterns = ref([
@@ -646,7 +717,7 @@ const recommendation = ref({
   reason: 'Good weather conditions for mowing'
 })
 
-const scheduleForm = ref({
+const scheduleForm = ref<ScheduleForm>({
   name: '',
   zones: [],
   pattern: 'parallel',
@@ -731,7 +802,7 @@ async function saveSchedule() {
 async function refreshJobs() {
   try {
     // Backend contract: GET /api/v2/planning/jobs -> plain list of jobs
-    const response = await api.get('/api/v2/planning/jobs')
+    const response = await api.get<MowJob[] | { active?: MowJob[] }>('/api/v2/planning/jobs')
     jobs.value = Array.isArray(response.data) ? response.data : (response.data?.active || [])
   } catch (error) {
     console.error('Failed to refresh jobs:', error)
@@ -740,14 +811,14 @@ async function refreshJobs() {
 
 async function refreshSchedules() {
   try {
-    const response = await api.get('/api/v2/schedules')
+    const response = await api.get<MowSchedule[]>('/api/v2/schedules')
     schedules.value = response.data || []
   } catch (error) {
     console.error('Failed to refresh schedules:', error)
   }
 }
 
-async function startJob(job: any) {
+async function startJob(job: MowJob) {
   try {
     await api.post(`/api/v2/planning/jobs/${job.id}/start`)
     job.status = 'running'
@@ -757,7 +828,7 @@ async function startJob(job: any) {
   }
 }
 
-async function pauseJob(job: any) {
+async function pauseJob(job: MowJob) {
   try {
     await api.post(`/api/v2/planning/jobs/${job.id}/pause`)
     job.status = 'paused'
@@ -767,7 +838,7 @@ async function pauseJob(job: any) {
   }
 }
 
-async function resumeJob(job: any) {
+async function resumeJob(job: MowJob) {
   try {
     await api.post(`/api/v2/planning/jobs/${job.id}/resume`)
     job.status = 'running'
@@ -777,7 +848,7 @@ async function resumeJob(job: any) {
   }
 }
 
-async function cancelJob(job: any) {
+async function cancelJob(job: MowJob) {
   if (!confirm(`Cancel job "${job.name}"?`)) return
   
   try {
@@ -790,7 +861,7 @@ async function cancelJob(job: any) {
   }
 }
 
-async function toggleSchedule(schedule: any) {
+async function toggleSchedule(schedule: MowSchedule) {
   try {
     await api.put(`/api/v2/schedules/${schedule.id}`, {
       ...schedule,
@@ -806,13 +877,15 @@ async function toggleSchedule(schedule: any) {
   }
 }
 
-function editSchedule(schedule: any) {
+function editSchedule(schedule: MowSchedule) {
   editingSchedule.value = schedule
-  scheduleForm.value = { ...schedule }
+  // MowSchedule has no type/startTime/timeOfDay (schedule-form-only fields) —
+  // merge over the existing form rather than dropping them to undefined.
+  scheduleForm.value = { ...scheduleForm.value, ...schedule }
   showScheduleModal.value = true
 }
 
-async function deleteSchedule(schedule: any) {
+async function deleteSchedule(schedule: MowSchedule) {
   if (!confirm(`Delete schedule "${schedule.name}"?`)) return
   
   try {
@@ -825,11 +898,11 @@ async function deleteSchedule(schedule: any) {
   }
 }
 
-function selectZone(zone: any) {
+function selectZone(zone: ZoneCard) {
   selectedZone.value = selectedZone.value?.id === zone.id ? null : zone
 }
 
-async function mowZone(zone: any) {
+async function mowZone(zone: ZoneCard) {
   try {
     await api.post('/api/v2/planning/jobs', {
       name: `${zone.name} - Quick Mow`,
@@ -854,12 +927,12 @@ function openZoneModal() {
   goToMaps()
 }
 
-function editZone(_zone: any) {
+function editZone(_zone: ZoneCard) {
   showStatus('Opening the map editor to edit zones…', true)
   goToMaps()
 }
 
-function formatJobStatus(status: string): string {
+function formatJobStatus(status: string | undefined): string {
   const statusMap = {
     scheduled: 'Scheduled',
     running: 'Running',
@@ -868,6 +941,9 @@ function formatJobStatus(status: string): string {
     cancelled: 'Cancelled',
     failed: 'Failed'
   }
+  // A job with no status yet (real backend, before any lifecycle action has
+  // run — see MowJob's status comment) is effectively still "scheduled".
+  if (!status) return statusMap.scheduled
   return statusMap[status as keyof typeof statusMap] || status
 }
 

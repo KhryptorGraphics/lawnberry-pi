@@ -318,12 +318,12 @@ import { useApiService } from '@/services/api'
 import BoundaryEditor from '@/components/map/BoundaryEditor.vue'
 import { useMapStore } from '@/stores/map'
 import { useToastStore } from '@/stores/toast'
-import type { MarkerSchedule } from '@/stores/map'
+import type { MarkerSchedule, MapMarker, Zone } from '@/stores/map'
 
 const api = useApiService()
 const mapStore = useMapStore()
 const toast = useToastStore()
-const editorRef = ref<any>(null)
+const editorRef = ref<InstanceType<typeof BoundaryEditor> | null>(null)
 const isE2ETestMode = computed(() => typeof window !== 'undefined' && (window.location.search.includes('e2e=1') || window.location.search.includes('e2e=true')))
 
 // State
@@ -418,13 +418,13 @@ function toMarkerSchedule(form: ScheduleForm): MarkerSchedule | null {
   }
 }
 
-function scheduleFormFromMarker(marker: any): ScheduleForm {
-  const schedule: MarkerSchedule | undefined = marker?.schedule || marker?.metadata?.schedule || null
+function scheduleFormFromMarker(marker: MapMarker): ScheduleForm {
+  const schedule: MarkerSchedule | undefined | null = marker?.schedule || marker?.metadata?.schedule || null
   if (!schedule) {
     return defaultScheduleForm()
   }
   const windows = Array.isArray(schedule.time_windows) && schedule.time_windows.length
-    ? schedule.time_windows.map((w: any) => ({ start: w?.start || '', end: w?.end || '' }))
+    ? schedule.time_windows.map((w) => ({ start: w?.start || '', end: w?.end || '' }))
     : [{ start: '08:00', end: '10:00' }]
   const days = Array.isArray(schedule.days_of_week) ? [...schedule.days_of_week] : []
   const triggers = {
@@ -464,22 +464,22 @@ function isDaySelected(target: ScheduleForm, dayValue: number): boolean {
   return target.days.includes(dayValue)
 }
 
-function summarizeSchedule(marker: any): string | null {
-  const schedule: MarkerSchedule | undefined = marker?.schedule || marker?.metadata?.schedule
+function summarizeSchedule(marker: MapMarker): string | null {
+  const schedule: MarkerSchedule | undefined | null = marker?.schedule || marker?.metadata?.schedule
   if (!schedule) {
     return null
   }
   const parts: string[] = []
   if (Array.isArray(schedule.days_of_week) && schedule.days_of_week.length) {
     const dayLbl = schedule.days_of_week
-      .map((d: number) => daysOfWeek.find(day => day.value === d)?.short || '')
+      .map((d) => daysOfWeek.find(day => day.value === d)?.short || '')
       .filter(Boolean)
       .join(' ')
     if (dayLbl) parts.push(dayLbl)
   }
   if (Array.isArray(schedule.time_windows) && schedule.time_windows.length) {
     const winLbl = schedule.time_windows
-      .map((w: any) => `${w.start ?? ''}-${w.end ?? ''}`.trim())
+      .map((w) => `${w.start ?? ''}-${w.end ?? ''}`.trim())
       .filter(Boolean)
       .join(', ')
     if (winLbl) parts.push(winLbl)
@@ -567,9 +567,9 @@ function addPin(_categoryId: string) {
   showPinEditor.value = true
 }
 
-function editMarker(m: any) {
+function editMarker(m: MapMarker) {
   editingMarkerId.value = m.marker_id
-  const isHome = m.marker_type === 'home' || m.is_home
+  const isHome = m.marker_type === 'home' || Boolean(m.is_home)
   const baseType = ['custom', 'am_sun', 'pm_sun'].includes(m.marker_type) ? m.marker_type : 'custom'
   pinForm.value = {
     name: m.label || '',
@@ -584,7 +584,7 @@ function editMarker(m: any) {
   showPinEditor.value = true
 }
 
-async function deleteMarker(m: any) {
+async function deleteMarker(m: MapMarker) {
   if (!confirm(`Delete marker "${m.label || m.marker_type}"?`)) return
   try {
     mapStore.removeMarker(m.marker_id)
@@ -596,7 +596,7 @@ async function deleteMarker(m: any) {
   }
 }
 
-function selectMarker(m: any) {
+function selectMarker(m: MapMarker) {
   selectedPinId.value = m.marker_id
   previewLat.value = m.position.latitude
   previewLon.value = m.position.longitude
@@ -615,7 +615,7 @@ async function savePin() {
     if (pinForm.value.isHome) {
       metadata.is_home = true
     }
-    const markerType = pinForm.value.isHome ? 'home' : (pinForm.value.type as any)
+    const markerType = pinForm.value.isHome ? 'home' : (pinForm.value.type as 'custom' | 'am_sun' | 'pm_sun')
     const label = pinForm.value.name || undefined
     if (editingMarkerId.value) {
       mapStore.updateMarker(editingMarkerId.value, {
@@ -776,7 +776,7 @@ async function saveConfigurationForTest() {
   }
 }
 
-function displayMarkerName(marker: any) {
+function displayMarkerName(marker: MapMarker) {
   if (marker?.label) return marker.label
   const type = String(marker?.marker_type || '')
   if (type === 'home') return 'Home'
@@ -788,7 +788,7 @@ function iconForMarker(type: string) {
   return type === 'home' ? '🏠' : type === 'am_sun' ? '☀️' : type === 'pm_sun' ? '🌅' : '📍'
 }
 
-async function removeMow(z: any) {
+async function removeMow(z: Zone) {
   if (!confirm(`Delete mowing zone "${z.name}"?`)) return
   try {
     mapStore.removeMowingZone(z.id)
@@ -800,7 +800,7 @@ async function removeMow(z: any) {
   }
 }
 
-async function renameZone(z: any) {
+async function renameZone(z: Zone) {
   const name = prompt('Zone name', z.name)
   if (!name) return
   mapStore.updateZoneName(z.id, name)
@@ -813,7 +813,7 @@ async function renameZone(z: any) {
   }
 }
 
-async function removeExclusion(z: any) {
+async function removeExclusion(z: Zone) {
   if (!confirm(`Delete exclusion zone "${z.name}"?`)) return
   try {
     mapStore.removeExclusionZone(z.id)
@@ -825,15 +825,15 @@ async function removeExclusion(z: any) {
   }
 }
 
-function editMarkerOnMap(m: any) {
+function editMarkerOnMap(m: MapMarker) {
   try { editorRef.value?.focusMarker(m.marker_id) } catch {}
 }
 
-function editZoneOnMap(z: any) {
+function editZoneOnMap(z: Zone) {
   try { editorRef.value?.editZoneOnMap(z.id, 'mowing') } catch {}
 }
 
-function editExclusionOnMap(z: any) {
+function editExclusionOnMap(z: Zone) {
   try { editorRef.value?.editZoneOnMap(z.id, 'exclusion') } catch {}
 }
 
