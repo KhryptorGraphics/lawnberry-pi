@@ -2,17 +2,17 @@
   <div class="mission-planner-view">
     <h1>Mission Planner</h1>
     <div class="map-toolbar">
-      <label class="follow-toggle"><input type="checkbox" v-model="followMower" /> Follow mower</label>
-      <button class="btn" @click="recenterToMower" :disabled="!mowerLatLng">🎯 Recenter</button>
-      <button class="btn" @click="undoLastWaypoint" :disabled="missionStore.waypoints.length === 0">↩️ Undo last</button>
-      <button class="btn btn-danger" @click="clearAllWaypoints" :disabled="missionStore.waypoints.length === 0">🗑️ Clear all</button>
+      <label class="follow-toggle"><input v-model="followMower" type="checkbox"> Follow mower</label>
+      <button class="btn" :disabled="!mowerLatLng" @click="recenterToMower">🎯 Recenter</button>
+      <button class="btn" :disabled="missionStore.waypoints.length === 0" @click="undoLastWaypoint">↩️ Undo last</button>
+      <button class="btn btn-danger" :disabled="missionStore.waypoints.length === 0" @click="clearAllWaypoints">🗑️ Clear all</button>
     </div>
     <div class="map-container">
       <MissionMap
         ref="missionMapRef"
         :waypoints="missionStore.waypoints"
-        :mowerPosition="mowerPosition"
-        :followMower="followMower"
+        :mower-position="mowerPosition"
+        :follow-mower="followMower"
         @add-waypoint="handleAddWaypoint"
         @update-waypoint="handleUpdateWaypoint"
         @remove-waypoint="handleRemoveWaypoint"
@@ -20,19 +20,18 @@
     </div>
     <MissionWaypointList />
     <div class="mission-controls">
-      <input v-model="missionName" placeholder="Mission Name" />
-      <button @click="createMission" :disabled="!missionName || missionStore.waypoints.length === 0">Create Mission</button>
-      <button @click="startMission" :disabled="!missionStore.currentMission">Start Mission</button>
-      <button @click="pauseMission" :disabled="missionStore.missionStatus !== 'running'">Pause</button>
-      <button @click="resumeMission" :disabled="missionStore.missionStatus !== 'paused'">Resume</button>
-      <button @click="abortMission" :disabled="!missionStore.currentMission">Abort</button>
+      <input v-model="missionName" placeholder="Mission Name">
+      <button :disabled="!missionName || missionStore.waypoints.length === 0" @click="createMission">Create Mission</button>
+      <button :disabled="!missionStore.currentMission" @click="startMission">Start Mission</button>
+      <button :disabled="missionStore.missionStatus !== 'running'" @click="pauseMission">Pause</button>
+      <button :disabled="missionStore.missionStatus !== 'paused'" @click="resumeMission">Resume</button>
+      <button :disabled="!missionStore.currentMission" @click="abortMission">Abort</button>
     </div>
     <div v-if="missionStore.currentMission">
       <h2>Mission Status: {{ missionStore.missionStatus }}</h2>
       <p>Progress: {{ missionStore.progress.toFixed(2) }}%</p>
     </div>
   </div>
-  
 </template>
 
 <script setup lang="ts">

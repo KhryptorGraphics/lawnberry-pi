@@ -1,6 +1,6 @@
 <template>
   <div class="mission-map-editor" :class="{ 'cursor-crosshair': isDrawing }">
-    <l-map
+    <LMap
       ref="mapRef"
       :zoom="zoom"
       :center="center"
@@ -9,7 +9,7 @@
       @ready="onMapReady"
       @click="onMapClick"
     >
-      <l-tile-layer
+      <LTileLayer
         v-if="tileLayerConfig"
         :key="tileLayerKey"
         :url="tileLayerConfig.url"
@@ -17,10 +17,10 @@
         :subdomains="tileLayerConfig.subdomains"
         :max-zoom="tileLayerConfig.maxZoom"
       />
-      <l-layer-group ref="overlayGroupRef">
+      <LLayerGroup ref="overlayGroupRef">
         <!-- Waypoints and Path -->
-        <l-polyline :lat-lngs="waypointLatLngs" :color="'#00ffff'" :weight="3" />
-        <l-marker
+        <LPolyline :lat-lngs="waypointLatLngs" :color="'#00ffff'" :weight="3" />
+        <LMarker
           v-for="(wp, idx) in waypoints"
           :key="`wp-${wp.id}`"
           :lat-lng="[wp.lat, wp.lon]"
@@ -28,11 +28,10 @@
           :icon="waypointIcon(idx + 1)"
           @dragend="(e) => onWaypointDragEnd(wp, e)"
           @contextmenu="() => onWaypointContextMenu(wp)"
-        >
-        </l-marker>
+        />
 
         <!-- Mower Position -->
-        <l-circle-marker
+        <LCircleMarker
           v-if="mowerLatLng"
           :lat-lng="mowerLatLng"
           :radius="6"
@@ -40,7 +39,7 @@
           :weight="2"
           :fill-opacity="0.9"
         />
-        <l-circle
+        <LCircle
           v-if="mowerLatLng && accuracyRadius > 0"
           :lat-lng="mowerLatLng"
           :radius="accuracyRadius"
@@ -48,8 +47,8 @@
           :weight="1"
           :fill-opacity="0.15"
         />
-      </l-layer-group>
-    </l-map>
+      </LLayerGroup>
+    </LMap>
     <div v-if="providerBadge" class="provider-badge">{{ providerBadge }}</div>
   </div>
 </template>

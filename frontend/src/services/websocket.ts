@@ -343,7 +343,7 @@ export class WebSocketService {
 }
 
 // Global WebSocket service instance
-let wsService: WebSocketService | null = null
+const wsService: WebSocketService | null = null
 
 
 // Factory for telemetry or control WebSocket
