@@ -91,6 +91,42 @@ comms:
   bluetooth: { version: "5.0", optional: true }
   ethernet: { bench_only: true }   # Not for mower runtime
 
+tractor:
+  # Craftsman-class ride-on lawn tractor conversion (Ackermann steering, gas engine) —
+  # a second constitutionally-recognized platform alongside the differential-drive mower
+  # above (Constitution Principle V). See docs/tractor-platform.md for the actuator table
+  # and docs/tractor-acceptance-criteria.md for the safety sign-off checklist.
+  #
+  # This section documents STRUCTURE AND CONSTRAINTS only. Final channel/pin/address
+  # numbers are owned by config/tractor.yaml (actuation workstream) and are cross-checked
+  # against this registry by scripts/check_hardware_pin_conflicts.py — that script, not this
+  # comment, is the source of truth for "does the current tractor config conflict with the
+  # mower's pins/addresses above". Per Constitution Principle V, `config/tractor.yaml`'s
+  # `enabled: true` is valid only while that script reports zero conflicts.
+  config_file: "config/tractor.yaml"
+  actuators:
+    positional:
+      # Driven over PCA9685 PWM (or equivalent) channels; channel numbers live in
+      # config/tractor.yaml, not here — this list is the fixed actuator set only.
+      - steering
+      - throttle
+      - gas_pedal
+      - clutch
+      - gear
+    relay:
+      # GPIO relays; gpio numbers live in config/tractor.yaml relays.*.gpio.
+      - starter
+      - blade_pto
+  pca9685:
+    bus: "I2C"
+    address: null  # TBD by actuation workstream. Constraint: MUST NOT be 0x40 (collides
+                    # with INA3221 in i2c_addresses below) and MUST NOT collide with any
+                    # other address in i2c_addresses below.
+  constraints:
+    - "config/tractor.yaml relays.*.gpio MUST NOT collide with any pins.gpio_used[].gpio entry below."
+    - "config/tractor.yaml pca9685.address (once set) MUST NOT collide with any key in i2c_addresses below, and MUST NOT be 0x40."
+    - "Enforced by scripts/check_hardware_pin_conflicts.py, wired into .github/workflows/hardware-guard.yml."
+
 pins:
   gpio_used:
     - { pin: 15, gpio: 22, role: "ToF Left Shutdown" }
