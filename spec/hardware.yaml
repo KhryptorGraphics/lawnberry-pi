@@ -119,9 +119,10 @@ tractor:
       - blade_pto
   pca9685:
     bus: "I2C"
-    address: null  # TBD by actuation workstream. Constraint: MUST NOT be 0x40 (collides
-                    # with INA3221 in i2c_addresses below) and MUST NOT collide with any
-                    # other address in i2c_addresses below.
+    address: 0x41  # Set by the actuation workstream; 0x40 (the board default) collides
+                    # with INA3221 in i2c_addresses below, so the A0 jumper must be bridged
+                    # to reach 0x41. Verified conflict-free by
+                    # scripts/check_hardware_pin_conflicts.py against config/tractor.yaml.
   constraints:
     - "config/tractor.yaml relays.*.gpio MUST NOT collide with any pins.gpio_used[].gpio entry below."
     - "config/tractor.yaml pca9685.address (once set) MUST NOT collide with any key in i2c_addresses below, and MUST NOT be 0x40."
