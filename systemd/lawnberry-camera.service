@@ -10,6 +10,14 @@ User=pi
 Group=video
 WorkingDirectory=/apps/lawnberry-pi
 Environment=SIM_MODE=0
+# Custom-built libcamera (Ubuntu's apt libcamera0.2 lacks the Pi5 rpi/pisp
+# pipeline handler needed for the CSI camera; see
+# docs/pi5-csi-camera-libcamera-status.md). Points at a self-contained
+# prefix, not the system libcamera -- nothing apt-managed is touched.
+Environment=LD_LIBRARY_PATH=/apps/lawnberry-pi/.local-libcamera/lib/aarch64-linux-gnu
+Environment=LIBCAMERA_IPA_MODULE_PATH=/apps/lawnberry-pi/.local-libcamera/lib/aarch64-linux-gnu/libcamera/ipa
+Environment=LIBCAMERA_IPA_CONFIG_PATH=/apps/lawnberry-pi/.local-libcamera/etc/libcamera/ipa:/apps/lawnberry-pi/.local-libcamera/share/libcamera/ipa
+Environment=PYTHONPATH=/apps/lawnberry-pi/.local-libcamera/lib/python3/dist-packages
 ExecStart=/bin/bash -lc "PY='./.venv/bin/python'; if [ ! -x \"$PY\" ]; then PY='python3'; fi; cd /apps/lawnberry-pi && \"$PY\" -m backend.src.services.camera_stream_service"
 Restart=always
 RestartSec=5
