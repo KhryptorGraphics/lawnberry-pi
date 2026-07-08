@@ -73,7 +73,11 @@ class CameraStreamService:
         self.sim_mode = sim_mode or os.getenv("SIM_MODE", "0") == "1"
         self.stream = CameraStream()
         self.clients: set[asyncio.StreamWriter] = set()
-        self.socket_path = "/tmp/lawnberry-camera.sock"
+        # Not /tmp: lawnberry-camera.service and lawnberry-backend.service
+        # both run with PrivateTmp=true, so each gets its own isolated /tmp
+        # -- a socket there would be invisible across units. This path is
+        # under ReadWritePaths on both services' systemd units.
+        self.socket_path = "/apps/lawnberry-pi/data/lawnberry-camera.sock"
         self.frame_callbacks: list[Callable[[CameraFrame], None]] = []
 
         # Threading for camera capture
@@ -333,12 +337,12 @@ class CameraStreamService:
         command = message.get("command")
 
         if command == "get_status":
-            return {"status": "success", "data": self.stream.model_dump()}
+            return {"status": "success", "data": self.stream.model_dump(mode="json")}
 
         elif command == "get_frame":
             frame = await self.get_current_frame()
             if frame:
-                return {"status": "success", "data": frame.model_dump()}
+                return {"status": "success", "data": frame.model_dump(mode="json")}
             else:
                 return {"status": "error", "error": "No frame available"}
 

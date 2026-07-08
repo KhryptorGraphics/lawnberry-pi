@@ -31,20 +31,63 @@ The kernel-side device tree was never the problem either: `dmesg` already
 showed the `-raspi` kernel flavor had fully probed the IMX219 and registered
 it as `/dev/video0` before any of this work started.
 
-## Known remaining gap: frontend camera routes don't exist server-side
+## Update: reaches the browser now — camera routes implemented, auth fixed
 
-`ControlView.vue` calls `/api/v2/camera/status`, `/api/v2/camera/frame`,
-`/api/v2/camera/stream.mjpeg`, `/api/v2/camera/start` — **all 404 on the
-live backend**, confirmed by direct curl. These paths only appear in
-`middleware/rate_limiting.py`'s rate-limit config; no router anywhere
-defines them. This is unrelated to the libcamera fix — it would 404 even
-with a working camera. Separately, `backend/src/main.py` imports and starts
-its own embedded `camera_stream_service` instance directly in the main
-process (`main.py:43,138-139`), independent of (and possibly redundant
-with) the dedicated `lawnberry-camera.service` unit, which listens on
-`/tmp/lawnberry-camera.sock` but currently has no connected consumer either.
-Which of these two is meant to back the REST routes above is an open
-question, not yet decided.
+Two more, unrelated pre-existing gaps were found and fixed while verifying
+this end to end. **The camera now actually renders in Manual Control's Live
+Camera Feed panel, verified in-browser.**
+
+### 1. `/api/v2/camera/*` routes didn't exist
+
+`ControlView.vue` calls `/api/v2/camera/status`, `/frame`, `/stream.mjpeg`,
+`/start` — all 404'd; no router defined them (only referenced as strings in
+`middleware/rate_limiting.py`'s config). Fixed with a thin proxy
+(`api/routers/camera.py` + `services/camera_ipc_client.py`) over the
+dedicated `lawnberry-camera.service`'s IPC socket — per the constitution,
+that service exclusively owns the camera. `main.py`'s embedded
+`camera_stream_service` instance (the redundant second owner, competing for
+the same IPC socket) is now only started under `SIM_MODE=1`, where other
+code paths expect its simulated telemetry; in production the dedicated
+systemd unit is the sole owner.
+
+Building the proxy surfaced three more, previously-latent bugs in
+`camera_stream_service.py` itself — nothing had ever actually exercised its
+IPC command path before:
+
+- **`PrivateTmp=true` on both services.** `lawnberry-camera.service` and
+  `lawnberry-backend.service` each get an isolated `/tmp` — a socket at
+  `/tmp/lawnberry-camera.sock` is invisible across units. Moved the socket
+  to `/apps/lawnberry-pi/data/lawnberry-camera.sock`, under
+  `ReadWritePaths` on both units.
+- **`get_status`/`get_frame` crashed the IPC handler.** Both called
+  `model_dump()` without `mode="json"`, so the `datetime` fields inside
+  raised `TypeError: Object of type datetime is not JSON serializable`
+  server-side on every call — silently swallowed into a log line, never
+  surfaced to a caller before now.
+- **Connecting immediately subscribes you to frame pushes**, so a command
+  response can race behind an in-flight `{"type":"frame",...}` broadcast on
+  the same connection, and a base64 JPEG frame line exceeds asyncio's 64KB
+  default `readline()` limit. The IPC client now skips frame pushes while
+  awaiting a command reply and opens connections with an 8MB limit.
+
+### 2. Manual-control auth was pointed at an unimplemented method
+
+Manual control couldn't unlock at all: `/api/v2/settings/security` (a
+JSON-file-backed store, `settings_security_v2.json`) reported security level
+3 (Google OAuth) — a stray test artifact (`"google_client_id": "id"`) — but
+Google OAuth unlock is an explicit, permanent `501` stub
+(`auth.py`'s `manual_unlock`, `method == "google"` branch). Separately, that
+same enforcement code was reading a *different*, disconnected in-memory
+default (`core/globals._security_settings`, always `PASSWORD`) that could
+never actually reflect what `/settings/security` told the frontend — two
+stores for one concept, permanently out of sync.
+
+Fixed by making `settings.py`'s persisted store the single source of truth:
+added `get_security_level()` there, and `auth.py`'s `manual_unlock` now
+calls it instead of reading the disconnected in-memory copy. Reset the
+persisted level back to `password_only` (backed up the stray file first,
+`settings_security_v2.json.bak-20260708`) — password unlock was already
+fully implemented and working, just unreachable.
 
 The mower has two cameras (`config/hardware.yaml`): a USB stereo camera and a
 CSI-connected Raspberry Pi Camera v2 (IMX219), the latter is the `primary`
