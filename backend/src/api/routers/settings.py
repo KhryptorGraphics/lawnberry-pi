@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 
+from ...models.auth_security_config import SecurityLevel
 from ..deps import require_operator_auth
 
 router = APIRouter()
@@ -254,10 +255,26 @@ async def put_settings_system(payload: dict) -> Response:
 
 _SECURITY_FILE = "settings_security_v2.json"
 _SECURITY_LEVELS = {"password_only", "password_totp", "google_auth", "cloudflare_tunnel_auth"}
+_SECURITY_LEVEL_ENUM = {
+    "password_only": SecurityLevel.PASSWORD,
+    "password_totp": SecurityLevel.TOTP,
+    "google_auth": SecurityLevel.GOOGLE_OAUTH,
+    "cloudflare_tunnel_auth": SecurityLevel.TUNNEL_AUTH,
+}
 
 
 def _default_security() -> dict[str, Any]:
     return {"level": "password_only"}
+
+
+def get_security_level() -> SecurityLevel:
+    """The single source of truth for the configured security level.
+
+    Reads the same persisted store /settings/security serves, so manual-unlock
+    enforcement (auth.py) can never diverge from what the frontend was told.
+    """
+    level = _load_store(_SECURITY_FILE, _default_security()).get("level")
+    return _SECURITY_LEVEL_ENUM.get(level, SecurityLevel.PASSWORD)
 
 
 @router.get("/settings/security")

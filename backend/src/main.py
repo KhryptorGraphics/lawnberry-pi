@@ -17,6 +17,7 @@ from .api.rest_v1 import router as rest_v1_router
 from .api.routers import ai_control as ai_control_router
 from .api.routers import auth as auth_router
 from .api.routers import autonomy as autonomy_router
+from .api.routers import camera as camera_router
 from .api.routers import maintenance as maintenance_router
 from .api.routers import maps as maps_router
 from .api.routers import planning as planning_router
@@ -134,11 +135,17 @@ async def lifespan(app: FastAPI):
         await initialize_robohat_service()
     except Exception:
         pass
-    try:
-        await camera_service.initialize()
-        await camera_service.start_streaming()
-    except Exception:
-        pass
+    # camera-stream.service is the sole camera owner in production (the
+    # constitution reserves the camera to it; the backend consumes frames
+    # over its IPC socket, see api/routers/camera.py). Only embed a camera
+    # instance here in SIM_MODE, where there's no real device to contend
+    # for and other code paths expect simulated telemetry.camera data.
+    if os.getenv("SIM_MODE", "0") == "1":
+        try:
+            await camera_service.initialize()
+            await camera_service.start_streaming()
+        except Exception:
+            pass
     await websocket_hub.start_telemetry_loop()
     yield
     # Shutdown
@@ -146,10 +153,11 @@ async def lifespan(app: FastAPI):
     if getattr(app.state, "gps_deg_monitor", None):
         await app.state.gps_deg_monitor.stop()
     await websocket_hub.stop_telemetry_loop()
-    try:
-        await camera_service.shutdown()
-    except Exception:
-        pass
+    if os.getenv("SIM_MODE", "0") == "1":
+        try:
+            await camera_service.shutdown()
+        except Exception:
+            pass
     try:
         await shutdown_robohat_service()
     except Exception:
@@ -186,6 +194,7 @@ app.include_router(telemetry_router.router, prefix="/api/v2")
 app.include_router(sensors_router.router, prefix="/api/v2")
 app.include_router(maintenance_router.router, prefix="/api/v2")
 app.include_router(recording_router.router, prefix="/api/v2/recording", tags=["recording"])
+app.include_router(camera_router.router, prefix="/api/v2/camera", tags=["camera"])
 app.include_router(ai_control_router.router, prefix="/api/v2/ai", tags=["ai"])
 app.include_router(maps_router.router, prefix="/api/v2", tags=["maps"])
 app.include_router(autonomy_router.router, prefix="/api/v2", tags=["autonomy"])

@@ -16,6 +16,7 @@ from ...core.globals import _manual_control_sessions, _security_settings
 from ...models.auth_security_config import SecurityLevel
 from ...models.user_session import UserSession
 from ...services.auth_service import AuthenticationError, primary_auth_service
+from .settings import get_security_level
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -478,7 +479,7 @@ async def manual_unlock_status(request: Request):
 @router.post("/control/manual-unlock", response_model=ManualUnlockResponse)
 async def manual_unlock(request: Request, body: ManualUnlockRequest):
     method = (body.method or "").strip().lower()
-    security_level = getattr(_security_settings, "security_level", SecurityLevel.PASSWORD)
+    security_level = get_security_level()
     if not method:
         if security_level == SecurityLevel.TUNNEL_AUTH:
             method = "cloudflare"

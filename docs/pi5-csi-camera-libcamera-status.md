@@ -1,5 +1,94 @@
 # Pi 5 CSI camera (Pi Cam v2 / IMX219) — libcamera status
 
+## Update: root cause fixed and verified (built from source)
+
+libcamera `v0.5.2+rpt20250903` (matching the installed picamera2 0.3.36's
+era) was built from source with `-Dpipelines=rpi/pisp` into a self-contained
+prefix, `/apps/lawnberry-pi/.local-libcamera` — **the system's apt-managed
+`libcamera0.2` was never touched.** `libpisp-dev` (1.2.1) installs standalone
+from the raspi apt repo with zero conflicts and was used as a build-time
+dependency instead of building it too.
+
+Verified working end to end:
+- `cam -l` / `cam -c1 --capture=3` (pure libcamera, no Python) — enumerates
+  and captures real frames from the IMX219 at ~30fps.
+- `Picamera2.global_camera_info()` — now lists the IMX219 (it was silently
+  absent before).
+- `Picamera2().configure()/start()/capture_array()` — full still capture at
+  the sensor's native 3280x2464.
+- `lawnberry-camera.service` (the dedicated systemd unit, `systemd/lawnberry-camera.service`)
+  now starts cleanly and logs "Camera streaming started successfully" against
+  the CSI camera at the configured 1920x1080/30fps — no more
+  "Device or resource busy".
+
+The four env vars (`LD_LIBRARY_PATH`, `LIBCAMERA_IPA_MODULE_PATH`,
+`LIBCAMERA_IPA_CONFIG_PATH`, `PYTHONPATH`) that point at the custom prefix
+are on `lawnberry-camera.service` only, not system-wide and not on
+`lawnberry-backend.service`.
+
+**This does not yet reach the browser** — see "Known remaining gap" below.
+The kernel-side device tree was never the problem either: `dmesg` already
+showed the `-raspi` kernel flavor had fully probed the IMX219 and registered
+it as `/dev/video0` before any of this work started.
+
+## Update: reaches the browser now — camera routes implemented, auth fixed
+
+Two more, unrelated pre-existing gaps were found and fixed while verifying
+this end to end. **The camera now actually renders in Manual Control's Live
+Camera Feed panel, verified in-browser.**
+
+### 1. `/api/v2/camera/*` routes didn't exist
+
+`ControlView.vue` calls `/api/v2/camera/status`, `/frame`, `/stream.mjpeg`,
+`/start` — all 404'd; no router defined them (only referenced as strings in
+`middleware/rate_limiting.py`'s config). Fixed with a thin proxy
+(`api/routers/camera.py` + `services/camera_ipc_client.py`) over the
+dedicated `lawnberry-camera.service`'s IPC socket — per the constitution,
+that service exclusively owns the camera. `main.py`'s embedded
+`camera_stream_service` instance (the redundant second owner, competing for
+the same IPC socket) is now only started under `SIM_MODE=1`, where other
+code paths expect its simulated telemetry; in production the dedicated
+systemd unit is the sole owner.
+
+Building the proxy surfaced three more, previously-latent bugs in
+`camera_stream_service.py` itself — nothing had ever actually exercised its
+IPC command path before:
+
+- **`PrivateTmp=true` on both services.** `lawnberry-camera.service` and
+  `lawnberry-backend.service` each get an isolated `/tmp` — a socket at
+  `/tmp/lawnberry-camera.sock` is invisible across units. Moved the socket
+  to `/apps/lawnberry-pi/data/lawnberry-camera.sock`, under
+  `ReadWritePaths` on both units.
+- **`get_status`/`get_frame` crashed the IPC handler.** Both called
+  `model_dump()` without `mode="json"`, so the `datetime` fields inside
+  raised `TypeError: Object of type datetime is not JSON serializable`
+  server-side on every call — silently swallowed into a log line, never
+  surfaced to a caller before now.
+- **Connecting immediately subscribes you to frame pushes**, so a command
+  response can race behind an in-flight `{"type":"frame",...}` broadcast on
+  the same connection, and a base64 JPEG frame line exceeds asyncio's 64KB
+  default `readline()` limit. The IPC client now skips frame pushes while
+  awaiting a command reply and opens connections with an 8MB limit.
+
+### 2. Manual-control auth was pointed at an unimplemented method
+
+Manual control couldn't unlock at all: `/api/v2/settings/security` (a
+JSON-file-backed store, `settings_security_v2.json`) reported security level
+3 (Google OAuth) — a stray test artifact (`"google_client_id": "id"`) — but
+Google OAuth unlock is an explicit, permanent `501` stub
+(`auth.py`'s `manual_unlock`, `method == "google"` branch). Separately, that
+same enforcement code was reading a *different*, disconnected in-memory
+default (`core/globals._security_settings`, always `PASSWORD`) that could
+never actually reflect what `/settings/security` told the frontend — two
+stores for one concept, permanently out of sync.
+
+Fixed by making `settings.py`'s persisted store the single source of truth:
+added `get_security_level()` there, and `auth.py`'s `manual_unlock` now
+calls it instead of reading the disconnected in-memory copy. Reset the
+persisted level back to `password_only` (backed up the stray file first,
+`settings_security_v2.json.bak-20260708`) — password unlock was already
+fully implemented and working, just unreachable.
+
 The mower has two cameras (`config/hardware.yaml`): a USB stereo camera and a
 CSI-connected Raspberry Pi Camera v2 (IMX219), the latter is the `primary`
 camera and what "Live Camera Feed" in Manual Control is meant to use.
@@ -69,22 +158,32 @@ real ABI/version divergence across several shared libraries that other
 things on this box (OpenCV, the working USB camera path) also depend on.
 Force-installing individual raspi `.deb`s here risks breaking those.
 
-## Remaining path forward (not yet done)
+## Build reproduction
 
-Build libcamera from source (meson, `-Dpipelines=rpi/pisp`) against this
-system's actual Python 3.12 and existing library versions, rather than
-consuming the raspi prebuilt bookworm packages. This avoids touching any
-already-installed system package. Nontrivial (compiler toolchain, DRM/CFE
-kernel UAPI headers, a real build), not attempted yet.
+```
+sudo apt-get install -y libpisp-dev meson ninja-build pkg-config \
+  python3-yaml python3-ply python3-jinja2 python3-pybind11 pybind11-dev \
+  libyaml-dev libudev-dev libevent-dev git
+git clone --branch v0.5.2+rpt20250903 --depth 1 \
+  https://github.com/raspberrypi/libcamera.git
+cd libcamera
+meson setup build --prefix=/apps/lawnberry-pi/.local-libcamera \
+  -Dpipelines=rpi/pisp -Dcam=enabled -Dqcam=disabled -Dgstreamer=disabled \
+  -Ddocumentation=disabled -Dtest=false -Dpycamera=enabled -Dv4l2=enabled
+ninja -C build
+ninja -C build install
+```
+
+If picamera2 is ever upgraded, re-check which libcamera tag pairs with the
+new version (RPi Foundation versions picamera2 and their libcamera fork as a
+pair — check `raspberrypi/libcamera` tags for one dated close to the
+picamera2 release) and rebuild against that tag, not blindly against `main`.
 
 ## Current live status
 
-`lawnberry-camera.service` (the dedicated systemd unit) is stopped as of
-this investigation. The main `lawnberry-backend` process is separately
-running its own embedded camera capture (visible as `"camera"` in
-`GET /api/v2/hardware/robohat`) at a degraded ~1fps — likely the USB stereo
-camera — which is consistent with "frame enqueue stalled" warnings in the
-backend log and would look broken/frozen in the UI even though technically
-live. This embedded-in-backend camera path, separate from the dedicated
-`lawnberry-camera.service` unit, is itself worth a look against the
-constitution's "camera-stream.service exclusively owns the camera" rule.
+`lawnberry-camera.service` is running and streaming the CSI camera
+successfully. The main `lawnberry-backend` process still separately starts
+its own embedded `camera_stream_service` instance (`main.py:43,138-139`) —
+that one does *not* have the custom-libcamera env vars, so it still only
+sees the USB stereo camera. See "Known remaining gap" above for why none of
+this is visible in the browser yet.

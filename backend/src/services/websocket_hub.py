@@ -967,21 +967,18 @@ class WebSocketHub:
                     }
 
                 try:
-                    from ..services.camera_stream_service import camera_service
+                    from ..services import camera_ipc_client
 
-                    camera_frame = await camera_service.get_current_frame()
-                    if camera_frame and camera_service.stream:
+                    result = await camera_ipc_client.send_command("get_status")
+                    data = result.get("data") if result.get("status") == "success" else None
+                    if data:
                         telemetry["camera"] = {
-                            "active": camera_service.stream.is_active,
-                            "mode": camera_service.stream.mode,
-                            "fps": camera_service.stream.statistics.current_fps,
-                            "frame_count": camera_service.stream.statistics.frames_captured,
-                            "client_count": camera_service.stream.client_count,
-                            "last_frame": (
-                                camera_frame.metadata.timestamp.isoformat()
-                                if camera_frame
-                                else None
-                            ),
+                            "active": data.get("is_active", False),
+                            "mode": data.get("mode", "offline"),
+                            "fps": data.get("statistics", {}).get("current_fps", 0.0),
+                            "frame_count": data.get("statistics", {}).get("frames_captured", 0),
+                            "client_count": data.get("client_count", 0),
+                            "last_frame": data.get("last_frame_time"),
                         }
                     else:
                         telemetry["camera"] = {
