@@ -40,7 +40,9 @@ victron:
   encryption_key: "<replace-with-instant-readout-key>"
   # device_key: "EC:1A:A8:DD:99:C2@<replace-with-instant-readout-key>"
   # Path to victron-ble CLI (must be installed on the system)
-  cli_path: victron-ble
+  # Absolute venv path: systemd services don't inherit the venv's PATH, so a
+  # bare "victron-ble" isn't found even though pip installed it into .venv.
+  cli_path: /apps/lawnberry-pi/.venv/bin/victron-ble
   # Optional adapter name/number to pass to victron-ble
   adapter: null
   # Prefer Victron SmartSolar telemetry for these channels when merging with INA3221.
