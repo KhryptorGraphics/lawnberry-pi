@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -7,112 +6,72 @@ const router = createRouter({
     {
       path: '/',
       name: 'Dashboard',
-      component: () => import('@/views/DashboardView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/DashboardView.vue')
     },
     {
       path: '/rtk',
       name: 'RtkDiagnostics',
-      component: () => import('@/views/RtkDiagnosticsView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/RtkDiagnosticsView.vue')
     },
     {
       path: '/control',
       name: 'Control',
-      component: () => import('@/views/ControlView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/ControlView.vue')
     },
     {
       path: '/tractor',
       name: 'Tractor',
-      component: () => import('@/views/TractorControlView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/TractorControlView.vue')
     },
     {
       path: '/maps',
       name: 'Maps',
-      component: () => import('@/views/MapsView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/MapsView.vue')
     },
     {
       path: '/planning',
       name: 'Planning',
-      component: () => import('@/views/PlanningView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/PlanningView.vue')
     },
     {
       path: '/settings',
       name: 'Settings',
-      component: () => import('@/views/SettingsView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/SettingsView.vue')
     },
     {
       path: '/ai',
       name: 'AI',
-      component: () => import('@/views/AIView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/AIView.vue')
     },
     {
       path: '/telemetry',
       name: 'Telemetry',
-      component: () => import('@/views/TelemetryView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/TelemetryView.vue')
     },
     {
       path: '/docs',
       name: 'DocsHub',
-      component: () => import('@/views/DocsHubView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/DocsHubView.vue')
     },
     {
       path: '/mission-planner',
       name: 'MissionPlanner',
-      component: () => import('@/views/MissionPlannerView.vue'),
-      meta: { requiresAuth: true }
+      component: () => import('@/views/MissionPlannerView.vue')
     },
     {
       path: '/login',
       name: 'Login',
-      component: () => import('@/views/LoginView.vue'),
-      meta: { requiresAuth: false }
+      component: () => import('@/views/LoginView.vue')
     }
   ]
 })
 
-// Navigation guard for authentication
-router.beforeEach(async (to, from, next) => {
+// Auth is not required for this deployment (LAN-only, single operator) --
+// no login gate, every route is open.
+router.beforeEach((to, from, next) => {
   try { (window as any).__TopProgress?.start() } catch {
     // ignore: TopProgress may not be mounted yet
   }
-  const authStore = useAuthStore()
-  
-  // Check if route requires authentication
-  if (to.meta.requiresAuth) {
-    // If not authenticated, check if we have a valid token
-    if (!authStore.isAuthenticated && authStore.token) {
-      try {
-        // Validate the stored token
-        await authStore.validateSession()
-      } catch (error) {
-        console.warn('Token validation failed:', error)
-        // Token is invalid, clear it and redirect to login
-        await authStore.logout()
-      }
-    }
-    
-    // If still not authenticated, redirect to login
-    if (!authStore.isAuthenticated) {
-      next('/login')
-      return
-    }
-  }
-  
-  // If trying to access login while authenticated, redirect to dashboard
-  if (to.name === 'Login' && authStore.isAuthenticated) {
-    next('/')
-    return
-  }
-  
   next()
 })
 

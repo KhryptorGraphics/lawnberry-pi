@@ -965,6 +965,31 @@ function ensureSession() {
   return session.value
 }
 
+async function attemptUnlock(payload: Record<string, unknown>): Promise<boolean> {
+  const response = await api.post('/api/v2/control/manual-unlock', payload)
+  const data = response.data ?? {}
+  session.value = {
+    session_id: data.session_id || `session-${Date.now().toString(36)}`,
+    expires_at: data.expires_at
+  }
+  updateSessionTimer(data.expires_at)
+  isControlUnlocked.value = true
+  return true
+}
+
+async function autoUnlockIfPossible() {
+  // Auth is not required for this deployment -- the backend auto-approves
+  // manual-unlock regardless of method/credential when disabled. Try
+  // silently on load so the security gate never shows in that case; any
+  // failure just leaves the normal gate in place.
+  try {
+    await attemptUnlock({ method: securityConfig.value.auth_level })
+  } catch {
+    // Auth is actually required (or the backend rejected it) -- fall
+    // through to the normal manual gate.
+  }
+}
+
 async function authenticateControl() {
   if (!canAuthenticate.value || authenticating.value) return
 
@@ -978,14 +1003,7 @@ async function authenticateControl() {
   }
 
   try {
-    const response = await api.post('/api/v2/control/manual-unlock', payload)
-    const data = response.data ?? {}
-    session.value = {
-      session_id: data.session_id || `session-${Date.now().toString(36)}`,
-      expires_at: data.expires_at
-    }
-    updateSessionTimer(data.expires_at)
-    isControlUnlocked.value = true
+    await attemptUnlock(payload)
     toast.show('Manual control unlocked', 'success', 2500)
     showStatus('Manual control unlocked', true)
   } catch (error) {
@@ -1381,6 +1399,7 @@ let telemetryInterval: number | undefined
 
 onMounted(async () => {
   await loadSecurityConfig()
+  await autoUnlockIfPossible()
   await refreshTelemetry()
   telemetryInterval = window.setInterval(refreshTelemetry, 5000)
 })

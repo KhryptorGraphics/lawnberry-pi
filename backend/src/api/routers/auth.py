@@ -149,6 +149,9 @@ def _store_manual_session(seed: str, expires_at: datetime, principal: str | None
 
 
 def _resolve_manual_session(session_id: str | None) -> dict[str, Any]:
+    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
+        return {"principal": "operator", "session_id": "auth-disabled"}
+
     token = (session_id or "").strip()
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Manual control session required")
@@ -458,6 +461,17 @@ async def auth_profile(request: Request):
 
 @router.get("/control/manual-unlock/status", response_model=ManualUnlockStatusResponse)
 async def manual_unlock_status(request: Request):
+    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
+        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
+        expires_at = _manual_session_expiry(timeout_minutes)
+        session_entry = _store_manual_session("auth-disabled", expires_at, "operator")
+        return ManualUnlockStatusResponse(
+            authorized=True,
+            session_id=session_entry["session_id"],
+            expires_at=session_entry["expires_at"].isoformat(),
+            principal=session_entry.get("principal"),
+        )
+
     token, payload, principal = _extract_cloudflare_identity(request)
     if not token:
         return ManualUnlockStatusResponse(
@@ -478,6 +492,18 @@ async def manual_unlock_status(request: Request):
 
 @router.post("/control/manual-unlock", response_model=ManualUnlockResponse)
 async def manual_unlock(request: Request, body: ManualUnlockRequest):
+    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
+        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
+        expires_at = _manual_session_expiry(timeout_minutes)
+        session_entry = _store_manual_session("auth-disabled", expires_at, "operator")
+        return ManualUnlockResponse(
+            authorized=True,
+            session_id=session_entry["session_id"],
+            expires_at=session_entry["expires_at"].isoformat(),
+            principal=session_entry.get("principal"),
+            source="auth_disabled",
+        )
+
     method = (body.method or "").strip().lower()
     security_level = get_security_level()
     if not method:
