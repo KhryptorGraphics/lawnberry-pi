@@ -9,7 +9,9 @@ import type {
   PowerMetrics 
 } from '@/types/telemetry'
 import { useWebSocket } from '@/services/websocket'
-import apiService from '@/services/api'
+import apiService, { getTractorState } from '@/services/api'
+
+export type Platform = 'unknown' | 'mower' | 'tractor'
 
 export const useSystemStore = defineStore('system', () => {
   const status = ref<SystemStatus>('unknown')
@@ -17,6 +19,13 @@ export const useSystemStore = defineStore('system', () => {
   const telemetryData = ref<any>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+
+  // Which physical platform is configured on this backend — resolved once via
+  // GET /tractor/state's `enabled` field (fixed at backend process start from
+  // config/tractor.yaml, not live-repolled). Nav (App.vue) must fail OPEN on
+  // 'unknown': show both /control and /tractor links until this resolves, and
+  // never guess 'mower' just because the fetch is slow or failed.
+  const platform = ref<Platform>('unknown')
   
   // Telemetry-specific state
   const latencyBadge = ref<TelemetryLatencyBadge | null>(null)
@@ -34,16 +43,30 @@ export const useSystemStore = defineStore('system', () => {
     try {
       isLoading.value = true
       error.value = null
-      
+
+      // Independent of the WS connect below: never let a slow/failed platform
+      // fetch block or fail overall initialization.
+      void fetchPlatform()
+
       // Connect to WebSocket for real-time updates
       await connect()
       connectionStatus.value = connected.value ? 'connected' : 'disconnected'
-      
+
     } catch (err: any) {
       error.value = err.message || 'System initialization failed'
       connectionStatus.value = 'error'
     } finally {
       isLoading.value = false
+    }
+  }
+
+  const fetchPlatform = async () => {
+    try {
+      const tractorState = await getTractorState()
+      platform.value = tractorState.enabled ? 'tractor' : 'mower'
+    } catch {
+      // Fail open: stay 'unknown' rather than guessing 'mower' on a fetch failure.
+      platform.value = 'unknown'
     }
   }
 
@@ -175,6 +198,8 @@ export const useSystemStore = defineStore('system', () => {
     error,
     isOnline,
     isSystemHealthy,
+    platform,
+    fetchPlatform,
     initialize,
     updateSystemStatus,
     shutdown,

@@ -26,8 +26,8 @@
           @click="navOpen = false"
         >
           <router-link to="/" class="nav-link">Dashboard</router-link>
-          <router-link to="/control" class="nav-link">Control</router-link>
-          <router-link to="/tractor" class="nav-link">Tractor</router-link>
+          <router-link v-if="platform !== 'tractor'" to="/control" class="nav-link">Control</router-link>
+          <router-link v-if="platform !== 'mower'" to="/tractor" class="nav-link">Tractor</router-link>
           <router-link to="/maps" class="nav-link">Maps</router-link>
           <router-link to="/planning" class="nav-link">Planning</router-link>
           <router-link to="/mission-planner" class="nav-link">Mission Planner</router-link>
@@ -91,6 +91,9 @@ preferencesStore.ensureInitialized()
 const user = computed(() => authStore.user)
 const systemStatus = computed(() => systemStore.status)
 const connectionStatus = computed(() => systemStore.connectionStatus)
+// Fail open: while 'unknown' (boot fetch in flight, or it failed), both
+// /control and /tractor render — see useSystemStore.fetchPlatform().
+const platform = computed(() => systemStore.platform)
 
 const theme = computed({
   get: () => (document.documentElement.getAttribute('data-theme') || 'retro'),

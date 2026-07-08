@@ -129,7 +129,10 @@ export type ControlModeResult = { status: string; mode: 'manual' | 'autonomous' 
 export type Transmission = 'forward' | 'neutral' | 'reverse'
 export type EngineState = 'off' | 'starting' | 'running'
 
-// GET /tractor/state — Pydantic model, serialized 1:1 via model_dump(mode="json")
+// GET /tractor/state — Pydantic model, serialized 1:1 via model_dump(mode="json").
+// engine_running/moving are @computed_field properties (derived server-side, not
+// independently settable); enabled reflects TractorControlService.enabled (fixed
+// at backend process start from config/tractor.yaml, not live-repolled).
 export interface TractorState {
   steering: number
   throttle: number
@@ -138,10 +141,13 @@ export interface TractorState {
   clutch: number
   blade_engaged: boolean
   engine: EngineState
+  enabled: boolean
   emergency_stop_active: boolean
   authorized: boolean
   interlock_reason: string | null
   last_updated: string
+  engine_running: boolean
+  moving: boolean
 }
 
 // POST /tractor/{steering,throttle,speed,clutch,gear,blade,starter,stop-engine,

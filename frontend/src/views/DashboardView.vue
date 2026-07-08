@@ -20,8 +20,18 @@
         :progress="progress"
       />
 
-      <!-- Power / Battery -->
+      <!-- Power / Battery (mower) or Engine (tractor) — platform flag defaults
+           toward the majority-case mower while unresolved; cosmetic, not
+           safety-relevant (see useSystemStore.platform). -->
+      <EngineCard
+        v-if="platform === 'tractor'"
+        :engine="tractorEngine"
+        :emergency-stop-active="tractorEmergencyStopActive"
+        :gear="tractorGear"
+        :moving="tractorMoving"
+      />
       <PowerCard
+        v-else
         :battery-icon-class="batteryIconClass"
         :battery-bar-class="batteryBarClass"
         :battery-level-display="batteryLevelDisplay"
@@ -109,7 +119,9 @@ import { storeToRefs } from 'pinia'
 import { systemApi, telemetryApi, weatherApi, maintenanceApi } from '@/services/api'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useSystemStore } from '@/stores/system'
 import PowerCard from '@/components/dashboard/PowerCard.vue'
+import EngineCard from '@/components/dashboard/EngineCard.vue'
 import StatusCard from '@/components/dashboard/StatusCard.vue'
 import SpeedCard from '@/components/dashboard/SpeedCard.vue'
 import GpsCard from '@/components/dashboard/GpsCard.vue'
@@ -136,8 +148,17 @@ interface ImuCalibrationResult {
 
 const { connected, connect, subscribe, unsubscribe, setCadence, dispatchTestMessage } = useWebSocket()
 
+const systemStore = useSystemStore()
+const platform = computed(() => systemStore.platform)
+
 // Loading and UI state
 const dataStreamText = ref('>>> INITIALIZING SYSTEM CONNECTION...')
+
+// Tractor platform telemetry (engine/gear/moving only — see EngineCard.vue)
+const tractorEngine = ref<'off' | 'starting' | 'running'>('off')
+const tractorEmergencyStopActive = ref(false)
+const tractorGear = ref<'forward' | 'neutral' | 'reverse'>('neutral')
+const tractorMoving = ref(false)
 
 // Preferences
 const preferences = usePreferencesStore()
@@ -1242,6 +1263,15 @@ function registerTelemetrySubscriptions() {
     }
   })
 
+  subscribe('telemetry.tractor', (data) => {
+    const tractor = data?.tractor
+    if (!tractor) return
+    tractorEngine.value = tractor.engine
+    tractorEmergencyStopActive.value = tractor.emergency_stop_active
+    tractorGear.value = tractor.gear
+    tractorMoving.value = tractor.moving
+  })
+
   if (typeof window !== 'undefined') {
     const hooks = (window as any).__APP_TEST_HOOKS__
     if (hooks) {
@@ -1335,6 +1365,7 @@ onMounted(async () => {
     unsubscribe('telemetry.tof')
     unsubscribe('telemetry.sensors')
     unsubscribe('jobs.progress')
+    unsubscribe('telemetry.tractor')
     telemetrySubscriptionsRegistered = false
     if (typeof window !== 'undefined') {
       const hooks = (window as any).__APP_TEST_HOOKS__
