@@ -182,3 +182,92 @@ def test_action_prediction_to_tractor_command():
     assert cmd.gear == Transmission.FORWARD
     assert cmd.blade_engaged is True
     assert cmd.clutch == 0.0
+
+
+# ------------------------- PCA9685 transport swap -------------------------
+#
+# The driver's own two-failure-mode behavior (tolerated no-op vs. propagate)
+# is covered in tests/unit/test_pca9685_driver.py. These tests cover
+# tractor_service's orchestration on top of it: channel renumbering, that a
+# driver failure actually reaches callers, and that emergency_stop's safing
+# sequence survives a single bad channel.
+
+
+class _FaultyPCA9685:
+    """Test double: set_pwm_us raises OSError for configured channels only."""
+
+    def __init__(self, fail_channels: set[int]):
+        self.fail_channels = fail_channels
+        self.calls: list[tuple[int, int]] = []
+
+    async def set_pwm_us(self, channel: int, us: int) -> None:
+        self.calls.append((channel, us))
+        if channel in self.fail_channels:
+            raise OSError("simulated I2C bus fault")
+
+    async def initialize(self) -> None:
+        pass
+
+
+def test_default_channels_are_pca9685_zero_indexed():
+    s = _svc()
+    assert s.steering.cal.channel == 0
+    assert s.throttle.cal.channel == 1
+    assert s.gas_pedal.cal.channel == 2
+    assert s.clutch.cal.channel == 3
+    assert s.gear.cal.channel == 4
+
+
+@pytest.mark.asyncio
+async def test_initialize_brings_up_pca9685_driver_first():
+    s = _svc()
+    calls: list[str] = []
+
+    class _Spy:
+        async def initialize(self) -> None:
+            calls.append("init")
+
+        async def set_pwm_us(self, channel: int, us: int) -> None:
+            assert calls == ["init"], "driver must be initialized before it is used"
+
+    s._pca9685 = _Spy()
+    await s.initialize()
+    assert calls == ["init"]
+    assert s.initialized is True
+
+
+@pytest.mark.asyncio
+async def test_send_pwm_propagates_driver_write_failure():
+    """A real transport fault must reach the caller, not be swallowed."""
+    s = _svc()
+    s._pca9685 = _FaultyPCA9685(fail_channels={s.steering.cal.channel})
+    s.authorize()
+    with pytest.raises(OSError):
+        await s.set_steering(0.5)
+
+
+@pytest.mark.asyncio
+async def test_emergency_stop_survives_one_bad_channel():
+    s = _svc()
+    s.authorize()
+    await s.start_engine()
+    await s.set_clutch(0.0)
+    await s.set_gear(Transmission.FORWARD)
+    await s.set_ground_speed(0.8)
+    await s.engage_blade(True)
+
+    # Fail only the gear channel; the other 3 PWM calls and the blade-PTO
+    # relay cutoff must still complete instead of the whole sequence aborting.
+    s._pca9685 = _FaultyPCA9685(fail_channels={s.gear.cal.channel})
+
+    r = await s.emergency_stop()
+    assert r["status"] == "emergency_stop"
+    assert s.state.emergency_stop_active is True
+    assert s.state.authorized is False
+    assert s.state.blade_engaged is False  # GPIO relay, unaffected by I2C fault
+    assert s.state.clutch == pytest.approx(1.0)  # its channel succeeded
+    assert s.state.throttle == 0.0  # its channel succeeded
+    assert s.state.ground_speed == 0.0  # its channel succeeded
+    # gear's own channel failed: its state is left stale, but that alone
+    # didn't stop the rest of the safing sequence from being attempted.
+    assert s.state.gear == Transmission.FORWARD

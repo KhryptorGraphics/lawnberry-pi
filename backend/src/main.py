@@ -43,6 +43,7 @@ from .safety.safety_triggers import set_safety_event_handler
 from .safety.safety_validator import validate_on_start
 from .services.camera_stream_service import camera_service
 from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
+from .services.tractor_service import get_tractor_service
 from .services.websocket_hub import websocket_hub
 
 # Load .env early so secrets like NTRIP_* are available under systemd
@@ -135,6 +136,12 @@ async def lifespan(app: FastAPI):
         await initialize_robohat_service()
     except Exception:
         pass
+    try:
+        tractor = get_tractor_service()
+        if tractor.enabled:
+            await tractor.initialize()
+    except Exception:
+        _log.exception("Tractor service initialization failed")
     # camera-stream.service is the sole camera owner in production (the
     # constitution reserves the camera to it; the backend consumes frames
     # over its IPC socket, see api/routers/camera.py). Only embed a camera
