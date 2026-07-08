@@ -208,6 +208,29 @@ This document provides a complete matrix of hardware components, their capabilit
 | **Safety Switch** | Tilt cutoff | ✅ Implemented | Auto-disable on tilt |
 | **Blade Guard** | Physical protection | ✅ Required | User safety |
 
+### Ride-On Tractor Platform (Alternate Configuration)
+
+A second, constitutionally-recognized platform (Constitution Principle V):
+a converted Craftsman-class ride-on tractor (Ackermann steering, gas engine)
+instead of the differential-drive chassis above. Enabled via `config/tractor.yaml`
+`enabled: true`; see `docs/tractor-platform.md` and `docs/tractor-acceptance-criteria.md`.
+
+| Component | Specification | Status | Notes |
+|-----------|---------------|--------|-------|
+| **Steering** | Positional, RC-PWM | ⚠️ Logic implemented, transport non-functional | −1..+1, bench-calibrated µs endpoints |
+| **Throttle** | Positional, RC-PWM | ⚠️ Logic implemented, transport non-functional | 0 (idle)..1 (full RPM) |
+| **Gas pedal (ground speed)** | Positional, RC-PWM | ⚠️ Logic implemented, transport non-functional | 0 (stop)..1 (full) |
+| **Clutch / brake** | Positional, RC-PWM | ⚠️ Logic implemented, transport non-functional | 0 (driving)..1 (declutch+brake) |
+| **Gear (F/N/R)** | Discrete, RC-PWM | ⚠️ Logic implemented, transport non-functional | Reverse auto-disengages blade |
+| **Starter** | Momentary GPIO relay | ✅ Functional on hardware | Crank pulse |
+| **Blade PTO** | Latching GPIO relay | ⚠️ Functional on hardware, GPIO conflicts with ToF Left Interrupt | Must be reassigned — see `spec/hardware.yaml` `tractor:` section |
+
+**Known gap** (verified, not speculative): `tractor_service.py` sends 5-channel
+RC-PWM commands the RoboHAT RP2040 firmware does not parse — those commands are
+silently dropped today while the service reports `"status":"ok"` regardless.
+Only the 2 GPIO relays (starter, blade PTO) are genuinely functional on real
+hardware as of this writing. See `docs/tractor-acceptance-criteria.md`.
+
 ---
 
 ## Communication Systems

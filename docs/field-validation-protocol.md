@@ -317,8 +317,78 @@ Notes: _______________________________________________
 Signature: _______________
 ```
 
+## Tractor Platform Addendum
+
+The procedures above were written for the original differential-drive
+push-mower. The ride-on tractor platform (Constitution Principle V; see
+`docs/tractor-platform.md`) introduces a human-proximity/ROPS risk tier those
+procedures do not cover: a person may be seated on, or standing near, a
+powered machine with a running gas engine. This addendum **extends** — it does
+not replace — the procedures above.
+
+**Do not reuse this document's existing slope figures (Configuration D: 10%
+grade / 15° stable / 25°+ auto-stop) or obstacle-clearance figures for the
+tractor.** Those numbers were derived for a small, low-center-of-gravity
+differential-drive robot. A Craftsman-class ride-on tractor has a materially
+different mass, wheelbase, center of gravity, and rollover risk profile.
+
+**Open input needed** (not invented here): real maximum safe slope/tip angle,
+stopping distance, and obstacle-clearance figures for the specific tractor
+being deployed, sourced from the vehicle's actual manufacturer/conversion
+specifications. Do not begin tractor slope or obstacle testing until these
+figures are supplied and added to this addendum.
+
+### Test 6: Engine-Running Emergency Stop
+
+**Duration**: 15 minutes
+**Observer**: Required
+
+1. Start the tractor, complete the operator-attestation gate (Constitution
+   Principle VI), authorize motion, and start the engine.
+2. With the engine running and a non-neutral gear / non-zero throttle or
+   gas-pedal command active (on a stand with wheels off the ground, or in a
+   clear area), trigger emergency stop via each available path in turn:
+   physical e-stop (if fitted), web interface stop, and API
+   `POST /api/v2/tractor/emergency-stop`.
+3. For each path, visually/mechanically confirm all 5 effects specified in
+   `docs/tractor-acceptance-criteria.md` §2: blade/PTO disengages, gas pedal
+   returns to 0, gear reaches neutral, clutch/brake reaches pressed, throttle
+   reaches idle — and that the **engine keeps running** (this is the
+   tractor's specified emergency-stop behavior, not a defect).
+4. Confirm authorization is revoked and a subsequent drive command is
+   rejected until `clear_emergency` is explicitly called by an operator.
+
+**Pass Criteria**: All 5 effects observed on the physical machine for every
+stop path, within the latency tiers in Constitution Principle VI (relay:
+<100ms; positional command issuance: <100ms; positional physical settle:
+<500ms). This test's result is necessary evidence, not sufficient evidence,
+for `docs/tractor-acceptance-criteria.md` — see that document for full
+measurement and sign-off requirements.
+
+### Test 7: Human-Exclusion-Zone Check
+
+**Duration**: 10 minutes
+**Observer**: Required
+
+1. Before any blade/PTO engagement or autonomous-motion start attempt,
+   confirm the operator-attestation gate is presented and that the action is
+   rejected without it.
+2. With attestation given, place a person-sized marker (not a live person)
+   within the machine's blade/wheel radius and confirm there is no
+   sensor-based mechanism that detects or rejects this — i.e., confirm the
+   exclusion zone is enforced by the attestation gate as a policy control, not
+   by a sensor that does not exist.
+3. Confirm the safety observer briefing (see Safety Observer Requirements
+   above) explicitly assigns keeping the exclusion zone clear as a human
+   responsibility on this platform.
+
+**Pass Criteria**: Attestation gate blocks blade/PTO engagement and
+autonomous-motion start when not given; the observer's briefing documents the
+exclusion zone as a human, not software, responsibility.
+
 ## Revision History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-01-09 | Claude | Initial protocol |
+| 1.1 | 2026-07-08 | Claude (tractor-safety-governance) | Added Tractor Platform Addendum (Tests 6-7): engine-running e-stop procedure, human-exclusion-zone check; explicitly flagged real ride-on slope/obstacle figures as an open input, not carried over from the mower figures above |

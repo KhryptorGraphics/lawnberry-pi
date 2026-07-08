@@ -10,35 +10,35 @@
       <div class="card">
         <div class="card-header">
           <h3>Status</h3>
-          <span class="badge" :class="state.emergency_stop_active ? 'badge-estop' : (state.engine === 'running' ? 'badge-on' : 'badge-off')">
-            {{ state.emergency_stop_active ? 'E-STOP' : String(state.engine || 'off').toUpperCase() }}
+          <span class="badge" :class="state?.emergency_stop_active ? 'badge-estop' : (state?.engine === 'running' ? 'badge-on' : 'badge-off')">
+            {{ state?.emergency_stop_active ? 'E-STOP' : String(state?.engine || 'off').toUpperCase() }}
           </span>
         </div>
         <div class="card-body">
           <div class="status-rows">
-            <div class="row"><span>Engine</span><strong>{{ state.engine ?? '—' }}</strong></div>
-            <div class="row"><span>Gear</span><strong>{{ state.gear ?? '—' }}</strong></div>
-            <div class="row"><span>Blade (PTO)</span><strong>{{ state.blade_engaged ? 'engaged' : 'off' }}</strong></div>
-            <div class="row"><span>Moving</span><strong>{{ state.moving ? 'yes' : 'no' }}</strong></div>
-            <div class="row"><span>Authorized</span><strong>{{ state.authorized ? 'yes' : 'no' }}</strong></div>
-            <div v-if="state.interlock_reason" class="row warn"><span>Interlock</span><strong>{{ state.interlock_reason }}</strong></div>
+            <div class="row"><span>Engine</span><strong>{{ state?.engine ?? '—' }}</strong></div>
+            <div class="row"><span>Gear</span><strong>{{ state?.gear ?? '—' }}</strong></div>
+            <div class="row"><span>Blade (PTO)</span><strong>{{ state?.blade_engaged ? 'engaged' : 'off' }}</strong></div>
+            <div class="row"><span>Moving</span><strong>{{ state?.moving ? 'yes' : 'no' }}</strong></div>
+            <div class="row"><span>Authorized</span><strong>{{ state?.authorized ? 'yes' : 'no' }}</strong></div>
+            <div v-if="state?.interlock_reason" class="row warn"><span>Interlock</span><strong>{{ state.interlock_reason }}</strong></div>
           </div>
           <div class="actions">
             <button
               class="btn"
-              :class="state.authorized ? 'btn-secondary' : 'btn-success'"
+              :class="state?.authorized ? 'btn-secondary' : 'btn-success'"
               :disabled="busy"
               @click="toggleAuthorize"
             >
-              {{ state.authorized ? 'Revoke' : 'Authorize' }}
+              {{ state?.authorized ? 'Revoke' : 'Authorize' }}
             </button>
-            <button class="btn btn-primary" :disabled="busy || state.engine === 'running'" @click="startEngine">Start engine</button>
-            <button class="btn btn-secondary" :disabled="busy || state.engine !== 'running'" @click="stopEngine">Stop engine</button>
+            <button class="btn btn-primary" :disabled="busy || state?.engine === 'running'" @click="startEngine">Start engine</button>
+            <button class="btn btn-secondary" :disabled="busy || state?.engine !== 'running'" @click="stopEngine">Stop engine</button>
           </div>
           <div class="estop-row">
             <button class="btn btn-emergency" :disabled="busy" @click="emergencyStop">🛑 EMERGENCY STOP</button>
             <button
-              v-if="state.emergency_stop_active"
+              v-if="state?.emergency_stop_active"
               class="btn btn-warning"
               :disabled="busy"
               @click="clearEmergency"
@@ -71,7 +71,7 @@
               v-for="g in gears"
               :key="g"
               class="btn"
-              :class="state.gear === g ? 'btn-primary' : 'btn-secondary'"
+              :class="state?.gear === g ? 'btn-primary' : 'btn-secondary'"
               :disabled="locked"
               @click="setGear(g)"
             >
@@ -123,92 +123,91 @@
           <label class="ctl">Blade (PTO)</label>
           <button
             class="btn blade-btn"
-            :class="state.blade_engaged ? 'btn-danger' : 'btn-success'"
+            :class="state?.blade_engaged ? 'btn-danger' : 'btn-success'"
             :disabled="locked"
             @click="toggleBlade"
           >
-            {{ state.blade_engaged ? 'Disengage blade' : 'Engage blade' }}
+            {{ state?.blade_engaged ? 'Disengage blade' : 'Engage blade' }}
           </button>
           <p class="hint">Blade engages only with the engine running and not in reverse.</p>
         </div>
       </div>
+
+      <!-- GPS -->
+      <div class="card">
+        <div class="card-header"><h3>GPS</h3></div>
+        <div class="card-body">
+          <div class="status-rows">
+            <div class="row"><span>Status</span><strong>{{ gpsAccuracySummary }}</strong></div>
+            <div class="row"><span>Latitude</span><strong>{{ gpsLatitude ?? '—' }}</strong></div>
+            <div class="row"><span>Longitude</span><strong>{{ gpsLongitude ?? '—' }}</strong></div>
+            <div class="row"><span>Satellites</span><strong>{{ gpsSatellitesDisplay }}</strong></div>
+            <div class="row"><span>HDOP</span><strong>{{ gpsHdopDisplay }}</strong></div>
+            <div class="row"><span>RTK</span><strong>{{ gpsRtkStatus ?? '—' }}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Camera Feed -->
+      <CameraFeedCard
+        :camera-error="cameraError"
+        :camera-display-source="cameraDisplaySource"
+        :camera-is-streaming="cameraIsStreaming"
+        :camera-status-message="cameraStatusMessage"
+        :camera-info="cameraInfo"
+        :camera-last-frame="cameraLastFrame"
+        :format-camera-fps="formatCameraFps"
+        :format-camera-timestamp="formatCameraTimestamp"
+        @stream-load="handleCameraStreamLoad"
+        @stream-error="handleCameraStreamError"
+        @retry="retryCameraFeed"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import {
-  getTractorState,
-  tractorAuthorize,
-  tractorBlade,
-  tractorClearEmergency,
-  tractorClutch,
-  tractorEmergencyStop,
-  tractorGear,
-  tractorSpeed,
-  tractorStart,
-  tractorSteering,
-  tractorStopEngine,
-  tractorThrottle,
-  type TractorGear,
-} from '@/services/api'
+import { useTractorStore } from '@/stores/tractor'
+import { useCameraFeed } from '@/composables/useCameraFeed'
+import { useWebSocket } from '@/services/websocket'
 import { useToastStore } from '@/stores/toast'
+import CameraFeedCard from '@/components/control/CameraFeedCard.vue'
+import type { Transmission } from '@/types/control'
 
-interface TractorState {
-  steering: number
-  throttle: number
-  ground_speed: number
-  gear: TractorGear
-  clutch: number
-  blade_engaged: boolean
-  engine: 'off' | 'starting' | 'running'
-  emergency_stop_active: boolean
-  authorized: boolean
-  interlock_reason: string | null
-  moving?: boolean
-}
+const gears: Transmission[] = ['reverse', 'neutral', 'forward']
 
-const gears: TractorGear[] = ['reverse', 'neutral', 'forward']
+const tractor = useTractorStore()
+const toast = useToastStore()
 
-const state = ref<Partial<TractorState>>({})
+const state = computed(() => tractor.state)
+
 const steering = ref(0)
 const throttle = ref(0)
 const groundSpeed = ref(0)
 const clutch = ref(1)
 const busy = ref(false)
-const toast = useToastStore()
-let timer: ReturnType<typeof setInterval> | null = null
 
-const locked = computed(() => busy.value || !!state.value.emergency_stop_active)
+const locked = computed(() => busy.value || !!state.value?.emergency_stop_active)
 
 function notify(msg: string, good = true) {
   toast.show(msg, good ? 'success' : 'error')
 }
 
 function syncFromState() {
-  if (typeof state.value.steering === 'number') steering.value = state.value.steering
-  if (typeof state.value.throttle === 'number') throttle.value = state.value.throttle
-  if (typeof state.value.ground_speed === 'number') groundSpeed.value = state.value.ground_speed
-  if (typeof state.value.clutch === 'number') clutch.value = state.value.clutch
-}
-
-async function refresh() {
-  try {
-    const s = await getTractorState()
-    const moving =
-      s.engine === 'running' && s.gear !== 'neutral' && s.clutch < 0.5 && s.ground_speed > 0
-    state.value = { ...s, moving }
-  } catch {
-    /* keep last */
-  }
+  const s = state.value
+  if (!s) return
+  steering.value = s.steering
+  throttle.value = s.throttle
+  groundSpeed.value = s.ground_speed
+  clutch.value = s.clutch
 }
 
 function handle(result: { status?: string; reason?: string }, label: string) {
   if (result?.status === 'rejected') notify(`${label}: ${result.reason}`, false)
 }
 
-async function call(fn: () => Promise<any>, label: string, refreshAfter = true) {
+async function call(fn: () => Promise<any>, label: string) {
   busy.value = true
   try {
     handle(await fn(), label)
@@ -217,29 +216,99 @@ async function call(fn: () => Promise<any>, label: string, refreshAfter = true) 
     notify(detail || `${label} failed`, false)
   } finally {
     busy.value = false
-    if (refreshAfter) await refresh()
   }
 }
 
-const onSteering = () => call(() => tractorSteering(steering.value), 'Steering', false)
-const onThrottle = () => call(() => tractorThrottle(throttle.value), 'Throttle', false)
-const onSpeed = () => call(() => tractorSpeed(groundSpeed.value), 'Ground speed', false)
-const onClutch = () => call(() => tractorClutch(clutch.value), 'Clutch', false)
-const setGear = (g: TractorGear) => call(() => tractorGear(g), 'Gear')
-const toggleBlade = () => call(() => tractorBlade(!state.value.blade_engaged), 'Blade')
-const startEngine = () => call(() => tractorStart(), 'Start engine')
-const stopEngine = () => call(() => tractorStopEngine(), 'Stop engine')
-const emergencyStop = () => call(() => tractorEmergencyStop(), 'Emergency stop')
-const clearEmergency = () => call(() => tractorClearEmergency(), 'Clear E-stop')
-const toggleAuthorize = () => call(() => tractorAuthorize(!state.value.authorized), 'Authorize')
+const onSteering = () => call(() => tractor.setSteering(steering.value), 'Steering')
+const onThrottle = () => call(() => tractor.setThrottle(throttle.value), 'Throttle')
+const onSpeed = () => call(() => tractor.setGroundSpeed(groundSpeed.value), 'Ground speed')
+const onClutch = () => call(() => tractor.setClutch(clutch.value), 'Clutch')
+const setGear = (g: Transmission) => call(() => tractor.setGear(g), 'Gear')
+const toggleBlade = () => call(() => tractor.setBlade(!state.value?.blade_engaged), 'Blade')
+const startEngine = () => call(() => tractor.startEngine(), 'Start engine')
+const stopEngine = () => call(() => tractor.stopEngine(), 'Stop engine')
+const emergencyStop = () => call(() => tractor.emergencyStop(), 'Emergency stop')
+const clearEmergency = () => call(() => tractor.clearEmergency(), 'Clear E-stop')
+const toggleAuthorize = () =>
+  call(() => (state.value?.authorized ? tractor.revoke() : tractor.authorize()), 'Authorize')
+
+// GPS display — telemetry.navigation is generic Pi-GPS telemetry, already
+// flowing regardless of drivetrain. ponytail: same ~25-line glue as
+// DashboardView.vue's gpsHdopDisplay/gpsSatellitesDisplay/gpsAccuracySummary,
+// duplicated directly here rather than extracted; extract if a third
+// consumer appears.
+const gpsLatitude = ref<string | null>(null)
+const gpsLongitude = ref<string | null>(null)
+const gpsAccuracy = ref<number | null>(null)
+const gpsHdop = ref<number | null>(null)
+const gpsSatellites = ref<number | null>(null)
+const gpsRtkStatus = ref<string | null>(null)
+
+const hasGpsFix = computed(() => gpsLatitude.value !== null && gpsLongitude.value !== null)
+const gpsHdopDisplay = computed(() => (gpsHdop.value === null ? '--' : gpsHdop.value.toFixed(2)))
+const gpsSatellitesDisplay = computed(() => (gpsSatellites.value === null ? '--' : gpsSatellites.value.toString()))
+const gpsAccuracySummary = computed(() => {
+  if (!hasGpsFix.value) return 'NO SIGNAL'
+  if (gpsAccuracy.value === null) return 'SIGNAL ACQUIRED'
+  return `Accuracy ±${gpsAccuracy.value.toFixed(2)} m`
+})
+
+function applyNavigation(data: any) {
+  const lat = data?.position?.latitude
+  const lon = data?.position?.longitude
+  if (typeof lat === 'number' && typeof lon === 'number') {
+    gpsLatitude.value = lat.toFixed(6)
+    gpsLongitude.value = lon.toFixed(6)
+    gpsAccuracy.value = typeof data.position?.accuracy === 'number' ? data.position.accuracy : null
+    gpsHdop.value =
+      typeof (data.hdop ?? data.position?.hdop) === 'number' ? (data.hdop ?? data.position?.hdop) : null
+    gpsSatellites.value = typeof data.position?.satellites === 'number' ? data.position.satellites : null
+    gpsRtkStatus.value = data.position?.rtk_status ?? null
+  } else {
+    gpsLatitude.value = null
+    gpsLongitude.value = null
+    gpsAccuracy.value = null
+    gpsHdop.value = null
+    gpsSatellites.value = null
+    gpsRtkStatus.value = null
+  }
+}
+
+const { connect, subscribe, unsubscribe } = useWebSocket()
+
+// Camera feed — extracted composable (see useCameraFeed.ts); this view has no
+// manual-control auth session, so the MJPEG stream URL omits session_id.
+const {
+  cameraInfo,
+  cameraError,
+  cameraStatusMessage,
+  cameraLastFrame,
+  cameraDisplaySource,
+  cameraIsStreaming,
+  formatCameraFps,
+  formatCameraTimestamp,
+  handleCameraStreamLoad,
+  handleCameraStreamError,
+  startCameraFeed,
+  stopCameraFeed,
+  retryCameraFeed,
+} = useCameraFeed()
 
 onMounted(async () => {
-  await refresh()
+  // One-time initial REST fetch for fast first paint; the store's WS
+  // subscription (wired eagerly at store creation) drives everything after.
+  await tractor.fetchState()
   syncFromState()
-  timer = setInterval(refresh, 1500)
+
+  await connect()
+  subscribe('telemetry.navigation', applyNavigation)
+  startCameraFeed(true).catch(() => {
+    /* errors surfaced via cameraError */
+  })
 })
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
+  unsubscribe('telemetry.navigation')
+  stopCameraFeed()
 })
 </script>
 

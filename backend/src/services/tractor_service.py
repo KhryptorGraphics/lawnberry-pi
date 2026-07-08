@@ -1,8 +1,8 @@
 """Ride-on lawn tractor actuation service (Craftsman-class conversion).
 
-Coordinates the seven tractor actuators through the RoboHAT RP2040 (RC-PWM for
-steering/throttle/gas-pedal/clutch/gear) and GPIO relays (starter, blade PTO),
-enforcing the standard lawn-tractor safety interlocks:
+Coordinates the seven tractor actuators through a PCA9685 I2C PWM driver
+(steering/throttle/gas-pedal/clutch/gear) and GPIO relays (starter, blade
+PTO), enforcing the standard lawn-tractor safety interlocks:
 
 - **Start sequence**: engine cranks only when authorized, in NEUTRAL, blade/PTO
   off, and the clutch/brake pedal pressed.
@@ -11,14 +11,15 @@ enforcing the standard lawn-tractor safety interlocks:
 - **E-stop**: disengages the blade, shifts to neutral, presses the clutch/brake,
   and idles throttle/pedal — the engine keeps running (per configuration).
 
-SIM-safe: positional commands degrade to state-tracking when no RoboHAT serial
-bridge is present, and relays only touch GPIO on real hardware.
+SIM-safe: positional commands degrade to state-tracking when no PCA9685 board
+is present, and relays only touch GPIO on real hardware.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 import yaml
@@ -30,6 +31,7 @@ from ..drivers.actuators import (
     ServoActuator,
     ServoCalibration,
 )
+from ..drivers.actuators.pca9685_driver import PCA9685Driver
 from ..models.tractor_control import (
     EngineState,
     TractorCommand,
@@ -81,14 +83,15 @@ class TractorControlService:
     def __init__(self, config: dict[str, Any] | None = None):
         cfg = config if config is not None else _load_tractor_config()
         self.enabled = bool(cfg.get("enabled", False))
-        self.pwm_line_format: str = cfg.get("pwm_line_format", "pwm,{channel},{us}")
+        self._pca9685 = PCA9685Driver(cfg.get("pca9685", {}) or {})
 
+        # PCA9685 channels are 0-indexed (0-4), unlike the old 1-5 RoboHAT convention.
         act = cfg.get("actuators", {}) or {}
-        self.steering = ServoActuator("steering", _servo_cal(act.get("steering"), 1, True))
-        self.throttle = ServoActuator("throttle", _servo_cal(act.get("throttle"), 2, False))
-        self.gas_pedal = ServoActuator("gas_pedal", _servo_cal(act.get("gas_pedal"), 3, False))
-        self.clutch = ServoActuator("clutch", _servo_cal(act.get("clutch"), 4, False))
-        self.gear = GearActuator("gear", _gear_cal(act.get("gear"), 5))
+        self.steering = ServoActuator("steering", _servo_cal(act.get("steering"), 0, True))
+        self.throttle = ServoActuator("throttle", _servo_cal(act.get("throttle"), 1, False))
+        self.gas_pedal = ServoActuator("gas_pedal", _servo_cal(act.get("gas_pedal"), 2, False))
+        self.clutch = ServoActuator("clutch", _servo_cal(act.get("clutch"), 3, False))
+        self.gear = GearActuator("gear", _gear_cal(act.get("gear"), 4))
 
         relays = cfg.get("relays", {}) or {}
         starter_cfg = relays.get("starter", {}) or {}
@@ -97,7 +100,10 @@ class TractorControlService:
             "starter", int(starter_cfg.get("gpio", 5)), bool(starter_cfg.get("active_high", True))
         )
         self.blade_pto = RelayActuator(
-            "blade_pto", int(blade_cfg.get("gpio", 6)), bool(blade_cfg.get("active_high", True))
+            # Default moved off GPIO 6 (spec/hardware.yaml: ToF Left Interrupt) to GPIO 26.
+            "blade_pto",
+            int(blade_cfg.get("gpio", 26)),
+            bool(blade_cfg.get("active_high", True)),
         )
         self.starter_pulse_ms = int(starter_cfg.get("pulse_ms", 800))
 
@@ -112,12 +118,14 @@ class TractorControlService:
         self.clutch_pressed_threshold = float(il.get("clutch_pressed_threshold", 0.9))
 
         # Safe initial state: clutch/brake pressed, neutral, blade off, engine off.
-        self.state = TractorState(clutch=1.0)
+        self.state = TractorState(clutch=1.0, enabled=self.enabled)
         self.initialized = False
 
     # ----------------------------- lifecycle -----------------------------
 
     async def initialize(self) -> None:
+        # Bring the PCA9685 up first so the parking commands below actually reach it.
+        await self._pca9685.initialize()
         # Park everything safely.
         await self._apply_servo(self.clutch, 1.0, "clutch")
         await self._apply_servo(self.throttle, 0.0, "throttle")
@@ -138,27 +146,26 @@ class TractorControlService:
 
     def _reject(self, reason: str) -> dict[str, Any]:
         self.state.interlock_reason = reason
+        self.state.last_updated = datetime.now(UTC)
         logger.info("Tractor command rejected: %s", reason)
         return {"status": "rejected", "reason": reason}
 
     def _ok(self, **extra: Any) -> dict[str, Any]:
         self.state.interlock_reason = None
+        self.state.last_updated = datetime.now(UTC)
         return {"status": "ok", **extra}
 
     async def _send_pwm(self, channel: int, us: int) -> None:
-        """Send a single-channel RC-PWM command via the RoboHAT bridge.
+        """Send a single-channel PWM command via the PCA9685 I2C driver.
 
-        Off-device (or without a serial bridge) this is a no-op; the commanded
-        state is tracked regardless so SIM and tests stay deterministic. The
-        RoboHAT firmware must accept the configured ``pwm_line_format``.
+        Hardware-absent (SIM_MODE / board not wired) degrades to a no-op
+        inside the driver itself, so the commanded state is still tracked and
+        SIM/tests stay deterministic. A write failure on hardware that was
+        previously confirmed present is deliberately NOT caught here: it
+        propagates to the caller (interlocks, ``emergency_stop``) so a real
+        mid-mission transport fault is visible instead of a false "ok".
         """
-        try:
-            from .robohat_service import get_robohat_service
-
-            robohat = get_robohat_service()
-            await robohat._send_line(self.pwm_line_format.format(channel=channel, us=us))
-        except Exception:  # pragma: no cover - SIM / no bridge
-            pass
+        await self._pca9685.set_pwm_us(channel, us)
 
     async def _apply_servo(self, actuator: ServoActuator, value: float, field: str) -> None:
         us = actuator.command(value)
@@ -247,15 +254,36 @@ class TractorControlService:
         return self._ok(engine=self.state.engine.value)
 
     async def emergency_stop(self) -> dict[str, Any]:
-        """Disengage drive + blade and brake; leave the engine running."""
+        """Disengage drive + blade and brake; leave the engine running.
+
+        Each PWM-bearing actuation gets its own try/except: a PCA9685 bus
+        fault on one channel must not abort the rest of the safing sequence.
+        The blade-PTO relay cutoff is pure GPIO (unaffected by the I2C
+        transport) and stays first and unconditional.
+        """
         self.state.emergency_stop_active = True
+        self.state.last_updated = datetime.now(UTC)
         self.revoke()
         self.blade_pto.set(False)
         self.state.blade_engaged = False
-        await self._apply_servo(self.gas_pedal, 0.0, "ground_speed")
-        await self._apply_gear(Transmission.NEUTRAL)
-        await self._apply_servo(self.clutch, 1.0, "clutch")  # press clutch/brake
-        await self._apply_servo(self.throttle, 0.0, "throttle")  # idle engine
+
+        try:
+            await self._apply_servo(self.gas_pedal, 0.0, "ground_speed")
+        except Exception:
+            logger.exception("Tractor e-stop: gas-pedal-to-0 actuation failed")
+        try:
+            await self._apply_gear(Transmission.NEUTRAL)
+        except Exception:
+            logger.exception("Tractor e-stop: gear-to-neutral actuation failed")
+        try:
+            await self._apply_servo(self.clutch, 1.0, "clutch")  # press clutch/brake
+        except Exception:
+            logger.exception("Tractor e-stop: clutch/brake actuation failed")
+        try:
+            await self._apply_servo(self.throttle, 0.0, "throttle")  # idle engine
+        except Exception:
+            logger.exception("Tractor e-stop: throttle-to-idle actuation failed")
+
         self.state.interlock_reason = "emergency_stop"
         logger.warning("Tractor EMERGENCY STOP: drive+blade disengaged, brake set")
         return {"status": "emergency_stop", "engine": self.state.engine.value}

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useSystemStore } from '@/stores/system'
+import * as api from '@/services/api'
 
 function getSystemWsEntry() {
   const instances = (globalThis as any).__wsMockInstances as Array<{
@@ -76,6 +77,41 @@ describe('System Store', () => {
 
       store.updateSystemStatus({ type: 'telemetry', sensors: { health: false }, motors: { health: false }, navigation: { health: false } })
       expect(store.status).toBe('warning')
+    })
+  })
+
+  describe('fetchPlatform', () => {
+    it('initializes with platform unknown', () => {
+      const store = useSystemStore()
+      expect(store.platform).toBe('unknown')
+    })
+
+    it('resolves to tractor when the backend reports enabled: true', async () => {
+      const store = useSystemStore()
+      vi.mocked(api.getTractorState).mockResolvedValue({ enabled: true } as any)
+
+      await store.fetchPlatform()
+
+      expect(store.platform).toBe('tractor')
+    })
+
+    it('resolves to mower when the backend reports enabled: false', async () => {
+      const store = useSystemStore()
+      vi.mocked(api.getTractorState).mockResolvedValue({ enabled: false } as any)
+
+      await store.fetchPlatform()
+
+      expect(store.platform).toBe('mower')
+    })
+
+    it('fails open to unknown (never mower) when the fetch rejects', async () => {
+      const store = useSystemStore()
+      store.platform = 'tractor' // simulate a previously-resolved value
+      vi.mocked(api.getTractorState).mockRejectedValue(new Error('network down'))
+
+      await store.fetchPlatform()
+
+      expect(store.platform).toBe('unknown')
     })
   })
 
