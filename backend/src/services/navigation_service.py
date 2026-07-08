@@ -144,6 +144,9 @@ class NavigationService:
         self.cruise_speed = 0.5  # m/s
         self.waypoint_tolerance = 0.5  # meters
         self.obstacle_avoidance_distance = 1.0  # meters
+        # Tractor: steady engine RPM held during autonomous mowing (not driven
+        # by this controller). ponytail: bench/field value, tune on hardware.
+        self.tractor_engine_throttle = 0.75
 
         # State tracking
         self.total_distance = 0.0
@@ -172,8 +175,24 @@ class NavigationService:
     async def execute_mission(self, mission: "Mission"):  # noqa: F821
         """Execute a mission by navigating to each waypoint."""
         from .mission_service import get_mission_service
+        from .tractor_service import get_tractor_service
 
         mission_service = get_mission_service()
+
+        # Tractor: auto-start the engine before any state mutation, so a failed
+        # crank aborts the mission cleanly instead of driving an unpowered
+        # vehicle. Guarded on "not already running" so resume_mission()'s
+        # re-invocation of execute_mission() doesn't try to re-crank a running
+        # engine. Never auto-authorizes — an operator must have called
+        # tractor.authorize() already, or this fails loudly with that reason.
+        tractor = get_tractor_service()
+        if tractor.enabled and not tractor.state.engine_running:
+            result = await tractor.start_engine()
+            if result.get("status") != "ok":
+                reason = result.get("reason", "unknown reason")
+                raise RuntimeError(
+                    f"Cannot start mission: tractor engine failed to start ({reason})"
+                )
 
         logger.info(f"Starting mission execution: {mission.id} - {mission.name}")
         self.navigation_state.navigation_mode = NavigationMode.AUTO
@@ -220,9 +239,12 @@ class NavigationService:
 
     async def go_to_waypoint(self, waypoint: "MissionWaypoint"):  # noqa: F821
         """Navigate to a single waypoint and block until arrival."""
+        from ..models.tractor_control import TractorCommand, Transmission
         from .mission_service import get_mission_service
+        from .tractor_service import get_tractor_service
 
         mission_service = get_mission_service()
+        tractor = get_tractor_service()
 
         target_pos = Position(latitude=waypoint.lat, longitude=waypoint.lon)
         logger.info(f"Navigating to waypoint: {target_pos.latitude}, {target_pos.longitude}")
@@ -255,7 +277,7 @@ class NavigationService:
                 status = mission_service.mission_statuses.get(mission_id)
                 if not status or status.status != "running":
                     logger.info("Waypoint navigation interrupted.")
-                    await self.set_speed(0.0, 0.0)
+                    await self._stop_platform()
                     return
 
             distance_to_target = self.path_planner.calculate_distance(
@@ -264,7 +286,7 @@ class NavigationService:
 
             if distance_to_target <= self.waypoint_tolerance:
                 logger.info(f"Waypoint reached: {waypoint.lat}, {waypoint.lon}")
-                await self.set_speed(0.0, 0.0)  # Stop at waypoint
+                await self._stop_platform()  # Stop at waypoint
                 if self.navigation_state.advance_waypoint():
                     logger.info(
                         f"Advanced to next waypoint index: {self.navigation_state.current_waypoint_index}"  # noqa: E501
@@ -304,6 +326,38 @@ class NavigationService:
             forward_speed = base_speed
             if abs(heading_error) > 30:
                 forward_speed *= 0.5  # Slow down for sharp turns
+
+            if tractor.enabled:
+                # Ackermann tractor: proportional heading-error -> steering angle,
+                # reusing turn_effort/forward_speed computed above for the
+                # differential path. ponytail: no pure pursuit (this codebase has
+                # no wheelbase/steering-degrees config to make curvature math
+                # meaningful); revisit if field testing shows oscillation.
+                # TractorCommand's ge=/le= fields reject out-of-range values
+                # instead of clamping, so clamp here before construction.
+                steering = max(-1.0, min(1.0, turn_effort))
+                ground_speed = max(0.0, min(1.0, forward_speed / self.max_speed))
+                cmd = TractorCommand(
+                    steering=steering,
+                    throttle=self.tractor_engine_throttle,
+                    ground_speed=ground_speed,
+                    gear=Transmission.FORWARD,
+                    clutch=0.0,
+                    blade_engaged=bool(waypoint.blade_on),
+                )
+                try:
+                    await tractor.apply(cmd)
+                except Exception as e:
+                    logger.error(f"Failed to apply tractor command: {e}")
+                    try:
+                        await tractor.emergency_stop()
+                    except Exception:
+                        pass
+                    return
+
+                # Simulation of movement
+                await asyncio.sleep(0.2)  # Control loop at 5Hz
+                continue
 
             left_speed = forward_speed * (1 - turn_effort)
             right_speed = forward_speed * (1 + turn_effort)
@@ -363,6 +417,22 @@ class NavigationService:
         accepted = await robohat.send_motor_command(_normalize(ls), _normalize(rs))
         if not accepted:
             raise RuntimeError("Motor command not accepted by controller")
+
+    async def _stop_platform(self) -> None:
+        """Soft stop: zero ground speed without revoking tractor authorization.
+
+        Use at *expected* stop points (waypoint reached, mission interrupted/
+        paused). Unlike ``emergency_stop()``, this never revokes authorization
+        or blade state and needs no operator ``clear_emergency()`` afterward —
+        reserve the hard stop for an actual command failure.
+        """
+        from .tractor_service import get_tractor_service
+
+        tractor = get_tractor_service()
+        if tractor.enabled:
+            await tractor.set_ground_speed(0.0)
+        else:
+            await self.set_speed(0.0, 0.0)
 
     async def update_navigation_state(self, sensor_data: SensorData) -> NavigationState:
         """Update navigation state with sensor fusion"""
@@ -806,6 +876,16 @@ class NavigationService:
                 robohat = get_robohat_service()
                 if robohat is not None:
                     await robohat.emergency_stop()
+        except Exception:
+            pass
+
+        # Tractor platform: cut drive/blade and revoke authorization too.
+        try:
+            from .tractor_service import get_tractor_service
+
+            tractor = get_tractor_service()
+            if tractor.enabled:
+                await tractor.emergency_stop()
         except Exception:
             pass
 
