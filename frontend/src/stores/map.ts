@@ -38,13 +38,23 @@ export interface Zone {
   exclusion_zone?: boolean;
 }
 
+// description/schedule are the only keys this app ever reads back off a
+// marker's metadata bag (see MapsView.vue editMarker/scheduleFormFromMarker);
+// the index signature keeps it open for whatever else a provider/import
+// payload stuffs in there, without granting unchecked `any` access.
+export interface MarkerMetadata {
+  description?: string;
+  schedule?: MarkerSchedule | null;
+  [key: string]: unknown;
+}
+
 export interface MapMarker {
   marker_id: string;
   marker_type: 'home' | 'am_sun' | 'pm_sun' | 'custom';
   position: Point;
   label?: string | null;
   icon?: string | null;
-  metadata?: Record<string, any> | null;
+  metadata?: MarkerMetadata | null;
   schedule?: MarkerSchedule | null;
   is_home?: boolean;
 }
@@ -53,7 +63,7 @@ export interface MapConfiguration {
   config_id: string;
   config_version: number;
   provider: 'google_maps' | 'osm';
-  provider_metadata?: Record<string, any>;
+  provider_metadata?: Record<string, unknown>;
   boundary_zone: Zone | null;
   exclusion_zones: Zone[];
   mowing_zones: Zone[];
@@ -66,6 +76,44 @@ export interface MapConfiguration {
   created_at: string;
 }
 
+// Wire contract for GET/PUT /api/v2/map/configuration (backend/src/api/routers/maps.py).
+// The backend persists this as an opaque JSON blob (only a fixed allowlist of
+// top-level keys is passed through verbatim, see _save_config) — it is a
+// contract the frontend itself defines by what it writes, not a backend-owned
+// fixed schema, so fields are optional and read back defensively below.
+export interface ZoneEnvelope {
+  zone_id?: string;
+  zone_type?: string;
+  name?: string;
+  geometry?: {
+    type?: 'Polygon' | 'Point';
+    coordinates?: unknown;
+  };
+}
+
+export interface MarkerEnvelope {
+  marker_id?: string | number;
+  marker_type?: string;
+  position?: {
+    latitude?: number | string;
+    longitude?: number | string;
+    altitude?: number | string | null;
+  };
+  label?: string | null;
+  icon?: string | null;
+  metadata?: MarkerMetadata | null;
+  schedule?: MarkerSchedule | null;
+  is_home?: boolean;
+}
+
+export interface MapConfigEnvelope {
+  zones?: ZoneEnvelope[];
+  provider?: string;
+  markers?: MarkerEnvelope[];
+  updated_at?: string;
+  updated_by?: string;
+}
+
 function clonePoint(pt: Point): Point {
   return {
     latitude: pt ? pt.latitude : 0,
@@ -76,6 +124,23 @@ function clonePoint(pt: Point): Point {
 
 function clonePolygon(points: Point[]): Point[] {
   return points.map(clonePoint);
+}
+
+function isConfigEnvelope(data: MapConfigEnvelope | MapConfiguration): data is MapConfigEnvelope {
+  return 'zones' in data;
+}
+
+// Shape defensively read off axios errors in this store's catch blocks
+// (`response.data.error`/`.remediation` are not guaranteed by any backend
+// contract for this endpoint today — read optionally, never assumed).
+interface ApiErrorLike {
+  message?: string;
+  response?: {
+    data?: {
+      error?: string;
+      remediation?: { message?: string; docs_link?: string };
+    };
+  };
 }
 
 function coerceTimeString(value: string | null | undefined): string {
@@ -133,7 +198,25 @@ function normalizeSchedule(schedule: MarkerSchedule | null | undefined): MarkerS
   return cloned;
 }
 
-function scheduleFromPayload(raw: any): MarkerSchedule | null {
+// Backend/import payloads have been observed using either the canonical
+// MarkerSchedule keys or a shorter `windows`/`days` alias — accept both,
+// normalizeSchedule() below sanitizes every field afterward regardless.
+interface RawSchedulePayload {
+  time_windows?: Array<{ start?: string | null; end?: string | null } | null>;
+  windows?: Array<{ start?: string | null; end?: string | null } | null>;
+  days_of_week?: number[];
+  days?: number[];
+  triggers?: {
+    needs_charge?: boolean;
+    precipitation?: boolean;
+    manual_override?: boolean;
+  };
+  needs_charge?: boolean;
+  precipitation?: boolean;
+  manual_override?: boolean;
+}
+
+function scheduleFromPayload(raw: RawSchedulePayload | null | undefined): MarkerSchedule | null {
   if (!raw) return null;
 
   const windowsSource = Array.isArray(raw.time_windows)
@@ -144,8 +227,8 @@ function scheduleFromPayload(raw: any): MarkerSchedule | null {
 
   const candidate: MarkerSchedule = {
     time_windows: windowsSource
-      .map((entry: any) => ({ start: entry?.start, end: entry?.end }))
-      .filter((entry: any) => entry.start != null && entry.end != null),
+      .map(entry => ({ start: entry?.start, end: entry?.end }))
+      .filter((entry): entry is MarkerTimeWindow => entry.start != null && entry.end != null),
     days_of_week: Array.isArray(raw.days_of_week)
       ? raw.days_of_week
       : Array.isArray(raw.days)
@@ -170,7 +253,6 @@ export const useMapStore = defineStore('map', () => {
   const isDirty = ref(false);
   const selectedZoneId = ref<string | null>(null);
   const editMode = ref<'view' | 'boundary' | 'exclusion' | 'mowing' | 'marker'>('view');
-  const providerFallbackActive = ref(false);
 
   // Watch for changes and save to localStorage
   watch(
@@ -207,7 +289,7 @@ export const useMapStore = defineStore('map', () => {
   type MarkerCreateOptions = {
     label?: string;
     icon?: string | null;
-    metadata?: Record<string, any> | null;
+    metadata?: MarkerMetadata | null;
     schedule?: MarkerSchedule | null;
     markerId?: string;
     isHome?: boolean;
@@ -230,9 +312,10 @@ export const useMapStore = defineStore('map', () => {
           loading.value = false;
           isLoading.value = false;
           // Still fetch from server in the background to get updates
-          apiService.get(`/api/v2/map/configuration?config_id=${configId}`).then(response => {
-            if (response?.data) {
-              const serverConfig = response.data?.zones ? envelopeToConfig(configId, response.data) : response.data as MapConfiguration;
+          apiService.get<MapConfigEnvelope | MapConfiguration>(`/api/v2/map/configuration?config_id=${configId}`).then(response => {
+            const data = response?.data;
+            if (data) {
+              const serverConfig = isConfigEnvelope(data) ? envelopeToConfig(configId, data) : data;
               // A simple timestamp check to see if the server has a newer version
               if (new Date(serverConfig.last_modified) > new Date(configuration.value?.last_modified || 0)) {
                 configuration.value = serverConfig;
@@ -249,14 +332,15 @@ export const useMapStore = defineStore('map', () => {
     }
 
     try {
-      const response: AxiosResponse<any> = await apiService.get(
+      const response: AxiosResponse<MapConfigEnvelope | MapConfiguration> = await apiService.get(
           `/api/v2/map/configuration?config_id=${configId}`
         );
         // Support contract envelope from backend
-        if (response?.data?.zones) {
-          configuration.value = envelopeToConfig(configId, response.data);
-        } else if (response?.data) {
-          configuration.value = response.data as MapConfiguration;
+        const data = response?.data;
+        if (data && isConfigEnvelope(data)) {
+          configuration.value = envelopeToConfig(configId, data);
+        } else if (data) {
+          configuration.value = data;
         } else if (response) {
           configuration.value = response as unknown as MapConfiguration;
         }
@@ -268,8 +352,9 @@ export const useMapStore = defineStore('map', () => {
         }
       isDirty.value = false;
       return response;
-    } catch (e: any) {
-      error.value = e?.response?.data?.error || e?.message || 'Failed to load map configuration';
+    } catch (e) {
+      const err = e as ApiErrorLike;
+      error.value = err?.response?.data?.error || err?.message || 'Failed to load map configuration';
       throw e;
     } finally {
       loading.value = false;
@@ -287,7 +372,7 @@ export const useMapStore = defineStore('map', () => {
     error.value = '';
     try {
       const env = configToEnvelope(configuration.value);
-      const response = await apiService.put(
+      await apiService.put(
         `/api/v2/map/configuration?config_id=${configuration.value.config_id}`,
         env
       );
@@ -295,11 +380,12 @@ export const useMapStore = defineStore('map', () => {
       await loadConfiguration(configuration.value.config_id);
       isDirty.value = false;
       return configuration.value;
-    } catch (e: any) {
-      error.value = e?.response?.data?.error || e?.message || 'Failed to save map configuration';
+    } catch (e) {
+      const err = e as ApiErrorLike;
+      error.value = err?.response?.data?.error || err?.message || 'Failed to save map configuration';
       // Check for remediation metadata
-      if (e?.response?.data?.remediation) {
-        const remediation = e.response.data.remediation;
+      const remediation = err?.response?.data?.remediation;
+      if (remediation) {
         error.value = `${error.value}\n${remediation.message || ''}\nSee: ${remediation.docs_link || ''}`;
       }
       throw e;
@@ -309,27 +395,6 @@ export const useMapStore = defineStore('map', () => {
     }
   }
 
-  async function triggerProviderFallback() {
-    loading.value = true;
-    isLoading.value = true;
-    error.value = '';
-    try {
-      const response = await apiService.post('/api/v2/map/provider-fallback');
-      if (response && response.data && response.data.success) {
-        providerFallbackActive.value = true;
-        if (configuration.value) {
-          configuration.value.provider = 'osm';
-        }
-      }
-      return response ? response.data : response;
-    } catch (e: any) {
-      error.value = e?.response?.data?.message || e?.message || 'Failed to trigger provider fallback';
-      throw e;
-    } finally {
-      loading.value = false;
-      isLoading.value = false;
-    }
-  }
 
   function addMarker(
     markerType: 'home' | 'am_sun' | 'pm_sun' | 'custom',
@@ -349,7 +414,7 @@ export const useMapStore = defineStore('map', () => {
     const metadataSource = options.metadata && typeof options.metadata === 'object'
       ? options.metadata
       : undefined;
-    const metadata: Record<string, any> = metadataSource ? { ...metadataSource } : {};
+    const metadata: MarkerMetadata = metadataSource ? { ...metadataSource } : {};
     if (schedule) {
       metadata.schedule = cloneSchedule(schedule);
     } else if ('schedule' in metadata) {
@@ -405,7 +470,7 @@ export const useMapStore = defineStore('map', () => {
 
     const existing = markers[idx];
     const metadataSource = changes.metadata !== undefined ? changes.metadata : existing.metadata;
-    const metadata: Record<string, any> = metadataSource && typeof metadataSource === 'object'
+    const metadata: MarkerMetadata = metadataSource && typeof metadataSource === 'object'
       ? { ...metadataSource }
       : {};
 
@@ -486,7 +551,7 @@ export const useMapStore = defineStore('map', () => {
   function removeExclusionZone(zoneId: string) {
     if (!configuration.value) return;
     configuration.value.exclusion_zones = configuration.value.exclusion_zones.filter(
-      z => z.zone_id !== zoneId && z.id !== zoneId
+      z => z.id !== zoneId
     );
     configuration.value.last_modified = new Date().toISOString();
     isDirty.value = true;
@@ -556,7 +621,7 @@ export const useMapStore = defineStore('map', () => {
 
   // Helpers: convert between MapConfiguration and envelope
   function configToEnvelope(cfg: MapConfiguration) {
-    const zones: any[] = [];
+    const zones: ZoneEnvelope[] = [];
     const toCoords = (poly: Point[]) => {
       const ring = poly.map(p => [p.longitude, p.latitude]);
       if (ring.length && (ring[0][0] !== ring[ring.length-1][0] || ring[0][1] !== ring[ring.length-1][1])) {
@@ -629,7 +694,7 @@ export const useMapStore = defineStore('map', () => {
     return { zones, provider, markers };
   }
 
-  function envelopeToConfig(configId: string, env: any): MapConfiguration {
+  function envelopeToConfig(configId: string, env: MapConfigEnvelope): MapConfiguration {
     const cfg: MapConfiguration = {
       config_id: configId,
       config_version: 1,
@@ -648,7 +713,7 @@ export const useMapStore = defineStore('map', () => {
     };
     const markers: MapMarker[] = [];
     const pushMarker = (marker: MapMarker) => {
-      const metadata: Record<string, any> = marker.metadata && typeof marker.metadata === 'object'
+      const metadata: MarkerMetadata = marker.metadata && typeof marker.metadata === 'object'
         ? { ...marker.metadata }
         : {};
       const resolvedSchedule = normalizeSchedule(marker.schedule ?? metadata?.schedule ?? null);
@@ -694,8 +759,9 @@ export const useMapStore = defineStore('map', () => {
       if (geom.type === 'Polygon' && Array.isArray(geom.coordinates) && geom.coordinates[0]) {
         const ring = geom.coordinates[0] as [number, number][];
         const poly: Point[] = ring.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
-        const zoneName = typeof z.name === 'string' && z.name.trim() ? z.name : (z.zone_id || ztype);
-        const zone: Zone = { id: z.zone_id || ztype, name: zoneName, zone_type: ztype, polygon: poly };
+        const zoneId = z.zone_id || ztype || '';
+        const zoneName = typeof z.name === 'string' && z.name.trim() ? z.name : zoneId;
+        const zone: Zone = { id: zoneId, name: zoneName, zone_type: ztype || '', polygon: poly };
         if (ztype === 'boundary') cfg.boundary_zone = zone;
         else if (ztype === 'exclusion') cfg.exclusion_zones.push(zone);
         else if (ztype === 'mow') cfg.mowing_zones.push(zone);
@@ -750,7 +816,9 @@ export const useMapStore = defineStore('map', () => {
             is_home: isHome,
           };
           pushMarker(marker);
-        } catch {}
+        } catch {
+          // skip a single malformed marker rather than aborting the whole config load
+        }
       }
     }
     cfg.markers = markers;
@@ -766,8 +834,7 @@ export const useMapStore = defineStore('map', () => {
     isDirty,
     selectedZoneId,
     editMode,
-    providerFallbackActive,
-    
+
     // Computed
     hasConfiguration,
     hasUnsavedChanges,
@@ -779,7 +846,6 @@ export const useMapStore = defineStore('map', () => {
     // Actions
     loadConfiguration,
     saveConfiguration,
-    triggerProviderFallback,
     addMarker,
     removeMarker,
     updateMarker,

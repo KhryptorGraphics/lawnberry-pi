@@ -1,6 +1,6 @@
 <template>
   <div class="mission-map-editor" :class="{ 'cursor-crosshair': isDrawing }">
-    <l-map
+    <LMap
       ref="mapRef"
       :zoom="zoom"
       :center="center"
@@ -9,7 +9,7 @@
       @ready="onMapReady"
       @click="onMapClick"
     >
-      <l-tile-layer
+      <LTileLayer
         v-if="tileLayerConfig"
         :key="tileLayerKey"
         :url="tileLayerConfig.url"
@@ -17,10 +17,10 @@
         :subdomains="tileLayerConfig.subdomains"
         :max-zoom="tileLayerConfig.maxZoom"
       />
-      <l-layer-group ref="overlayGroupRef">
+      <LLayerGroup ref="overlayGroupRef">
         <!-- Waypoints and Path -->
-        <l-polyline :lat-lngs="waypointLatLngs" :color="'#00ffff'" :weight="3" />
-        <l-marker
+        <LPolyline :lat-lngs="waypointLatLngs" :color="'#00ffff'" :weight="3" />
+        <LMarker
           v-for="(wp, idx) in waypoints"
           :key="`wp-${wp.id}`"
           :lat-lng="[wp.lat, wp.lon]"
@@ -28,11 +28,10 @@
           :icon="waypointIcon(idx + 1)"
           @dragend="(e) => onWaypointDragEnd(wp, e)"
           @contextmenu="() => onWaypointContextMenu(wp)"
-        >
-        </l-marker>
+        />
 
         <!-- Mower Position -->
-        <l-circle-marker
+        <LCircleMarker
           v-if="mowerLatLng"
           :lat-lng="mowerLatLng"
           :radius="6"
@@ -40,7 +39,7 @@
           :weight="2"
           :fill-opacity="0.9"
         />
-        <l-circle
+        <LCircle
           v-if="mowerLatLng && accuracyRadius > 0"
           :lat-lng="mowerLatLng"
           :radius="accuracyRadius"
@@ -48,14 +47,14 @@
           :weight="1"
           :fill-opacity="0.15"
         />
-      </l-layer-group>
-    </l-map>
+      </LLayerGroup>
+    </LMap>
     <div v-if="providerBadge" class="provider-badge">{{ providerBadge }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import {
   LMap,
   LTileLayer,
@@ -67,6 +66,9 @@ import {
 } from '@vue-leaflet/vue-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+// Bundled (not CDN) so GoogleMutant works offline; registers L.gridLayer.googleMutant
+// as a side effect onto the same L instance leaflet's own bundle exposes via window.L.
+import 'leaflet.gridlayer.googlemutant/dist/Leaflet.GoogleMutant.js';
 
 import { useMapStore } from '@/stores/map';
 import { getOsmTileLayer, shouldUseGoogleProvider } from '@/utils/mapProviders';
@@ -104,17 +106,19 @@ const providerBadge = ref('');
 let googleLayer: any = null;
 
 // Computed properties for rendering
-const waypointLatLngs = computed(() => props.waypoints.map(wp => [wp.lat, wp.lon]));
-const mowerLatLng = computed(() => (props.mowerPosition ? [props.mowerPosition.lat, props.mowerPosition.lon] : null));
+const waypointLatLngs = computed(() => props.waypoints.map((wp): [number, number] => [wp.lat, wp.lon]));
+const mowerLatLng = computed<[number, number] | null>(() => (props.mowerPosition ? [props.mowerPosition.lat, props.mowerPosition.lon] : null));
 const accuracyRadius = computed(() => props.mowerPosition?.accuracy || 0);
 
-function waypointIcon(index: number) {
+function waypointIcon(index: number): L.Icon<L.IconOptions> {
+  // @vue-leaflet/vue-leaflet's <l-marker :icon> prop is typed as L.Icon<L.IconOptions>
+  // only, but Leaflet's real Marker.options.icon accepts Icon | DivIcon at runtime.
   return L.divIcon({
     html: `<div class='wp-pin'><span>${index}</span></div>`,
     className: 'wp-pin-wrap',
     iconSize: [24, 24],
     iconAnchor: [12, 12],
-  });
+  }) as unknown as L.Icon<L.IconOptions>;
 }
 
 // --- Lifecycle ---
@@ -165,7 +169,7 @@ async function initializeBaseLayer() {
       const typeMap: Record<string, string> = { standard: 'roadmap', satellite: 'satellite', hybrid: 'hybrid', terrain: 'terrain' };
       const gmType = (typeMap[style] || 'roadmap') as any;
       
-      // @ts-ignore - Leaflet.GoogleMutant is loaded globally
+      // @ts-expect-error - Leaflet.GoogleMutant is loaded globally
       googleLayer = L.gridLayer.googleMutant({ type: gmType });
       googleLayer.addTo(map);
     } catch (error) {
@@ -183,19 +187,11 @@ async function initializeBaseLayer() {
 }
 
 async function loadGoogleMapsApi(apiKey: string) {
+  // GoogleMutant itself is bundled, not CDN-loaded - see the top-of-file import.
   const { Loader } = await import('@googlemaps/js-api-loader');
   if (!(window as any).google?.maps) {
     const loader = new Loader({ apiKey, version: 'weekly' });
     await loader.load();
-  }
-  if (!(L as any).gridLayer?.googleMutant) {
-    await new Promise<void>((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/leaflet.gridlayer.googlemutant@0.13.5/dist/Leaflet.GoogleMutant.js';
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error('Failed to load Leaflet.GoogleMutant'));
-      document.head.appendChild(script);
-    });
   }
 }
 

@@ -11,13 +11,16 @@
     aria-valuemin="-1"
     aria-valuemax="1"
     :aria-valuenow="state.active ? state.y.toFixed(2) : '0'"
-    aria-label="Manual control joystick"
+    aria-label="Manual control joystick. Use arrow keys to drive."
+    :tabindex="disabled ? -1 : 0"
     @contextmenu.prevent
+    @keydown="handleKeydown"
+    @keyup="handleKeyup"
   >
     <div class="virtual-joystick__surface">
-      <div class="virtual-joystick__ring virtual-joystick__ring--outer"></div>
-      <div class="virtual-joystick__ring virtual-joystick__ring--inner"></div>
-      <div class="virtual-joystick__knob" :style="knobStyle"></div>
+      <div class="virtual-joystick__ring virtual-joystick__ring--outer" />
+      <div class="virtual-joystick__ring virtual-joystick__ring--inner" />
+      <div class="virtual-joystick__knob" :style="knobStyle" />
     </div>
   </div>
 </template>
@@ -198,6 +201,60 @@ function updateVector(clientX: number, clientY: number) {
   emit('change', { x, y, magnitude: cappedMagnitude, active: true })
 }
 
+const pressedArrowKeys = new Set<string>()
+const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+
+function applyKeyboardVector() {
+  let x = 0
+  let y = 0
+  if (pressedArrowKeys.has('ArrowUp')) y += 1
+  if (pressedArrowKeys.has('ArrowDown')) y -= 1
+  if (pressedArrowKeys.has('ArrowRight')) x += 1
+  if (pressedArrowKeys.has('ArrowLeft')) x -= 1
+  const magnitude = Math.sqrt(x * x + y * y)
+  if (magnitude === 0) {
+    return
+  }
+  const cappedMagnitude = Math.min(1, magnitude)
+  const scale = cappedMagnitude / magnitude
+  state.x = x * scale
+  state.y = y * scale
+  state.active = true
+  lastVector.x = state.x
+  lastVector.y = state.y
+  emit('change', { x: state.x, y: state.y, magnitude: cappedMagnitude, active: true })
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (props.disabled || !ARROW_KEYS.has(e.key)) {
+    return
+  }
+  e.preventDefault()
+  if (pressedArrowKeys.size === 0) {
+    emit('start')
+  }
+  pressedArrowKeys.add(e.key)
+  applyKeyboardVector()
+}
+
+function handleKeyup(e: KeyboardEvent) {
+  if (!ARROW_KEYS.has(e.key)) {
+    return
+  }
+  e.preventDefault()
+  pressedArrowKeys.delete(e.key)
+  if (pressedArrowKeys.size === 0) {
+    if (props.springBack) {
+      reset()
+    } else {
+      state.active = false
+      emit('end')
+    }
+  } else {
+    applyKeyboardVector()
+  }
+}
+
 function registerListeners() {
   const el = container.value
   if (!el) {
@@ -235,6 +292,7 @@ watch(
   (disabled) => {
     if (disabled) {
       activePointerId = null
+      pressedArrowKeys.clear()
       reset()
     }
   }

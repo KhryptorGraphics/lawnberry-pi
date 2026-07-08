@@ -1,5 +1,17 @@
 // Control API methods
-export async function sendControlCommand(command: string, payload: any = {}) {
+export async function sendControlCommand(
+  command: 'drive' | 'emergency',
+  payload?: Record<string, unknown>
+): Promise<ControlResponseV2>
+export async function sendControlCommand(
+  command: 'blade',
+  payload?: Record<string, unknown>
+): Promise<BladeCommandResponse>
+export async function sendControlCommand(
+  command: string,
+  payload?: Record<string, unknown>
+): Promise<ControlResponseV2 | BladeCommandResponse>
+export async function sendControlCommand(command: string, payload: Record<string, unknown> = {}) {
   // Map command to endpoint
   let url = ''
   switch (command) {
@@ -19,8 +31,8 @@ export async function sendControlCommand(command: string, payload: any = {}) {
   return response.data
 }
 
-export async function getRoboHATStatus() {
-  const response = await apiService.get('/api/v2/hardware/robohat')
+export async function getRoboHATStatus(): Promise<RoboHATStatus> {
+  const response = await apiService.get<RoboHATStatus>('/api/v2/hardware/robohat')
   return response.data
 }
 
@@ -35,49 +47,47 @@ export async function saveMapConfiguration(configId: string, config: any) {
   return response.data
 }
 
-export async function triggerMapProviderFallback() {
-  const response = await apiService.post('/api/v2/map/provider-fallback')
-  return response.data
-}
-
 // Autonomous navigation control
-export async function startAutonomous(zones?: string[]) {
-  const response = await apiService.post('/api/v2/navigation/start', zones ? { zones } : {})
+export async function startAutonomous(zones?: string[]): Promise<AutonomyStartResult> {
+  const response = await apiService.post<AutonomyStartResult>(
+    '/api/v2/navigation/start',
+    zones ? { zones } : {}
+  )
   return response.data
 }
 
-export async function stopAutonomous() {
-  const response = await apiService.post('/api/v2/navigation/stop', {})
+export async function stopAutonomous(): Promise<AutonomyStopResult> {
+  const response = await apiService.post<AutonomyStopResult>('/api/v2/navigation/stop', {})
   return response.data
 }
 
-export async function pauseAutonomous() {
-  const response = await apiService.post('/api/v2/navigation/pause', {})
+export async function pauseAutonomous(): Promise<AutonomyPauseResult> {
+  const response = await apiService.post<AutonomyPauseResult>('/api/v2/navigation/pause', {})
   return response.data
 }
 
-export async function resumeAutonomous() {
-  const response = await apiService.post('/api/v2/navigation/resume', {})
+export async function resumeAutonomous(): Promise<AutonomyResumeResult> {
+  const response = await apiService.post<AutonomyResumeResult>('/api/v2/navigation/resume', {})
   return response.data
 }
 
-export async function returnToBase() {
-  const response = await apiService.post('/api/v2/navigation/return', {})
+export async function returnToBase(): Promise<AutonomyReturnResult> {
+  const response = await apiService.post<AutonomyReturnResult>('/api/v2/navigation/return', {})
   return response.data
 }
 
-export async function getNavigationStatus() {
-  const response = await apiService.get('/api/v2/navigation/status')
+export async function getNavigationStatus(): Promise<AutonomyStatusResult> {
+  const response = await apiService.get<AutonomyStatusResult>('/api/v2/navigation/status')
   return response.data
 }
 
 export async function setControlMode(
   mode: 'manual' | 'autonomous' | 'idle',
   zones?: string[]
-) {
+): Promise<ControlModeResult> {
   const payload: Record<string, unknown> = { mode }
   if (zones) payload.zones = zones
-  const response = await apiService.post('/api/v2/control/mode', payload)
+  const response = await apiService.post<ControlModeResult>('/api/v2/control/mode', payload)
   return response.data
 }
 
@@ -91,48 +101,69 @@ export async function planningJobAction(
 }
 
 // --- Ride-on lawn tractor actuation ---
-export type TractorGear = 'forward' | 'neutral' | 'reverse'
+export type TractorGear = Transmission
 
-export async function getTractorState() {
-  return (await apiService.get('/api/v2/tractor/state')).data
+export async function getTractorState(): Promise<TractorState> {
+  return (await apiService.get<TractorState>('/api/v2/tractor/state')).data
 }
-export async function tractorSteering(value: number) {
-  return (await apiService.post('/api/v2/tractor/steering', { value })).data
+export async function tractorSteering(value: number): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/steering', { value })).data
 }
-export async function tractorThrottle(value: number) {
-  return (await apiService.post('/api/v2/tractor/throttle', { value })).data
+export async function tractorThrottle(value: number): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/throttle', { value })).data
 }
-export async function tractorSpeed(value: number) {
-  return (await apiService.post('/api/v2/tractor/speed', { value })).data
+export async function tractorSpeed(value: number): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/speed', { value })).data
 }
-export async function tractorClutch(value: number) {
-  return (await apiService.post('/api/v2/tractor/clutch', { value })).data
+export async function tractorClutch(value: number): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/clutch', { value })).data
 }
-export async function tractorGear(gear: TractorGear) {
-  return (await apiService.post('/api/v2/tractor/gear', { gear })).data
+export async function tractorGear(gear: TractorGear): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/gear', { gear })).data
 }
-export async function tractorBlade(engaged: boolean) {
-  return (await apiService.post('/api/v2/tractor/blade', { engaged })).data
+export async function tractorBlade(engaged: boolean): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/blade', { engaged })).data
 }
-export async function tractorStart() {
-  return (await apiService.post('/api/v2/tractor/starter', {})).data
+export async function tractorStart(): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/starter', {})).data
 }
-export async function tractorStopEngine() {
-  return (await apiService.post('/api/v2/tractor/stop-engine', {})).data
+export async function tractorStopEngine(): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/stop-engine', {})).data
 }
-export async function tractorEmergencyStop() {
-  return (await apiService.post('/api/v2/tractor/emergency-stop', {})).data
+export async function tractorEmergencyStop(): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/emergency-stop', {})).data
 }
-export async function tractorClearEmergency() {
-  return (await apiService.post('/api/v2/tractor/clear-emergency', {})).data
+export async function tractorClearEmergency(): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/clear-emergency', {})).data
 }
-export async function tractorAuthorize(authorized: boolean) {
+export async function tractorAuthorize(authorized: boolean): Promise<TractorAuthResult> {
   const path = authorized ? '/api/v2/tractor/authorize' : '/api/v2/tractor/revoke'
-  return (await apiService.post(path, {})).data
+  return (await apiService.post<TractorAuthResult>(path, {})).data
 }
 import axios from 'axios'
-import type { AxiosInstance, AxiosResponse } from 'axios'
+import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import type { AuthResponse, RefreshResponse, LoginCredentials, User } from '@/types/auth'
+import type { MowerStatus } from '@/types/system'
+import type {
+  ControlResponseV2,
+  BladeCommandResponse,
+  EmergencyStopResult,
+  RoboHATStatus,
+  AutonomyStartResult,
+  AutonomyStopResult,
+  AutonomyPauseResult,
+  AutonomyResumeResult,
+  AutonomyReturnResult,
+  AutonomyStatusResult,
+  ControlModeResult,
+  Transmission,
+  TractorState,
+  TractorActuatorResponse,
+  TractorAuthResult,
+  IMUCalibrationResult,
+  IMUCalibrationStatus,
+} from '@/types/control'
 
 const CLIENT_ID_STORAGE_KEY = 'lawnberry-client-id'
 const CLIENT_ID_GLOBAL_KEY = '__LAWN_CLIENT_ID__'
@@ -192,25 +223,33 @@ class ApiService {
       }
     )
 
-    // Response interceptor for error handling
+    // Response interceptor: on 401, refresh once and retry (skip for the refresh call itself to avoid looping)
     this.client.interceptors.response.use(
       (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
+      async (error) => {
+        const originalRequest = error.config
+        const isRefreshCall = typeof originalRequest?.url === 'string' && originalRequest.url.includes('/auth/refresh')
+        if (error.response?.status === 401 && !isRefreshCall && !originalRequest?._retried) {
           const authStore = useAuthStore()
-          authStore.logout()
+          const refreshed = await authStore.refreshToken()
+          if (refreshed && authStore.token) {
+            originalRequest._retried = true
+            originalRequest.headers = originalRequest.headers || {}
+            originalRequest.headers.Authorization = `Bearer ${authStore.token}`
+            return this.client(originalRequest)
+          }
         }
         return Promise.reject(error)
       }
     )
   }
 
-  async get<T = any>(url: string): Promise<AxiosResponse<T>> {
-    return this.client.get<T>(url)
+  async get<T = any>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+    return this.client.get<T>(url, config)
   }
 
-  async post<T = any>(url: string, data?: any): Promise<AxiosResponse<T>> {
-    return this.client.post<T>(url, data)
+  async post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+    return this.client.post<T>(url, data, config)
   }
 
   async put<T = any>(url: string, data?: any): Promise<AxiosResponse<T>> {
@@ -274,6 +313,91 @@ class ApiService {
 
 // Singleton instance
 const apiService = new ApiService()
+
+// Auth
+export const authApi = {
+  login: async (credentials: LoginCredentials): Promise<AuthResponse> =>
+    (await apiService.post<AuthResponse>('/api/v2/auth/login', credentials)).data,
+  logout: async (): Promise<void> => {
+    await apiService.post('/api/v2/auth/logout')
+  },
+  refresh: async (): Promise<RefreshResponse> =>
+    (await apiService.post<RefreshResponse>('/api/v2/auth/refresh')).data,
+  getProfile: async (): Promise<User> => (await apiService.get<User>('/api/v2/auth/profile')).data,
+}
+
+// Dashboard system status
+export const systemApi = {
+  getStatus: async (): Promise<MowerStatus> =>
+    (await apiService.get<MowerStatus>('/api/v2/dashboard/status')).data,
+}
+
+// General mower emergency stop (distinct from /tractor/emergency-stop, the ride-on platform's own E-stop)
+export const controlApi = {
+  emergencyStop: async (): Promise<EmergencyStopResult> =>
+    (await apiService.post<EmergencyStopResult>('/api/v2/control/emergency-stop')).data,
+}
+
+export const settingsApi = {
+  getSettings: async (): Promise<Record<string, unknown>> =>
+    (await apiService.get<Record<string, unknown>>('/api/v2/settings')).data,
+}
+
+export const telemetryApi = {
+  getCurrent: async () =>
+    // Hardware response can be slow; override the default 10s timeout
+    (await apiService.get('/api/v2/dashboard/telemetry', { timeout: 30000 })).data,
+}
+
+export const weatherApi = {
+  getCurrent: async (params?: { lat?: number; lon?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.lat !== undefined) query.append('lat', String(params.lat))
+    if (params?.lon !== undefined) query.append('lon', String(params.lon))
+    const path = query.toString() ? `/api/v2/weather/current?${query}` : '/api/v2/weather/current'
+    const response = await apiService.get(path)
+    // Backend contract (GET /api/v2/weather/current): { timestamp, source, temperature_c, humidity_percent, pressure_hpa }
+    return response.data as {
+      timestamp: string
+      source: string
+      temperature_c: number
+      humidity_percent: number
+      pressure_hpa: number
+    }
+  },
+}
+
+export const maintenanceApi = {
+  runImuCalibration: async (): Promise<IMUCalibrationResult> => {
+    try {
+      // Calibration routine takes ~18-20s on hardware; override default 10s timeout
+      return (
+        await apiService.post<IMUCalibrationResult>(
+          '/api/v2/maintenance/imu/calibrate',
+          {},
+          { timeout: 30000 }
+        )
+      ).data
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        const unsupported = new Error('IMU calibration endpoint not available')
+        ;(unsupported as any).unsupported = true
+        throw unsupported
+      }
+      throw error
+    }
+  },
+  getImuCalibrationStatus: async (): Promise<IMUCalibrationStatus> => {
+    try {
+      return (await apiService.get<IMUCalibrationStatus>('/api/v2/maintenance/imu/calibrate')).data
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        return { in_progress: false, last_result: undefined, supported: false }
+      }
+      throw error
+    }
+  },
+}
 
 // Composable for use in Vue components
 export function useApiService() {

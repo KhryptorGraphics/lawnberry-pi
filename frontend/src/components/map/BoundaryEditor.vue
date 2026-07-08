@@ -42,11 +42,11 @@
         📌 Marker
       </button>
       
-      <div class="toolbar-spacer"></div>
+      <div class="toolbar-spacer" />
       
       <!-- Follow and recenter controls -->
       <label class="follow-toggle">
-        <input type="checkbox" v-model="followMower" />
+        <input v-model="followMower" type="checkbox">
         Follow
       </label>
       <button class="btn btn-sm btn-secondary" @click="recenterToMower">
@@ -56,18 +56,18 @@
       <button 
         v-if="currentPolygon.length >= 5" 
         class="btn btn-sm btn-secondary"
-        @click="simplifyCurrent()"
         title="Simplify polygon to reduce vertices"
+        @click="simplifyCurrent()"
       >
         🧹 Simplify
       </button>
       
       <label class="follow-toggle">
-        <input type="checkbox" v-model="showCoveragePlan" @change="toggleCoveragePlan" />
+        <input v-model="showCoveragePlan" type="checkbox" @change="toggleCoveragePlan">
         Preview Coverage
       </label>
       <label class="follow-toggle" title="Snap new/dragged vertices to boundary">
-        <input type="checkbox" v-model="snapToBoundary" />
+        <input v-model="snapToBoundary" type="checkbox">
         Snap to Boundary
       </label>
       
@@ -88,7 +88,7 @@
       </button>
     </div>
 
-  <div class="editor-canvas" ref="canvasContainer" :class="{'cursor-crosshair': mode==='boundary' || mode==='exclusion' || mode==='mowing', 'cursor-pin': mode==='marker', 'google-active': useGoogleMutant}">
+    <div ref="canvasContainer" class="editor-canvas" :class="{'cursor-crosshair': mode==='boundary' || mode==='exclusion' || mode==='mowing', 'cursor-pin': mode==='marker', 'google-active': useGoogleMutant}">
       <div v-if="mode === 'boundary'" class="editor-instructions">
         Click on the map to add boundary points. Close the polygon by clicking near the first point.
       </div>
@@ -143,11 +143,11 @@
       </div>
 
       <!-- Tile transition overlay -->
-      <div v-if="tileLoadingState === 'loading'" class="tile-transition-overlay"></div>
+      <div v-if="tileLoadingState === 'loading'" class="tile-transition-overlay" />
 
       <!-- Tile loading indicator -->
       <div v-if="tileLoadingState === 'loading'" class="tile-loading-indicator">
-        <div class="loading-spinner"></div>
+        <div class="loading-spinner" />
         <span>{{ loadingMessage }}</span>
       </div>
 
@@ -161,17 +161,17 @@
       </div>
 
       <!-- Leaflet Map -->
-      <l-map
+      <LMap
+        ref="mapRef"
         :zoom="zoom"
         :center="centerLatLng"
         :use-global-leaflet="useGlobalLeaflet"
         :options="leafletOptions"
         style="height: 100%; width: 100%"
         @click="onMapClick"
-        ref="mapRef"
       >
         <!-- Dynamic tiles based on provider/style -->
-        <l-tile-layer
+        <LTileLayer
           v-if="showTiles && tileLayerConfig && !googleLayerActive"
           :key="`base-${tileLayerKey}`"
           :url="tileLayerConfig.url"
@@ -182,7 +182,7 @@
           @load="onTileLoaded"
           @tileerror="onTileError"
         />
-        <l-tile-layer
+        <LTileLayer
           v-if="showTiles && tileLayerConfig?.overlay && !googleLayerActive"
           :key="`overlay-${tileLayerKey}`"
           :url="tileLayerConfig.overlay.url"
@@ -196,7 +196,7 @@
         />
 
         <!-- Existing boundary polygon -->
-        <l-polygon
+        <LPolygon
           v-if="boundaryPolygon.length > 0"
           :lat-lngs="boundaryPolygon"
           :color="'#00FF92'"
@@ -208,7 +208,7 @@
         />
 
         <!-- Existing exclusion zones -->
-        <l-polygon
+        <LPolygon
           v-for="zone in exclusionPolygons"
           :key="zone.id"
           :lat-lngs="zone.points"
@@ -222,7 +222,7 @@
         />
 
         <!-- Existing mowing zones -->
-        <l-polygon
+        <LPolygon
           v-for="zone in mowingPolygons"
           :key="zone.id"
           :lat-lngs="zone.points"
@@ -235,7 +235,7 @@
         />
 
         <!-- In-progress polygon (only for polygon edit modes) -->
-        <l-polygon
+        <LPolygon
           v-if="currentPolygonLatLng.length > 0 && (mode === 'boundary' || mode === 'exclusion' || mode === 'mowing')"
           :lat-lngs="currentPolygonLatLng"
           :color="mode === 'boundary' ? '#00FF92' : '#ffb703'"
@@ -245,17 +245,18 @@
         />
 
         <!-- Vertex handles for editing current polygon (hidden in marker mode) -->
-        <l-marker
-          v-for="(pt, idx) in currentPolygon"
-          v-if="mode === 'boundary' || mode === 'exclusion' || mode === 'mowing'"
-          :key="`vtx-${idx}`"
-          :lat-lng="[pt.latitude, pt.longitude]"
-          :draggable="true"
-          @moveend="(e:any) => onVertexMoveEnd(idx, e)"
-        />
+        <template v-if="mode === 'boundary' || mode === 'exclusion' || mode === 'mowing'">
+          <LMarker
+            v-for="(pt, idx) in currentPolygon"
+            :key="`vtx-${idx}`"
+            :lat-lng="[pt.latitude, pt.longitude]"
+            :draggable="true"
+            @moveend="(e:any) => onVertexMoveEnd(idx, e)"
+          />
+        </template>
 
         <!-- Markers -->
-        <l-marker
+        <LMarker
           v-for="m in markers"
           :key="m.marker_id"
           :lat-lng="[m.position.latitude, m.position.longitude]"
@@ -265,14 +266,14 @@
         />
 
         <!-- Live mower location marker -->
-        <l-marker
+        <LMarker
           v-if="mowerLatLng && mowerIcon"
           :lat-lng="mowerLatLng"
           :icon="mowerIcon"
         />
 
         <!-- GPS accuracy circle (approximate with polygon points) -->
-        <l-polygon
+        <LPolygon
           v-if="mowerLatLng && gpsAccuracyMeters && gpsAccuracyMeters > 0 && accuracyCircleLatLngs.length > 0"
           :lat-lngs="accuracyCircleLatLngs"
           :color="'#3399ff'"
@@ -282,14 +283,14 @@
         />
 
         <!-- Coverage plan polyline -->
-        <l-polyline
+        <LPolyline
           v-if="coverageLatLngs.length > 1"
           :lat-lngs="coverageLatLngs"
           :color="'#ffaa00'"
           :weight="2"
           :dash-array="'8 6'"
         />
-      </l-map>
+      </LMap>
       <div v-if="!showTiles" class="offline-overlay">Offline: drawing without tiles</div>
     </div>
 
@@ -305,11 +306,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { LMap, LTileLayer, LMarker, LPolygon } from '@vue-leaflet/vue-leaflet';
 import { LPolyline } from '@vue-leaflet/vue-leaflet';
 import L from 'leaflet';
-// Register Google Mutant plugin (adds L.gridLayer.googleMutant)
+// Bundled (not CDN) so GoogleMutant works offline; registers L.gridLayer.googleMutant
+// as a side effect onto the same L instance leaflet's own bundle exposes via window.L.
+import 'leaflet.gridlayer.googlemutant/dist/Leaflet.GoogleMutant.js';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -317,10 +320,12 @@ import { useWebSocket } from '@/services/websocket';
 import { useMapStore } from '../../stores/map';
 import type { Point } from '../../stores/map';
 import { useToastStore } from '@/stores/toast';
+import { useConfirmStore } from '@/stores/confirm';
 import { shouldUseGoogleProvider, getOsmTileLayer, type TileLayerConfig } from '@/utils/mapProviders';
 
 const mapStore = useMapStore();
 const toast = useToastStore();
+const confirmStore = useConfirmStore();
 
 // Props
 interface Props {
@@ -395,19 +400,6 @@ const tileLayerKey = ref(0);
 const useGlobalLeaflet = computed(() => useGoogleMutant.value);
 const leafletOptions = computed(() => ({ attributionControl: !useGoogleMutant.value }));
 
-function loadScriptOnce(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const existing = Array.from(document.getElementsByTagName('script')).find(s => s.src === src);
-    if (existing) { resolve(); return; }
-    const el = document.createElement('script');
-    el.src = src;
-    el.async = true;
-    el.onload = () => resolve();
-    el.onerror = () => reject(new Error(`Failed to load ${src}`));
-    document.head.appendChild(el);
-  });
-}
-
 async function ensureBaseLayer() {
   await nextTick();
   const map: L.Map | undefined = mapRef.value?.leafletObject as L.Map | undefined;
@@ -460,16 +452,13 @@ async function ensureBaseLayer() {
     return;
   }
 
-  // Load Google JS API using official loader
+  // Load Google JS API using official loader (GoogleMutant itself is bundled,
+  // not CDN-loaded - see the top-of-file import)
   try {
     const { Loader } = await import('@googlemaps/js-api-loader');
     if (!(window as any).google?.maps) {
       const loader = new Loader({ apiKey: String(props.googleApiKey), version: 'weekly' });
       await loader.load();
-    }
-    // Load the Leaflet Google Mutant plugin via CDN to avoid bundler issues
-    if (!(window as any).L?.gridLayer?.googleMutant && !(L as any).gridLayer?.googleMutant) {
-      await loadScriptOnce('https://unpkg.com/leaflet.gridlayer.googlemutant@0.13.5/dist/Leaflet.GoogleMutant.js');
     }
   } catch (e) {
     console.warn('Google Maps JS API failed to load. Falling back to standard tiles.', e)
@@ -484,7 +473,7 @@ async function ensureBaseLayer() {
   const Lref: any = (window as any).L || L;
   
   try {
-    // @ts-ignore plugin augments gridLayer
+    // Lref is `any`; the GoogleMutant plugin augments L.gridLayer at runtime
     googleBaseLayer = Lref.gridLayer.googleMutant({ type: gmType });
     
     // Add error handling for Google Maps tiles
@@ -527,7 +516,11 @@ async function ensureBaseLayer() {
 
 // Live mower marker (GPS position)
 const mowerLatLng = ref<[number, number] | null>(null);
-const mowerIcon = ref<L.Icon | null>(null);
+// shallowRef: Leaflet's Icon has internal (protected) state that Vue's deep ref-unwrapping
+// strips down to a structural type, breaking assignability back to L.Icon. We only ever
+// swap the whole icon, never mutate its fields, so shallow reactivity is also the correct
+// semantics here, not just the type fix.
+const mowerIcon = shallowRef<L.Icon | null>(null);
 const firstLockCentered = ref(false);
 const followMower = ref(false);
 const gpsAccuracyMeters = ref<number | null>(null);
@@ -540,13 +533,13 @@ const snapToBoundary = ref(false);
 // Derived geometry from store
 const boundaryPolygon = computed(() => {
   const bz = mapStore.configuration?.boundary_zone;
-  return bz?.polygon?.map(p => [p.latitude, p.longitude]) || [];
+  return bz?.polygon?.map((p): [number, number] => [p.latitude, p.longitude]) || [];
 });
 
 const exclusionPolygons = computed(() => {
   return (mapStore.configuration?.exclusion_zones || []).map(z => ({
     id: z.id,
-    points: z.polygon.map(p => [p.latitude, p.longitude])
+    points: z.polygon.map((p): [number, number] => [p.latitude, p.longitude])
   }));
 });
 
@@ -555,11 +548,11 @@ const markers = computed(() => mapStore.configuration?.markers || []);
 const mowingPolygons = computed(() => {
   return (mapStore.configuration?.mowing_zones || []).map(z => ({
     id: z.id,
-    points: z.polygon.map(p => [p.latitude, p.longitude])
+    points: z.polygon.map((p): [number, number] => [p.latitude, p.longitude])
   }));
 });
 
-const currentPolygonLatLng = computed(() => currentPolygon.value.map(p => [p.latitude, p.longitude]));
+const currentPolygonLatLng = computed(() => currentPolygon.value.map((p): [number, number] => [p.latitude, p.longitude]));
 
 const isPolygonMode = computed(() => mode.value === 'boundary' || mode.value === 'exclusion' || mode.value === 'mowing');
 const showPolygonToolbar = computed(() => isPolygonMode.value && currentPolygon.value.length > 0 && !props.pickForPin);
@@ -583,15 +576,17 @@ const loadingMessage = computed(() => {
 });
 
 // Methods
-function markerDivIcon(m: any) {
+function markerDivIcon(m: any): L.Icon<L.IconOptions> {
   const emoji = m.marker_type === 'home' ? '🏠' : m.marker_type === 'am_sun' ? '☀️' : m.marker_type === 'pm_sun' ? '🌅' : '📍'
   const cls = `lb-marker ${m.marker_type}`
+  // @vue-leaflet/vue-leaflet's <l-marker :icon> prop is typed as L.Icon<L.IconOptions>
+  // only, but Leaflet's real Marker.options.icon accepts Icon | DivIcon at runtime.
   return L.divIcon({
     className: cls,
     html: `<span>${emoji}</span>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14]
-  })
+  }) as unknown as L.Icon<L.IconOptions>
 }
 
 function setMode(newMode: 'view' | 'boundary' | 'exclusion' | 'mowing' | 'marker') {
@@ -627,10 +622,10 @@ async function deleteEditingZone() {
   const zoneId = editingZoneId.value;
   try {
     if (mode.value === 'mowing') {
-      if (!confirm('Delete this mowing zone?')) return;
+      if (!(await confirmStore.ask('Delete this mowing zone?'))) return;
       mapStore.removeMowingZone(zoneId);
     } else if (mode.value === 'exclusion') {
-      if (!confirm('Delete this exclusion zone?')) return;
+      if (!(await confirmStore.ask('Delete this exclusion zone?'))) return;
       mapStore.removeExclusionZone(zoneId);
     } else {
       return;
@@ -730,8 +725,9 @@ async function saveChanges() {
       successMessage.value = null;
     }, 3000);
   } catch (e: any) {
-    error.value = mapStore.error || e?.message || 'Failed to save changes';
-    toast.show(error.value, 'error', 4000)
+    const message = mapStore.error || e?.message || 'Failed to save changes';
+    error.value = message;
+    toast.show(message, 'error', 4000)
   }
 }
 
@@ -741,10 +737,6 @@ const emit = defineEmits<{
   (e: 'saved'): void;
   (e: 'pinPicked', coords: { latitude: number; longitude: number }): void;
 }>();
-
-function emitModeChange() {
-  emit('modeChanged', mode.value);
-}
 
 function onMapClick(e: any) {
   const { latlng } = e;
@@ -1111,7 +1103,7 @@ onMounted(async () => {
     // Connect to telemetry and track navigation updates
     const { connect, subscribe } = useWebSocket('telemetry');
     await connect();
-    subscribe('telemetry.navigation', (payload: any) => {
+    subscribe('telemetry.navigation', (payload) => {
       const pos = payload?.position;
       const lat = Number(pos?.latitude)
       const lon = Number(pos?.longitude)

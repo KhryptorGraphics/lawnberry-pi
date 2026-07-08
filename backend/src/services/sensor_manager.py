@@ -6,10 +6,12 @@ Hardware sensor interfaces with I2C/UART coordination and validation
 import asyncio
 import logging
 import math
+import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+from ..core.simulation import is_simulation_mode
 from ..models import (
     ComponentId,
     ComponentStatus,
@@ -31,6 +33,34 @@ from ..models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _sim() -> bool:
+    return is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
+
+
+def _i2c_ack(bus: int | None, addresses: list[int]) -> bool:
+    """Return True if any address ACKs on the I2C bus (device physically present).
+
+    A read-only presence probe so sensor status reflects wired-and-responding
+    hardware, not merely 'driver init did not raise'. In SIM_MODE this returns
+    True (dev/CI stays green); if smbus2 or the bus is unavailable it returns
+    False (report the device offline rather than fake online).
+    """
+    if _sim():
+        return True
+    try:
+        from smbus2 import SMBus  # type: ignore
+    except Exception:
+        return False
+    for addr in addresses:
+        try:
+            with SMBus(1 if bus is None else int(bus)) as smb:
+                smb.read_byte(int(addr))
+            return True
+        except Exception:
+            continue
+    return False
 
 
 class SensorCoordinator:
@@ -153,11 +183,11 @@ class IMUSensorInterface:
             if self._driver is not None:
                 await self._driver.initialize()
                 await self._driver.start()
-                self.status = SensorStatus.ONLINE
-                return True
-            else:
-                self.status = SensorStatus.ONLINE
-                return True
+            # BNO085 lives on I2C at 0x4a/0x4b; the driver is a sim stub that
+            # never reads real hardware, so confirm presence on the bus directly.
+            detected = _i2c_ack(1, [0x4A, 0x4B])
+            self.status = SensorStatus.ONLINE if detected else SensorStatus.OFFLINE
+            return detected
 
         except Exception as e:
             logger.error(f"Failed to initialize IMU: {e}")
@@ -233,11 +263,16 @@ class ToFSensorInterface:
                 await self._right.initialize()
                 await self._left.start()
                 await self._right.start()
-                self.status = SensorStatus.ONLINE
-                return True
+                bus = getattr(self._left, "_i2c_bus", 1)
+                addrs = [
+                    getattr(self._left, "_i2c_address", 0x29),
+                    getattr(self._right, "_i2c_address", 0x30),
+                ]
+                detected = _i2c_ack(bus, addrs)
             else:
-                self.status = SensorStatus.ONLINE
-                return True
+                detected = _sim()
+            self.status = SensorStatus.ONLINE if detected else SensorStatus.OFFLINE
+            return detected
 
         except Exception as e:
             logger.error(f"Failed to initialize ToF sensors: {e}")
@@ -299,11 +334,13 @@ class EnvironmentalSensorInterface:
             if self._driver is not None:
                 await self._driver.initialize()
                 await self._driver.start()
-                self.status = SensorStatus.ONLINE
-                return True
+                bus = getattr(self._driver, "_bus_num", 1)
+                addr = getattr(self._driver, "_address", 0x76)
+                detected = _i2c_ack(bus, [addr, 0x77])
             else:
-                self.status = SensorStatus.ONLINE
-                return True
+                detected = _sim()
+            self.status = SensorStatus.ONLINE if detected else SensorStatus.OFFLINE
+            return detected
 
         except Exception as e:
             logger.error(f"Failed to initialize BME280: {e}")
@@ -397,8 +434,18 @@ class PowerSensorInterface:
                     "Failed to initialize power driver %s: %s", driver.__class__.__name__, exc
                 )
 
-        self.status = SensorStatus.ONLINE if any_success else SensorStatus.ERROR
-        return any_success
+        # A missing INA3221 can be swallowed during init; when it is configured
+        # it is the primary monitor, so require it to ACK on the bus. A BLE-only
+        # Victron rig (no INA) can't be cheaply probed here, so fall back to
+        # whether its driver started.
+        detected = any_success
+        if self._ina_driver is not None:
+            cfg = getattr(self._ina_driver, "_cfg", None)
+            bus = getattr(cfg, "bus", 1)
+            addr = getattr(cfg, "address", 0x40)
+            detected = _i2c_ack(bus, [addr])
+        self.status = SensorStatus.ONLINE if detected else SensorStatus.OFFLINE
+        return detected
 
     async def read_power(self) -> PowerReading | None:
         """Read power monitoring data"""
@@ -694,11 +741,19 @@ class UltrasonicSensorInterface:
             if self._driver is not None:
                 await self._driver.initialize()
                 await self._driver.start()
-                self.status = SensorStatus.ONLINE
-                return True
+                if _sim():
+                    detected = True
+                else:
+                    # HC-SR04 has no bus identity: presence = a valid echo.
+                    try:
+                        readings = await self._driver.read_all()
+                        detected = any(getattr(r, "valid", False) for r in readings)
+                    except Exception:
+                        detected = False
             else:
-                self.status = SensorStatus.ONLINE
-                return True
+                detected = _sim()
+            self.status = SensorStatus.ONLINE if detected else SensorStatus.OFFLINE
+            return detected
         except Exception as e:
             logger.error(f"Failed to initialize ultrasonic sensors: {e}")
             self.status = SensorStatus.ERROR
@@ -835,8 +890,12 @@ class SensorManager:
 
         logger.info(f"Sensor initialization: {success_count}/{total_sensors} successful")
 
-        # Consider initialized if at least core sensors are working
-        self.initialized = success_count >= 3
+        # "initialized" means the manager ran its init sequence — every interface
+        # now holds a definite status. Physical presence is reported per-sensor
+        # (a wired count feeds nothing here). Gating on success_count>=3 would
+        # flip to False when hardware is missing and make the /health probe
+        # re-initialize (re-opening the camera) on every call → timeouts.
+        self.initialized = True
         return self.initialized
 
     async def read_all_sensors(self) -> SensorData:

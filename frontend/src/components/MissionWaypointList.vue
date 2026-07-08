@@ -2,18 +2,29 @@
   <div class="waypoint-list">
     <div class="header-row">
       <h2>Waypoints</h2>
-      <div class="list-actions" v-if="missionStore.waypoints.length">
+      <div v-if="missionStore.waypoints.length" class="list-actions">
         <button class="btn btn-xs" @click="undoLast">Undo last</button>
         <button class="btn btn-xs btn-danger" @click="clearAll">Clear all</button>
       </div>
     </div>
-    <Draggable v-model="localWaypoints" item-key="id" @end="onDragEnd">
+    <Draggable
+      v-model="localWaypoints"
+      tag="ul"
+      item-key="id"
+      @end="onDragEnd"
+    >
       <template #item="{ element: waypoint, index }">
         <li class="waypoint-item">
           <span>Waypoint {{ index + 1 }}: ({{ waypoint.lat.toFixed(4) }}, {{ waypoint.lon.toFixed(4) }})</span>
           <div class="waypoint-controls">
-            <label>Blade On: <input type="checkbox" v-model="waypoint.blade_on" @change="updateWaypoint(waypoint)"></label>
-            <label>Speed: <input type="range" min="0" max="100" v-model.number="waypoint.speed" @change="updateWaypoint(waypoint)"> {{ waypoint.speed }}%</label>
+            <label>Blade On: <input v-model="waypoint.blade_on" type="checkbox" @change="updateWaypoint(waypoint)"></label>
+            <label>Speed: <input
+              v-model.number="waypoint.speed"
+              type="range"
+              min="0"
+              max="100"
+              @change="updateWaypoint(waypoint)"
+            > {{ waypoint.speed }}%</label>
             <button @click="removeWaypoint(waypoint.id)">Remove</button>
           </div>
         </li>
@@ -30,8 +41,10 @@ import { ref, watch } from 'vue';
 import { useMissionStore } from '@/stores/mission';
 import type { Waypoint } from '@/stores/mission';
 import { VueDraggableNext as Draggable } from 'vue-draggable-next';
+import { useConfirmStore } from '@/stores/confirm';
 
 const missionStore = useMissionStore();
+const confirmStore = useConfirmStore();
 const localWaypoints = ref([...missionStore.waypoints]);
 
 watch(() => missionStore.waypoints, (newWaypoints) => {
@@ -50,8 +63,8 @@ const onDragEnd = () => {
   missionStore.reorderWaypoints(localWaypoints.value);
 };
 
-function clearAll() {
-  if (missionStore.waypoints.length && confirm('Clear all waypoints?')) {
+async function clearAll() {
+  if (missionStore.waypoints.length && await confirmStore.ask('Clear all waypoints?')) {
     missionStore.clearWaypoints();
   }
 }

@@ -24,6 +24,23 @@ test.describe('Manual control access', () => {
     expect(backend.emergencyCalls).toHaveLength(1)
   })
 
+  test('stays locked when the unlock endpoint fails (fail-closed)', async ({ page }) => {
+    const backend = new MockBackend()
+    backend.setManualUnlockFailure(404)
+    backend.setWebSocketScript([{ message: { event: 'connection.established', client_id: 'control-client' } }])
+
+    await launchApp(page, backend, '/control')
+
+    await expect(page.getByText('Control Access Required')).toBeVisible()
+    await page.getByLabel('Confirm Password').fill('admin')
+    await page.getByRole('button', { name: 'Unlock Control' }).click()
+
+    // Fail-closed: an unlock error must never grant control access.
+    await expect(page.getByText(/unlock is unavailable/i)).toBeVisible()
+    await expect(page.getByText('Control Access Required')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Movement Controls' })).not.toBeVisible()
+  })
+
   test('raises safety lockout when drive command is blocked', async ({ page }) => {
     const backend = new MockBackend()
     backend.setDriveResult({ result: 'blocked', status_reason: 'SAFETY_LOCKOUT' })

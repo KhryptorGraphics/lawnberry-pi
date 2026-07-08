@@ -81,7 +81,9 @@ const router = createRouter({
 
 // Navigation guard for authentication
 router.beforeEach(async (to, from, next) => {
-  try { (window as any).__TopProgress?.start() } catch {}
+  try { (window as any).__TopProgress?.start() } catch {
+    // ignore: TopProgress may not be mounted yet
+  }
   const authStore = useAuthStore()
   
   // Check if route requires authentication
@@ -115,7 +117,9 @@ router.beforeEach(async (to, from, next) => {
 })
 
 router.afterEach(() => {
-  try { (window as any).__TopProgress?.done() } catch {}
+  try { (window as any).__TopProgress?.done() } catch {
+    // ignore: TopProgress may not be mounted yet
+  }
 })
 
 export default router

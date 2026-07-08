@@ -5,7 +5,7 @@
       <div class="actions">
         <button class="btn" @click="refreshNow">Refresh</button>
         <label class="poll-label">
-          <input type="checkbox" v-model="autoRefresh" /> Auto-refresh
+          <input v-model="autoRefresh" type="checkbox"> Auto-refresh
         </label>
       </div>
     </div>
@@ -29,15 +29,15 @@
         <div class="kv"><span>RTK status</span><strong :class="statusClass(gps?.rtk_status)">{{ gps?.rtk_status || 'unknown' }}</strong></div>
         <div class="kv"><span>HDOP</span><span>{{ fmtNum(gps?.last_hdop) }}</span></div>
         <div class="kv"><span>Satellites</span><span>{{ gps?.satellites ?? '—' }}</span></div>
-        <div class="kv" v-if="gps?.reading">
+        <div v-if="gps?.reading" class="kv">
           <span>Lat, Lon</span>
           <code>{{ fmtNum(gps.reading.latitude) }}, {{ fmtNum(gps.reading.longitude) }}</code>
         </div>
-        <div class="kv" v-if="gps?.reading">
+        <div v-if="gps?.reading" class="kv">
           <span>Altitude</span>
           <span>{{ fmtNum(gps.reading.altitude) }} m</span>
         </div>
-        <div class="kv" v-if="gps?.reading">
+        <div v-if="gps?.reading" class="kv">
           <span>Accuracy</span>
           <span>{{ fmtNum(gps.reading.accuracy) }} m</span>
         </div>
@@ -62,23 +62,24 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useApiService } from '@/services/api'
+import type { NtripStats, RtkGpsBlock, RtkHardwareBlock, RtkDiagnosticsResponse } from '@/types/rtk'
 
 const api = useApiService()
-const ntrip = ref<any | null>(null)
-const gps = ref<any | null>(null)
+const ntrip = ref<NtripStats | null>(null)
+const gps = ref<RtkGpsBlock | null>(null)
 const nmea = ref<Record<string, string> | null>(null)
-const hardware = ref<any | null>(null)
+const hardware = ref<RtkHardwareBlock | null>(null)
 const autoRefresh = ref(true)
-let timer: any = null
+let timer: ReturnType<typeof setInterval> | null = null
 
 async function load() {
   try {
-    const resp = await api.get('/api/v2/sensors/gps/rtk/diagnostics')
-    const data = resp?.data || {}
-    ntrip.value = data.ntrip || null
-    gps.value = data.gps || null
-    nmea.value = (data.gps && data.gps.nmea) ? data.gps.nmea : null
-    hardware.value = data.hardware || null
+    const resp = await api.get<RtkDiagnosticsResponse>('/api/v2/sensors/gps/rtk/diagnostics')
+    const data = resp?.data
+    ntrip.value = data?.ntrip || null
+    gps.value = data?.gps || null
+    nmea.value = data?.gps?.nmea ?? null
+    hardware.value = data?.hardware || null
   } catch (e) {
     // non-fatal for UI; keep last seen
   }
@@ -95,26 +96,26 @@ onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 
-function fmtBool(v: any) { return v ? 'yes' : 'no' }
-function fmtNum(v: any) { return (v === null || v === undefined) ? '—' : Number(v).toFixed(3) }
-function formatRate(bps: any) {
+function fmtBool(v: boolean | null | undefined) { return v ? 'yes' : 'no' }
+function fmtNum(v: number | null | undefined) { return (v === null || v === undefined) ? '—' : Number(v).toFixed(3) }
+function formatRate(bps: number | null | undefined) {
   if (bps === null || bps === undefined) return '—'
   const val = Number(bps)
   if (!isFinite(val)) return '—'
   if (val > 1000) return (val/1000).toFixed(1) + ' kB/s'
   return val.toFixed(0) + ' B/s'
 }
-function formatBytes(b: any) {
+function formatBytes(b: number | null | undefined) {
   const val = Number(b || 0)
   if (val > 1024*1024) return (val/1024/1024).toFixed(1) + ' MB'
   if (val > 1024) return (val/1024).toFixed(1) + ' KB'
   return val.toFixed(0) + ' B'
 }
-function formatSeconds(s: any) {
+function formatSeconds(s: number | null | undefined) {
   if (s === null || s === undefined) return '—'
   return Number(s).toFixed(1) + ' s'
 }
-function statusClass(s: string | undefined) {
+function statusClass(s: string | null | undefined) {
   if (!s) return ''
   if (s.includes('FIXED')) return 'ok'
   if (s.includes('FLOAT')) return 'warn'

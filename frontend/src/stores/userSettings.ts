@@ -47,7 +47,7 @@ const migratePreferences = (loadedPrefs: any): UserPreferences => {
 };
 
 export const useUserSettingsStore = defineStore('userSettings', () => {
-  const preferences = ref<UserPreferences>(defaultPreferences);
+  const preferences = ref<UserPreferences>({ ...defaultPreferences });
 
   const loadPreferences = () => {
     try {
@@ -57,12 +57,12 @@ export const useUserSettingsStore = defineStore('userSettings', () => {
         preferences.value = migratePreferences(parsedPrefs);
       } else {
         // No stored settings, use defaults
-        preferences.value = defaultPreferences;
+        preferences.value = { ...defaultPreferences };
       }
     } catch (error) {
       console.error('Failed to load user preferences:', error);
       // Fallback to defaults in case of error
-      preferences.value = defaultPreferences;
+      preferences.value = { ...defaultPreferences };
     }
   };
 
@@ -90,7 +90,7 @@ export const useUserSettingsStore = defineStore('userSettings', () => {
   };
 
   const resetPreferences = () => {
-    preferences.value = defaultPreferences;
+    preferences.value = { ...defaultPreferences };
     savePreferences();
   };
 

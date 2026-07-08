@@ -332,34 +332,6 @@ describe('Map Store', () => {
     })
   })
 
-  describe('triggerProviderFallback', () => {
-    it('triggers fallback to Leaflet', async () => {
-      const store = useMapStore()
-      store.configuration = createConfig()
-
-      mockedApi.post.mockResolvedValue({
-        data: { success: true, new_provider: 'osm', message: 'Switched to OSM' },
-      })
-
-      const result = await store.triggerProviderFallback()
-
-      expect(mockedApi.post).toHaveBeenCalledWith('/api/v2/map/provider-fallback')
-      expect(result).toEqual({ success: true, new_provider: 'osm', message: 'Switched to OSM' })
-      expect(store.providerFallbackActive).toBe(true)
-      expect(store.configuration!.provider).toBe('osm')
-    })
-
-    it('handles fallback errors', async () => {
-      const store = useMapStore()
-      const error = new Error('Fallback failed')
-
-      mockedApi.post.mockRejectedValue(error)
-
-      await expect(store.triggerProviderFallback()).rejects.toThrow('Fallback failed')
-      expect(store.error).toBe('Fallback failed')
-    })
-  })
-
   describe('computed properties', () => {
     it('hasUnsavedChanges returns true when dirty', () => {
       const store = useMapStore()

@@ -1,11 +1,11 @@
 <template>
-  <div class="top-progress" v-show="visible">
+  <div v-show="visible" class="top-progress">
     <div class="bar" :style="{ width: width + '%' }" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onUnmounted } from 'vue'
 
 const visible = ref(false)
 const width = ref(0)
@@ -27,7 +27,7 @@ function done() {
 }
 
 // Expose control for router hooks
-// @ts-ignore
+// @ts-expect-error - window.__TopProgress is not part of the lib.dom Window type
 window.__TopProgress = { start, done }
 
 onUnmounted(() => { if (timer) window.clearInterval(timer) })

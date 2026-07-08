@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { settingsApi } from '@/composables/useApi'
+import { settingsApi } from '@/services/api'
 
 type UnitSystem = 'metric' | 'imperial'
 

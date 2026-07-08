@@ -5,8 +5,6 @@
       <p class="text-muted">Autonomous inference control, model deployment, and live metrics</p>
     </div>
 
-    <p v-if="statusMessage" class="status-banner" :class="statusOk ? 'ok' : 'err'">{{ statusMessage }}</p>
-
     <div class="ai-grid">
       <!-- Autonomous AI control -->
       <div class="card">
@@ -141,6 +139,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useApiService } from '@/services/api'
+import { useToastStore } from '@/stores/toast'
 import MetricWidget from '@/components/MetricWidget.vue'
 
 interface AIStatus {
@@ -185,16 +184,11 @@ const health = ref<AIHealth | null>(null)
 const datasets = ref<Dataset[]>([])
 const modelPath = ref('')
 const busy = ref(false)
-const statusMessage = ref('')
-const statusOk = ref(true)
+const toast = useToastStore()
 let timer: ReturnType<typeof setInterval> | null = null
 
 function notify(msg: string, ok = true) {
-  statusMessage.value = msg
-  statusOk.value = ok
-  setTimeout(() => {
-    if (statusMessage.value === msg) statusMessage.value = ''
-  }, 4000)
+  toast.show(msg, ok ? 'success' : 'error')
 }
 function yn(v: boolean | undefined) {
   return v == null ? '—' : v ? 'Yes' : 'No'
@@ -328,9 +322,6 @@ onUnmounted(() => {
 .ai-view { padding: 0; }
 .page-header { margin-bottom: 1.5rem; }
 .page-header h1 { margin-bottom: 0.25rem; }
-.status-banner { padding: 0.6rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-weight: 600; }
-.status-banner.ok { background: #d1f7e0; color: #0c7a43; }
-.status-banner.err { background: #fde2e1; color: #b42318; }
 .ai-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

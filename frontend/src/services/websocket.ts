@@ -1,12 +1,16 @@
 import { ref, onUnmounted } from 'vue'
+import type { TelemetryTopicPayloadMap } from '@/types/telemetry'
 
 export interface WebSocketMessage {
   event: string
   topic?: string
   timestamp: string
-  data?: any
+  data?: unknown
   client_id?: string
 }
+
+let lastWsErrorLogAt = 0
+let lastReconnectLogAt = 0
 
 export class WebSocketService {
   private ws: WebSocket | null = null
@@ -60,7 +64,7 @@ export class WebSocketService {
   }
 
   connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, _reject) => {
       const tryConnect = () => {
         const base = this.urlCandidates[this.urlIndex] || this.urlCandidates[0]
         const target = this.appendToken(base)
@@ -104,16 +108,10 @@ export class WebSocketService {
         
           this.ws.onerror = (error) => {
             // Reduce console noise by rate-limiting error logs
-            try {
-              ;(window as any).__ws_last_err ||= 0
-              const now = Date.now()
-              if (now - (window as any).__ws_last_err > 15000) {
-                console.error('WebSocket error:', error)
-                ;(window as any).__ws_last_err = now
-              }
-            } catch {
-              // Fallback if window guard fails
+            const now = Date.now()
+            if (now - lastWsErrorLogAt > 15000) {
               console.error('WebSocket error:', error)
+              lastWsErrorLogAt = now
             }
             this.stopHeartbeat()
             // Try alternate candidate once before giving up initial connect
@@ -191,15 +189,10 @@ export class WebSocketService {
       const backoff = this.reconnectDelay * this.reconnectAttempts
       const jitter = Math.floor(Math.random() * 250)
       // Throttle reconnection log chatter
-      try {
-        ;(window as any).__ws_last_reconnect_log ||= 0
-        const now = Date.now()
-        if (now - (window as any).__ws_last_reconnect_log > 10000) {
-          console.log(`Attempting to reconnect... (#${this.reconnectAttempts}) in ${backoff + jitter}ms`)
-          ;(window as any).__ws_last_reconnect_log = now
-        }
-      } catch {
-        // best-effort
+      const now = Date.now()
+      if (now - lastReconnectLogAt > 10000) {
+        console.log(`Attempting to reconnect... (#${this.reconnectAttempts}) in ${backoff + jitter}ms`)
+        lastReconnectLogAt = now
       }
 
       // Only rotate if previous attempt failed immediately (onerror). If connection existed, keep same index.
@@ -230,6 +223,11 @@ export class WebSocketService {
     }
   }
 
+  onTopic<K extends keyof TelemetryTopicPayloadMap>(
+    topic: K,
+    callback: (data: TelemetryTopicPayloadMap[K]) => void
+  ): void
+  onTopic(topic: string, callback: (data: unknown) => void): void
   onTopic(topic: string, callback: (data: any) => void) {
     if (!this.listeners.has(topic)) {
       this.listeners.set(topic, [])
@@ -246,6 +244,11 @@ export class WebSocketService {
     }
   }
 
+  offTopic<K extends keyof TelemetryTopicPayloadMap>(
+    topic: K,
+    callback?: (data: TelemetryTopicPayloadMap[K]) => void
+  ): void
+  offTopic(topic: string, callback?: (data: unknown) => void): void
   offTopic(topic: string, callback?: (data: any) => void) {
     if (callback) {
       const topicListeners = this.listeners.get(topic)
@@ -339,12 +342,8 @@ export class WebSocketService {
   }
 }
 
-// Global WebSocket service instance
-let wsService: WebSocketService | null = null
-
-
 // Factory for telemetry or control WebSocket
-export function useWebSocket(type: 'telemetry' | 'control' = 'telemetry', handlers?: { onMessage?: (msg: any) => void }) {
+export function useWebSocket(type: 'telemetry' | 'control' = 'telemetry') {
   let wsUrl: string
   // If behind a reverse proxy, honor X-Forwarded-Proto via location.protocol
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -390,22 +389,27 @@ export function useWebSocket(type: 'telemetry' | 'control' = 'telemetry', handle
     connected.value = false
   }
 
-  const subscribe = (topic: string, callback: (data: any) => void) => {
+  type SubscribeFn = {
+    <K extends keyof TelemetryTopicPayloadMap>(
+      topic: K,
+      callback: (data: TelemetryTopicPayloadMap[K]) => void
+    ): () => void
+    (topic: string, callback: (data: unknown) => void): () => void
+  }
+  const subscribe: SubscribeFn = (topic: any, callback: any) => {
     wsService.onTopic(topic, callback)
+    return () => wsService.offTopic(topic, callback)
   }
 
-  const unsubscribe = (topic: string, callback?: (data: any) => void) => {
+  type UnsubscribeFn = {
+    <K extends keyof TelemetryTopicPayloadMap>(
+      topic: K,
+      callback?: (data: TelemetryTopicPayloadMap[K]) => void
+    ): void
+    (topic: string, callback?: (data: unknown) => void): void
+  }
+  const unsubscribe: UnsubscribeFn = (topic: any, callback?: any) => {
     wsService.offTopic(topic, callback)
-  }
-
-  // Listen for all messages if handler provided
-  if (handlers?.onMessage) {
-    // Patch handleMessage to call onMessage
-    const origHandleMessage = (wsService as any).handleMessage?.bind(wsService)
-    ;(wsService as any).handleMessage = function(message: any) {
-      handlers.onMessage!(message)
-      if (origHandleMessage) origHandleMessage(message)
-    }
   }
 
   onUnmounted(() => {

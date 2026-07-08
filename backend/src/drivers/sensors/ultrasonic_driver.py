@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ...core.simulation import is_simulation_mode
-from ..base import HardwareDriver
+from ..base import HardwareDriver, open_gpiochip
 
 # Lazy import for GPIO libraries
 _lgpio = None
@@ -117,7 +117,7 @@ class UltrasonicDriver(HardwareDriver):
         # Try lgpio first (preferred for Pi 5)
         if _lgpio is not None:
             try:
-                self._gpio_handle = _lgpio.gpiochip_open(0)
+                self._gpio_handle = open_gpiochip(_lgpio)
                 for _, pins in self.SENSORS.items():
                     # Set TRIG as output
                     _lgpio.gpio_claim_output(self._gpio_handle, pins["trig"], 0)

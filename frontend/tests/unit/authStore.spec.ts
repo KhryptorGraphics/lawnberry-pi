@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 
+// Escape the global @/services/api stub (tests/vitest.setup.ts) — this test needs the
+// real authApi object so it can mutate its methods in place.
+vi.mock('@/services/api', async (importOriginal) => importOriginal())
+
 type RefreshResponse = {
   access_token: string
   token: string
@@ -49,7 +53,7 @@ const clearAuthApiMocks = () => {
 
 beforeAll(async () => {
   globalThis.localStorage = localStorageMock as unknown as Storage
-  useApiModule = await import('../../src/composables/useApi')
+  useApiModule = await import('../../src/services/api')
   originalAuthApi = { ...useApiModule.authApi }
   const module = await import('../../src/stores/auth')
   useAuthStore = module.useAuthStore

@@ -6,90 +6,19 @@
     </div>
 
     <!-- Security Gate -->
-    <div v-if="!isControlUnlocked" class="security-gate">
-      <div class="card security-card">
-        <div class="card-header">
-          <h3>🔒 Control Access Required</h3>
-        </div>
-        <div class="card-body">
-          <div class="security-info">
-            <p>Manual control access requires additional authentication based on your security level:</p>
-            <div class="security-level">
-              <strong>Current Security Level:</strong> 
-              <span class="level-badge" :class="`level-${securityConfig.auth_level}`">
-                {{ formatSecurityLevel(securityConfig.auth_level) }}
-              </span>
-            </div>
-          </div>
-
-          <!-- Authentication Methods -->
-          <div class="auth-methods">
-            <!-- Password Verification -->
-            <div v-if="securityConfig.auth_level === 'password'" class="auth-method">
-              <label for="control-auth-password">Confirm Password</label>
-              <input 
-                id="control-auth-password"
-                v-model="authForm.password"
-                type="password" 
-                class="form-control"
-                placeholder="Enter your password"
-                @keyup.enter="authenticateControl"
-              >
-            </div>
-
-            <!-- TOTP Verification -->
-            <div v-else-if="securityConfig.auth_level === 'totp'" class="auth-method">
-              <label for="control-auth-totp">Enter TOTP Code</label>
-              <input 
-                id="control-auth-totp"
-                v-model="authForm.totpCode"
-                type="text" 
-                class="form-control totp-input"
-                placeholder="000000"
-                maxlength="6"
-                @keyup.enter="authenticateControl"
-              >
-              <small class="form-text text-muted">
-                Use your authenticator app (Google Authenticator, Authy, etc.)
-              </small>
-            </div>
-
-            <!-- Google Auth -->
-            <div v-else-if="securityConfig.auth_level === 'google'" class="auth-method">
-              <button class="btn btn-google" @click="authenticateWithGoogle">
-                <span class="google-icon">🔑</span>
-                Authenticate with Google
-              </button>
-            </div>
-
-            <!-- Cloudflare Tunnel Auth -->
-            <div v-else-if="securityConfig.auth_level === 'cloudflare'" class="auth-method">
-              <div class="info-panel">
-                <p>Authentication is handled by Cloudflare Access.</p>
-                <p>You should already be authenticated if accessing via Cloudflare tunnel.</p>
-              </div>
-              <button class="btn btn-primary" @click="verifyCloudflareAuth">
-                Verify Access
-              </button>
-            </div>
-          </div>
-
-          <div v-if="securityConfig.auth_level !== 'cloudflare'" class="auth-actions">
-            <button 
-              class="btn btn-primary" 
-              :disabled="authenticating || !canAuthenticate"
-              @click="authenticateControl"
-            >
-              {{ authenticating ? 'Verifying...' : 'Unlock Control' }}
-            </button>
-          </div>
-
-          <div v-if="authError" class="alert alert-danger">
-            {{ authError }}
-          </div>
-        </div>
-      </div>
-    </div>
+    <SecurityGateCard
+      v-if="!isControlUnlocked"
+      v-model:password="authForm.password"
+      v-model:totp-code="authForm.totpCode"
+      :security-config="securityConfig"
+      :authenticating="authenticating"
+      :can-authenticate="canAuthenticate"
+      :auth-error="authError"
+      :format-security-level="formatSecurityLevel"
+      @authenticate="authenticateControl"
+      @authenticate-google="authenticateWithGoogle"
+      @verify-cloudflare="verifyCloudflareAuth"
+    />
 
     <!-- Main Control Interface (shown when unlocked) -->
     <div v-else class="control-interface">
@@ -130,45 +59,19 @@
       </div>
 
       <!-- Live Camera Feed -->
-      <div class="card">
-        <div class="card-header">
-          <h3>Live Camera Feed</h3>
-        </div>
-        <div class="card-body">
-          <div class="camera-feed" :class="{ 'camera-feed-error': cameraError }">
-            <img
-              v-if="cameraDisplaySource"
-              :src="cameraDisplaySource"
-              alt="Live mower camera feed"
-              class="camera-frame"
-              :class="{ 'camera-frame--stream': cameraIsStreaming }"
-              @load="handleCameraStreamLoad"
-              @error="handleCameraStreamError"
-            >
-            <div v-else class="camera-placeholder">
-              <p>{{ cameraStatusMessage }}</p>
-              <button
-                v-if="cameraError"
-                class="btn btn-sm btn-secondary"
-                @click="retryCameraFeed"
-              >
-                Retry
-              </button>
-            </div>
-            <div class="camera-badge">
-              {{ cameraInfo.mode ? cameraInfo.mode.toUpperCase() : 'OFFLINE' }}
-            </div>
-          </div>
-          <div class="camera-meta">
-            <span :class="{ 'camera-meta-active': cameraInfo.active }">
-              {{ cameraIsStreaming ? 'Streaming' : (cameraInfo.active ? 'Snapshots' : 'Idle') }}
-            </span>
-            <span>FPS: {{ formatCameraFps(cameraInfo.fps) }}</span>
-            <span>Last frame: {{ formatCameraTimestamp(cameraLastFrame) }}</span>
-            <span>Clients: {{ cameraInfo.client_count ?? '0' }}</span>
-          </div>
-        </div>
-      </div>
+      <CameraFeedCard
+        :camera-error="cameraError"
+        :camera-display-source="cameraDisplaySource"
+        :camera-is-streaming="cameraIsStreaming"
+        :camera-status-message="cameraStatusMessage"
+        :camera-info="cameraInfo"
+        :camera-last-frame="cameraLastFrame"
+        :format-camera-fps="formatCameraFps"
+        :format-camera-timestamp="formatCameraTimestamp"
+        @stream-load="handleCameraStreamLoad"
+        @stream-error="handleCameraStreamError"
+        @retry="retryCameraFeed"
+      />
 
       <!-- Movement Controls -->
       <div class="card">
@@ -261,33 +164,7 @@
       </div>
 
       <!-- Live Telemetry -->
-      <div class="card">
-        <div class="card-header">
-          <h3>Live Status</h3>
-        </div>
-        <div class="card-body">
-          <div class="telemetry-grid">
-            <div class="telemetry-item">
-              <label>Battery</label>
-              <div class="value">{{ telemetry.battery?.percentage?.toFixed(1) || 'N/A' }}%</div>
-            </div>
-            <div class="telemetry-item">
-              <label>GPS</label>
-              <div class="value">{{ telemetry.position?.latitude ? 'LOCKED' : 'SEARCHING' }}</div>
-            </div>
-            <div class="telemetry-item">
-              <label>Speed</label>
-              <div class="value">{{ displaySpeed }} {{ speedUnit }}</div>
-            </div>
-            <div class="telemetry-item">
-              <label>Safety</label>
-              <div class="value" :class="`safety-${telemetry.safety_state}`">
-                {{ telemetry.safety_state?.toUpperCase() || 'UNKNOWN' }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <LiveStatusCard :telemetry="telemetry" :display-speed="displaySpeed" :speed-unit="speedUnit" />
     </div>
 
     <!-- Status Messages -->
@@ -313,7 +190,11 @@ import {
 } from '@/services/api'
 import { useToastStore } from '@/stores/toast'
 import { usePreferencesStore } from '@/stores/preferences'
+import type { RoboHATStatus } from '@/types/control'
 import VirtualJoystick from '@/components/ui/VirtualJoystick.vue'
+import SecurityGateCard from '@/components/control/SecurityGateCard.vue'
+import CameraFeedCard from '@/components/control/CameraFeedCard.vue'
+import LiveStatusCard from '@/components/control/LiveStatusCard.vue'
 
 interface ManualControlSecurityConfig {
   auth_level: 'password' | 'totp' | 'google' | 'cloudflare'
@@ -333,7 +214,7 @@ interface ControlTelemetry {
   safety_state?: string
   velocity?: { linear?: { x?: number | null } }
   telemetry_source?: 'hardware' | 'simulated' | 'unknown'
-  camera?: CameraStatusSummary
+  camera?: RoboHATStatus['camera']
 }
 
 interface CameraStatusSummary {
@@ -367,9 +248,7 @@ const { unitSystem } = storeToRefs(preferences)
 // Store-backed state
 const lockout = computed(() => control.lockout)
 const lockoutReason = computed(() => control.lockoutReason)
-const remediationLink = computed(() => control.remediationLink)
 const lastEcho = computed(() => control.lastEcho)
-const isLoading = computed(() => control.isLoading)
 const lastCommandResult = computed(() => control.lastCommandResult)
 
 // Manual control security configuration and authentication state
@@ -447,6 +326,7 @@ interface JoystickHandle {
 }
 
 interface DriveCommandPayload {
+  [key: string]: unknown
   session_id: string
   vector: { linear: number; angular: number }
   duration_ms: number
@@ -1112,12 +992,11 @@ async function authenticateControl() {
     const axiosError = error as AxiosError
     const status = axiosError.response?.status
     if (status === 404 || status === 501) {
-      // Backend fallback not implemented – unlock locally with warning
-      session.value = ensureSession()
-      updateSessionTimer()
-      isControlUnlocked.value = true
-      toast.show('Manual control unlocked locally (offline mode)', 'warning', 4000)
-      showStatus('Manual control unlocked (local mode)', true)
+      // Backend endpoint unavailable – fail closed, do not grant control.
+      const message = 'Manual control unlock is unavailable (backend endpoint missing).'
+      authError.value = message
+      toast.show(message, 'error', 5000)
+      showStatus(message, false)
     } else {
       const message = (axiosError.response?.data as any)?.detail || axiosError.message || 'Authentication failed'
       authError.value = message
@@ -1159,11 +1038,10 @@ async function verifyCloudflareAuth() {
       showStatus('Cloudflare verification failed', false)
     }
   } catch (error) {
-    console.warn('Cloudflare verification failed, falling back to local unlock.', error)
-    session.value = ensureSession()
-    updateSessionTimer()
-    isControlUnlocked.value = true
-    showStatus('Cloudflare Access assumed (offline mode)', true)
+    console.warn('Cloudflare verification failed.', error)
+    const message = 'Cloudflare Access verification failed. Manual control remains locked.'
+    toast.show(message, 'error', 5000)
+    showStatus(message, false)
   }
 }
 
@@ -1541,11 +1419,6 @@ onUnmounted(() => {
   min-height: 60vh;
 }
 
-.security-card {
-  max-width: 500px;
-  width: 100%;
-}
-
 .card {
   background: var(--secondary-dark);
   border: 1px solid var(--primary-light);
@@ -1625,82 +1498,6 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.75);
 }
 
-.security-info {
-  margin-bottom: 2rem;
-}
-
-.security-level {
-  margin-top: 1rem;
-}
-
-.level-badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-weight: 600;
-  font-size: 0.875rem;
-}
-
-.level-password {
-  background: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
-  border: 1px solid #ffc107;
-}
-
-.level-totp {
-  background: rgba(0, 123, 255, 0.2);
-  color: #007bff;
-  border: 1px solid #007bff;
-}
-
-.level-google {
-  background: rgba(220, 53, 69, 0.2);
-  color: #dc3545;
-  border: 1px solid #dc3545;
-}
-
-.level-cloudflare {
-  background: rgba(0, 255, 146, 0.2);
-  color: var(--accent-green);
-  border: 1px solid var(--accent-green);
-}
-
-.auth-methods {
-  margin-bottom: 2rem;
-}
-
-.auth-method {
-  margin-bottom: 1.5rem;
-}
-
-.form-control {
-  width: 100%;
-  padding: 0.75rem;
-  background: var(--primary-dark);
-  border: 1px solid var(--primary-light);
-  border-radius: 4px;
-  color: var(--text-color);
-  font-size: 1rem;
-}
-
-.form-control:focus {
-  outline: none;
-  border-color: var(--accent-green);
-  box-shadow: 0 0 0 2px rgba(0, 255, 146, 0.2);
-}
-
-.totp-input {
-  text-align: center;
-  font-family: monospace;
-  font-size: 1.5rem;
-  letter-spacing: 0.5rem;
-}
-
-.form-text {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  margin-top: 0.25rem;
-}
-
 .btn {
   padding: 0.75rem 1.5rem;
   border: none;
@@ -1733,14 +1530,6 @@ onUnmounted(() => {
 .btn-info {
   background: #17a2b8;
   color: white;
-}
-
-.btn-google {
-  background: #db4437;
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 .btn-emergency {
@@ -1884,113 +1673,6 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
-.camera-feed {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 240px;
-  background: #000;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid var(--primary-light);
-}
-
-.camera-feed-error {
-  border-color: #ff4343;
-}
-
-.camera-frame {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.camera-frame--stream {
-  image-rendering: auto;
-}
-
-.camera-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 0.75rem;
-  padding: 2rem;
-  color: var(--text-muted);
-}
-
-.camera-badge {
-  position: absolute;
-  top: 0.75rem;
-  left: 0.75rem;
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
-  padding: 0.3rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-}
-
-.camera-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-top: 1rem;
-  font-size: 0.875rem;
-  color: var(--text-muted);
-}
-
-.camera-meta-active {
-  color: var(--accent-green);
-}
-
-.telemetry-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 1rem;
-}
-
-.telemetry-item {
-  text-align: center;
-  padding: 1rem;
-  background: var(--primary-dark);
-  border-radius: 4px;
-}
-
-.telemetry-item label {
-  display: block;
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
-}
-
-.telemetry-item .value {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--text-color);
-}
-
-.safety-safe {
-  color: var(--accent-green);
-}
-
-.safety-warning {
-  color: #ffc107;
-}
-
-.safety-danger {
-  color: #ff4343;
-}
-
-.info-panel {
-  background: var(--primary-dark);
-  padding: 1rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-}
-
 .alert {
   padding: 1rem;
   border-radius: 4px;
@@ -2023,10 +1705,6 @@ onUnmounted(() => {
   
   .mowing-controls, .system-controls {
     flex-direction: column;
-  }
-  
-  .telemetry-grid {
-    grid-template-columns: 1fr 1fr;
   }
 }
 </style>

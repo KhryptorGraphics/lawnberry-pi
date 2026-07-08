@@ -18,12 +18,20 @@ export interface Mission {
   created_at: string;
 }
 
+// GET /api/v2/missions/{id}/status (response_model=MissionStatus, backend/src/models/mission.py)
+export interface MissionStatus {
+  mission_id: string;
+  status: string;
+  current_waypoint_index?: number | null;
+  completion_percentage: number;
+}
+
 export const useMissionStore = defineStore('mission', () => {
   const waypoints = ref<Waypoint[]>([]);
   const currentMission = ref<Mission | null>(null);
   const missionStatus = ref(''); // e.g., 'idle', 'running', 'paused'
   const progress = ref(0); // 0-100%
-  let statusPollInterval: any = null;
+  let statusPollInterval: ReturnType<typeof setInterval> | null = null;
 
   const addWaypoint = (lat: number, lon: number) => {
     const newWaypoint: Waypoint = {
@@ -67,7 +75,7 @@ export const useMissionStore = defineStore('mission', () => {
         name,
         waypoints: waypoints.value,
       });
-      currentMission.value = response.data as any;
+      currentMission.value = response.data;
       missionStatus.value = 'idle';
     } catch (error) {
       console.error('Error creating mission:', error);
@@ -75,55 +83,63 @@ export const useMissionStore = defineStore('mission', () => {
   };
 
   const startCurrentMission = async () => {
-    if (!currentMission.value) return;
+    if (!currentMission.value) return false;
     try {
       await apiService.post(`/api/v2/missions/${currentMission.value.id}/start`, {});
       missionStatus.value = 'running';
       startStatusPolling();
+      return true;
     } catch (error) {
       console.error('Error starting mission:', error);
+      return false;
     }
   };
 
   const pauseCurrentMission = async () => {
-    if (!currentMission.value) return;
+    if (!currentMission.value) return false;
     try {
       await apiService.post(`/api/v2/missions/${currentMission.value.id}/pause`, {});
       missionStatus.value = 'paused';
       stopStatusPolling();
+      return true;
     } catch (error) {
       console.error('Error pausing mission:', error);
+      return false;
     }
   };
 
   const resumeCurrentMission = async () => {
-    if (!currentMission.value) return;
+    if (!currentMission.value) return false;
     try {
       await apiService.post(`/api/v2/missions/${currentMission.value.id}/resume`, {});
       missionStatus.value = 'running';
       startStatusPolling();
+      return true;
     } catch (error) {
       console.error('Error resuming mission:', error);
+      return false;
     }
   };
 
   const abortCurrentMission = async () => {
-    if (!currentMission.value) return;
+    if (!currentMission.value) return false;
     try {
       await apiService.post(`/api/v2/missions/${currentMission.value.id}/abort`, {});
       missionStatus.value = 'aborted';
       stopStatusPolling();
       currentMission.value = null;
+      return true;
     } catch (error) {
       console.error('Error aborting mission:', error);
+      return false;
     }
   };
   
   const pollMissionStatus = async () => {
     if (!currentMission.value) return;
     try {
-      const response = await apiService.get(`/api/v2/missions/${currentMission.value.id}/status`);
-      const status: any = response.data;
+      const response = await apiService.get<MissionStatus>(`/api/v2/missions/${currentMission.value.id}/status`);
+      const status = response.data;
       missionStatus.value = status.status;
       progress.value = status.completion_percentage;
       if (status.status === 'completed' || status.status === 'aborted' || status.status === 'failed') {

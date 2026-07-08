@@ -16,10 +16,10 @@
         <BoundaryEditor
           ref="editorRef"
           :map-provider="settings.provider === 'google' ? 'google' : (settings.provider === 'osm' ? 'osm' : 'none')"
-          :map-style="settings.style"
+          :map-style="settings.style === 'satellite' ? 'satellite' : settings.style === 'hybrid' ? 'hybrid' : settings.style === 'terrain' ? 'terrain' : 'standard'"
           :google-api-key="settings.google_api_key"
           :pick-for-pin="pickForPin"
-          @pinPicked="onPinPicked"
+          @pin-picked="onPinPicked"
         />
       </div>
     </div>
@@ -132,7 +132,7 @@
     <div v-if="showPinEditor" class="modal-overlay" @click="closePinEditor">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h3>{{ editingPin ? 'Edit Pin' : 'Add Pin' }}</h3>
+          <h3>{{ editingMarkerId ? 'Edit Pin' : 'Add Pin' }}</h3>
           <button class="btn btn-sm btn-secondary" @click="closePinEditor">✖️</button>
         </div>
         <div class="modal-body">
@@ -153,7 +153,7 @@
 
           <div class="form-group form-switch">
             <label class="toggle-label">
-              <input type="checkbox" v-model="pinForm.isHome">
+              <input v-model="pinForm.isHome" type="checkbox">
               Designate as home location
             </label>
             <small class="form-text text-muted">Home is the default return spot when other conditions are not met.</small>
@@ -207,13 +207,13 @@
             <div class="form-group">
               <label>Time Windows</label>
               <div
-                class="time-window-row"
                 v-for="(window, idx) in pinForm.schedule.windows"
                 :key="`tw-${idx}`"
+                class="time-window-row"
               >
-                <input type="time" class="form-control-sm" v-model="window.start">
+                <input v-model="window.start" type="time" class="form-control-sm">
                 <span>to</span>
-                <input type="time" class="form-control-sm" v-model="window.end">
+                <input v-model="window.end" type="time" class="form-control-sm">
                 <button
                   v-if="pinForm.schedule.windows.length > 1"
                   class="btn btn-xs btn-danger"
@@ -247,15 +247,15 @@
             <div class="form-group">
               <label>Triggers</label>
               <label class="form-check-inline">
-                <input type="checkbox" v-model="pinForm.schedule.triggers.needs_charge">
+                <input v-model="pinForm.schedule.triggers.needs_charge" type="checkbox">
                 Needs charge
               </label>
               <label class="form-check-inline">
-                <input type="checkbox" v-model="pinForm.schedule.triggers.precipitation">
+                <input v-model="pinForm.schedule.triggers.precipitation" type="checkbox">
                 Dry weather
               </label>
               <label class="form-check-inline">
-                <input type="checkbox" v-model="pinForm.schedule.triggers.manual_override">
+                <input v-model="pinForm.schedule.triggers.manual_override" type="checkbox">
                 Manual
               </label>
             </div>
@@ -318,12 +318,14 @@ import { useApiService } from '@/services/api'
 import BoundaryEditor from '@/components/map/BoundaryEditor.vue'
 import { useMapStore } from '@/stores/map'
 import { useToastStore } from '@/stores/toast'
-import type { MarkerSchedule } from '@/stores/map'
+import { useConfirmStore } from '@/stores/confirm'
+import type { MarkerSchedule, MapMarker, Zone } from '@/stores/map'
 
 const api = useApiService()
 const mapStore = useMapStore()
 const toast = useToastStore()
-const editorRef = ref<any>(null)
+const confirmStore = useConfirmStore()
+const editorRef = ref<InstanceType<typeof BoundaryEditor> | null>(null)
 const isE2ETestMode = computed(() => typeof window !== 'undefined' && (window.location.search.includes('e2e=1') || window.location.search.includes('e2e=true')))
 
 // State
@@ -354,14 +356,9 @@ const defaultScheduleForm = (): ScheduleForm => ({
   }
 })
 
-const showApiKey = ref(false)
-const apiStatus = ref<{valid: boolean, message?: string} | null>(null)
-
 // Preview state
 const previewLat = ref(37.7749)
 const previewLon = ref(-122.4194)
-const previewZoom = ref(15)
-const previewError = ref('')
 
 // Pin management state (for add/edit)
 const showPinEditor = ref(false)
@@ -418,13 +415,13 @@ function toMarkerSchedule(form: ScheduleForm): MarkerSchedule | null {
   }
 }
 
-function scheduleFormFromMarker(marker: any): ScheduleForm {
-  const schedule: MarkerSchedule | undefined = marker?.schedule || marker?.metadata?.schedule || null
+function scheduleFormFromMarker(marker: MapMarker): ScheduleForm {
+  const schedule: MarkerSchedule | undefined | null = marker?.schedule || marker?.metadata?.schedule || null
   if (!schedule) {
     return defaultScheduleForm()
   }
   const windows = Array.isArray(schedule.time_windows) && schedule.time_windows.length
-    ? schedule.time_windows.map((w: any) => ({ start: w?.start || '', end: w?.end || '' }))
+    ? schedule.time_windows.map((w) => ({ start: w?.start || '', end: w?.end || '' }))
     : [{ start: '08:00', end: '10:00' }]
   const days = Array.isArray(schedule.days_of_week) ? [...schedule.days_of_week] : []
   const triggers = {
@@ -464,22 +461,22 @@ function isDaySelected(target: ScheduleForm, dayValue: number): boolean {
   return target.days.includes(dayValue)
 }
 
-function summarizeSchedule(marker: any): string | null {
-  const schedule: MarkerSchedule | undefined = marker?.schedule || marker?.metadata?.schedule
+function summarizeSchedule(marker: MapMarker): string | null {
+  const schedule: MarkerSchedule | undefined | null = marker?.schedule || marker?.metadata?.schedule
   if (!schedule) {
     return null
   }
   const parts: string[] = []
   if (Array.isArray(schedule.days_of_week) && schedule.days_of_week.length) {
     const dayLbl = schedule.days_of_week
-      .map((d: number) => daysOfWeek.find(day => day.value === d)?.short || '')
+      .map((d) => daysOfWeek.find(day => day.value === d)?.short || '')
       .filter(Boolean)
       .join(' ')
     if (dayLbl) parts.push(dayLbl)
   }
   if (Array.isArray(schedule.time_windows) && schedule.time_windows.length) {
     const winLbl = schedule.time_windows
-      .map((w: any) => `${w.start ?? ''}-${w.end ?? ''}`.trim())
+      .map((w) => `${w.start ?? ''}-${w.end ?? ''}`.trim())
       .filter(Boolean)
       .join(', ')
     if (winLbl) parts.push(winLbl)
@@ -491,25 +488,6 @@ function summarizeSchedule(marker: any): string | null {
   if (triggerParts.length) parts.push(triggerParts.join(', '))
   return parts.length ? parts.join(' • ') : null
 }
-
-// Computed
-const previewUrl = computed(() => {
-  if (settings.value.provider === 'none') return ''
-  // Only attempt Google preview when we have a key
-  if (settings.value.provider === 'google' && settings.value.google_api_key) {
-    const baseUrl = 'https://maps.googleapis.com/maps/api/staticmap'
-    const params = new URLSearchParams({
-      center: `${previewLat.value},${previewLon.value}`,
-      zoom: previewZoom.value.toString(),
-      size: '400x300',
-      maptype: settings.value.style === 'standard' ? 'roadmap' : settings.value.style,
-      key: settings.value.google_api_key
-    })
-    return `${baseUrl}?${params}`
-  }
-  // For OSM or google-without-key, we skip <img> preview; the editor Leaflet map below is the live preview
-  return ''
-})
 
 // Methods
 async function loadSettings() {
@@ -525,19 +503,6 @@ async function loadSettings() {
   }
 }
 
-
-function onProviderChange() {
-  apiStatus.value = null
-  previewError.value = ''
-}
-
-function onPreviewError() {
-  previewError.value = 'Failed to load map preview'
-}
-
-function onPreviewLoad() {
-  previewError.value = ''
-}
 
 function showStatus(message: string, success: boolean) {
   statusMessage.value = message
@@ -567,9 +532,9 @@ function addPin(_categoryId: string) {
   showPinEditor.value = true
 }
 
-function editMarker(m: any) {
+function editMarker(m: MapMarker) {
   editingMarkerId.value = m.marker_id
-  const isHome = m.marker_type === 'home' || m.is_home
+  const isHome = m.marker_type === 'home' || Boolean(m.is_home)
   const baseType = ['custom', 'am_sun', 'pm_sun'].includes(m.marker_type) ? m.marker_type : 'custom'
   pinForm.value = {
     name: m.label || '',
@@ -584,8 +549,8 @@ function editMarker(m: any) {
   showPinEditor.value = true
 }
 
-async function deleteMarker(m: any) {
-  if (!confirm(`Delete marker "${m.label || m.marker_type}"?`)) return
+async function deleteMarker(m: MapMarker) {
+  if (!(await confirmStore.ask(`Delete marker "${m.label || m.marker_type}"?`))) return
   try {
     mapStore.removeMarker(m.marker_id)
     await mapStore.saveConfiguration()
@@ -596,7 +561,7 @@ async function deleteMarker(m: any) {
   }
 }
 
-function selectMarker(m: any) {
+function selectMarker(m: MapMarker) {
   selectedPinId.value = m.marker_id
   previewLat.value = m.position.latitude
   previewLon.value = m.position.longitude
@@ -615,7 +580,7 @@ async function savePin() {
     if (pinForm.value.isHome) {
       metadata.is_home = true
     }
-    const markerType = pinForm.value.isHome ? 'home' : (pinForm.value.type as any)
+    const markerType = pinForm.value.isHome ? 'home' : (pinForm.value.type as 'custom' | 'am_sun' | 'pm_sun')
     const label = pinForm.value.name || undefined
     if (editingMarkerId.value) {
       mapStore.updateMarker(editingMarkerId.value, {
@@ -710,42 +675,6 @@ function onPinPicked(coords: { latitude: number; longitude: number }) {
   pickForPin.value = false
 }
 
-// Apply the current Pin modal coordinates to the live configuration as a marker
-const applyMarkerType = ref<'home'|'am_sun'|'pm_sun'|'custom'>('home')
-async function applyPinToConfiguration() {
-  try {
-    if (!mapStore.configuration) {
-      await mapStore.loadConfiguration('default')
-    }
-    const schedule = applyMarkerType.value === 'home' ? null : toMarkerSchedule(pinForm.value.schedule)
-    const metadata = schedule
-      ? { schedule: { ...schedule, time_windows: schedule.time_windows.map(w => ({ ...w })) } }
-      : undefined
-    mapStore.addMarker(
-      applyMarkerType.value,
-      { latitude: pinForm.value.lat, longitude: pinForm.value.lon },
-      {
-        label: pinForm.value.name || undefined,
-        metadata,
-        schedule,
-        isHome: applyMarkerType.value === 'home'
-      }
-    )
-    await mapStore.saveConfiguration()
-    showStatus('Marker applied to configuration', true)
-  } catch (e) {
-    showStatus('Failed to apply marker', false)
-  }
-}
-
-// Quick actions: Add polygon zones via the map editor
-function addMowingZoneOnMap() {
-  mapStore.setEditMode('mowing')
-}
-function addExclusionZoneOnMap() {
-  mapStore.setEditMode('exclusion')
-}
-
 function addSyntheticMowingZone() {
   if (!mapStore.configuration) return
   const zoneId = `test-zone-${Date.now().toString(36)}`
@@ -776,7 +705,7 @@ async function saveConfigurationForTest() {
   }
 }
 
-function displayMarkerName(marker: any) {
+function displayMarkerName(marker: MapMarker) {
   if (marker?.label) return marker.label
   const type = String(marker?.marker_type || '')
   if (type === 'home') return 'Home'
@@ -788,8 +717,8 @@ function iconForMarker(type: string) {
   return type === 'home' ? '🏠' : type === 'am_sun' ? '☀️' : type === 'pm_sun' ? '🌅' : '📍'
 }
 
-async function removeMow(z: any) {
-  if (!confirm(`Delete mowing zone "${z.name}"?`)) return
+async function removeMow(z: Zone) {
+  if (!(await confirmStore.ask(`Delete mowing zone "${z.name}"?`))) return
   try {
     mapStore.removeMowingZone(z.id)
     await mapStore.saveConfiguration()
@@ -800,7 +729,7 @@ async function removeMow(z: any) {
   }
 }
 
-async function renameZone(z: any) {
+async function renameZone(z: Zone) {
   const name = prompt('Zone name', z.name)
   if (!name) return
   mapStore.updateZoneName(z.id, name)
@@ -813,8 +742,8 @@ async function renameZone(z: any) {
   }
 }
 
-async function removeExclusion(z: any) {
-  if (!confirm(`Delete exclusion zone "${z.name}"?`)) return
+async function removeExclusion(z: Zone) {
+  if (!(await confirmStore.ask(`Delete exclusion zone "${z.name}"?`))) return
   try {
     mapStore.removeExclusionZone(z.id)
     await mapStore.saveConfiguration()
@@ -825,20 +754,24 @@ async function removeExclusion(z: any) {
   }
 }
 
-function editMarkerOnMap(m: any) {
-  try { editorRef.value?.focusMarker(m.marker_id) } catch {}
+function editMarkerOnMap(m: MapMarker) {
+  // best-effort; editorRef may not be mounted yet or may reject an unknown marker id
+  try { editorRef.value?.focusMarker(m.marker_id) } catch { /* ignore */ }
 }
 
-function editZoneOnMap(z: any) {
-  try { editorRef.value?.editZoneOnMap(z.id, 'mowing') } catch {}
+function editZoneOnMap(z: Zone) {
+  // best-effort; editorRef may not be mounted yet or may reject an unknown zone id
+  try { editorRef.value?.editZoneOnMap(z.id, 'mowing') } catch { /* ignore */ }
 }
 
-function editExclusionOnMap(z: any) {
-  try { editorRef.value?.editZoneOnMap(z.id, 'exclusion') } catch {}
+function editExclusionOnMap(z: Zone) {
+  // best-effort; editorRef may not be mounted yet or may reject an unknown zone id
+  try { editorRef.value?.editZoneOnMap(z.id, 'exclusion') } catch { /* ignore */ }
 }
 
 function editBoundaryOnMap() {
-  try { editorRef.value?.editZoneOnMap('', 'boundary') } catch {}
+  // best-effort; editorRef may not be mounted yet
+  try { editorRef.value?.editZoneOnMap('', 'boundary') } catch { /* ignore */ }
 }
 </script>
 

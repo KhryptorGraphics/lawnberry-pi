@@ -10,259 +10,113 @@
 
     <div class="dashboard-grid">
       <!-- System Status -->
-      <div class="retro-card status-card">
-        <div class="card-header">
-          <h3>◢ SYSTEM STATUS ◣</h3>
-          <div class="status-indicator" :class="systemStatusClass" />
-        </div>
-        <div class="card-content">
-          <div class="status-row">
-            <span class="status-label">UPTIME:</span>
-            <span class="status-value uptime">{{ uptime }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">CONNECTION:</span>
-            <span class="status-value" :class="connectionStatusClass">{{ connectionStatus }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">STATUS:</span>
-            <span class="status-value" :class="systemStatusClass">{{ systemStatus }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">MODE:</span>
-            <span class="status-value">{{ currentMode }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">PROGRESS:</span>
-            <span class="status-value">{{ progress.toFixed(0) }}%</span>
-          </div>
-        </div>
-      </div>
+      <StatusCard
+        :system-status-class="systemStatusClass"
+        :uptime="uptime"
+        :connection-status-class="connectionStatusClass"
+        :connection-status="connectionStatus"
+        :system-status="systemStatus"
+        :current-mode="currentMode"
+        :progress="progress"
+      />
 
       <!-- Power / Battery -->
-      <div class="retro-card power-card">
-        <div class="card-header">
-          <h4>POWER SYSTEM</h4>
-          <div class="power-indicator" :class="batteryIconClass" />
-        </div>
-        <div class="card-content power-content">
-          <div class="battery-panel">
-            <div class="battery-shell" :class="batteryBarClass">
-              <span class="battery-percentage" data-testid="battery-percentage">{{ batteryLevelDisplay }}%</span>
-            </div>
-            <div class="battery-terminal" />
-          </div>
-          <div class="power-metrics">
-            <div class="metric-line">
-              <span class="metric-label">Battery Voltage</span>
-              <span class="metric-value" data-testid="battery-voltage">{{ batteryVoltageDisplay }}V</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Battery Current</span>
-              <span class="metric-value">{{ batteryCurrentDisplay }}A</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Battery Power</span>
-              <span class="metric-value">{{ batteryPowerDisplay }}W</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Battery State</span>
-              <span class="metric-value">{{ batteryChargeStateDisplay }}</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Solar Voltage</span>
-              <span class="metric-value">{{ solarVoltageDisplay }}V</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Solar Current</span>
-              <span class="metric-value">{{ solarCurrentDisplay }}A</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Solar Output</span>
-              <span class="metric-value">{{ solarPowerDisplay }}W</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Solar Yield (Today)</span>
-              <span class="metric-value">{{ solarYieldTodayDisplay }}Wh</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Load State</span>
-              <span class="metric-value">{{ loadStateDisplay }}</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Load Current</span>
-              <span class="metric-value">{{ loadCurrentDisplay }}A</span>
-            </div>
-            <div class="metric-line">
-              <span class="metric-label">Load Power</span>
-              <span class="metric-value">{{ loadPowerDisplay }}W</span>
-            </div>
-          </div>
-        </div>
-        <div class="metric-status solar-status" :class="solarStatusClass">{{ solarStatus }}</div>
-      </div>
+      <PowerCard
+        :battery-icon-class="batteryIconClass"
+        :battery-bar-class="batteryBarClass"
+        :battery-level-display="batteryLevelDisplay"
+        :battery-voltage-display="batteryVoltageDisplay"
+        :battery-current-display="batteryCurrentDisplay"
+        :battery-power-display="batteryPowerDisplay"
+        :battery-charge-state-display="batteryChargeStateDisplay"
+        :solar-voltage-display="solarVoltageDisplay"
+        :solar-current-display="solarCurrentDisplay"
+        :solar-power-display="solarPowerDisplay"
+        :solar-yield-today-display="solarYieldTodayDisplay"
+        :load-state-display="loadStateDisplay"
+        :load-current-display="loadCurrentDisplay"
+        :load-power-display="loadPowerDisplay"
+        :solar-status-class="solarStatusClass"
+        :solar-status="solarStatus"
+      />
 
       <!-- Speed -->
-      <div class="retro-card telemetry-card">
-        <div class="card-header">
-          <h4>VELOCITY</h4>
-          <div class="speed-icon">🚀</div>
-        </div>
-        <div class="card-content">
-          <div class="metric-value" data-testid="speed-value">{{ speedDisplay }} <span class="unit">{{ speedUnit }}</span></div>
-          <div class="speed-trend" :class="speedTrendClass">
-            {{ speedTrend > 0 ? '▲' : speedTrend < 0 ? '▼' : '▬' }} {{ Math.abs(speedTrend) }}%
-          </div>
-        </div>
-      </div>
+      <SpeedCard
+        :speed-display="speedDisplay"
+        :speed-unit="speedUnit"
+        :speed-trend-class="speedTrendClass"
+        :speed-trend="speedTrend"
+      />
 
       <!-- GPS Metrics -->
-      <div class="retro-card telemetry-card gps-card">
-        <div class="card-header">
-          <h4>GPS NAVIGATION</h4>
-          <div class="gps-icon">🧭</div>
-        </div>
-        <div class="card-content gps-content">
-          <div class="gps-status-line" data-testid="gps-status">{{ gpsStatus }}</div>
-          <div class="gps-grid">
-            <div class="gps-metric">
-              <span class="metric-label">Latitude</span>
-              <span class="metric-value">{{ gpsLatitude ?? '--' }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">Longitude</span>
-              <span class="metric-value">{{ gpsLongitude ?? '--' }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">Accuracy</span>
-              <span class="metric-value">{{ gpsAccuracySummary }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">Satellites</span>
-              <span class="metric-value">{{ gpsSatellitesDisplay }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">HDOP</span>
-              <span class="metric-value">{{ gpsHdopDisplay }}</span>
-            </div>
-            <div class="gps-metric">
-              <span class="metric-label">RTK</span>
-              <span class="metric-value">{{ gpsRtkStatus ?? 'N/A' }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      
+      <GpsCard
+        :gps-status="gpsStatus"
+        :gps-latitude="gpsLatitude"
+        :gps-longitude="gpsLongitude"
+        :gps-accuracy-summary="gpsAccuracySummary"
+        :gps-satellites-display="gpsSatellitesDisplay"
+        :gps-hdop-display="gpsHdopDisplay"
+        :gps-rtk-status="gpsRtkStatus"
+      />
+
       <!-- Environmental Sensors -->
-      <div class="retro-card telemetry-card environmental-card">
-        <div class="card-header">
-          <h4>ENVIRONMENT</h4>
-          <div class="temp-icon">🌡️</div>
-        </div>
-        <div class="card-content">
-          <div class="env-grid">
-            <div class="env-metric">
-              <span class="metric-label">Temp</span>
-              <span class="metric-value" data-testid="temperature-value">{{ temperatureDisplay }}<span class="unit">{{ temperatureUnit }}</span></span>
-              <span class="metric-status" :class="tempStatusClass">{{ tempStatus }}</span>
-            </div>
-            <div class="env-metric">
-              <span class="metric-label">Humidity</span>
-              <span class="metric-value" data-testid="humidity-value">{{ humidityDisplay }}<span class="unit">%</span></span>
-            </div>
-            <div class="env-metric">
-              <span class="metric-label">Pressure</span>
-              <span class="metric-value" data-testid="pressure-value">{{ pressureDisplay }}<span class="unit">{{ pressureUnit }}</span></span>
-            </div>
-            <div class="env-metric">
-              <span class="metric-label">Altitude</span>
-              <span class="metric-value" data-testid="altitude-value">{{ altitudeDisplay }}<span class="unit">{{ altitudeUnit }}</span></span>
-            </div>
-          </div>
-          <div class="env-source">Source: {{ environmentalSourceLabel }}</div>
-        </div>
-      </div>
+      <EnvironmentalCard
+        :temperature-display="temperatureDisplay"
+        :temperature-unit="temperatureUnit"
+        :temp-status-class="tempStatusClass"
+        :temp-status="tempStatus"
+        :humidity-display="humidityDisplay"
+        :pressure-display="pressureDisplay"
+        :pressure-unit="pressureUnit"
+        :altitude-display="altitudeDisplay"
+        :altitude-unit="altitudeUnit"
+        :environmental-source-label="environmentalSourceLabel"
+      />
 
       <!-- ToF Sensors -->
-      <div class="retro-card telemetry-card tof-card">
-        <div class="card-header">
-          <h4>TOF RANGE</h4>
-          <div class="tof-icon">🛰️</div>
-        </div>
-        <div class="card-content tof-grid">
-          <div class="tof-column">
-            <div class="metric-label">LEFT</div>
-            <div class="metric-value">{{ tofLeftDisplay }}<span class="unit">{{ tofUnit }}</span></div>
-            <div class="metric-status" :class="tofStatusClass(tofLeft.status)">{{ formatTofStatus(tofLeft.status) }}</div>
-          </div>
-          <div class="tof-column">
-            <div class="metric-label">RIGHT</div>
-            <div class="metric-value">{{ tofRightDisplay }}<span class="unit">{{ tofUnit }}</span></div>
-            <div class="metric-status" :class="tofStatusClass(tofRight.status)">{{ formatTofStatus(tofRight.status) }}</div>
-          </div>
-        </div>
-      </div>
+      <ToFCard
+        :tof-left="tofLeft"
+        :tof-right="tofRight"
+        :tof-left-display="tofLeftDisplay"
+        :tof-right-display="tofRightDisplay"
+        :tof-unit="tofUnit"
+        :tof-status-class="tofStatusClass"
+        :format-tof-status="formatTofStatus"
+      />
     </div>
 
     <!-- IMU Calibration -->
-    <div class="retro-card calibration-card">
-      <div class="card-header">
-        <h3>◢ IMU CALIBRATION ◣</h3>
-        <div class="calibration-indicator" :class="calibrationStatusClass" />
-      </div>
-      <div class="card-content">
-        <div class="calibration-row">
-          <span class="metric-label">Status</span>
-          <span class="metric-value">{{ imuCalibrationLabel }}</span>
-        </div>
-        <div class="calibration-row">
-          <span class="metric-label">Score</span>
-          <span class="metric-value">{{ imuCalibrationScore }} / 3</span>
-        </div>
-        <div class="calibration-row">
-          <span class="metric-label">Last Run</span>
-          <span class="metric-value">{{ lastCalibrationSummary }}</span>
-        </div>
-        <button class="retro-btn calibrate-btn" :disabled="imuCalibrating || !imuSupported" @click="runImuCalibration">
-          <span class="btn-icon">♻</span>
-          {{ !imuSupported ? 'NOT SUPPORTED' : imuCalibrating ? 'CALIBRATING…' : 'RUN CALIBRATION' }}
-        </button>
-        <p v-if="calibrationError" class="calibration-error">⚠ {{ calibrationError }}</p>
-        <p v-else-if="!imuSupported" class="calibration-note unsupported">IMU calibration not supported on this hardware.</p>
-        <p v-else-if="lastCalibration?.notes" class="calibration-note">{{ lastCalibration?.notes }}</p>
-      </div>
-    </div>
+    <CalibrationCard
+      :calibration-status-class="calibrationStatusClass"
+      :imu-calibration-label="imuCalibrationLabel"
+      :imu-calibration-score="imuCalibrationScore"
+      :last-calibration-summary="lastCalibrationSummary"
+      :imu-calibrating="imuCalibrating"
+      :imu-supported="imuSupported"
+      :calibration-error="calibrationError"
+      :last-calibration="lastCalibration"
+      @calibrate="runImuCalibration"
+    />
 
     <!-- Event Log -->
-    <div class="retro-card events-card">
-      <div class="card-header">
-        <h3>◢ SYSTEM LOG ◣</h3>
-        <div class="log-indicator" />
-      </div>
-      <div class="card-content">
-        <div class="events-terminal">
-          <div
-            v-for="event in recentEvents"
-            :key="event.id"
-            class="log-entry"
-            :class="event.level"
-          >
-            <span class="log-time">[{{ formatTime(event.timestamp) }}]</span>
-            <span class="log-level">{{ event.level.toUpperCase() }}:</span>
-            <span class="log-message">{{ event.message }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
+    <EventsCard :recent-events="recentEvents" :format-time="formatTime" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { systemApi, controlApi, telemetryApi, weatherApi, maintenanceApi } from '@/composables/useApi'
+import { systemApi, telemetryApi, weatherApi, maintenanceApi } from '@/services/api'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
+import PowerCard from '@/components/dashboard/PowerCard.vue'
+import StatusCard from '@/components/dashboard/StatusCard.vue'
+import SpeedCard from '@/components/dashboard/SpeedCard.vue'
+import GpsCard from '@/components/dashboard/GpsCard.vue'
+import EnvironmentalCard from '@/components/dashboard/EnvironmentalCard.vue'
+import ToFCard from '@/components/dashboard/ToFCard.vue'
+import CalibrationCard from '@/components/dashboard/CalibrationCard.vue'
+import EventsCard from '@/components/dashboard/EventsCard.vue'
 
 interface TofState {
   distance: number | null
@@ -280,10 +134,9 @@ interface ImuCalibrationResult {
   steps: Array<Record<string, any>>
 }
 
-const { connected, connecting, connect, subscribe, unsubscribe, setCadence, dispatchTestMessage } = useWebSocket()
+const { connected, connect, subscribe, unsubscribe, setCadence, dispatchTestMessage } = useWebSocket()
 
 // Loading and UI state
-const isLoading = ref(false)
 const dataStreamText = ref('>>> INITIALIZING SYSTEM CONNECTION...')
 
 // Preferences
@@ -340,9 +193,9 @@ const imuSupported = ref(true)
 let calibrationPollHandle: number | null = null
 
 // Event log
-const recentEvents = ref([
-  { id: Date.now(), timestamp: new Date(), message: 'System initializing...', level: 'info' },
-])
+const recentEvents = ref<
+  { id: number; timestamp: Date; message: string; level: 'info' | 'success' | 'warning' | 'error' }[]
+>([])
 
 // Computed properties for styling and display
 const systemStatusClass = computed(() => {
@@ -391,12 +244,6 @@ const gpsHdopDisplay = computed(() => {
 const gpsSatellitesDisplay = computed(() => {
   if (gpsSatellites.value === null) return '--'
   return gpsSatellites.value.toString()
-})
-
-const gpsStatusClass = computed(() => {
-  if (!hasGpsFix.value) return 'status-error'
-  if (gpsAccuracy.value !== null && gpsAccuracy.value > 2.0) return 'status-warning'
-  return 'status-active'
 })
 
 const gpsAccuracySummary = computed(() => {
@@ -1042,66 +889,12 @@ watch(unitSystem, () => {
   }
 })
 
-// System control methods
-const startSystem = async () => {
-  try {
-    isLoading.value = true
-    addLogEntry('Initiating system startup...', 'info')
-    await controlApi.start()
-    currentMode.value = 'RUNNING'
-    addLogEntry('System started successfully', 'success')
-  } catch (error) {
-    console.error('Failed to start system:', error)
-    addLogEntry(`Start failed: ${error.message || 'Unknown error'}`, 'error')
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const pauseSystem = async () => {
-  try {
-    isLoading.value = true
-    addLogEntry('Pausing system operations...', 'info')
-    await controlApi.pause()
-    currentMode.value = 'PAUSED'
-    addLogEntry('System paused', 'warning')
-  } catch (error) {
-    console.error('Failed to pause system:', error)
-    addLogEntry(`Pause failed: ${error.message || 'Unknown error'}`, 'error')
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const stopSystem = async () => {
-  try {
-    isLoading.value = true
-    addLogEntry('Stopping system operations...', 'info')
-    await controlApi.stop()
-    currentMode.value = 'STOPPED'
-    addLogEntry('System stopped', 'info')
-  } catch (error) {
-    console.error('Failed to stop system:', error)
-    addLogEntry(`Stop failed: ${error.message || 'Unknown error'}`, 'error')
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const emergencyStop = async () => {
-  try {
-    isLoading.value = true
-    addLogEntry('EMERGENCY STOP ACTIVATED', 'error')
-    await controlApi.emergencyStop()
-    currentMode.value = 'E-STOP'
-    addLogEntry('Emergency stop complete - system secured', 'error')
-  } catch (error) {
-    console.error('Failed to emergency stop:', error)
-    addLogEntry(`E-STOP FAILED: ${error.message || 'Unknown error'}`, 'error')
-  } finally {
-    isLoading.value = false
-  }
-}
+// NOTE: Dashboard previously had local start/pause/stop/e-stop mow controls
+// here. They were repointed to useAutonomyStore in 203c174, but no template
+// button has ever called them in this file's git history (Dashboard's only
+// <button> is the IMU calibration control) - mow control lives in
+// ControlView.vue. Removed as dead code (Tier 3.10). Do not confuse with
+// ControlView.vue's live, template-wired emergencyStop (the real E-stop path).
 
 // Utility methods
 const formatTime = (timestamp: Date) => {
@@ -1224,8 +1017,11 @@ const runImuCalibration = async () => {
 const loadSystemStatus = async () => {
   try {
     const status = await systemApi.getStatus()
-    systemStatus.value = status.status || 'Unknown'
-    uptime.value = status.uptime || '0h 0m'
+    // MowerStatus has no `status`/`uptime` fields; uptime is owned by the
+    // telemetry.system WS handler below. Derive status from real fields.
+    systemStatus.value = status.safety_status?.emergency_stop_active
+      ? 'Emergency Stop'
+      : status.navigation_state || 'Unknown'
     connectionStatus.value = 'Connected'
     dataStreamText.value = '>>> SYSTEM ONLINE - DATA STREAMING ACTIVE'
   } catch (error) {
@@ -1406,7 +1202,7 @@ function registerTelemetrySubscriptions() {
   })
 
   subscribe('telemetry.environmental', (data) => {
-    const env = data.environmental || {}
+    const env = data.environmental
     if (env.temperature_c !== undefined) {
       temperature.value = env.temperature_c
     }
@@ -1430,9 +1226,6 @@ function registerTelemetrySubscriptions() {
     if (data.imu) {
       imuCalibrationScore.value = data.imu.calibration ?? imuCalibrationScore.value
       imuCalibrationStatus.value = data.imu.calibration_status ?? imuCalibrationStatus.value
-    }
-    if (data.tof) {
-      applyTofMetrics(data)
     }
   })
 
@@ -1664,11 +1457,6 @@ onMounted(async () => {
   50% { opacity: 1; width: 300px; }
 }
 
-@keyframes metricUnderline {
-  0%, 100% { opacity: 0.4; transform: scaleX(0.8); }
-  50% { opacity: 0.8; transform: scaleX(1.2); }
-}
-
 .data-stream {
   font-size: 0.95rem;
   text-align: center;
@@ -1787,386 +1575,11 @@ onMounted(async () => {
   100% { transform: translateX(100%); }
 }
 
-.card-header {
-  background: rgba(0, 255, 255, 0.1);
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid #00ffff;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.card-header h3, .card-header h4 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: #00ffff;
-  text-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
-}
-
-.card-content {
-  padding: 1.5rem;
-}
-
-.environmental-card .env-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 1rem;
-}
-
-.environmental-card .env-metric .metric-label {
-  display: block;
-  font-size: 0.8rem;
-  letter-spacing: 2px;
-  color: #00ffff;
-  margin-bottom: 0.25rem;
-}
-
-.environmental-card .env-metric .metric-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #ffff00;
-}
-
-.environmental-card .env-metric .metric-status {
-  font-size: 0.75rem;
-  letter-spacing: 1px;
-  display: inline-block;
-  margin-top: 0.35rem;
-}
-
-.environmental-card .env-source {
-  margin-top: 1rem;
-  font-size: 0.75rem;
-  letter-spacing: 2px;
-  color: rgba(0, 255, 255, 0.7);
-  text-transform: uppercase;
-}
-
-.tof-card .tof-grid {
-  display: flex;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  justify-content: space-between;
-}
-
-.tof-card .tof-column {
-  flex: 1 1 150px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.tof-card .metric-label {
-  font-size: 0.8rem;
-  letter-spacing: 2px;
-  color: #00ffff;
-}
-
-.tof-card .metric-value {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #ffff00;
-}
-
-.tof-card .metric-status {
-  font-size: 0.8rem;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
 .calibration-card {
   margin-bottom: 2rem;
 }
 
-.calibration-card .card-header {
-  align-items: center;
-}
 
-.calibration-indicator {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #666;
-  box-shadow: 0 0 15px currentColor;
-}
-
-.calibration-indicator.status-active {
-  background: #00ff00;
-  color: #00ff00;
-}
-
-.calibration-indicator.status-warning {
-  background: #ffff00;
-  color: #ffff00;
-}
-
-.calibration-indicator.status-error {
-  background: #ff0040;
-  color: #ff0040;
-}
-
-.calibration-indicator.status-unknown {
-  background: #888;
-  color: #888;
-}
-
-.calibration-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-family: 'Courier New', monospace;
-  letter-spacing: 1px;
-  margin-bottom: 0.75rem;
-  text-transform: uppercase;
-}
-
-.calibration-row .metric-value {
-  color: #ffff00;
-  font-weight: 700;
-}
-
-.calibrate-btn {
-  margin-top: 1rem;
-  width: 100%;
-  background: rgba(0, 255, 255, 0.1);
-  border: 1px solid #00ffff;
-}
-
-.calibrate-btn:hover:not(:disabled) {
-  background: rgba(0, 255, 255, 0.2);
-}
-
-.calibration-error {
-  margin-top: 0.75rem;
-  color: #ff4343;
-  font-size: 0.85rem;
-  letter-spacing: 1px;
-}
-
-.calibration-note {
-  margin-top: 0.75rem;
-  font-size: 0.85rem;
-  color: rgba(0, 255, 255, 0.7);
-  letter-spacing: 1px;
-}
-
-.calibration-note.unsupported {
-  color: rgba(255, 255, 0, 0.9);
-  text-transform: uppercase;
-}
-
-/* Status Indicators */
-.status-indicator, .power-indicator, .activity-pulse, .log-indicator {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #666;
-  box-shadow: 0 0 15px currentColor;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); opacity: 0.8; }
-  50% { transform: scale(1.3); opacity: 1; }
-}
-
-.status-indicator.active, .power-indicator.active {
-  background: #00ff00;
-  color: #00ff00;
-}
-
-.status-indicator.warning {
-  background: #ffff00;
-  color: #ffff00;
-}
-
-.status-indicator.error {
-  background: #ff0040;
-  color: #ff0040;
-}
-
-.activity-pulse {
-  background: #ff00ff;
-  color: #ff00ff;
-}
-
-.log-indicator {
-  background: #00ffff;
-  color: #00ffff;
-}
-
-/* Status Display */
-.status-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(0, 255, 255, 0.2);
-}
-
-.status-row:last-child {
-  border-bottom: none;
-}
-
-.power-card .power-content {
-  display: flex;
-  align-items: stretch;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.battery-panel {
-  position: relative;
-  width: 160px;
-  height: 70px;
-  border: 2px solid rgba(0, 255, 255, 0.6);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 20, 40, 0.6);
-  box-shadow: inset 0 0 20px rgba(0, 255, 255, 0.2);
-}
-
-.battery-shell {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: linear-gradient(135deg, rgba(0, 255, 255, 0.1), rgba(0, 100, 150, 0.3));
-}
-
-.battery-shell::after {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  border-radius: 4px;
-  background: rgba(0, 255, 255, 0.08);
-}
-
-.battery-percentage {
-  position: relative;
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: #00ffff;
-  z-index: 1;
-  text-shadow: 0 0 12px rgba(0, 255, 255, 0.7);
-}
-
-.battery-terminal {
-  position: absolute;
-  right: -14px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 12px;
-  height: 24px;
-  background: rgba(0, 255, 255, 0.6);
-  border-radius: 3px;
-  box-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
-}
-
-.power-metrics {
-  flex: 1;
-  min-width: 200px;
-  display: grid;
-  gap: 0.6rem;
-}
-
-.power-metrics .metric-line {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.9rem;
-  letter-spacing: 1px;
-}
-
-.power-metrics .metric-label {
-  color: rgba(0, 255, 255, 0.7);
-  text-transform: uppercase;
-}
-
-.power-metrics .metric-value {
-  color: #ffff00;
-  font-weight: 600;
-  font-size: 1.25rem;
-}
-
-.status-label {
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: #ffff00;
-  text-shadow: 0 0 5px rgba(255, 255, 0, 0.5);
-}
-
-.status-value {
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.status-value.status-active, .status-value.uptime {
-  color: #00ff00;
-  text-shadow: 0 0 10px rgba(0, 255, 0, 0.7);
-}
-
-.status-value.status-warning {
-  color: #ffff00;
-  text-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
-}
-
-.status-value.status-error {
-  color: #ff0040;
-  text-shadow: 0 0 10px rgba(255, 0, 64, 0.7);
-}
-
-.status-value.status-unknown {
-  color: #666;
-}
-
-.gps-card .gps-content {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.gps-status-line {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #00ff00;
-  text-transform: uppercase;
-  text-shadow: 0 0 12px rgba(0, 255, 0, 0.7);
-}
-
-.gps-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0.75rem;
-}
-
-.gps-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.9rem;
-  letter-spacing: 1px;
-}
-
-.gps-metric .metric-label {
-  color: rgba(0, 255, 255, 0.7);
-  text-transform: uppercase;
-}
-
-.gps-metric .metric-value {
-  color: #ffff00;
-  font-weight: 600;
-  font-size: 1.1rem;
-}
 
 /* Control Panel */
 .control-grid {
@@ -2174,54 +1587,6 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
   margin-bottom: 1rem;
-}
-
-.retro-btn {
-  background: linear-gradient(135deg, #1a1a2e, #16213e, #0f0f23);
-  border: 2px solid #00ffff;
-  color: #00ffff;
-  padding: 1.2rem 1.5rem;
-  font-family: 'Orbitron', 'Courier New', monospace;
-  font-weight: 700;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  border-radius: 6px;
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-  box-shadow: 
-    0 4px 15px rgba(0, 255, 255, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.retro-btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transition: left 0.5s ease;
-}
-
-.retro-btn:hover::before {
-  left: 100%;
-}
-
-.retro-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #00ffff, #0a0a0a);
-  color: #000;
-  box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
-  text-shadow: none;
-}
-
-.retro-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .retro-btn.start-btn:hover:not(:disabled) {
@@ -2250,10 +1615,6 @@ onMounted(async () => {
   50% { box-shadow: 0 0 40px rgba(255, 0, 64, 1); }
 }
 
-.btn-icon {
-  margin-right: 0.5rem;
-  font-size: 1.2rem;
-}
 
 .mode-display {
   text-align: center;
@@ -2320,50 +1681,6 @@ onMounted(async () => {
   );
 }
 
-/* Telemetry Cards */
-.telemetry-card .card-content {
-  text-align: center;
-}
-
-.metric-value {
-  font-size: 2rem;
-  font-weight: 900;
-  color: #00ffff;
-  font-family: 'Orbitron', 'Courier New', monospace;
-  text-shadow: 
-    0 0 20px rgba(0, 255, 255, 0.8),
-    0 0 40px rgba(0, 255, 255, 0.4),
-    0 2px 4px rgba(0, 0, 0, 0.8);
-  margin-bottom: 0.8rem;
-  letter-spacing: 3px;
-  position: relative;
-  text-transform: uppercase;
-}
-
-.metric-value::after {
-  content: '';
-  position: absolute;
-  bottom: -4px;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, #00ffff, transparent);
-  opacity: 0.6;
-  animation: metricUnderline 2s ease-in-out infinite;
-}
-
-.metric-value .unit {
-  font-size: 1.5rem;
-  color: #ffff00;
-}
-
-.metric-status {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
 .gps-value {
   display: flex;
   flex-wrap: wrap;
@@ -2409,11 +1726,6 @@ onMounted(async () => {
   letter-spacing: 2px;
   color: #ff0040;
   text-shadow: 0 0 12px rgba(255, 0, 64, 0.6);
-}
-
-.gps-icon, .battery-icon, .speed-icon, .temp-icon {
-  font-size: 1.5rem;
-  filter: drop-shadow(0 0 10px currentColor);
 }
 
 /* Battery Specific */
@@ -2486,17 +1798,6 @@ onMounted(async () => {
   50% { opacity: 0.3; }
 }
 
-/* Speed Trends */
-.speed-trend {
-  font-size: 1.2rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.speed-trend.trend-up {
-  color: #00ff00;
-  text-shadow: 0 0 10px rgba(0, 255, 0, 0.7);
-}
 
 .solar-card .metric-value {
   color: #ffff00;
@@ -2543,97 +1844,9 @@ onMounted(async () => {
   color: #00ffff;
 }
 
-.solar-status {
-  margin-top: 0.25rem;
-}
-
-.solar-status.status-active {
-  color: #00ff00;
-  text-shadow: 0 0 10px rgba(0, 255, 0, 0.7);
-}
-
-.solar-status.status-warning {
-  color: #ffff00;
-  text-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
-}
-
-.solar-status.status-error {
-  color: #ff6600;
-  text-shadow: 0 0 10px rgba(255, 102, 0, 0.7);
-}
-
-.solar-status.status-unknown {
-  color: #888;
-}
-
-.speed-trend.trend-down {
-  color: #ff0040;
-  text-shadow: 0 0 10px rgba(255, 0, 64, 0.7);
-}
-
-.speed-trend.trend-stable {
-  color: #ffff00;
-  text-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
-}
-
 /* Event Log */
 .events-card {
   grid-column: 1 / -1;
-}
-
-.events-terminal {
-  background: #000;
-  border: 2px solid #00ffff;
-  padding: 1rem;
-  max-height: 300px;
-  overflow-y: auto;
-  font-family: 'Courier New', monospace;
-}
-
-.log-entry {
-  display: flex;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-
-.log-time {
-  color: #666;
-  margin-right: 1rem;
-  min-width: 80px;
-}
-
-.log-level {
-  margin-right: 1rem;
-  min-width: 60px;
-  font-weight: 700;
-}
-
-.log-entry.info .log-level {
-  color: #00ffff;
-}
-
-.log-entry.success .log-level {
-  color: #00ff00;
-}
-
-.log-entry.warning .log-level {
-  color: #ffff00;
-}
-
-.log-entry.error .log-level {
-  color: #ff0040;
-  animation: errorBlink 2s ease-in-out infinite;
-}
-
-@keyframes errorBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-.log-message {
-  flex: 1;
-  color: #00ffff;
 }
 
 /* Responsive Design */
@@ -2655,15 +1868,7 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
   
-  .metric-value {
-    font-size: 1.6rem;
-  }
-  
   .retro-header {
-    padding: 1rem;
-  }
-  
-  .card-content {
     padding: 1rem;
   }
 }
@@ -2673,15 +1878,11 @@ onMounted(async () => {
     font-size: 1.5rem;
     letter-spacing: 2px;
   }
-  
+
   .telemetry-grid {
     grid-template-columns: 1fr;
   }
-  
-  .metric-value {
-    font-size: 1.4rem;
-  }
-  
+
   .progress-label {
     font-size: 1.5rem;
   }

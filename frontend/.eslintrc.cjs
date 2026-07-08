@@ -27,6 +27,12 @@ module.exports = {
     'no-console': process.env.NODE_ENV === 'production' ? 'warn' : 'off',
     'no-debugger': process.env.NODE_ENV === 'production' ? 'warn' : 'off',
     'no-unused-vars': 'off', // Disabled in favor of @typescript-eslint rule
+    // ESLint's `env.browser` only knows JS runtime globals; it has no notion of
+    // TypeScript's lib.dom.d.ts *type* globals (GeolocationCoordinates,
+    // EventListener, AddEventListenerOptions, etc.), so no-undef false-positives
+    // on them. tsc already checks these; disabling matches typescript-eslint's
+    // own documented guidance for this exact class of false positive.
+    'no-undef': 'off',
     
     // TypeScript
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
