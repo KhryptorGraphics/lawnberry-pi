@@ -50,6 +50,22 @@ const getRoboHATStatus = vi.fn()
 const getMapConfiguration = vi.fn()
 const saveMapConfiguration = vi.fn()
 
+// Ride-on tractor actuation — see frontend/src/stores/tractor.ts and
+// frontend/src/views/TractorControlView.vue. Any test mounting either without
+// these would crash on an undefined import.
+const getTractorState = vi.fn()
+const tractorSteering = vi.fn()
+const tractorThrottle = vi.fn()
+const tractorSpeed = vi.fn()
+const tractorClutch = vi.fn()
+const tractorGear = vi.fn()
+const tractorBlade = vi.fn()
+const tractorStart = vi.fn()
+const tractorStopEngine = vi.fn()
+const tractorEmergencyStop = vi.fn()
+const tractorClearEmergency = vi.fn()
+const tractorAuthorize = vi.fn()
+
 vi.mock('@/services/api', () => ({
   __esModule: true,
   default: apiClient,
@@ -58,6 +74,18 @@ vi.mock('@/services/api', () => ({
   getRoboHATStatus,
   getMapConfiguration,
   saveMapConfiguration,
+  getTractorState,
+  tractorSteering,
+  tractorThrottle,
+  tractorSpeed,
+  tractorClutch,
+  tractorGear,
+  tractorBlade,
+  tractorStart,
+  tractorStopEngine,
+  tractorEmergencyStop,
+  tractorClearEmergency,
+  tractorAuthorize,
 }))
 
 type TopicCallbackEntry = {
@@ -157,6 +185,18 @@ beforeEach(() => {
   getRoboHATStatus.mockReset()
   getMapConfiguration.mockReset()
   saveMapConfiguration.mockReset()
+  getTractorState.mockReset()
+  tractorSteering.mockReset()
+  tractorThrottle.mockReset()
+  tractorSpeed.mockReset()
+  tractorClutch.mockReset()
+  tractorGear.mockReset()
+  tractorBlade.mockReset()
+  tractorStart.mockReset()
+  tractorStopEngine.mockReset()
+  tractorEmergencyStop.mockReset()
+  tractorClearEmergency.mockReset()
+  tractorAuthorize.mockReset()
   useWebSocketMock.mockClear()
   localStorage.clear()
 })

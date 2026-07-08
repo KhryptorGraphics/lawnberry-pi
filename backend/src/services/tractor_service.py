@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 import yaml
@@ -117,7 +118,7 @@ class TractorControlService:
         self.clutch_pressed_threshold = float(il.get("clutch_pressed_threshold", 0.9))
 
         # Safe initial state: clutch/brake pressed, neutral, blade off, engine off.
-        self.state = TractorState(clutch=1.0)
+        self.state = TractorState(clutch=1.0, enabled=self.enabled)
         self.initialized = False
 
     # ----------------------------- lifecycle -----------------------------
@@ -145,11 +146,13 @@ class TractorControlService:
 
     def _reject(self, reason: str) -> dict[str, Any]:
         self.state.interlock_reason = reason
+        self.state.last_updated = datetime.now(UTC)
         logger.info("Tractor command rejected: %s", reason)
         return {"status": "rejected", "reason": reason}
 
     def _ok(self, **extra: Any) -> dict[str, Any]:
         self.state.interlock_reason = None
+        self.state.last_updated = datetime.now(UTC)
         return {"status": "ok", **extra}
 
     async def _send_pwm(self, channel: int, us: int) -> None:
@@ -259,6 +262,7 @@ class TractorControlService:
         transport) and stays first and unconditional.
         """
         self.state.emergency_stop_active = True
+        self.state.last_updated = datetime.now(UTC)
         self.revoke()
         self.blade_pto.set(False)
         self.state.blade_engaged = False

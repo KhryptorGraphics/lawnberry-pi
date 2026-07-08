@@ -179,7 +179,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import axios, { type AxiosError } from 'axios'
+import { type AxiosError } from 'axios'
 import { storeToRefs } from 'pinia'
 import { useControlStore } from '@/stores/control'
 import {
@@ -195,6 +195,7 @@ import VirtualJoystick from '@/components/ui/VirtualJoystick.vue'
 import SecurityGateCard from '@/components/control/SecurityGateCard.vue'
 import CameraFeedCard from '@/components/control/CameraFeedCard.vue'
 import LiveStatusCard from '@/components/control/LiveStatusCard.vue'
+import { useCameraFeed } from '@/composables/useCameraFeed'
 
 interface ManualControlSecurityConfig {
   auth_level: 'password' | 'totp' | 'google' | 'cloudflare'
@@ -234,7 +235,6 @@ interface MotorControllerState {
 
 const MOVEMENT_DURATION_MS = 160
 const MOVEMENT_REPEAT_INTERVAL_MS = 120
-const CAMERA_RETRY_COOLDOWN_MS = 5000
 const JOYSTICK_REASON = 'manual-joystick'
 
 const control = useControlStore()
@@ -291,34 +291,34 @@ const speedUnit = computed(() => (unitSystem.value === 'imperial' ? 'mph' : 'm/s
 const mowingActive = ref(false)
 const speedLevel = ref(50)
 
-const cameraInfo = reactive<CameraStatusSummary>({
-  active: false,
-  mode: 'offline',
-  fps: null,
-  client_count: null
-})
-const cameraFrameUrl = ref<string | null>(null)
-const cameraStreamUrl = ref<string | null>(null)
-const cameraStreamUnavailable = ref(false)
-const cameraStatusMessage = ref('Initializing camera…')
-const cameraError = ref<string | null>(null)
-const cameraLastFrame = ref<string | null>(null)
-const cameraFetchInFlight = ref(false)
-const cameraStreamFailureCount = ref(0)
-const cameraStreamClientId = (() => {
-  try {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID()
-    }
-  } catch (error) {
-    /* noop */
-  }
-  return `client-${Math.random().toString(36).slice(2)}`
-})()
-let cameraFrameTimer: number | undefined
-let cameraStatusTimer: number | undefined
-let cameraRetryTimer: number | undefined
-let cameraStartRequested = false
+// Not all of these are read by name below — ControlView.unlock.spec.ts and
+// ControlView.movement.spec.ts reach into several (e.g. cameraStreamUrl,
+// attemptCameraStreamRecovery) via wrapper.vm, which Vue's <script setup>
+// compiler exposes for every top-level binding regardless of local usage;
+// eslint's static analysis can't see that reflective access.
+/* eslint-disable @typescript-eslint/no-unused-vars */
+const {
+  cameraInfo,
+  cameraFrameUrl,
+  cameraStreamUrl,
+  cameraStreamUnavailable,
+  cameraStatusMessage,
+  cameraError,
+  cameraLastFrame,
+  cameraFetchInFlight,
+  cameraStreamFailureCount,
+  cameraDisplaySource,
+  cameraIsStreaming,
+  formatCameraFps,
+  formatCameraTimestamp,
+  attemptCameraStreamRecovery,
+  handleCameraStreamLoad,
+  handleCameraStreamError,
+  startCameraFeed,
+  stopCameraFeed,
+  retryCameraFeed,
+} = useCameraFeed({ sessionId: () => session.value?.session_id })
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 interface JoystickHandle {
   reset: () => void
@@ -378,9 +378,6 @@ const canMove = computed(() =>
 const canSubmitBlade = computed(() =>
   isControlUnlocked.value && !performing.value && !lockout.value
 )
-
-const cameraDisplaySource = computed(() => cameraStreamUrl.value ?? cameraFrameUrl.value)
-const cameraIsStreaming = computed(() => Boolean(cameraStreamUrl.value))
 
 // Helpers
 function mapSecurityLevel(value: unknown): ManualControlSecurityConfig['auth_level'] {
@@ -533,24 +530,6 @@ function describeMotorController(status: Record<string, any> | null | undefined)
   }
 }
 
-function formatCameraFps(value?: number | null) {
-  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
-    return '—'
-  }
-  return value.toFixed(1)
-}
-
-function formatCameraTimestamp(timestamp: string | null | undefined) {
-  if (!timestamp) {
-    return 'No frames yet'
-  }
-  const parsed = new Date(timestamp)
-  if (Number.isNaN(parsed.getTime())) {
-    return 'No frames yet'
-  }
-  return parsed.toLocaleTimeString()
-}
-
 function showStatus(message: string, success: boolean, timeout = 4000) {
   statusMessage.value = message
   statusSuccess.value = success
@@ -559,124 +538,6 @@ function showStatus(message: string, success: boolean, timeout = 4000) {
       statusMessage.value = ''
     }, timeout)
   }
-}
-
-function resetCameraState() {
-  cameraStreamUrl.value = null
-  cameraFrameUrl.value = null
-  cameraStatusMessage.value = 'Initializing camera…'
-  cameraError.value = null
-  cameraLastFrame.value = null
-  cameraStreamFailureCount.value = 0
-  cameraStreamUnavailable.value = false
-  clearCameraRetryTimer()
-  Object.assign(cameraInfo, {
-    active: false,
-    mode: 'offline',
-    fps: null,
-    client_count: null
-  })
-}
-
-function buildCameraStreamUrl(forceRefresh = false) {
-  if (cameraStreamUnavailable.value) {
-    return null
-  }
-  const params = new URLSearchParams()
-  params.set('client', cameraStreamClientId)
-  const sessionId = session.value?.session_id
-  if (sessionId) {
-    params.set('session_id', sessionId)
-  }
-  if (forceRefresh) {
-    params.set('ts', Date.now().toString(36))
-  }
-  return `/api/v2/camera/stream.mjpeg?${params.toString()}`
-}
-
-function refreshCameraStream(forceRefresh = false, resetFailures = false) {
-  const nextUrl = buildCameraStreamUrl(forceRefresh)
-  if (!nextUrl) {
-    return
-  }
-  if (resetFailures) {
-    cameraStreamFailureCount.value = 0
-  }
-  cameraStreamUrl.value = nextUrl
-  cameraStatusMessage.value = 'Connecting to stream…'
-}
-
-function clearSnapshotTimer() {
-  if (cameraFrameTimer) {
-    window.clearInterval(cameraFrameTimer)
-    cameraFrameTimer = undefined
-  }
-}
-
-function clearCameraRetryTimer() {
-  if (cameraRetryTimer) {
-    window.clearTimeout(cameraRetryTimer)
-    cameraRetryTimer = undefined
-  }
-}
-
-async function attemptCameraStreamRecovery() {
-  clearCameraRetryTimer()
-  if (!cameraStreamUnavailable.value) {
-    return
-  }
-  try {
-    const streaming = await ensureCameraStreaming()
-    if (streaming) {
-      cameraStreamUnavailable.value = false
-      refreshCameraStream(true, true)
-      return
-    }
-  } catch (error) {
-    /* noop – retry will be scheduled */
-  }
-  scheduleCameraStreamRetry()
-}
-
-function scheduleCameraStreamRetry(delayMs = CAMERA_RETRY_COOLDOWN_MS) {
-  if (!cameraStreamUnavailable.value) {
-    clearCameraRetryTimer()
-    return
-  }
-  clearCameraRetryTimer()
-  cameraRetryTimer = window.setTimeout(() => {
-    void attemptCameraStreamRecovery()
-  }, delayMs)
-}
-
-function startSnapshotFallback(message?: string) {
-  cameraStreamUrl.value = null
-  if (message) {
-    cameraStatusMessage.value = message
-  }
-  clearSnapshotTimer()
-  void fetchCameraFrame()
-  cameraFrameTimer = window.setInterval(fetchCameraFrame, 2000)
-}
-
-function handleCameraStreamLoad() {
-  cameraError.value = null
-  cameraStatusMessage.value = 'Streaming…'
-  cameraStreamFailureCount.value = 0
-  cameraStreamUnavailable.value = false
-  clearCameraRetryTimer()
-}
-
-function handleCameraStreamError() {
-  cameraStreamFailureCount.value += 1
-  if (cameraStreamFailureCount.value <= 1) {
-    refreshCameraStream(true)
-    return
-  }
-  cameraStreamUnavailable.value = true
-  cameraError.value = 'Camera stream unavailable'
-  startSnapshotFallback('Camera stream unavailable – using snapshots…')
-  scheduleCameraStreamRetry()
 }
 
 function updateSessionTimer(expiresAt?: string) {
@@ -704,191 +565,6 @@ function updateSessionTimer(expiresAt?: string) {
 
   tick()
   sessionTimer = window.setInterval(tick, 1000)
-}
-
-async function fetchCameraStatus() {
-  try {
-    const response = await api.get('/api/v2/camera/status')
-    const payload = response.data
-    if (payload?.status === 'success' && payload.data) {
-      const data = payload.data
-      Object.assign(cameraInfo, {
-        active: Boolean(data.is_active),
-        mode: data.mode || 'offline',
-        fps: typeof data.statistics?.current_fps === 'number'
-          ? Number(data.statistics.current_fps)
-          : null,
-        client_count: typeof data.client_count === 'number'
-          ? Number(data.client_count)
-          : null
-      })
-      if (!cameraInfo.active && cameraStreamUrl.value) {
-        startSnapshotFallback('Camera idle')
-      } else if (
-        cameraInfo.active &&
-        !cameraStreamUrl.value &&
-        !cameraStartRequested &&
-        !cameraStreamUnavailable.value
-      ) {
-        clearSnapshotTimer()
-        refreshCameraStream(true, true)
-      }
-      if (data.last_frame_time && !cameraLastFrame.value) {
-        cameraLastFrame.value = data.last_frame_time
-      }
-      cameraError.value = null
-      if (cameraInfo.active && !cameraFrameUrl.value) {
-        cameraStatusMessage.value = 'Waiting for frames…'
-      }
-      return data
-    }
-    if (payload?.error) {
-      cameraError.value = payload.error
-      cameraStatusMessage.value = payload.error
-    }
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 429) {
-      cameraError.value = 'Camera service temporarily busy'
-      cameraStatusMessage.value = 'Camera requests throttled – retrying…'
-    } else {
-      cameraError.value = 'Unable to reach camera service'
-      cameraStatusMessage.value = 'Camera offline'
-    }
-  }
-  return null
-}
-
-async function ensureCameraStreaming() {
-  const status = await fetchCameraStatus()
-  if (status?.is_active) {
-    if (cameraStreamUnavailable.value) {
-      return false
-    }
-    return true
-  }
-
-  if (cameraStartRequested) {
-    return cameraInfo.active
-  }
-
-  cameraStartRequested = true
-  try {
-    const response = await api.post('/api/v2/camera/start')
-    const payload = response.data
-    if (payload?.status === 'error' && payload?.error) {
-      cameraError.value = payload.error
-      cameraStatusMessage.value = payload.error
-    }
-  } catch (error) {
-    cameraError.value = 'Failed to start camera stream'
-    cameraStatusMessage.value = 'Camera offline'
-  } finally {
-    await fetchCameraStatus()
-    cameraStartRequested = false
-  }
-
-  return cameraInfo.active
-}
-
-async function fetchCameraFrame() {
-  if (cameraFetchInFlight.value) {
-    return
-  }
-
-  cameraFetchInFlight.value = true
-  try {
-    const response = await api.get('/api/v2/camera/frame')
-    const payload = response.data
-    if (payload?.status === 'success' && payload.data) {
-      const frame = payload.data
-      const format = typeof frame?.metadata?.format === 'string'
-        ? String(frame.metadata.format).toLowerCase()
-        : 'jpeg'
-      if (frame?.data) {
-        cameraFrameUrl.value = `data:image/${format};base64,${frame.data}`
-        cameraStatusMessage.value = 'Snapshots…'
-        cameraError.value = null
-      } else {
-        cameraStatusMessage.value = 'Waiting for frame data…'
-      }
-      if (frame?.metadata?.timestamp) {
-        cameraLastFrame.value = frame.metadata.timestamp
-      }
-    } else if (payload?.error === 'No frame available') {
-      cameraStatusMessage.value = 'Camera warming up…'
-    } else if (payload?.error) {
-      cameraError.value = payload.error
-      cameraStatusMessage.value = payload.error
-    }
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 429) {
-      cameraError.value = 'Camera frames throttled'
-      cameraStatusMessage.value = 'Cooling down camera requests…'
-    } else {
-      cameraError.value = 'Camera frame request failed'
-      cameraStatusMessage.value = 'Camera offline'
-    }
-  } finally {
-    cameraFetchInFlight.value = false
-  }
-}
-
-async function startCameraFeed(forceReconnect = false) {
-  if (!forceReconnect && (cameraIsStreaming.value || cameraFrameTimer || cameraStatusTimer)) {
-    return
-  }
-
-  if (cameraStatusTimer) {
-    window.clearInterval(cameraStatusTimer)
-    cameraStatusTimer = undefined
-  }
-  clearSnapshotTimer()
-  resetCameraState()
-
-  const streaming = await ensureCameraStreaming()
-  if (streaming && !cameraStreamUnavailable.value) {
-    refreshCameraStream(true, true)
-    clearSnapshotTimer()
-  } else {
-    startSnapshotFallback(cameraError.value || 'Camera warming up…')
-    cameraStreamUnavailable.value = true
-    scheduleCameraStreamRetry()
-  }
-
-  if (!cameraStatusTimer) {
-    cameraStatusTimer = window.setInterval(fetchCameraStatus, 6000)
-  }
-}
-
-function stopCameraFeed() {
-  clearSnapshotTimer()
-  clearCameraRetryTimer()
-  if (cameraStatusTimer) {
-    window.clearInterval(cameraStatusTimer)
-    cameraStatusTimer = undefined
-  }
-  cameraStartRequested = false
-  cameraFetchInFlight.value = false
-  cameraStreamUrl.value = null
-  cameraStreamFailureCount.value = 0
-  cameraFrameUrl.value = null
-  cameraLastFrame.value = null
-  cameraError.value = null
-  cameraStatusMessage.value = 'Camera paused'
-  cameraStreamUnavailable.value = false
-  Object.assign(cameraInfo, {
-    active: false,
-    mode: 'offline',
-    fps: null,
-    client_count: null
-  })
-}
-
-async function retryCameraFeed() {
-  stopCameraFeed()
-  cameraStreamFailureCount.value = 0
-  cameraStreamUnavailable.value = false
-  await startCameraFeed(true)
 }
 
 async function loadSecurityConfig() {

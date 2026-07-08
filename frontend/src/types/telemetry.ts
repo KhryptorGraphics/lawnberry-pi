@@ -2,6 +2,7 @@
  * Telemetry types for LawnBerry Pi v2
  * Hardware telemetry data structures for frontend consumption
  */
+import type { TractorState } from './control'
 
 export interface TelemetryLatencyBadge {
   latency_ms: number
@@ -324,6 +325,14 @@ export interface SystemSafetyMessage {
   timestamp: string
 }
 
+// telemetry.tractor — see websocket_hub.py _broadcast_additional_topics(). Unlike
+// GET /tractor/state (a bare TractorState), the WS topic wraps it: {tractor, source}.
+// `tractor` is null when server-side derivation fails (source: 'unavailable').
+export interface TelemetryTractorMessage {
+  tractor: TractorState | null
+  source: string
+}
+
 export interface TelemetryTopicPayloadMap {
   'telemetry.power': TelemetryPowerMessage
   'telemetry.navigation': TelemetryNavigationMessage
@@ -335,4 +344,5 @@ export interface TelemetryTopicPayloadMap {
   'telemetry.weather': TelemetryWeatherMessage
   'jobs.progress': JobsProgressMessage
   'system.safety': SystemSafetyMessage
+  'telemetry.tractor': TelemetryTractorMessage
 }

@@ -264,7 +264,8 @@
           <div class="form-group">
             <label>Description</label>
             <textarea v-model="pinForm.description" class="form-control" rows="3" />
-            <small class="form-text text-muted">Note: This mower uses solar charging; no dock is required. Use AM/PM Sun spots for optimal charging behavior.</small>
+            <small v-if="platform === 'tractor'" class="form-text text-muted">Note: This tractor runs on a gas engine; no charging dock or Sun spots apply.</small>
+            <small v-else class="form-text text-muted">Note: This mower uses solar charging; no dock is required. Use AM/PM Sun spots for optimal charging behavior.</small>
           </div>
         </div>
         <div class="modal-footer">
@@ -319,12 +320,15 @@ import BoundaryEditor from '@/components/map/BoundaryEditor.vue'
 import { useMapStore } from '@/stores/map'
 import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
+import { useSystemStore } from '@/stores/system'
 import type { MarkerSchedule, MapMarker, Zone } from '@/stores/map'
 
 const api = useApiService()
 const mapStore = useMapStore()
 const toast = useToastStore()
 const confirmStore = useConfirmStore()
+const systemStore = useSystemStore()
+const platform = computed(() => systemStore.platform)
 const editorRef = ref<InstanceType<typeof BoundaryEditor> | null>(null)
 const isE2ETestMode = computed(() => typeof window !== 'undefined' && (window.location.search.includes('e2e=1') || window.location.search.includes('e2e=true')))
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class Transmission(StrEnum):
@@ -66,6 +66,7 @@ class TractorState(BaseModel):
     clutch: float = 1.0  # safe default: clutch pressed (no drive)
     blade_engaged: bool = False
     engine: EngineState = EngineState.OFF
+    enabled: bool = False  # platform-detection flag: is a tractor actually configured
 
     # Safety / interlock status
     emergency_stop_active: bool = False
@@ -74,10 +75,12 @@ class TractorState(BaseModel):
 
     last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def engine_running(self) -> bool:
         return self.engine == EngineState.RUNNING
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def moving(self) -> bool:
         """Whether the drivetrain is delivering motion."""
