@@ -1,23 +1,35 @@
 <!--
 Sync Impact Report:
-Version: 1.4.0 → 2.0.0 (Major: Added Safety-First Mandate, Modular Architecture, Navigation, Scheduling, and Observability principles to align with Engineering Plan)
-Modified principles: 
-  - Principle III expanded with hardware simulation requirements
-  - Principle IV enhanced with motor control safety interlocks
-Added sections: 
-  - Principle VI: Safety-First Engineering (NEW - critical safety requirements)
-  - Principle VII: Modular Architecture (NEW - system decomposition)
-  - Principle VIII: Navigation & Geofencing (NEW - autonomous operation constraints)
-  - Principle IX: Scheduling & Autonomy (NEW - job execution rules)
-  - Principle X: Observability & Debuggability (NEW - diagnostic requirements)
+Version: 2.0.0 → 3.0.0 (Major: Constitutionally recognized the second physical platform —
+  a Craftsman-class ride-on Ackermann tractor conversion, alongside the original
+  differential-drive mower — introduced by commit d2cb1ae on 2026-06-26 but never ratified
+  into this document; closed two pre-existing silent violations of this constitution's own
+  text; replaced the blanket motor E-stop latency rule with honest actuator-class tiers)
+Modified principles:
+  - Principle V expanded: formal two-platform recognition; `config/tractor.yaml`'s `enabled`
+    flag made constitutionally gated on a complete `spec/hardware.yaml` tractor section
+  - Principle VI expanded: human-proximity/ROPS risk tier, operator-attestation gate for
+    blade/PTO engagement and autonomous-motion start, tiered E-stop latency by actuator
+    class (relay / positional-command-issuance / positional-physical-settle), explicit
+    bus-fault-failsafe requirement, named closure of two silent-violation gaps (IMU
+    tilt-cutoff and motor watchdog not wired to `tractor_service.py`)
+Added sections: None (extended existing Principles V and VI; no new principles)
 Removed sections: None
 Templates requiring updates:
-  - .specify/templates/plan-template.md (version reference) ✅ to be updated
-  - .specify/templates/spec-template.md ✅ no change required
-  - .specify/templates/tasks-template.md ✅ no change required
-Follow-up TODOs: 
-  - Update Phase 2 safety system documentation with constitutional safety latency requirements
-  - Document geofencing validation procedures in operations manual
+  - Bottom-of-document "Acceptance Criteria (Core Safety Requirements)" bullets (this file)
+    ✅ reconciled with tiered Principle VI language in this amendment
+  - docs/tractor-acceptance-criteria.md (NEW) ✅ added as the operational checklist this
+    amendment's Principle VI requirements point to
+  - docs/RELEASE_NOTES.md, docs/hardware-feature-matrix.md, docs/hardware-overview.md,
+    docs/field-validation-protocol.md ✅ updated for tractor platform in the same pass
+Follow-up TODOs:
+  - Open implementation gap: IMU tilt-cutoff (200ms, Principle VI) is not wired to
+    `backend/src/services/tractor_service.py`. Tracked here; not closed by this amendment.
+  - Open implementation gap: motor-watchdog heartbeat (Principle VI) is not wired to
+    `backend/src/services/tractor_service.py`. Tracked here; not closed by this amendment.
+  - Open implementation gap: bus-fault failsafe for the PCA9685 hold-last-value hazard
+    (Principle VI) has no hardware/software design yet. Tracked in
+    docs/tractor-acceptance-criteria.md as the top acceptance item.
 -->
 
 # LawnBerry Pi Constitution
@@ -39,8 +51,23 @@ Hardware interfaces are single-owner resources requiring explicit coordination. 
 ### V. Constitutional Hardware Compliance
 Hardware configuration MUST align with `spec/hardware.yaml` requirements. INA3221 power monitoring uses fixed channel assignments: Channel 1 (Battery), Channel 2 (Unused), Channel 3 (Solar Input). GPS supports either ZED-F9P USB with NTRIP corrections OR Neo-8M UART (mutually exclusive). Motor control via RoboHAT RP2040→Cytron MDDRC10 (preferred) or L298N fallback. HAT stacking conflicts (RoboHAT + Hailo HAT) are prohibited without constitutional amendment.
 
+**Recognized platforms**: The system MAY be deployed as either (a) the original differential-drive autonomous push-mower, or (b) a Craftsman-class ride-on tractor conversion (Ackermann steering, gas engine, seven discrete actuators — see `docs/tractor-platform.md`). Both are constitutionally valid platforms; a given deployment operates exactly one, never both concurrently. `config/tractor.yaml`'s `enabled: true` flag is constitutionally meaningful, not a cosmetic toggle: it is valid only when `spec/hardware.yaml` carries a complete `tractor:` section for the deployed hardware AND `scripts/check_hardware_pin_conflicts.py` passes with zero conflicts across the merged mower+tractor pin/address registry. A deployment running `enabled: true` while that check fails is a constitutional violation, not merely a failing CI job.
+
 ### VI. Safety-First Engineering (NON-NEGOTIABLE)
-Safety is the paramount concern in all system operations. Motion MUST only occur when hard and soft safety failsafes are operational and verified. Emergency stop (E-stop) MUST stop all motors within 100ms. IMU tilt detection MUST trigger blade cutoff within 200ms. System MUST default to OFF state on startup; motion requires explicit operator authorization. Watchdog timer enforcement is mandatory for all control loops. Safety interlocks MUST prevent blade operation when drive motors are active. All safety violations MUST be logged with timestamps and require operator acknowledgement for recovery. Software watchdog heartbeat MUST be enforced for all motor control operations with automatic emergency stop on timeout.
+Safety is the paramount concern in all system operations. Motion MUST only occur when hard and soft safety failsafes are operational and verified. System MUST default to OFF state on startup; motion requires explicit operator authorization. Safety interlocks MUST prevent blade operation when drive motors are active. All safety violations MUST be logged with timestamps and require operator acknowledgement for recovery.
+
+**Human-proximity / ROPS risk tier**: The ride-on tractor platform (Principle V) introduces a risk class the original small autonomous push-mower never contemplated — a person may be seated on, or standing near, a powered machine with a running gas engine. Software cannot physically verify a human is clear of the machine or its blade. The system MUST therefore require an explicit **operator-attestation gate** — a deliberate, logged operator action affirming the seat/area is clear — before (a) blade/PTO engagement and (b) the start of any autonomous motion, in addition to (never in place of) the existing authorization and interlock requirements. This is a policy control, not a substitute for a sensor that does not exist.
+
+**Tiered emergency-stop latency (replaces the prior blanket "100ms for all motors" rule)**: one latency number is dishonest across actuator classes with materially different physics. E-stop latency is defined per actuator class:
+- **GPIO relay actuators** (e.g., blade PTO, starter): MUST de-energize within 100ms of the E-stop signal. This is the original mower-era requirement and is unchanged for this actuator class.
+- **Positional actuators — command issuance** (e.g., steering, throttle, gas pedal, clutch, gear, over PCA9685 or equivalent PWM transport): the commanded safe value (idle throttle, neutral gear, pressed clutch/brake, centered steering) MUST be *issued* within 100ms of the E-stop signal.
+- **Positional actuators — physical settle**: the actuator MUST *physically reach* its commanded safe position within 500ms of the E-stop signal, accounting for real mechanical travel time. This is an observed, measured outcome, not an inferred one — a passing `state.field == value` unit test does not, by itself, satisfy this requirement (see `docs/tractor-acceptance-criteria.md`).
+
+IMU tilt detection MUST trigger blade cutoff within 200ms. Watchdog timer enforcement is mandatory for all control loops; software watchdog heartbeat MUST be enforced for all motor control operations with automatic emergency stop on timeout.
+
+**Bus-fault failsafe (NON-NEGOTIABLE)**: any actuation transport that can silently hold its last commanded value on communication loss (e.g., a PCA9685 PWM driver, which does not fail safe on its own on I2C/host loss) MUST be paired with an independent failsafe that drives affected actuators to a safe state on bus/host fault — for example, a hardware watchdog holding the driver's output-enable line low, or spring-return actuator hardware — and that failsafe MUST be verified by fault injection, not assumed (see `docs/tractor-acceptance-criteria.md`). Replacing a "does nothing on fault" transport with a "freezes at last value with the engine running" transport, without an accompanying failsafe, is a constitutional violation regardless of how the rest of the interlock chain behaves.
+
+**Closed gaps (named explicitly, not left implicit)**: as of this amendment, the IMU tilt-cutoff (200ms) and motor-watchdog requirements above already existed in this Principle but are **not yet wired to `backend/src/services/tractor_service.py`** — the ride-on tractor's actuator control currently ships without either. This is a tracked, open implementation gap (see the Sync Impact Report's Follow-up TODOs), not a silent one going forward: no tractor deployment may be represented as constitutionally compliant while this gap remains open.
 
 ### VII. Modular Architecture
 System architecture follows strict modular boundaries aligned with Engineering Plan phases. Core modules include: `drivers/` (hardware shims for motors, blade, IMU, ToF, environmental sensors, power, GPS), `safety/` (interlocks, triggers, watchdog, E-stop coordination), `fusion/` (sensor fusion and state estimation), `nav/` (geofencing, path planner, controller), `api/` (REST + WebSocket), `ui/` (retro-neon frontend), `scheduler/` (calendar, weather integration, charge management), and `tools/` (CLIs, analyzers, calibration utilities). Each module exposes defined contracts and MUST NOT bypass interfaces to access implementation internals. Drivers MUST be hardware-agnostic with clean adapter interfaces to enable simulation, testing, and future hardware substitution.
@@ -88,18 +115,30 @@ Git operations (OPTIONS):
 This constitution supersedes all other development practices and requirements. Constitutional amendments require formal documentation, approval process, and migration plan for affected systems. All pull requests and code reviews MUST verify constitutional compliance before approval. Complexity deviations require explicit justification with simpler alternatives documented. Development teams MUST use `spec/agent_rules.md` for runtime development guidance and implementation constraints.
 
 **Acceptance Criteria (Core Safety Requirements)**:
-- Emergency stop latency: <100ms from signal to motor halt
+- Emergency stop latency — relay actuators: <100ms from signal to de-energize
+- Emergency stop latency — positional actuators, command issuance: <100ms from signal to safe-value command
+- Emergency stop latency — positional actuators, physical settle: <500ms from signal to physically-observed safe position
+- Bus-fault failsafe: any hold-last-value actuation transport (e.g., PCA9685) MUST reach a safe state on I2C/host loss, independent of software E-stop, verified by fault injection
+- Operator-attestation gate: required before blade/PTO engagement and before autonomous-motion start on human-proximity/ROPS-tier platforms
 - IMU tilt cutoff latency: <200ms from threshold breach to blade stop
 - UI telemetry update rate: ≤1s (1Hz minimum, 5Hz target)
 - Navigation geofence incursions: 0 tolerance (immediate stop)
 - Graceful degradation: Missing GPS → Manual mode remains safe
-- Watchdog timeout enforcement: Mandatory for all motor operations
+- Watchdog timeout enforcement: Mandatory for all motor operations (tractor platform: open implementation gap, see Constitutional Change Log 3.0.0)
 
-**Version**: 2.0.0 | **Ratified**: 2025-09-25 | **Last Amended**: 2025-10-02
+**Version**: 3.0.0 | **Ratified**: 2025-09-25 | **Last Amended**: 2026-07-08
 
 ---
 
 ## Constitutional Change Log
+
+### 3.0.0 (2026-07-08) - Major: Ride-On Tractor Platform Constitutional Recognition
+**Modified Principles**:
+- Principle V: Formally recognized two constitutionally-valid platforms (differential-drive mower, Craftsman-class Ackermann ride-on tractor); made `config/tractor.yaml`'s `enabled` flag constitutionally gated on a complete `spec/hardware.yaml` `tractor:` section passing `scripts/check_hardware_pin_conflicts.py` with zero conflicts.
+- Principle VI: Added a human-proximity/ROPS risk tier and an operator-attestation gate for blade/PTO engagement and autonomous-motion start; replaced the blanket "100ms for all motors" E-stop rule with three actuator-class latency tiers (GPIO relay / positional-command-issuance / positional-physical-settle); added an explicit, fault-injection-verified bus-fault-failsafe requirement; named and tracked two pre-existing gaps where this constitution's own text was silently unmet (IMU tilt-cutoff and motor watchdog not wired to `tractor_service.py`).
+- Reconciled the document's closing "Acceptance Criteria (Core Safety Requirements)" bullets with the new tiered Principle VI language so the two sections no longer contradict each other.
+
+**Rationale**: The ride-on tractor platform (`d2cb1ae`, 2026-06-26) shipped a materially different risk profile — a human-proximity, ROPS-relevant, gas-engine ride-on vehicle — into a constitution written entirely for a small autonomous push-mower, more than eight months after the prior amendment and without ever being ratified into this document. Two requirements this constitution already imposed on "all motor control operations" (tilt-cutoff, watchdog) were silently unmet by the new platform's code. The planned actuation-transport swap to PCA9685 introduces a new hold-last-value bus-fault hazard that the prior blanket E-stop language did not address. This amendment closes the documentation/governance gap and converts both the pre-existing gaps and the new hazard into explicit, tracked, enforceable requirements instead of implicit assumptions.
 
 ### 2.0.0 (2025-10-02) - Major: Engineering Plan Alignment
 **Added Principles**:

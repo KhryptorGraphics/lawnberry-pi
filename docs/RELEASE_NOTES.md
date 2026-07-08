@@ -30,6 +30,19 @@ This release replaces version 1 with a unified v2 backend and frontend, contract
 - Camera JPEG encoder respects explicit colour-space hints from PiCamera2 frames, preventing the magenta tint seen in MJPEG streams after the migration to RGB888 capture.
 - Added regression tests for RoboHAT USB acquisition retries, manual unlock TOTP window tolerance, and camera colour encoding to prevent future regressions.
 
+## Feature (2026-06-26)
+
+- Added ride-on lawn tractor actuation platform (`d2cb1ae`) — this entry is retroactive; the commit predated this changelog entry and should have been logged at merge time per this document's own convention. The target mower is a converted Craftsman-class ride-on tractor (Ackermann steering, gas engine), not a differential-drive robot. Adds a second, constitutionally-recognized actuation subsystem (steering, throttle, ground-speed pedal, clutch, gear, starter, blade PTO) alongside the original differential-drive platform:
+  - `models/tractor_control.py` (Transmission F/N/R, `TractorCommand`, `TractorState`)
+  - `drivers/actuators/` (`ServoActuator`, `GearActuator`, `RelayActuator` — SIM-safe GPIO + momentary starter pulse)
+  - `services/tractor_service.py` — steering/throttle/ground-speed/clutch/gear via RoboHAT RC-PWM plus starter/blade-PTO GPIO relays, with standard lawn-tractor interlocks (start requires authorized+neutral+clutch+blade-off; blade engages only with the engine running and not in reverse; reverse auto-disengages the blade; emergency stop disengages drive+blade and brakes while the engine keeps running)
+  - `config/tractor.yaml`; 14 new REST endpoints under `/api/v2/tractor`
+  - `ActionPrediction.to_tractor_command()`; the autonomous AI loop drives the tractor when `tractor.enabled`, the differential path otherwise
+  - Frontend `TractorControlView` (`/tractor`) + API client + nav entry
+  - `docs/tractor-platform.md`; 13 new unit tests
+
+**Real-hardware readiness note (added 2026-07-08 with the v3.0.0 constitutional amendment)**: this commit implements the actuation *logic* only. The RC-PWM transport underneath the five positional actuators is not functional on real hardware as shipped (only the two GPIO relays work today); the service is never started at boot; and the navigation e-stop path does not yet reach the tractor. See `docs/tractor-acceptance-criteria.md` for what must be verified on real hardware before unsupervised use.
+
 ## Highlights
 
 - Hardware telemetry behind SIM_MODE (T102, T110)

@@ -251,6 +251,35 @@ venv/bin/python -m scripts.gps_smoke_test --duration 20 --interval 0.5
 - **Control method**: PWM speed control
 - **Safety features**: Emergency stop and blade brake
 
+## Ride-On Tractor Platform (Alternate Configuration)
+
+**Function**: A second, constitutionally-recognized platform (Constitution
+Principle V): a converted Craftsman-class ride-on lawn tractor — Ackermann
+steering, gas engine — operated through seven discrete actuators instead of
+the two differential drive motors described above. Selected via
+`config/tractor.yaml`'s `enabled: true` flag; a deployment runs exactly one
+platform, never both. See `docs/tractor-platform.md` for the full actuator
+table and API surface, and `docs/tractor-acceptance-criteria.md` for the
+safety sign-off checklist this platform must pass before unsupervised use.
+
+**Components**:
+- **5 positional actuators** (steering, throttle, gas pedal/ground-speed,
+  clutch/brake, gear F/N/R) — RC-PWM channels, bench-calibrated per channel.
+- **2 GPIO relays** (starter, blade PTO) — momentary crank pulse and latching
+  PTO engage/disengage respectively.
+- **Standard lawn-tractor safety interlocks** (ANSI/OPEI-style): engine start
+  requires authorized + neutral + clutch pressed + blade off; blade/PTO
+  engages only with the engine running and not in reverse; selecting reverse
+  auto-disengages the blade (Reverse Operation System); emergency stop
+  disengages blade+drive and brakes while the engine keeps running.
+
+**Hardware status note**: as configured today, only the 2 GPIO relays are
+functional on real hardware — the 5 positional actuators' RC-PWM transport is
+not accepted by the current RoboHAT firmware and is silently dropped. See
+`docs/hardware-feature-matrix.md`'s tractor section and
+`docs/tractor-acceptance-criteria.md` for what remains before this platform is
+field-ready.
+
 ## Camera and Vision System
 
 ### Raspberry Pi Camera Module
