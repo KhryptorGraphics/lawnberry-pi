@@ -649,6 +649,18 @@ class WebSocketHub:
             }
         await self.broadcast_to_topic("jobs.progress", job_data)
 
+        # Tractor platform state — broadcast unconditionally like every other
+        # topic here; the frontend decides relevance via TractorState.enabled.
+        from ..services.tractor_service import get_tractor_service
+
+        try:
+            tractor_state = get_tractor_service().get_state().model_dump(mode="json")
+            tractor_data: dict[str, Any] = {"tractor": tractor_state, "source": "hardware"}
+        except Exception:
+            # Telemetry must never break on tractor-state derivation.
+            tractor_data = {"tractor": None, "source": "unavailable"}
+        await self.broadcast_to_topic("telemetry.tractor", tractor_data)
+
         # System performance
         perf_data = {
             "cpu_usage_percent": round(random.uniform(10, 60), 1),
