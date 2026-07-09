@@ -17,8 +17,11 @@ Environment=LAWNBERRY_LOG_DIR=/apps/lawnberry-pi/logs
 Environment=LAWNBERRY_DATA_DIR=/apps/lawnberry-pi/data
 Environment=SIM_MODE=0
 Environment=PYTHONUNBUFFERED=1
-# Require operator authentication on config-changing write endpoints.
-Environment=OPERATOR_AUTH_REQUIRED=1
+# Auth disabled project-wide (LAN-only single-operator deployment, no
+# internet exposure): login, operator-auth-gated writes, and the manual
+# control unlock step all no-op. See api/deps.py::require_operator_auth
+# and api/routers/auth.py's manual-unlock handlers.
+Environment=OPERATOR_AUTH_REQUIRED=0
 # Auto-upload recorded mowing sessions to the Thor training server.
 # Set THOR_UPLOAD_ENABLED=1 and THOR_BASE_URL to Thor's receiver (host:port).
 Environment=THOR_UPLOAD_ENABLED=0
