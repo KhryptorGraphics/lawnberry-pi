@@ -84,9 +84,11 @@ fi
 
 echo ""
 echo "=== picamera2 (pip) ==="
-/apps/lawnberry-pi/.venv/bin/pip show picamera2 >/dev/null 2>&1 \
-    && echo "picamera2 already installed." \
-    || /apps/lawnberry-pi/.venv/bin/pip install picamera2
+if /apps/lawnberry-pi/.venv/bin/pip show picamera2 >/dev/null 2>&1; then
+    echo "picamera2 already installed."
+else
+    /apps/lawnberry-pi/.venv/bin/pip install picamera2
+fi
 
 echo ""
 echo "Done. This does not fix CSI camera detection -- see"
