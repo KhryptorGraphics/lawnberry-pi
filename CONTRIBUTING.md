@@ -30,7 +30,7 @@ This project follows standard open-source community guidelines. Be respectful, c
 ```bash
 cd backend
 python -m pip install -e .[hardware]
-python -m pip install pytest pytest-asyncio black ruff mypy
+python -m pip install pytest pytest-asyncio ruff mypy
 ```
 
 ### Frontend Setup
@@ -54,7 +54,13 @@ chmod +x .git/hooks/pre-commit
 - Use type hints where appropriate
 - Write docstrings for public functions and classes
 - Use `ruff` for linting: `ruff check .`
-- Use `black` for formatting: `black .`
+- Use `ruff` for formatting: `ruff format .`
+
+CI (`.github/workflows/lint.yml`) runs `ruff check .` **then** `ruff format
+--check .` and fails on either. Do not format with `black` — it disagrees with
+`ruff format` on some constructs (implicit string concatenation in a binary
+expression, for one), so a black-formatted file can pass review and still fail
+CI. `ruff format` is the single source of truth.
 
 ### TypeScript/Vue (Frontend)
 - Follow Vue 3 Composition API patterns

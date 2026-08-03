@@ -271,7 +271,6 @@ ruff check --fix .
 
 # Auto-format code
 ruff format .
-black .
 
 # Check types
 mypy --strict src
@@ -331,7 +330,6 @@ Run the full CI suite locally before pushing:
 # Backend checks
 ruff check .
 ruff format --check .
-black --check .
 SIM_MODE=1 pytest tests/
 
 # Frontend checks

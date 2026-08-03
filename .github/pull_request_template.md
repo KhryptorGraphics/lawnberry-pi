@@ -28,7 +28,7 @@
   - Concurrency strategy documented when introducing new shared hardware interactions
 
 - [ ] **CI**
-  - [ ] Lint checks pass (`ruff`, `black`, `mypy`)
+  - [ ] Lint checks pass (`ruff check`, `ruff format --check`, `mypy`)
   - [ ] No unapproved TODOs (`TODO(v3)` only with issue link)
   - [ ] No doc drift (CI docs job passes)
 

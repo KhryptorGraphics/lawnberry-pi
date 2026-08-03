@@ -122,11 +122,20 @@ if __name__ == "__main__":
             {"pins": {"gpio_used": [{"gpio": 6, "role": "A"}]}},
             {"relays": {"x": {"gpio": 6}}},
         )
-        assert find_conflicts(gpio_claims) == {6: ["spec/hardware.yaml: A", "config/tractor.yaml relays.x"]}
+        assert find_conflicts(gpio_claims) == {
+            6: ["spec/hardware.yaml: A", "config/tractor.yaml relays.x"]
+        }
 
         # rxd/txd rows (no "gpio" key) must not be treated as GPIO claims or crash.
         gpio_claims_bno = collect_gpio_claims(
-            {"pins": {"gpio_used": [{"pin": 33, "rxd": 4, "role": "RX"}, {"pin": 32, "txd": 4, "role": "TX"}]}},
+            {
+                "pins": {
+                    "gpio_used": [
+                        {"pin": 33, "rxd": 4, "role": "RX"},
+                        {"pin": 32, "txd": 4, "role": "TX"},
+                    ]
+                }
+            },
             {},
         )
         assert find_conflicts(gpio_claims_bno) == {}, "rxd/txd rows falsely collided"

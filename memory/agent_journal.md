@@ -72,3 +72,46 @@ the real gaps (see docs/operator-dashboard.md):
   model deploy, metrics + reset, health, datasets + export).
 
 Verified: vue-tsc, vitest 83/83, vite build, backend ruff + autonomy tests green.
+
+## 2026-08-02 — Green the lint job on main (ruff/black split)
+
+`main` had a red `lint` job. Two independent faults gated sequentially behind
+`bash -e`, so fixing either alone left it red:
+
+1. `ruff check .` — 2× E501 in `scripts/check_hardware_pin_conflicts.py`
+   (new in fa438a8), so the job died before ever reaching the format step.
+2. `ruff format --check .` — `backend/src/api/routers/camera.py` and
+   `tests/unit/test_gps_config_fallback.py` were unformatted.
+
+**Root cause, not just symptom:** `CONTRIBUTING.md` told contributors to format
+with `black`, but CI enforces `ruff format --check` and black appears in no
+workflow. They genuinely disagree — verified on camera.py, where black leaves
+`(...).encode() + jpeg_bytes + b"\r\n"` inline and ruff explodes it. The
+committed file was black-formatted, i.e. someone followed the docs and CI
+rejected it. `docs/OPERATIONS.md` was worse: it ran `ruff format .` *then*
+`black .`, actively undoing the CI-correct result.
+
+Retired black repo-wide: CONTRIBUTING.md, docs/OPERATIONS.md (both blocks),
+.github/pull_request_template.md, and the now-dead `[tool.black]` section in
+pyproject.toml. `ruff format` is the single source of truth.
+
+Verified: `ruff check .` + `ruff format --check .` both green (344 files),
+`check_hardware_pin_conflicts.py --self-test` OK.
+
+**Out of scope, filed for follow-up — and it looks like a PRODUCTION bug, not
+just a test-env one:** `ai_inference_service.DEFAULT_MODEL_PATH` and the two
+`hailo_driver` model paths are hardcoded to `/home/kp/repos/lawnberry_pi/...`,
+which is not this repo's location and not the deploy location either (the Pi
+runs from `/apps/lawnberry-pi`). `model_path` is overridable via service config
+but is set in no `config/*.yaml` or `*.json`, so the hardcoded default is what
+actually resolves. On the Pi that path won't exist, `_model_loaded` stays False,
+and autonomous inference silently reports no model loaded — no error raised,
+just a quiet no-op.
+
+Locally it's noisier: the path is a dead mount here, so `.exists()` raises
+`OSError: [Errno 19]` instead of returning False, failing 12 tests in
+`tests/unit/test_ai_inference_service.py`. CI never sees either symptom (no such
+path, and `.exists()` returns a clean False).
+
+Pre-existing on clean main; untouched here. Filed as issue #13 — verify against
+the deployed unit before assuming the mower's autonomy has been dark.

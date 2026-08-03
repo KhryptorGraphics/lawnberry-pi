@@ -45,9 +45,7 @@ def test_gps_driver_reports_permission_error_with_fix_hint(monkeypatch, caplog) 
     monkeypatch.setitem(sys.modules, "serial", fake_serial)
     # Force the real-hardware path off-Pi.
     monkeypatch.delenv("SIM_MODE", raising=False)
-    monkeypatch.setattr(
-        "backend.src.drivers.sensors.gps_driver.is_simulation_mode", lambda: False
-    )
+    monkeypatch.setattr("backend.src.drivers.sensors.gps_driver.is_simulation_mode", lambda: False)
 
     d = GPSDriver({"mode": GpsMode.LC29H_UART})
     d.initialized = True
