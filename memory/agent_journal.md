@@ -98,9 +98,20 @@ pyproject.toml. `ruff format` is the single source of truth.
 Verified: `ruff check .` + `ruff format --check .` both green (344 files),
 `check_hardware_pin_conflicts.py --self-test` OK.
 
-**Out of scope, filed for follow-up:** `ai_inference_service.DEFAULT_MODEL_PATH`
-and the two `hailo_driver` model paths are hardcoded to
-`/home/kp/repos/lawnberry_pi/...` — not this repo's location. On a host where
-that path is a dead mount, `.exists()` raises `OSError: [Errno 19]` rather than
-returning False, failing 12 tests in `tests/unit/test_ai_inference_service.py`.
-CI never sees it (no such path). Pre-existing on clean main; untouched here.
+**Out of scope, filed for follow-up — and it looks like a PRODUCTION bug, not
+just a test-env one:** `ai_inference_service.DEFAULT_MODEL_PATH` and the two
+`hailo_driver` model paths are hardcoded to `/home/kp/repos/lawnberry_pi/...`,
+which is not this repo's location and not the deploy location either (the Pi
+runs from `/apps/lawnberry-pi`). `model_path` is overridable via service config
+but is set in no `config/*.yaml` or `*.json`, so the hardcoded default is what
+actually resolves. On the Pi that path won't exist, `_model_loaded` stays False,
+and autonomous inference silently reports no model loaded — no error raised,
+just a quiet no-op.
+
+Locally it's noisier: the path is a dead mount here, so `.exists()` raises
+`OSError: [Errno 19]` instead of returning False, failing 12 tests in
+`tests/unit/test_ai_inference_service.py`. CI never sees either symptom (no such
+path, and `.exists()` returns a clean False).
+
+Pre-existing on clean main; untouched here. Wants its own issue — verify against
+the deployed unit before assuming the mower's autonomy has been dark.
