@@ -36,7 +36,12 @@ test.describe('Manual control access', () => {
     await page.getByRole('button', { name: 'Unlock Control' }).click()
 
     // Fail-closed: an unlock error must never grant control access.
-    await expect(page.getByText(/unlock is unavailable/i)).toBeVisible()
+    // The message renders in three places (toast, the gate card's inline error,
+    // and the view-level status alert), so scope to the gate card to keep this
+    // assertion unambiguous under Playwright strict mode.
+    await expect(
+      page.locator('.security-gate .alert-danger').getByText(/unlock is unavailable/i)
+    ).toBeVisible()
     await expect(page.getByText('Control Access Required')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Movement Controls' })).not.toBeVisible()
   })

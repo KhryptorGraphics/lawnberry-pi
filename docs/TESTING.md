@@ -41,7 +41,35 @@ npm run build
 
 All frontend dependencies are compatible with ARM64.
 
-## 3) Docs drift guard
+## 3) Frontend end-to-end tests (Playwright)
+
+From `frontend/`. The specs mock the backend (`tests/e2e/utils/mock-backend.ts`)
+and Playwright serves the built frontend itself, so no API server is needed:
+
+```bash
+npx playwright install chromium   # first run only
+npx playwright test
+```
+
+The `webui-build` workflow runs these on **pull requests only** — it never runs
+on `main`. A spec that goes stale after a UI change therefore stays green on the
+default branch and only turns red on the next PR, whoever opens it. If
+`build-ui` fails on a PR that doesn't touch the frontend, check whether the
+failure predates the branch (`git switch --detach origin/main` and re-run)
+before assuming the PR caused it.
+
+On aarch64 workstations the pinned Chromium may fail to install. If
+`npx playwright test` reports a missing executable or `Old Headless mode has
+been removed`, point it at a working headless shell for the run:
+
+```bash
+LB_CHROME_PATH=~/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell \
+  npx playwright test
+```
+
+(CI is unaffected — it uses the official Playwright container.)
+
+## 4) Docs drift guard
 
 CI will fail if code changes without corresponding documentation or journal updates. You can run the check locally:
 
