@@ -19,7 +19,7 @@ Environment=SIM_MODE=0
 Environment=PYTHONUNBUFFERED=1
 # Auth disabled project-wide (LAN-only single-operator deployment, no
 # internet exposure): login, operator-auth-gated writes, and the manual
-# control unlock step all no-op. See api/deps.py::require_operator_auth
+# control unlock step are all bypassed. See api/deps.py::require_operator_auth
 # and api/routers/auth.py's manual-unlock handlers.
 Environment=OPERATOR_AUTH_REQUIRED=0
 # Auto-upload recorded mowing sessions to the Thor training server.

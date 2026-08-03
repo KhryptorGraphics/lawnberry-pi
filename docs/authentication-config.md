@@ -4,8 +4,8 @@
 >
 > `systemd/lawnberry-backend.service` ships `OPERATOR_AUTH_REQUIRED=0`. This is
 > a deliberate choice for a LAN-only, single-operator deployment with no
-> internet exposure — login, operator-auth-gated writes, and the manual-control
-> unlock step all no-op. Everything below describes the system as it behaves
+> internet exposure. Login, operator-auth-gated writes, and the manual-control
+> unlock step are all bypassed. Everything below describes the system as it behaves
 > when auth is switched back on.
 >
 > **To re-enable:** set `Environment=OPERATOR_AUTH_REQUIRED=1` in the unit file
