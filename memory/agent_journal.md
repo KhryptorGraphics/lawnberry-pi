@@ -72,3 +72,35 @@ the real gaps (see docs/operator-dashboard.md):
   model deploy, metrics + reset, health, datasets + export).
 
 Verified: vue-tsc, vitest 83/83, vite build, backend ruff + autonomy tests green.
+
+## 2026-08-02 — Green the lint job on main (ruff/black split)
+
+`main` had a red `lint` job. Two independent faults gated sequentially behind
+`bash -e`, so fixing either alone left it red:
+
+1. `ruff check .` — 2× E501 in `scripts/check_hardware_pin_conflicts.py`
+   (new in fa438a8), so the job died before ever reaching the format step.
+2. `ruff format --check .` — `backend/src/api/routers/camera.py` and
+   `tests/unit/test_gps_config_fallback.py` were unformatted.
+
+**Root cause, not just symptom:** `CONTRIBUTING.md` told contributors to format
+with `black`, but CI enforces `ruff format --check` and black appears in no
+workflow. They genuinely disagree — verified on camera.py, where black leaves
+`(...).encode() + jpeg_bytes + b"\r\n"` inline and ruff explodes it. The
+committed file was black-formatted, i.e. someone followed the docs and CI
+rejected it. `docs/OPERATIONS.md` was worse: it ran `ruff format .` *then*
+`black .`, actively undoing the CI-correct result.
+
+Retired black repo-wide: CONTRIBUTING.md, docs/OPERATIONS.md (both blocks),
+.github/pull_request_template.md, and the now-dead `[tool.black]` section in
+pyproject.toml. `ruff format` is the single source of truth.
+
+Verified: `ruff check .` + `ruff format --check .` both green (344 files),
+`check_hardware_pin_conflicts.py --self-test` OK.
+
+**Out of scope, filed for follow-up:** `ai_inference_service.DEFAULT_MODEL_PATH`
+and the two `hailo_driver` model paths are hardcoded to
+`/home/kp/repos/lawnberry_pi/...` — not this repo's location. On a host where
+that path is a dead mount, `.exists()` raises `OSError: [Errno 19]` rather than
+returning False, failing 12 tests in `tests/unit/test_ai_inference_service.py`.
+CI never sees it (no such path). Pre-existing on clean main; untouched here.

@@ -49,10 +49,14 @@ async def camera_stream_mjpeg() -> StreamingResponse:
             except (ValueError, TypeError):
                 continue
             yield (
-                f"--{_BOUNDARY}\r\n"
-                "Content-Type: image/jpeg\r\n"
-                f"Content-Length: {len(jpeg_bytes)}\r\n\r\n"
-            ).encode() + jpeg_bytes + b"\r\n"
+                (
+                    f"--{_BOUNDARY}\r\n"
+                    "Content-Type: image/jpeg\r\n"
+                    f"Content-Length: {len(jpeg_bytes)}\r\n\r\n"
+                ).encode()
+                + jpeg_bytes
+                + b"\r\n"
+            )
 
     return StreamingResponse(
         generate(), media_type=f"multipart/x-mixed-replace; boundary={_BOUNDARY}"
