@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 
+from ..core.observability import observability
 from ..core.simulation import is_simulation_mode
 from ..drivers.ai.hailo_driver import HailoDriver
 from ..drivers.base import HardwareDriver
@@ -33,6 +34,8 @@ from ..nav.location_features import (
     COVERAGE_GRID_SIZE,
     gps_feature_vector,
 )
+
+logger = observability.get_logger(__name__)
 
 
 @dataclass
@@ -99,7 +102,15 @@ class AIInferenceService(HardwareDriver):
         await service.stop()
     """
 
-    DEFAULT_MODEL_PATH = Path("/home/kp/repos/lawnberry_pi/models/lawnmower_vla.hef")
+    # Relative to LAWNBERRY_DATA_DIR. Resolved at call time, not import time, so
+    # the env var can be set/monkeypatched after this module loads.
+    DEFAULT_MODEL_RELPATH = "models/lawnmower_vla.hef"
+
+    @staticmethod
+    def default_model_path() -> Path:
+        """Default VLA model location, under `LAWNBERRY_DATA_DIR`."""
+        base = os.getenv("LAWNBERRY_DATA_DIR", "./data")
+        return Path(base) / AIInferenceService.DEFAULT_MODEL_RELPATH
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config)
@@ -146,16 +157,33 @@ class AIInferenceService(HardwareDriver):
         }
 
         # Check if VLA model exists
-        model_path = self.config.get("model_path", self.DEFAULT_MODEL_PATH)
+        model_path = self.config.get("model_path") or self.default_model_path()
         if isinstance(model_path, str):
             model_path = Path(model_path)
 
-        if model_path.exists():
+        # .exists() raises (rather than returning False) when a path component is
+        # an unreachable mount -- treat that as "no model", same as absent.
+        try:
+            model_present = model_path.exists()
+        except OSError as exc:
+            logger.warning(
+                "ai.model_path_unreadable",
+                extra={"path": str(model_path), "error": str(exc)},
+            )
+            model_present = False
+
+        if model_present:
             hailo_config["hef_path"] = str(model_path)
             self._model_path = model_path
             self._model_loaded = True
         else:
-            # Use default model for testing
+            # No model deployed yet -- inference stays disabled until one is
+            # loaded. Logged so a misconfigured path is distinguishable from an
+            # intentionally model-less install.
+            logger.warning(
+                "ai.no_model_at_path",
+                extra={"path": str(model_path), "hint": "deploy a .hef via POST /api/v2/ai/model"},
+            )
             self._model_path = None
             self._model_loaded = False
 

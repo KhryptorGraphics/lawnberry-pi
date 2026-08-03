@@ -49,3 +49,22 @@ async def test_post_ai_dataset_export_invalid_dataset():
         payload = {"format": "COCO", "include_unlabeled": False, "min_confidence": 0.8}
         resp = await client.post("/api/v2/ai/datasets/nonexistent/export", json=payload)
         assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_ai_status_serializes_control_mode():
+    """/ai/status must not 500 on the ControlMode field.
+
+    AIControlStatus sets use_enum_values=True, so pydantic coerces `mode` to a
+    plain str whenever the field is explicitly supplied -- which get_status()
+    does. The router previously called `.mode.value` on that str, raising
+    AttributeError and returning 500 on the deployed unit. No test covered this
+    endpoint at all, so it shipped.
+    """
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v2/ai/status")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert isinstance(body["mode"], str)
+        assert body["mode"], "mode must be a non-empty string"

@@ -97,7 +97,7 @@ async def set_mode(m: ModeIn):
     st = mgr.get_state()
     st.navigation_mode = m.mode
     st.touch()
-    return {"ok": True, "mode": st.navigation_mode.value}
+    return {"ok": True, "mode": str(st.navigation_mode)}
 
 
 @router.get("/api/v2/nav/status")
@@ -110,7 +110,7 @@ async def get_nav_status():
         st.inside_geofence = point_in_polygon(st.position.latitude, st.position.longitude, pts)
     # Response conforms to FR-034 expectations
     return {
-        "mode": st.navigation_mode.value,
+        "mode": str(st.navigation_mode),
         "position": {
             "latitude": st.position.latitude,
             "longitude": st.position.longitude,

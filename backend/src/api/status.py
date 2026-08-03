@@ -27,7 +27,7 @@ async def get_status_v2():
     st = mgr.get_state()
     return {
         "battery_percentage": st.battery.percentage,
-        "navigation_state": st.navigation_mode.value,
+        "navigation_state": str(st.navigation_mode),
         "safety_status": {
             "emergency_stop_active": False,
             "tilt_detected": False,
@@ -59,7 +59,7 @@ async def ws_status(websocket: WebSocket):
                 {
                     "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
                     "battery_percentage": st.battery.percentage,
-                    "navigation_state": st.navigation_mode.value,
+                    "navigation_state": str(st.navigation_mode),
                     "position": st.position.model_dump(),
                 }
             )

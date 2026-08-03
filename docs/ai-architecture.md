@@ -221,9 +221,15 @@ The Vision-Language-Action model is designed for lawn mowing:
 
 ### Model Files
 
-Models are stored in HEF format for Hailo:
-- Default path: `/home/kp/repos/lawnberry_pi/models/lawnmower_vla.hef`
-- Placeholder models: `yolov8m.hef`, `scdepthv3.hef`
+Models are stored in HEF format for Hailo, under `LAWNBERRY_DATA_DIR`
+(`/apps/lawnberry-pi/data` on the Pi, `./data` otherwise):
+- VLA model: `$LAWNBERRY_DATA_DIR/models/lawnmower_vla.hef`
+- Placeholder models: `$LAWNBERRY_DATA_DIR/hailo/{yolov8m,scdepthv3}.hef`
+
+Override either with an explicit `model_path` / `hef_path` in the service
+config. If no model is present, inference stays disabled and the service logs
+`ai.no_model_at_path` at WARNING — a missing model is not an error, but it is
+never silent.
 
 ## Safety Integration
 
