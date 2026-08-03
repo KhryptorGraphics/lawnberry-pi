@@ -1,5 +1,23 @@
 # Authentication Configuration Guide
 
+> **⚠️ Authentication is currently DISABLED on the deployed unit.**
+>
+> `systemd/lawnberry-backend.service` ships `OPERATOR_AUTH_REQUIRED=0`. This is
+> a deliberate choice for a LAN-only, single-operator deployment with no
+> internet exposure. Login, operator-auth-gated writes, and the manual-control
+> unlock step are all bypassed. Everything below describes the system as it behaves
+> when auth is switched back on.
+>
+> **To re-enable:** set `Environment=OPERATOR_AUTH_REQUIRED=1` in the unit file
+> and restart the backend. Nothing else was removed — the login view, the JWT
+> auth service, and every credential path are intact. Do this before exposing
+> the unit beyond a trusted LAN.
+>
+> Enforcement points that honour the flag: `api/deps.py::require_operator_auth`,
+> and in `api/routers/auth.py` `_resolve_manual_session`, `manual_unlock`, and
+> `manual_unlock_status`. The fail-closed contract is unchanged when auth is
+> required: an unlock error never grants control.
+
 This guide covers setting up and configuring the multi-level authentication system in LawnBerry Pi v2, from basic password authentication to enterprise-grade security.
 
 ## Table of Contents

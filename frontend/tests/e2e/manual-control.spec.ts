@@ -7,15 +7,17 @@ test.describe('Manual control access', () => {
     await resetAppStores(page)
   })
 
-  test('requires unlock and supports emergency stop workflow', async ({ page }) => {
+  test('auto-unlocks on load and supports emergency stop workflow', async ({ page }) => {
     const backend = new MockBackend()
     backend.setWebSocketScript([{ message: { event: 'connection.established', client_id: 'control-client' } }])
 
     await launchApp(page, backend, '/control')
 
-    await expect(page.getByText('Control Access Required')).toBeVisible()
-    await page.getByLabel('Confirm Password').fill('admin')
-    await page.getByRole('button', { name: 'Unlock Control' }).click()
+    // Auth is disabled for this deployment: the backend auto-approves
+    // manual-unlock, so ControlView unlocks silently on mount and the gate
+    // never renders. See autoUnlockIfPossible() in ControlView.vue.
+    await expect(page.getByRole('heading', { name: 'Movement Controls' })).toBeVisible()
+    await expect(page.getByText('Control Access Required')).toHaveCount(0)
 
     const emergencyButton = page.getByRole('button', { name: /EMERGENCY STOP/i })
     await expect(emergencyButton).toBeEnabled()
@@ -53,9 +55,7 @@ test.describe('Manual control access', () => {
 
     await launchApp(page, backend, '/control')
 
-    await page.getByLabel('Confirm Password').fill('admin')
-    await page.getByRole('button', { name: 'Unlock Control' }).click()
-
+    // Auth disabled -- controls are available without an explicit unlock step.
     await expect(page.getByRole('heading', { name: 'Movement Controls' })).toBeVisible()
 
     const joystick = page.getByRole('slider', { name: /joystick/i })
