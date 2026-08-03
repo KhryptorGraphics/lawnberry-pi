@@ -48,8 +48,12 @@ and Playwright serves the built frontend itself, so no API server is needed:
 
 ```bash
 npx playwright install chromium   # first run only
-npx playwright test
+npm run test:e2e                  # builds, then runs
 ```
+
+`playwright.config.ts` serves `dist/` via `npm run preview`, so a build must
+exist first — `npm run test:e2e` does both. Bare `npx playwright test` only
+works if `frontend/dist/` is already current.
 
 The `webui-build` workflow runs these on **pull requests only** — it never runs
 on `main`. A spec that goes stale after a UI change therefore stays green on the
@@ -63,8 +67,11 @@ On aarch64 workstations the pinned Chromium may fail to install. If
 been removed`, point it at a working headless shell for the run:
 
 ```bash
-LB_CHROME_PATH=~/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell \
-  npx playwright test
+# Resolve the glob first -- a bare wildcard on an assignment RHS is NOT
+# pathname-expanded by bash, so LB_CHROME_PATH would keep the literal '*'.
+export LB_CHROME_PATH=$(ls -d ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell | head -1)
+npm run build          # not `npm run test:e2e` -- that re-runs the install
+npx playwright test    # step that hangs on this platform
 ```
 
 (CI is unaffected — it uses the official Playwright container.)
