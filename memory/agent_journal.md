@@ -115,3 +115,31 @@ path, and `.exists()` returns a clean False).
 
 Pre-existing on clean main; untouched here. Filed as issue #13 — verify against
 the deployed unit before assuming the mower's autonomy has been dark.
+
+## 2026-08-02 — Green the e2e suite (stale specs, not real regressions)
+
+`build-ui` has been failing on every PR since the June AIView rebuild. It runs
+`on: [pull_request]` with no path filter and never on `main`, so nothing on the
+default branch ever reported it and the rot accumulated invisibly.
+
+Measured a real baseline on clean `main` (3 failed / 2 passed), which showed
+neither failure had anything to do with the PR that surfaced them:
+
+- **`ai-training.spec.ts` (2 tests)** — asserted a heading `"AI Training"` and a
+  `#ai-start-training` button. The 2026-06-26 frontend pass replaced the mock
+  training studio (which called non-existent `/api/v2/training/*` endpoints)
+  with the real AI & Model Control panel. `grep -c training src/views/AIView.vue`
+  is now 0 — the UI under test no longer exists, so the spec was deleted rather
+  than repaired. **AIView currently has no e2e coverage.**
+- **`manual-control.spec.ts:27` (fail-closed)** — `getByText(/unlock is
+  unavailable/i)` hit a Playwright strict-mode violation by matching 3 elements
+  (toast, the gate card's inline error, the view-level status alert). The
+  behaviour was always correct; only the selector was over-broad. Scoped it to
+  `.security-gate .alert-danger`.
+
+Verified: full `npx playwright test` → 12 passed, 0 failed.
+
+Local note: on aarch64 the pinned chromium-1140 download wedges mid-extract, and
+the newer chromium-1169 build rejects Playwright 1.48's `--headless=old`. The
+already-present `chromium_headless_shell-1217` works. CI is unaffected (it uses
+the official Playwright container).

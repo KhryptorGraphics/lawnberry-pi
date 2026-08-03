@@ -23,7 +23,9 @@ export default defineConfig({
     actionTimeout: 15_000,
     navigationTimeout: 15_000,
     trace: 'retain-on-failure',
-    video: 'retain-on-failure',
+    // Video needs a matching ffmpeg build, which the LB_CHROME_PATH escape
+    // hatch (below) implies isn't available. CI leaves it on.
+    video: process.env.LB_CHROME_PATH ? 'off' : 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   webServer: {
@@ -39,6 +41,9 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         viewport: { width: 1280, height: 720 },
         launchOptions: {
+          // Escape hatch for hosts where the pinned Chromium won't install
+          // (aarch64 workstations) -- see docs/TESTING.md. Unset in CI.
+          ...(process.env.LB_CHROME_PATH ? { executablePath: process.env.LB_CHROME_PATH } : {}),
           args: [
             '--disable-dev-shm-usage',
             '--no-sandbox',
