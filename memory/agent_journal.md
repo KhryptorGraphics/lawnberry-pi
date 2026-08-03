@@ -143,3 +143,37 @@ Local note: on aarch64 the pinned chromium-1140 download wedges mid-extract, and
 the newer chromium-1169 build rejects Playwright 1.48's `--headless=old`. The
 already-present `chromium_headless_shell-1217` works. CI is unaffected (it uses
 the official Playwright container).
+
+## 2026-08-02 — Auth removed project-wide (PR #8, rebased)
+
+Landed the long-open auth-removal branch, rebased from its July base (8547cb1)
+onto current main. Deliberate product decision for a LAN-only, single-operator
+unit with no internet exposure: login, operator-auth-gated writes, and the
+manual-control unlock step were friction with no real security benefit here.
+
+Mechanism is one existing toggle, not a teardown. `OPERATOR_AUTH_REQUIRED`
+already gated `require_operator_auth`; this extends it to `_resolve_manual_session`,
+`manual_unlock`, and `manual_unlock_status`, and flips the systemd unit to 0.
+It defaults to "1" when unset, so auth stays ON anywhere the env var is absent
+— tests included. The login view and JWT service are untouched; re-enabling is
+one env var.
+
+**The fail-closed contract survives.** Frontend auto-unlock is a silent attempt
+on mount whose failure path falls through to the normal gate. Verified rather
+than assumed: the e2e fail-closed test (forces 404) still passes unmodified,
+and ControlView.unlock.spec.ts (7 tests: 404/501/generic/three Cloudflare
+paths) is green.
+
+Two e2e tests asserted the gate and had to be rewritten to the no-auth
+contract. Only one was named in CI's failure list — the second
+(`raises safety lockout when drive command is blocked`) fails on
+`getByLabel('Confirm Password')` once the gate stops rendering, and was caught
+by running the spec against the branch instead of trusting the CI list. Worth
+remembering: CI's reported failures aren't necessarily the complete set when
+earlier assertions short-circuit a spec.
+
+docs/authentication-config.md described the auth system as active throughout;
+it now opens with the disabled-state notice and re-enable instructions.
+
+Verified: playwright 12/12, vitest 132/132, vue-tsc, backend auth-related
+tests 52 passed, full backend suite unchanged vs. baseline.
