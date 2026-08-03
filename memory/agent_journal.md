@@ -113,5 +113,5 @@ Locally it's noisier: the path is a dead mount here, so `.exists()` raises
 `tests/unit/test_ai_inference_service.py`. CI never sees either symptom (no such
 path, and `.exists()` returns a clean False).
 
-Pre-existing on clean main; untouched here. Wants its own issue — verify against
+Pre-existing on clean main; untouched here. Filed as issue #13 — verify against
 the deployed unit before assuming the mower's autonomy has been dark.
