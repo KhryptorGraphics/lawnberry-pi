@@ -71,11 +71,21 @@ class HailoDriver(HardwareDriver):
         await driver.stop()
     """
 
-    # Default HEF model paths
-    DEFAULT_MODELS = {
-        "yolov8m": Path("/home/kp/repos/lawnberry_pi/hailo/yolov8m.hef"),
-        "scdepthv3": Path("/home/kp/repos/lawnberry_pi/hailo/scdepthv3.hef"),
+    # Default HEF model paths, relative to LAWNBERRY_DATA_DIR. Resolved at call
+    # time (not import time) so the env var can be set after this module loads.
+    DEFAULT_MODEL_RELPATHS = {
+        "yolov8m": "hailo/yolov8m.hef",
+        "scdepthv3": "hailo/scdepthv3.hef",
     }
+
+    @staticmethod
+    def default_model_path(model_name: str) -> Path:
+        """Default HEF location for `model_name`, under `LAWNBERRY_DATA_DIR`."""
+        base = os.getenv("LAWNBERRY_DATA_DIR", "./data")
+        relpath = HailoDriver.DEFAULT_MODEL_RELPATHS.get(
+            model_name, HailoDriver.DEFAULT_MODEL_RELPATHS["yolov8m"]
+        )
+        return Path(base) / relpath
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config)
@@ -94,9 +104,7 @@ class HailoDriver(HardwareDriver):
         self._hef_path = self.config.get("hef_path")
         if self._hef_path is None:
             model_name = self.config.get("model", "yolov8m")
-            self._hef_path = str(
-                self.DEFAULT_MODELS.get(model_name, self.DEFAULT_MODELS["yolov8m"])
-            )
+            self._hef_path = str(self.default_model_path(model_name))
 
     async def initialize(self) -> None:
         """Initialize Hailo device and load model."""

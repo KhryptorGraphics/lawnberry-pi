@@ -177,3 +177,48 @@ it now opens with the disabled-state notice and re-enable instructions.
 
 Verified: playwright 12/12, vitest 132/132, vue-tsc, backend auth-related
 tests 52 passed, full backend suite unchanged vs. baseline.
+
+## 2026-08-02 — Live 500 on /ai/status + model paths off a dev home dir
+
+Probed the deployed Pi while confirming the model-path follow-up (issue #13) and
+found `GET /api/v2/ai/status` returning **500** on the running unit. Every other
+endpoint probed was 200 (`ai/health`, `ai/metrics`, `ai/datasets`,
+`dashboard/telemetry`, `camera/status`) — so the AI dashboard panel's primary
+call was the one thing broken, and no test covered it.
+
+**Enum coercion, not a typo.** `AIControlStatus` sets
+`ConfigDict(use_enum_values=True)`, so pydantic coerces `mode` to a plain `str`
+— but *only during validation*, not for field defaults. `AIControlStatus()`
+keeps a real `ControlMode`; `AIControlStatus(mode=...)` yields a `str`.
+`get_status()` passes `mode=` explicitly, so the router's `status.mode.value`
+raised `AttributeError` → 500. Replaced with `str(...)`, which is correct for
+both shapes (these are `StrEnum`s).
+
+Bounded the sweep by model rather than by directory: enumerated every model with
+`use_enum_values=True`, collected their enum-typed fields, and grepped all of
+`backend/src/` for `.value` on those names. Five real sites — `ai_control.py`
+(the live 500) plus four latent `navigation_mode` accesses in `api/status.py`
+and `api/navigation.py` that fire whenever navigation mode is explicitly set.
+`auth.py`'s `role.value` was checked and is safe: the `use_enum_values` in
+`user_session.py` belongs to `UserSession`, not `SecurityContext`.
+
+**Model paths (issue #13).** `ai_inference_service` and `hailo_driver` hardcoded
+`/home/kp/repos/lawnberry_pi/...` — a developer home dir that is neither this
+repo nor the deploy root. Now resolved from `LAWNBERRY_DATA_DIR` (default
+`./data`), matching maps/planning/settings. Resolved at **call time**, not in the
+class body: class attributes evaluate at import and would capture whatever env
+existed then, breaking monkeypatched tests. Added the WARNING log #13 asked for,
+plus an `OSError` guard — `.exists()` raises rather than returning False when a
+path component is an unreachable mount.
+
+That guard is also what cleared the 12 long-standing failures in
+`tests/unit/test_ai_inference_service.py`: same root cause, louder symptom.
+**Full backend suite is now 0 failures.**
+
+Verified on the live unit: no `.hef` exists anywhere on the Pi, so the bad
+default was never masking a working model — the bug was latent. Noted on #13
+that `POST /ai/model` doesn't persist the path either, so a deployed model
+wouldn't survive a restart; not fixed here.
+
+New contract test `test_get_ai_status_serializes_control_mode` — confirmed it
+returns 500 without the fix and 200 with it, rather than assuming.

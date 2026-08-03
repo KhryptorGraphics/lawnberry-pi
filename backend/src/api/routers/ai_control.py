@@ -219,7 +219,9 @@ async def get_ai_status(
 
         return StatusResponse(
             enabled=status.enabled,
-            mode=status.mode.value,
+            # AIControlStatus sets use_enum_values=True, so `mode` is already a
+            # plain str once validated -- calling .value on it raises.
+            mode=str(status.mode),
             model_loaded=status.model_loaded,
             last_prediction=status.last_prediction,
             prediction_age_ms=status.prediction_age_ms,

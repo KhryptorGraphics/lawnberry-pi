@@ -53,7 +53,7 @@ sudo reboot
 
 ```bash
 # Navigate to project directory
-cd /home/kp/repos/lawnberry_pi
+cd /apps/lawnberry-pi
 
 # Create virtual environment (use system site-packages for libcamera)
 python3 -m venv .venv --system-site-packages
@@ -97,11 +97,11 @@ Place trained models in the models directory:
 
 ```bash
 # Create models directory if needed
-mkdir -p /home/kp/repos/lawnberry_pi/models
+mkdir -p /apps/lawnberry-pi/data/models
 
 # Copy model files (from Thor training server or pre-trained)
 # Models must be in Hailo HEF format
-cp /path/to/lawnmower_vla.hef /home/kp/repos/lawnberry_pi/models/
+cp /path/to/lawnmower_vla.hef /apps/lawnberry-pi/data/models/
 ```
 
 ## Configuration
@@ -133,7 +133,8 @@ camera:
 
 # AI Configuration
 ai:
-  model_path: /home/kp/repos/lawnberry_pi/models/lawnmower_vla.hef
+  # Optional -- defaults to $LAWNBERRY_DATA_DIR/models/lawnmower_vla.hef
+  model_path: /apps/lawnberry-pi/data/models/lawnmower_vla.hef
   target_fps: 10
   min_confidence: 0.5
   safety_threshold: 0.7
@@ -341,7 +342,7 @@ Methods to stop the mower:
 
 ```bash
 # Pull latest code
-cd /home/kp/repos/lawnberry_pi
+cd /apps/lawnberry-pi
 git pull
 
 # Update dependencies
@@ -358,7 +359,7 @@ sudo systemctl restart lawnberry
 sudo systemctl stop lawnberry
 
 # Replace model file
-cp /path/to/new_model.hef /home/kp/repos/lawnberry_pi/models/lawnmower_vla.hef
+cp /path/to/new_model.hef /apps/lawnberry-pi/data/models/lawnmower_vla.hef
 
 # Start service
 sudo systemctl start lawnberry

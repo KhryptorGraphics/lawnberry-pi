@@ -87,7 +87,7 @@ HC-SR04 ECHO ----+---- 1k ohm ----+---- Pi GPIO (ECHO)
 ### Software Test (Simulation Mode)
 ```bash
 # Test driver in simulation mode first
-cd /home/kp/repos/lawnberry_pi
+cd /apps/lawnberry-pi
 source .venv/bin/activate
 SIM_MODE=true python -c "
 import asyncio
