@@ -40,12 +40,17 @@
               </div>
             </div>
             <div class="pin-list">
-              <div 
-                v-for="m in (mapStore.configuration?.markers || [])" 
+              <div
+                v-for="m in (mapStore.configuration?.markers || [])"
                 :key="m.marker_id"
                 class="pin-item"
                 :class="{ active: selectedPinId === m.marker_id, home: m.marker_type === 'home' || m.is_home }"
+                tabindex="0"
+                role="button"
+                :aria-label="`Select marker ${displayMarkerName(m)}`"
                 @click="selectMarker(m)"
+                @keydown.enter="selectMarker(m)"
+                @keydown.space.prevent="selectMarker(m)"
               >
                 <div class="pin-icon">{{ m.icon || iconForMarker(m.marker_type) }}</div>
                 <div class="pin-info">
@@ -57,11 +62,14 @@
                   <div v-if="summarizeSchedule(m)" class="pin-schedule">{{ summarizeSchedule(m) }}</div>
                 </div>
                 <div class="pin-actions">
-                  <button class="btn btn-xs btn-secondary" @click.stop="editMarker(m)">✏️</button>
+                  <button class="btn btn-xs btn-secondary" :aria-label="`Edit marker ${displayMarkerName(m)}`" @click.stop="editMarker(m)">✏️</button>
                   <button class="btn btn-xs btn-info" @click.stop="editMarkerOnMap(m)">🗺️ Edit on map</button>
-                  <button class="btn btn-xs btn-danger" @click.stop="deleteMarker(m)">🗑️</button>
+                  <button class="btn btn-xs btn-danger" :aria-label="`Delete marker ${displayMarkerName(m)}`" @click.stop="deleteMarker(m)">🗑️</button>
                 </div>
               </div>
+              <p v-if="!(mapStore.configuration?.markers || []).length" class="empty-pins text-muted">
+                No waypoints yet. Use "Add Pin" or place one on the map.
+              </p>
             </div>
           </div>
 
@@ -71,8 +79,8 @@
               <h4>Mowing Zones</h4>
             </div>
             <div class="pin-list">
-              <div 
-                v-for="z in (mapStore.configuration?.mowing_zones || [])" 
+              <div
+                v-for="z in (mapStore.configuration?.mowing_zones || [])"
                 :key="z.id"
                 class="pin-item"
               >
@@ -82,11 +90,14 @@
                   <div class="pin-coords">{{ z.polygon.length }} points</div>
                 </div>
                 <div class="pin-actions">
-                  <button class="btn btn-xs btn-secondary" @click.stop="renameZone(z)">✏️</button>
+                  <button class="btn btn-xs btn-secondary" :aria-label="`Rename zone ${z.name}`" @click.stop="renameZone(z)">✏️</button>
                   <button class="btn btn-xs btn-info" @click.stop="editZoneOnMap(z)">🗺️ Edit on map</button>
-                  <button class="btn btn-xs btn-danger" @click.stop="removeMow(z)">🗑️</button>
+                  <button class="btn btn-xs btn-danger" :aria-label="`Delete zone ${z.name}`" @click.stop="removeMow(z)">🗑️</button>
                 </div>
               </div>
+              <p v-if="!(mapStore.configuration?.mowing_zones || []).length" class="empty-pins text-muted">
+                No mowing zones yet. Draw one in the editor above.
+              </p>
             </div>
           </div>
 
@@ -96,8 +107,8 @@
               <h4>Exclusion Zones</h4>
             </div>
             <div class="pin-list">
-              <div 
-                v-for="z in (mapStore.configuration?.exclusion_zones || [])" 
+              <div
+                v-for="z in (mapStore.configuration?.exclusion_zones || [])"
                 :key="z.id"
                 class="pin-item"
               >
@@ -107,11 +118,14 @@
                   <div class="pin-coords">{{ z.polygon.length }} points</div>
                 </div>
                 <div class="pin-actions">
-                  <button class="btn btn-xs btn-secondary" @click.stop="renameZone(z)">✏️</button>
+                  <button class="btn btn-xs btn-secondary" :aria-label="`Rename exclusion zone ${z.name}`" @click.stop="renameZone(z)">✏️</button>
                   <button class="btn btn-xs btn-info" @click.stop="editExclusionOnMap(z)">🗺️ Edit on map</button>
-                  <button class="btn btn-xs btn-danger" @click.stop="removeExclusion(z)">🗑️</button>
+                  <button class="btn btn-xs btn-danger" :aria-label="`Delete exclusion zone ${z.name}`" @click.stop="removeExclusion(z)">🗑️</button>
                 </div>
               </div>
+              <p v-if="!(mapStore.configuration?.exclusion_zones || []).length" class="empty-pins text-muted">
+                No exclusion zones yet. Draw one in the editor above.
+              </p>
             </div>
           </div>
 
@@ -130,10 +144,10 @@
 
     <!-- Pin Editor Modal -->
     <div v-if="showPinEditor" class="modal-overlay" @click="closePinEditor">
-      <div class="modal-content" @click.stop>
+      <div ref="pinModalRef" class="modal-content" @click.stop>
         <div class="modal-header">
           <h3>{{ editingMarkerId ? 'Edit Pin' : 'Add Pin' }}</h3>
-          <button class="btn btn-sm btn-secondary" @click="closePinEditor">✖️</button>
+          <button class="btn btn-sm btn-secondary" aria-label="Close" @click="closePinEditor">✖️</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
@@ -269,8 +283,10 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" @click="closePinEditor">Cancel</button>
-          <button class="btn btn-primary" @click="savePin">Save Pin</button>
+          <button class="btn btn-secondary" :disabled="savingPin" @click="closePinEditor">Cancel</button>
+          <button class="btn btn-primary" :disabled="savingPin" @click="savePin">
+            {{ savingPin ? 'Saving…' : 'Save Pin' }}
+          </button>
         </div>
       </div>
     </div>
@@ -305,22 +321,18 @@
         </div>
       </div>
     </div>
-
-    <!-- Status Messages -->
-    <div v-if="statusMessage" class="alert" :class="statusSuccess ? 'alert-success' : 'alert-danger'">
-      {{ statusMessage }}
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useApiService } from '@/services/api'
 import BoundaryEditor from '@/components/map/BoundaryEditor.vue'
 import { useMapStore } from '@/stores/map'
 import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSystemStore } from '@/stores/system'
+import { useFocusTrap } from '@/composables/useFocusTrap'
 import type { MarkerSchedule, MapMarker, Zone } from '@/stores/map'
 
 const api = useApiService()
@@ -366,6 +378,7 @@ const previewLon = ref(-122.4194)
 
 // Pin management state (for add/edit)
 const showPinEditor = ref(false)
+const pinModalRef = ref<HTMLElement | null>(null)
 const editingMarkerId = ref<string | null>(null)
 const selectedPinId = ref<string | null>(null)
 const pinForm = ref({
@@ -379,15 +392,13 @@ const pinForm = ref({
   schedule: defaultScheduleForm()
 })
 
+useFocusTrap(pinModalRef, showPinEditor, closePinEditor)
+
 // Pin pick-from-map state
 const pickForPin = ref(false)
 let reopenAfterPick = false
 
 const availableIcons = ['📍', '🏠', '☀️', '🌅', '🚪', '🌱', '🌳', '🌲', '🟦', '⚠️', '🔧', '⛽', '🎯', '📡']
-
-const statusMessage = ref('')
-const statusSuccess = ref(true)
-const statusTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
 const daysOfWeek = [
   { value: 0, label: 'Sunday', short: 'Su' },
@@ -502,22 +513,8 @@ async function loadSettings() {
     toast.show('Map settings loaded', 'info', 2000)
   } catch (error) {
     console.error('Failed to load map settings:', error)
-    showStatus('Failed to load settings', false)
     toast.show('Failed to load map settings', 'error')
   }
-}
-
-
-function showStatus(message: string, success: boolean) {
-  statusMessage.value = message
-  statusSuccess.value = success
-  if (statusTimer.value) {
-    clearTimeout(statusTimer.value)
-  }
-  statusTimer.value = setTimeout(() => {
-    statusMessage.value = ''
-    statusTimer.value = null
-  }, 3000)
 }
 
 // Pin management
@@ -571,51 +568,81 @@ function selectMarker(m: MapMarker) {
   previewLon.value = m.position.longitude
 }
 
+const savingPin = ref(false)
+
 async function savePin() {
-  try {
-    const schedule = pinForm.value.isHome ? null : toMarkerSchedule(pinForm.value.schedule)
-    const metadata: Record<string, any> = {}
-    if (pinForm.value.description) {
-      metadata.description = pinForm.value.description
-    }
-    if (schedule) {
-      metadata.schedule = schedule
-    }
-    if (pinForm.value.isHome) {
-      metadata.is_home = true
-    }
-    const markerType = pinForm.value.isHome ? 'home' : (pinForm.value.type as 'custom' | 'am_sun' | 'pm_sun')
-    const label = pinForm.value.name || undefined
-    if (editingMarkerId.value) {
-      mapStore.updateMarker(editingMarkerId.value, {
+  if (!Number.isFinite(pinForm.value.lat) || !Number.isFinite(pinForm.value.lon)) {
+    toast.show('Enter a valid latitude and longitude before saving', 'error')
+    return
+  }
+  if (savingPin.value) return
+  savingPin.value = true
+
+  const schedule = pinForm.value.isHome ? null : toMarkerSchedule(pinForm.value.schedule)
+  const metadata: Record<string, any> = {}
+  if (pinForm.value.description) {
+    metadata.description = pinForm.value.description
+  }
+  if (schedule) {
+    metadata.schedule = schedule
+  }
+  if (pinForm.value.isHome) {
+    metadata.is_home = true
+  }
+  const markerType = pinForm.value.isHome ? 'home' : (pinForm.value.type as 'custom' | 'am_sun' | 'pm_sun')
+  const label = pinForm.value.name || undefined
+
+  // Snapshot so a failed save can be rolled back — updateMarker/addMarker
+  // mutate the local store immediately, before the backend confirms it.
+  const previousMarker = editingMarkerId.value
+    ? mapStore.configuration?.markers.find(m => m.marker_id === editingMarkerId.value)
+    : null
+  const previousSnapshot = previousMarker ? { ...previousMarker } : null
+  const newMarkerId = editingMarkerId.value ?? `marker_${Date.now()}`
+
+  if (editingMarkerId.value) {
+    mapStore.updateMarker(editingMarkerId.value, {
+      label,
+      marker_type: markerType,
+      position: { latitude: pinForm.value.lat, longitude: pinForm.value.lon },
+      icon: pinForm.value.icon,
+      metadata,
+      schedule,
+      is_home: pinForm.value.isHome
+    })
+  } else {
+    mapStore.addMarker(
+      markerType,
+      { latitude: pinForm.value.lat, longitude: pinForm.value.lon },
+      {
+        markerId: newMarkerId,
         label,
-        marker_type: markerType,
-        position: { latitude: pinForm.value.lat, longitude: pinForm.value.lon },
         icon: pinForm.value.icon,
         metadata,
         schedule,
-        is_home: pinForm.value.isHome
-      })
-    } else {
-      mapStore.addMarker(
-        markerType,
-        { latitude: pinForm.value.lat, longitude: pinForm.value.lon },
-        {
-          label,
-          icon: pinForm.value.icon,
-          metadata,
-          schedule,
-          isHome: pinForm.value.isHome
-        }
-      )
-    }
+        isHome: pinForm.value.isHome
+      }
+    )
+  }
+
+  try {
     await mapStore.saveConfiguration()
     toast.show('Marker saved', 'success', 1800)
+    closePinEditor()
   } catch (e) {
     console.error(e)
-    toast.show('Failed to save marker', 'error')
+    // Roll back the optimistic local mutation — the backend never actually
+    // persisted it, so the UI shouldn't keep showing it as saved. Modal
+    // stays open so the operator's edits aren't lost either.
+    if (previousSnapshot) {
+      mapStore.updateMarker(previousSnapshot.marker_id, previousSnapshot)
+    } else {
+      mapStore.removeMarker(newMarkerId)
+    }
+    toast.show('Failed to save marker — changes were not kept', 'error')
+  } finally {
+    savingPin.value = false
   }
-  closePinEditor()
 }
 
 function closePinEditor() {
@@ -642,15 +669,7 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('Failed to load map configuration:', error)
-    showStatus('Failed to load map configuration', false)
     toast.show('Failed to load map configuration', 'error')
-  }
-})
-
-onUnmounted(() => {
-  if (statusTimer.value) {
-    clearTimeout(statusTimer.value)
-    statusTimer.value = null
   }
 })
 
@@ -696,16 +715,16 @@ function addSyntheticMowingZone() {
     zone_type: 'mow',
     polygon,
   })
-  showStatus('Synthetic mowing zone added', true)
+  toast.show('Synthetic mowing zone added', 'success')
 }
 
 async function saveConfigurationForTest() {
   try {
     await mapStore.saveConfiguration()
-    showStatus('Configuration saved for test', true)
+    toast.show('Configuration saved for test', 'success')
   } catch (error) {
     console.error('Failed to save configuration in test harness', error)
-    showStatus('Failed to save configuration', false)
+    toast.show('Failed to save configuration', 'error')
   }
 }
 
@@ -862,66 +881,10 @@ function editBoundaryOnMap() {
   box-shadow: 0 0 0 2px rgba(0, 255, 146, 0.2);
 }
 
-.input-group {
-  display: flex;
-}
-
-.input-group .form-control {
-  border-radius: 4px 0 0 4px;
-}
-
-.input-group .btn {
-  border-radius: 0 4px 4px 0;
-  border-left: none;
-}
-
-.form-check-input {
-  margin-right: 0.5rem;
-  width: auto;
-}
-
 .form-text {
   font-size: 0.875rem;
   color: var(--text-muted);
   margin-top: 0.25rem;
-}
-
-.provider-config {
-  margin-left: 1rem;
-  padding-left: 1rem;
-  border-left: 3px solid var(--accent-green);
-  margin-top: 1rem;
-}
-
-.api-status {
-  margin-top: 1rem;
-  padding: 1rem;
-  border-radius: 4px;
-  background: var(--primary-dark);
-}
-
-.status-indicator {
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-}
-
-.status-success {
-  color: var(--accent-green);
-}
-
-.status-error {
-  color: #ff4343;
-}
-
-.status-message {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-}
-
-.action-buttons {
-  display: flex;
-  gap: 1rem;
-  margin-top: 2rem;
 }
 
 .btn {
@@ -944,12 +907,12 @@ function editBoundaryOnMap() {
 }
 
 .btn-info {
-  background: #17a2b8;
+  background: var(--info);
   color: white;
 }
 
 .btn-danger {
-  background: #ff4343;
+  background: var(--danger);
   color: white;
 }
 
@@ -970,56 +933,8 @@ function editBoundaryOnMap() {
 .btn-xs {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
-}
-
-.map-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.preview-controls {
-  background: var(--primary-dark);
-  padding: 1rem;
-  border-radius: 4px;
-}
-
-.coordinate-inputs {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.coordinate-inputs label {
-  margin: 0;
-  white-space: nowrap;
-}
-
-.tile-preview {
-  position: relative;
-  text-align: center;
-}
-
-.tile-preview img {
-  max-width: 100%;
-  height: auto;
-  border: 1px solid var(--primary-light);
-  border-radius: 4px;
-}
-
-.preview-error {
-  padding: 2rem;
-  background: var(--primary-dark);
-  border: 1px solid #ff4343;
-  border-radius: 4px;
-  color: #ff4343;
-}
-
-.preview-meta {
-  margin-top: 0.5rem;
-  font-size: 0.875rem;
-  color: var(--text-muted);
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .pin-categories {
@@ -1061,13 +976,24 @@ function editBoundaryOnMap() {
   transition: background-color 0.3s ease;
 }
 
-.pin-item:hover {
+.pin-item:hover,
+.pin-item:focus-visible {
   background: var(--secondary-dark);
+}
+
+.pin-item:focus-visible {
+  outline: 2px solid var(--accent-green);
+  outline-offset: -2px;
 }
 
 .pin-item.active {
   background: rgba(0, 255, 146, 0.1);
   border: 1px solid var(--accent-green);
+}
+
+.empty-pins {
+  padding: 0.75rem;
+  font-size: 0.9rem;
 }
 
 .pin-icon {
@@ -1266,34 +1192,7 @@ function editBoundaryOnMap() {
   background: rgba(0, 255, 146, 0.1);
 }
 
-.alert {
-  padding: 1rem;
-  border-radius: 4px;
-  margin-top: 2rem;
-}
-
-.alert-success {
-  background: rgba(0, 255, 146, 0.1);
-  border: 1px solid var(--accent-green);
-  color: var(--accent-green);
-}
-
-.alert-danger {
-  background: rgba(255, 67, 67, 0.1);
-  border: 1px solid #ff4343;
-  color: #ff4343;
-}
-
 @media (max-width: 768px) {
-  .coordinate-inputs {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .action-buttons {
-    flex-direction: column;
-  }
-  
   .category-header {
     flex-direction: column;
     gap: 1rem;

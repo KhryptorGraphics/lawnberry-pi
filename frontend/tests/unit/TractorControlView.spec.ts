@@ -23,11 +23,9 @@ function getTractorWsEntry() {
 
 function baseState(overrides: Record<string, any> = {}) {
   return {
-    steering: 0,
+    left_lever: 0,
+    right_lever: 0,
     throttle: 0,
-    ground_speed: 0,
-    gear: 'neutral',
-    clutch: 1,
     blade_engaged: false,
     engine: 'off',
     enabled: true,
@@ -37,6 +35,7 @@ function baseState(overrides: Record<string, any> = {}) {
     last_updated: new Date(2026, 0, 1, 12, 0, 0).toISOString(),
     engine_running: false,
     moving: false,
+    reversing: false,
     ...overrides,
   }
 }
@@ -68,11 +67,13 @@ describe('TractorControlView', () => {
   })
 
   it('fetches state once on mount and syncs the drivetrain sliders', async () => {
-    const wrapper = await mountView(baseState({ steering: 0.4, throttle: 0.6, ground_speed: 0.2, clutch: 0.1 }))
+    const wrapper = await mountView(baseState({ left_lever: 0.4, right_lever: -0.6, throttle: 0.6 }))
 
     expect(api.getTractorState).toHaveBeenCalledTimes(1)
-    const steeringInput = wrapper.findAll('input[type="range"]')[0]
-    expect(Number((steeringInput.element as HTMLInputElement).value)).toBeCloseTo(0.4)
+    const leftInput = wrapper.find('[data-testid="left-lever-slider"]')
+    const rightInput = wrapper.find('[data-testid="right-lever-slider"]')
+    expect(Number((leftInput.element as HTMLInputElement).value)).toBeCloseTo(0.4)
+    expect(Number((rightInput.element as HTMLInputElement).value)).toBeCloseTo(-0.6)
   })
 
   it('toggles authorize/revoke based on current state', async () => {
@@ -101,14 +102,15 @@ describe('TractorControlView', () => {
   })
 
   it('surfaces a toast (does not throw) when an actuator command is rejected', async () => {
-    const wrapper = await mountView(baseState({ gear: 'neutral' }))
-    vi.mocked(api.tractorGear).mockResolvedValue({
+    const wrapper = await mountView(baseState({ left_lever: 0 }))
+    vi.mocked(api.tractorLeftLever).mockResolvedValue({
       status: 'rejected',
       reason: 'emergency stop active',
     } as any)
 
-    const forwardButton = wrapper.findAll('.gear-buttons button').find((b) => b.text() === 'forward')!
-    await forwardButton.trigger('click')
+    const leftInput = wrapper.find('[data-testid="left-lever-slider"]')
+    await leftInput.setValue(0.5)
+    await leftInput.trigger('change')
     await flushPromises()
 
     const toastStore = useToastStore()

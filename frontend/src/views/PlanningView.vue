@@ -7,10 +7,10 @@
 
     <!-- Quick Start Actions -->
     <div class="quick-actions">
-      <button class="btn btn-primary quick-btn" @click="startQuickMow">
+      <button class="btn btn-primary quick-btn" :disabled="busy" @click="startQuickMow">
         ⚡ Quick Mow
       </button>
-      <button class="btn btn-success quick-btn" @click="openScheduleModal">
+      <button class="btn btn-success quick-btn" :disabled="busy" @click="openScheduleModal">
         📅 Schedule Job
       </button>
       <button class="btn btn-info quick-btn" @click="activeTab = 'zones'">
@@ -37,6 +37,7 @@
         :jobs="jobs"
         :completed-jobs="completedJobs"
         :area-unit="areaUnit"
+        :busy="busy"
         :format-job-status="formatJobStatus"
         :format-date-time="formatDateTime"
         :format-area="formatArea"
@@ -53,6 +54,7 @@
     <div v-if="activeTab === 'schedule'" class="tab-content">
       <SchedulesCard
         :schedules="schedules"
+        :busy="busy"
         :current-weather="currentWeather"
         :weather-class="weatherClass"
         :weather-temperature-display="weatherTemperatureDisplay"
@@ -75,6 +77,7 @@
     <div v-if="activeTab === 'zones'" class="tab-content">
       <ZonesCard
         :zones="zones"
+        :busy="busy"
         :selected-zone-id="selectedZone?.id ?? null"
         :area-unit="areaUnit"
         :cutting-height-unit="cuttingHeightUnit"
@@ -100,15 +103,20 @@
 
     <!-- Schedule Job Modal -->
     <div v-if="showScheduleModal" class="modal-overlay" @click="closeScheduleModal">
-      <div class="modal-content" @click.stop>
+      <div ref="scheduleModalRef" class="modal-content" @click.stop>
         <div class="modal-header">
           <h3>{{ editingSchedule ? 'Edit Schedule' : 'Schedule Mowing Job' }}</h3>
-          <button class="btn btn-sm btn-secondary" @click="closeScheduleModal">✖️</button>
+          <button class="btn btn-sm btn-secondary" aria-label="Close" @click="closeScheduleModal">✖️</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>Job Name</label>
-            <input v-model="scheduleForm.name" type="text" class="form-control">
+            <label>Job Name *</label>
+            <input
+              v-model="scheduleForm.name"
+              type="text"
+              class="form-control"
+              required
+            >
           </div>
 
           <div class="form-group">
@@ -173,17 +181,12 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" @click="closeScheduleModal">Cancel</button>
-          <button class="btn btn-primary" @click="saveSchedule">
-            {{ editingSchedule ? 'Update' : 'Schedule' }}
+          <button class="btn btn-secondary" :disabled="busy" @click="closeScheduleModal">Cancel</button>
+          <button class="btn btn-primary" :disabled="busy" @click="saveSchedule">
+            {{ busy ? 'Saving…' : (editingSchedule ? 'Update' : 'Schedule') }}
           </button>
         </div>
       </div>
-    </div>
-
-    <!-- Status Messages -->
-    <div v-if="statusMessage" class="alert" :class="statusSuccess ? 'alert-success' : 'alert-danger'">
-      {{ statusMessage }}
     </div>
   </div>
 </template>
@@ -197,6 +200,8 @@ import { usePreferencesStore } from '@/stores/preferences'
 import { useMapStore } from '@/stores/map'
 import type { Zone } from '@/stores/map'
 import { useConfirmStore } from '@/stores/confirm'
+import { useToastStore } from '@/stores/toast'
+import { useFocusTrap } from '@/composables/useFocusTrap'
 import { useRouter } from 'vue-router'
 import JobsCard from '@/components/planning/JobsCard.vue'
 import SchedulesCard from '@/components/planning/SchedulesCard.vue'
@@ -277,6 +282,7 @@ const api = useApiService()
 const router = useRouter()
 const mapStore = useMapStore()
 const confirmStore = useConfirmStore()
+const toast = useToastStore()
 const { connect, subscribe } = useWebSocket()
 const preferences = usePreferencesStore()
 
@@ -289,8 +295,12 @@ const showScheduleModal = ref(false)
 const editingSchedule = ref<MowSchedule | null>(null)
 const selectedZone = ref<ZoneCard | null>(null)
 const selectedPattern = ref('parallel')
-const statusMessage = ref('')
-const statusSuccess = ref(false)
+// Single flag guarding every mowing/schedule/job action below: this page can
+// trigger real autonomous motion, so any concurrent action while one is
+// already in flight is a double-submit risk, not just a UX nicety.
+const busy = ref(false)
+const scheduleModalRef = ref<HTMLElement | null>(null)
+useFocusTrap(scheduleModalRef, showScheduleModal, closeScheduleModal)
 
 // Tabs
 const tabs = [
@@ -530,13 +540,17 @@ const lastRain = computed(() => '2 days ago')
 
 // Methods
 async function startQuickMow() {
+  if (busy.value) return
+  busy.value = true
   try {
     // Begin an autonomous mowing run over all boundary zones immediately.
     await startAutonomous()
-    showStatus('Autonomous mowing started!', true)
+    toast.show('Autonomous mowing started!', 'success')
     await refreshJobs()
   } catch (error) {
-    showStatus('Failed to start autonomous mowing', false)
+    toast.show('Failed to start autonomous mowing', 'error')
+  } finally {
+    busy.value = false
   }
 }
 
@@ -560,6 +574,12 @@ function closeScheduleModal() {
 }
 
 async function saveSchedule() {
+  if (!scheduleForm.value.name.trim()) {
+    toast.show('Give this schedule a name before saving', 'error')
+    return
+  }
+  if (busy.value) return
+  busy.value = true
   try {
     const endpoint = editingSchedule.value
       ? `/api/v2/schedules/${editingSchedule.value.id}`
@@ -569,15 +589,17 @@ async function saveSchedule() {
 
     await api[method](endpoint, scheduleForm.value)
 
-    showStatus(
+    toast.show(
       editingSchedule.value ? 'Schedule updated!' : 'Schedule created!',
-      true
+      'success'
     )
 
     closeScheduleModal()
     await refreshSchedules()
   } catch (error) {
-    showStatus('Failed to save schedule', false)
+    toast.show('Failed to save schedule', 'error')
+  } finally {
+    busy.value = false
   }
 }
 
@@ -601,61 +623,81 @@ async function refreshSchedules() {
 }
 
 async function startJob(job: MowJob) {
+  if (busy.value) return
+  busy.value = true
   try {
     await api.post(`/api/v2/planning/jobs/${job.id}/start`)
     job.status = 'running'
-    showStatus('Job started!', true)
+    toast.show('Job started!', 'success')
   } catch (error) {
-    showStatus('Failed to start job', false)
+    toast.show('Failed to start job', 'error')
+  } finally {
+    busy.value = false
   }
 }
 
 async function pauseJob(job: MowJob) {
+  if (busy.value) return
+  busy.value = true
   try {
     await api.post(`/api/v2/planning/jobs/${job.id}/pause`)
     job.status = 'paused'
-    showStatus('Job paused', true)
+    toast.show('Job paused', 'success')
   } catch (error) {
-    showStatus('Failed to pause job', false)
+    toast.show('Failed to pause job', 'error')
+  } finally {
+    busy.value = false
   }
 }
 
 async function resumeJob(job: MowJob) {
+  if (busy.value) return
+  busy.value = true
   try {
     await api.post(`/api/v2/planning/jobs/${job.id}/resume`)
     job.status = 'running'
-    showStatus('Job resumed!', true)
+    toast.show('Job resumed!', 'success')
   } catch (error) {
-    showStatus('Failed to resume job', false)
+    toast.show('Failed to resume job', 'error')
+  } finally {
+    busy.value = false
   }
 }
 
 async function cancelJob(job: MowJob) {
   if (!(await confirmStore.ask(`Cancel job "${job.name}"?`))) return
+  if (busy.value) return
+  busy.value = true
 
   try {
     await api.delete(`/api/v2/planning/jobs/${job.id}`)
     const index = jobs.value.findIndex(j => j.id === job.id)
     if (index > -1) jobs.value.splice(index, 1)
-    showStatus('Job cancelled', true)
+    toast.show('Job cancelled', 'success')
   } catch (error) {
-    showStatus('Failed to cancel job', false)
+    toast.show('Failed to cancel job', 'error')
+  } finally {
+    busy.value = false
   }
 }
 
 async function toggleSchedule(schedule: MowSchedule) {
+  if (busy.value) return
+  busy.value = true
   try {
     await api.put(`/api/v2/schedules/${schedule.id}`, {
       ...schedule,
       enabled: !schedule.enabled
     })
     schedule.enabled = !schedule.enabled
-    showStatus(
+    toast.show(
       schedule.enabled ? 'Schedule enabled' : 'Schedule disabled',
-      true
+      'success'
     )
   } catch (error) {
-    showStatus('Failed to toggle schedule', false)
+    toast.show('Failed to toggle schedule', 'error')
+  } finally {
+    busy.value = false
   }
 }
 
@@ -669,14 +711,18 @@ function editSchedule(schedule: MowSchedule) {
 
 async function deleteSchedule(schedule: MowSchedule) {
   if (!(await confirmStore.ask(`Delete schedule "${schedule.name}"?`))) return
+  if (busy.value) return
+  busy.value = true
 
   try {
     await api.delete(`/api/v2/schedules/${schedule.id}`)
     const index = schedules.value.findIndex(s => s.id === schedule.id)
     if (index > -1) schedules.value.splice(index, 1)
-    showStatus('Schedule deleted', true)
+    toast.show('Schedule deleted', 'success')
   } catch (error) {
-    showStatus('Failed to delete schedule', false)
+    toast.show('Failed to delete schedule', 'error')
+  } finally {
+    busy.value = false
   }
 }
 
@@ -685,6 +731,8 @@ function selectZone(zone: ZoneCard) {
 }
 
 async function mowZone(zone: ZoneCard) {
+  if (busy.value) return
+  busy.value = true
   try {
     await api.post('/api/v2/planning/jobs', {
       name: `${zone.name} - Quick Mow`,
@@ -692,10 +740,12 @@ async function mowZone(zone: ZoneCard) {
       pattern: 'parallel',
       start_immediately: true
     })
-    showStatus(`Started mowing ${zone.name}`, true)
+    toast.show(`Started mowing ${zone.name}`, 'success')
     await refreshJobs()
   } catch (error) {
-    showStatus(`Failed to start mowing ${zone.name}`, false)
+    toast.show(`Failed to start mowing ${zone.name}`, 'error')
+  } finally {
+    busy.value = false
   }
 }
 
@@ -705,12 +755,12 @@ function goToMaps() {
 
 function openZoneModal() {
   // Zone geometry is drawn/edited in the Maps view (the polygon editor).
-  showStatus('Opening the map editor to add a zone…', true)
+  toast.show('Opening the map editor to add a zone…', 'info')
   goToMaps()
 }
 
 function editZone(_zone: ZoneCard) {
-  showStatus('Opening the map editor to edit zones…', true)
+  toast.show('Opening the map editor to edit zones…', 'info')
   goToMaps()
 }
 
@@ -767,14 +817,6 @@ function formatRelativeTime(dateString: string | null | undefined): string {
   } catch {
     return 'Unknown'
   }
-}
-
-function showStatus(message: string, success: boolean) {
-  statusMessage.value = message
-  statusSuccess.value = success
-  setTimeout(() => {
-    statusMessage.value = ''
-  }, 3000)
 }
 
 onMounted(async () => {
@@ -904,12 +946,12 @@ onMounted(async () => {
 }
 
 .btn-success {
-  background: #28a745;
-  color: white;
+  background: var(--accent-green);
+  color: var(--primary-dark);
 }
 
 .btn-info {
-  background: #17a2b8;
+  background: var(--info);
   color: white;
 }
 
@@ -1028,24 +1070,6 @@ onMounted(async () => {
   margin-left: 1rem;
   padding-left: 1rem;
   border-left: 3px solid var(--accent-green);
-}
-
-.alert {
-  padding: 1rem;
-  border-radius: 4px;
-  margin-top: 2rem;
-}
-
-.alert-success {
-  background: rgba(0, 255, 146, 0.1);
-  border: 1px solid var(--accent-green);
-  color: var(--accent-green);
-}
-
-.alert-danger {
-  background: rgba(255, 67, 67, 0.1);
-  border: 1px solid #ff4343;
-  color: #ff4343;
 }
 
 @media (max-width: 768px) {

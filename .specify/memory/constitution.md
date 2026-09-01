@@ -1,35 +1,59 @@
 <!--
 Sync Impact Report:
-Version: 2.0.0 → 3.0.0 (Major: Constitutionally recognized the second physical platform —
-  a Craftsman-class ride-on Ackermann tractor conversion, alongside the original
-  differential-drive mower — introduced by commit d2cb1ae on 2026-06-26 but never ratified
-  into this document; closed two pre-existing silent violations of this constitution's own
-  text; replaced the blanket motor E-stop latency rule with honest actuator-class tiers)
+Version: 3.0.0 → 4.0.0 (Major: De-recognized the Craftsman-class Ackermann ride-on tractor
+  platform text in Principle V and replaced it with the actual hardware target — a 50" Toro
+  TimeCutter zero-turn mower conversion, gas engine, twin-lever hydrostatic drive, five
+  discrete actuators. A platform description that was constitutionally valid under 3.0.0's
+  text is no longer recognized under 4.0.0's text; per this document's own 3.0.0 precedent
+  (adding a platform description was major), replacing one is major too — this is a textual/
+  governance fact, independent of whether the superseded description was ever physically
+  deployed (it was not; see docs/tractor-platform.md history). Updated Principle VI's
+  actuator-class examples to match the new actuator set. The human-proximity/ROPS risk tier,
+  operator-attestation gate, tiered E-stop latency structure, and bus-fault-failsafe
+  requirement are platform-agnostic and are NOT modified by this amendment.)
 Modified principles:
-  - Principle V expanded: formal two-platform recognition; `config/tractor.yaml`'s `enabled`
-    flag made constitutionally gated on a complete `spec/hardware.yaml` tractor section
-  - Principle VI expanded: human-proximity/ROPS risk tier, operator-attestation gate for
-    blade/PTO engagement and autonomous-motion start, tiered E-stop latency by actuator
-    class (relay / positional-command-issuance / positional-physical-settle), explicit
-    bus-fault-failsafe requirement, named closure of two silent-violation gaps (IMU
-    tilt-cutoff and motor watchdog not wired to `tractor_service.py`)
-Added sections: None (extended existing Principles V and VI; no new principles)
+  - Principle V: "Recognized platforms" paragraph (b) rewritten from a Craftsman-class
+    Ackermann-steered ride-on tractor (seven discrete actuators) to a 50" Toro TimeCutter
+    zero-turn mower conversion (twin-lever hydrostatic drive, gas engine, five discrete
+    actuators: `left_lever`, `throttle`, `right_lever`, `starter`, `blade_pto`). The
+    constitutional gating mechanism itself (`config/tractor.yaml`'s `enabled: true` valid
+    only with a complete `spec/hardware.yaml` `tractor:` section AND zero conflicts per
+    `scripts/check_hardware_pin_conflicts.py`) is unchanged.
+  - Principle VI: tiered E-stop latency bullet's positional-actuator example list and
+    physical-settle safe-value parenthetical updated from the superseded five-actuator set
+    (steering, throttle, gas pedal, clutch, gear) to the current three positional actuators
+    (left lever, right lever, throttle). No other Principle VI text changed.
+Added sections: None
 Removed sections: None
 Templates requiring updates:
-  - Bottom-of-document "Acceptance Criteria (Core Safety Requirements)" bullets (this file)
-    ✅ reconciled with tiered Principle VI language in this amendment
-  - docs/tractor-acceptance-criteria.md (NEW) ✅ added as the operational checklist this
-    amendment's Principle VI requirements point to
-  - docs/RELEASE_NOTES.md, docs/hardware-feature-matrix.md, docs/hardware-overview.md,
-    docs/field-validation-protocol.md ✅ updated for tractor platform in the same pass
+  - docs/tractor-platform.md ✅ rewritten for the zero-turn platform in the same pass
+  - docs/tractor-acceptance-criteria.md ✅ rewritten (3-effect E-stop, per-lever latency
+    rows, two new sign-off items) in the same pass
+  - spec/hardware.yaml `tractor:` section ✅ actuator list updated in the same pass
+  - docs/hardware-overview.md, docs/hardware-feature-matrix.md ✅ transport (PCA9685, not
+    RC-PWM) and actuator-set descriptions corrected in the same pass
+  - docs/field-validation-protocol.md, docs/RELEASE_NOTES.md, docs/operator-dashboard.md,
+    docs/ai-architecture.md — ⚠️ NOT updated in this pass (outside this session's file
+    ownership). field-validation-protocol.md's Tractor Platform Addendum Test 6 in
+    particular still names a clutch/gear selector that no longer exist and checks "all 5
+    effects" against what is now a 3-effect contract — flagged for urgent follow-up, since
+    it is a live bench-test procedure, not just descriptive prose.
 Follow-up TODOs:
-  - Open implementation gap: IMU tilt-cutoff (200ms, Principle VI) is not wired to
-    `backend/src/services/tractor_service.py`. Tracked here; not closed by this amendment.
-  - Open implementation gap: motor-watchdog heartbeat (Principle VI) is not wired to
-    `backend/src/services/tractor_service.py`. Tracked here; not closed by this amendment.
-  - Open implementation gap: bus-fault failsafe for the PCA9685 hold-last-value hazard
-    (Principle VI) has no hardware/software design yet. Tracked in
-    docs/tractor-acceptance-criteria.md as the top acceptance item.
+  - Open implementation gap (carried forward, unchanged by this amendment): IMU tilt-cutoff
+    (200ms, Principle VI) is not wired to `backend/src/services/tractor_service.py`.
+  - Open implementation gap (carried forward, unchanged by this amendment): motor-watchdog
+    heartbeat (Principle VI) is not wired to `backend/src/services/tractor_service.py`.
+  - Open implementation gap (carried forward, unchanged by this amendment): bus-fault
+    failsafe for the PCA9685 hold-last-value hazard (Principle VI) has no hardware/software
+    design yet. Tracked in docs/tractor-acceptance-criteria.md as the top acceptance item.
+  - New: `docs/field-validation-protocol.md`'s Tractor Platform Addendum (Test 6) needs
+    updating for the 3-effect E-stop contract before it is used as a real bench procedure.
+  - New: `docs/RELEASE_NOTES.md` needs a new entry for this platform swap (the existing
+    `d2cb1ae` entry is a retroactive historical record of what actually shipped then and
+    should not be rewritten).
+  - New: the AI action-prediction model (`docs/ai-architecture.md`) still outputs a single
+    differential-style "steering" axis; ownership of the steering→twin-lever mixing inside
+    `to_tractor_command()` needs to be assigned among the actuation/navigation agents.
 -->
 
 # LawnBerry Pi Constitution
@@ -51,7 +75,7 @@ Hardware interfaces are single-owner resources requiring explicit coordination. 
 ### V. Constitutional Hardware Compliance
 Hardware configuration MUST align with `spec/hardware.yaml` requirements. INA3221 power monitoring uses fixed channel assignments: Channel 1 (Battery), Channel 2 (Unused), Channel 3 (Solar Input). GPS supports either ZED-F9P USB with NTRIP corrections OR Neo-8M UART (mutually exclusive). Motor control via RoboHAT RP2040→Cytron MDDRC10 (preferred) or L298N fallback. HAT stacking conflicts (RoboHAT + Hailo HAT) are prohibited without constitutional amendment.
 
-**Recognized platforms**: The system MAY be deployed as either (a) the original differential-drive autonomous push-mower, or (b) a Craftsman-class ride-on tractor conversion (Ackermann steering, gas engine, seven discrete actuators — see `docs/tractor-platform.md`). Both are constitutionally valid platforms; a given deployment operates exactly one, never both concurrently. `config/tractor.yaml`'s `enabled: true` flag is constitutionally meaningful, not a cosmetic toggle: it is valid only when `spec/hardware.yaml` carries a complete `tractor:` section for the deployed hardware AND `scripts/check_hardware_pin_conflicts.py` passes with zero conflicts across the merged mower+tractor pin/address registry. A deployment running `enabled: true` while that check fails is a constitutional violation, not merely a failing CI job.
+**Recognized platforms**: The system MAY be deployed as either (a) the original differential-drive autonomous push-mower, or (b) a 50" Toro TimeCutter zero-turn mower conversion (gas engine, twin-lever hydrostatic drive, five discrete actuators — see `docs/tractor-platform.md`). Both are constitutionally valid platforms; a given deployment operates exactly one, never both concurrently. `config/tractor.yaml`'s `enabled: true` flag is constitutionally meaningful, not a cosmetic toggle: it is valid only when `spec/hardware.yaml` carries a complete `tractor:` section for the deployed hardware AND `scripts/check_hardware_pin_conflicts.py` passes with zero conflicts across the merged mower+tractor pin/address registry. A deployment running `enabled: true` while that check fails is a constitutional violation, not merely a failing CI job.
 
 ### VI. Safety-First Engineering (NON-NEGOTIABLE)
 Safety is the paramount concern in all system operations. Motion MUST only occur when hard and soft safety failsafes are operational and verified. System MUST default to OFF state on startup; motion requires explicit operator authorization. Safety interlocks MUST prevent blade operation when drive motors are active. All safety violations MUST be logged with timestamps and require operator acknowledgement for recovery.
@@ -60,7 +84,7 @@ Safety is the paramount concern in all system operations. Motion MUST only occur
 
 **Tiered emergency-stop latency (replaces the prior blanket "100ms for all motors" rule)**: one latency number is dishonest across actuator classes with materially different physics. E-stop latency is defined per actuator class:
 - **GPIO relay actuators** (e.g., blade PTO, starter): MUST de-energize within 100ms of the E-stop signal. This is the original mower-era requirement and is unchanged for this actuator class.
-- **Positional actuators — command issuance** (e.g., steering, throttle, gas pedal, clutch, gear, over PCA9685 or equivalent PWM transport): the commanded safe value (idle throttle, neutral gear, pressed clutch/brake, centered steering) MUST be *issued* within 100ms of the E-stop signal.
+- **Positional actuators — command issuance** (e.g., left drive lever, right drive lever, throttle, over PCA9685 or equivalent PWM transport): the commanded safe value (idle throttle, both drive levers at neutral) MUST be *issued* within 100ms of the E-stop signal.
 - **Positional actuators — physical settle**: the actuator MUST *physically reach* its commanded safe position within 500ms of the E-stop signal, accounting for real mechanical travel time. This is an observed, measured outcome, not an inferred one — a passing `state.field == value` unit test does not, by itself, satisfy this requirement (see `docs/tractor-acceptance-criteria.md`).
 
 IMU tilt detection MUST trigger blade cutoff within 200ms. Watchdog timer enforcement is mandatory for all control loops; software watchdog heartbeat MUST be enforced for all motor control operations with automatic emergency stop on timeout.
@@ -124,13 +148,46 @@ This constitution supersedes all other development practices and requirements. C
 - UI telemetry update rate: ≤1s (1Hz minimum, 5Hz target)
 - Navigation geofence incursions: 0 tolerance (immediate stop)
 - Graceful degradation: Missing GPS → Manual mode remains safe
-- Watchdog timeout enforcement: Mandatory for all motor operations (tractor platform: open implementation gap, see Constitutional Change Log 3.0.0)
+- Watchdog timeout enforcement: Mandatory for all motor operations (tractor platform: open implementation gap since Constitutional Change Log 3.0.0, still open in 4.0.0)
 
-**Version**: 3.0.0 | **Ratified**: 2025-09-25 | **Last Amended**: 2026-07-08
+**Version**: 4.0.0 | **Ratified**: 2025-09-25 | **Last Amended**: 2026-09-01
 
 ---
 
 ## Constitutional Change Log
+
+### 4.0.0 (2026-09-01) - Major: Zero-Turn Mower Platform Swap
+**Modified Principles**:
+- Principle V: Replaced the "Recognized platforms" paragraph's description of platform (b)
+  — from a Craftsman-class Ackermann-steered ride-on tractor (seven discrete actuators) to
+  a 50" Toro TimeCutter zero-turn mower conversion (gas engine, twin-lever hydrostatic
+  drive, five discrete actuators: `left_lever`, `throttle`, `right_lever`, `starter`,
+  `blade_pto`). The constitutional gating mechanism (`config/tractor.yaml`'s `enabled: true`
+  valid only with a complete `spec/hardware.yaml` `tractor:` section and zero conflicts per
+  `scripts/check_hardware_pin_conflicts.py`) is unchanged.
+- Principle VI: Updated the positional-actuator-class example list and the physical-settle
+  safe-value parenthetical from the superseded five-actuator set (steering, throttle, gas
+  pedal, clutch, gear) to the current three positional actuators (left lever, right lever,
+  throttle). The human-proximity/ROPS risk tier, operator-attestation gate, and
+  bus-fault-failsafe requirement are platform-agnostic and unchanged.
+
+**Rationale**: Before physical bring-up began, the tractor platform's actual hardware target
+changed from a Craftsman-class Ackermann ride-on tractor conversion to a 50" Toro TimeCutter
+zero-turn mower with twin-lever hydrostatic drive — keeping the mower's gas engine and
+hydrostatic transaxles stock, with two servos pushing/pulling the existing drive levers over
+the same PCA9685 transport, instead of building steering/gas-pedal/clutch/gear linkages from
+scratch. The superseded Craftsman-class description was never physically deployed, but
+constitutional recognition is a textual/governance fact, not a deployment fact: a platform
+description valid under 3.0.0's text is being replaced, not merely extended, so this is a
+major bump by the same logic that made 3.0.0 major for adding it in the first place — and
+under-bumping a platform swap would repeat, in miniature, the exact "engineering changed,
+governance didn't track it" failure that made the 3.0.0 amendment necessary. This amendment
+does not close, reopen, or otherwise alter the two implementation gaps (IMU tilt-cutoff,
+motor watchdog) tracked since 3.0.0, nor the bus-fault-failsafe requirement — those remain
+fully in force, unchanged, for whichever platform (b) hardware is deployed. As with the
+3.0.0 platform introduction, this documentation/governance update lands ahead of the
+corresponding `config/tractor.yaml` and backend actuator-code rework, which are owned by a
+parallel workstream.
 
 ### 3.0.0 (2026-07-08) - Major: Ride-On Tractor Platform Constitutional Recognition
 **Modified Principles**:

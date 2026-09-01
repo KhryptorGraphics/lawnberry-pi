@@ -1,15 +1,17 @@
-"""Ride-on lawn tractor actuation service (Craftsman-class conversion).
+"""Zero-turn mower actuation service (Toro TimeCutter, twin-lever hydrostatic drive).
 
-Coordinates the seven tractor actuators through a PCA9685 I2C PWM driver
-(steering/throttle/gas-pedal/clutch/gear) and GPIO relays (starter, blade
-PTO), enforcing the standard lawn-tractor safety interlocks:
+Coordinates the mower's actuators through a PCA9685 I2C PWM driver (left/right
+drive-lever + throttle servos) and GPIO relays (starter, blade PTO), enforcing
+the standard interlocks:
 
-- **Start sequence**: engine cranks only when authorized, in NEUTRAL, blade/PTO
-  off, and the clutch/brake pedal pressed.
+- **Start sequence**: engine cranks only when authorized, both drive levers
+  neutral, and the blade/PTO off.
 - **Blade/PTO**: engages only with the engine running and not in reverse;
-  selecting reverse auto-disengages the blade (Reverse Operation System).
-- **E-stop**: disengages the blade, shifts to neutral, presses the clutch/brake,
-  and idles throttle/pedal — the engine keeps running (per configuration).
+  commanding both levers back into reverse auto-disengages the blade (Reverse
+  Operation System). Reverse is deliberately both levers back together -- a
+  single lever back is a routine pivot turn, not reverse.
+- **E-stop**: blade off first, then both levers to neutral and throttle to
+  idle -- the engine keeps running (per configuration).
 
 SIM-safe: positional commands degrade to state-tracking when no PCA9685 board
 is present, and relays only touch GPIO on real hardware.
@@ -24,19 +26,13 @@ from typing import Any
 
 import yaml
 
-from ..drivers.actuators import (
-    GearActuator,
-    GearCalibration,
-    RelayActuator,
-    ServoActuator,
-    ServoCalibration,
-)
+from ..drivers.actuators import RelayActuator, ServoActuator, ServoCalibration
 from ..drivers.actuators.pca9685_driver import PCA9685Driver
 from ..models.tractor_control import (
+    LEVER_NEUTRAL_EPS,
     EngineState,
     TractorCommand,
     TractorState,
-    Transmission,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,31 +63,19 @@ def _servo_cal(raw: dict | None, channel: int, bidirectional: bool) -> ServoCali
     )
 
 
-def _gear_cal(raw: dict | None, channel: int) -> GearCalibration:
-    raw = raw or {}
-    return GearCalibration(
-        channel=int(raw.get("channel", channel)),
-        us_forward=int(raw.get("us_forward", 1900)),
-        us_neutral=int(raw.get("us_neutral", 1500)),
-        us_reverse=int(raw.get("us_reverse", 1100)),
-    )
-
-
 class TractorControlService:
-    """Actuation + interlock coordinator for the lawn tractor."""
+    """Actuation + interlock coordinator for the zero-turn mower."""
 
     def __init__(self, config: dict[str, Any] | None = None):
         cfg = config if config is not None else _load_tractor_config()
         self.enabled = bool(cfg.get("enabled", False))
         self._pca9685 = PCA9685Driver(cfg.get("pca9685", {}) or {})
 
-        # PCA9685 channels are 0-indexed (0-4), unlike the old 1-5 RoboHAT convention.
+        # PCA9685 channels are 0-indexed.
         act = cfg.get("actuators", {}) or {}
-        self.steering = ServoActuator("steering", _servo_cal(act.get("steering"), 0, True))
+        self.left_lever = ServoActuator("left_lever", _servo_cal(act.get("left_lever"), 0, True))
         self.throttle = ServoActuator("throttle", _servo_cal(act.get("throttle"), 1, False))
-        self.gas_pedal = ServoActuator("gas_pedal", _servo_cal(act.get("gas_pedal"), 2, False))
-        self.clutch = ServoActuator("clutch", _servo_cal(act.get("clutch"), 3, False))
-        self.gear = GearActuator("gear", _gear_cal(act.get("gear"), 4))
+        self.right_lever = ServoActuator("right_lever", _servo_cal(act.get("right_lever"), 2, True))
 
         relays = cfg.get("relays", {}) or {}
         starter_cfg = relays.get("starter", {}) or {}
@@ -108,17 +92,15 @@ class TractorControlService:
         self.starter_pulse_ms = int(starter_cfg.get("pulse_ms", 800))
 
         il = cfg.get("interlocks", {}) or {}
-        self.require_neutral_to_start = bool(il.get("require_neutral_to_start", True))
-        self.require_clutch_to_start = bool(il.get("require_clutch_to_start", True))
+        self.require_levers_neutral_to_start = bool(il.get("require_levers_neutral_to_start", True))
         self.require_blade_off_to_start = bool(il.get("require_blade_off_to_start", True))
         self.require_engine_running_for_blade = bool(
             il.get("require_engine_running_for_blade", True)
         )
         self.disengage_blade_in_reverse = bool(il.get("disengage_blade_in_reverse", True))
-        self.clutch_pressed_threshold = float(il.get("clutch_pressed_threshold", 0.9))
 
-        # Safe initial state: clutch/brake pressed, neutral, blade off, engine off.
-        self.state = TractorState(clutch=1.0, enabled=self.enabled)
+        # Safe initial state: both levers neutral, blade off, engine off.
+        self.state = TractorState(enabled=self.enabled)
         self.initialized = False
 
     # ----------------------------- lifecycle -----------------------------
@@ -126,12 +108,10 @@ class TractorControlService:
     async def initialize(self) -> None:
         # Bring the PCA9685 up first so the parking commands below actually reach it.
         await self._pca9685.initialize()
-        # Park everything safely.
-        await self._apply_servo(self.clutch, 1.0, "clutch")
+        # Park everything safely: levers centered, throttle idle, blade off.
+        await self._apply_servo(self.left_lever, 0.0, "left_lever")
+        await self._apply_servo(self.right_lever, 0.0, "right_lever")
         await self._apply_servo(self.throttle, 0.0, "throttle")
-        await self._apply_servo(self.gas_pedal, 0.0, "ground_speed")
-        await self._apply_servo(self.steering, 0.0, "steering")
-        await self._apply_gear(Transmission.NEUTRAL)
         self.blade_pto.set(False)
         self.state.blade_engaged = False
         self.initialized = True
@@ -172,48 +152,45 @@ class TractorControlService:
         await self._send_pwm(actuator.cal.channel, us)
         setattr(self.state, field, actuator.value)
 
-    async def _apply_gear(self, gear: Transmission) -> None:
-        us = self.gear.command(gear.value)
-        await self._send_pwm(self.gear.cal.channel, us)
-        self.state.gear = gear
-
     # --------------------------- actuator API ----------------------------
 
-    async def set_steering(self, value: float) -> dict[str, Any]:
+    async def set_levers(self, left: float, right: float) -> dict[str, Any]:
+        """Command both drive levers together.
+
+        The single chokepoint for lever commands: ``set_left_lever``,
+        ``set_right_lever`` and ``apply()`` all funnel through here, so the
+        e-stop guard and the reverse-entry blade auto-disengage exist in
+        exactly one place instead of being duplicated per entry point.
+        """
         if self.state.emergency_stop_active:
             return self._reject("emergency stop active")
-        await self._apply_servo(self.steering, value, "steering")
-        return self._ok(steering=self.state.steering)
+        # Reverse Operation System: if this command would put both levers back
+        # (reverse) while the blade is engaged, drop the blade first -- before
+        # moving the levers. A single lever going negative is a pivot turn,
+        # not reverse; see TractorState.reversing.
+        would_reverse = left < -LEVER_NEUTRAL_EPS and right < -LEVER_NEUTRAL_EPS
+        if would_reverse and self.state.blade_engaged and self.disengage_blade_in_reverse:
+            logger.info("ROS: disengaging blade before entering reverse")
+            await self.engage_blade(False)
+        await self._apply_servo(self.left_lever, left, "left_lever")
+        await self._apply_servo(self.right_lever, right, "right_lever")
+        return self._ok(
+            left_lever=self.state.left_lever,
+            right_lever=self.state.right_lever,
+            moving=self.state.moving,
+        )
+
+    async def set_left_lever(self, value: float) -> dict[str, Any]:
+        return await self.set_levers(value, self.state.right_lever)
+
+    async def set_right_lever(self, value: float) -> dict[str, Any]:
+        return await self.set_levers(self.state.left_lever, value)
 
     async def set_throttle(self, value: float) -> dict[str, Any]:
         if self.state.emergency_stop_active:
             return self._reject("emergency stop active")
         await self._apply_servo(self.throttle, value, "throttle")
         return self._ok(throttle=self.state.throttle)
-
-    async def set_ground_speed(self, value: float) -> dict[str, Any]:
-        if self.state.emergency_stop_active:
-            return self._reject("emergency stop active")
-        await self._apply_servo(self.gas_pedal, value, "ground_speed")
-        return self._ok(ground_speed=self.state.ground_speed, moving=self.state.moving)
-
-    async def set_clutch(self, value: float) -> dict[str, Any]:
-        await self._apply_servo(self.clutch, value, "clutch")
-        return self._ok(clutch=self.state.clutch)
-
-    async def set_gear(self, gear: Transmission) -> dict[str, Any]:
-        if self.state.emergency_stop_active:
-            return self._reject("emergency stop active")
-        # Reverse Operation System: drop the blade before going into reverse.
-        if (
-            gear == Transmission.REVERSE
-            and self.state.blade_engaged
-            and self.disengage_blade_in_reverse
-        ):
-            logger.info("ROS: disengaging blade before selecting reverse")
-            await self.engage_blade(False)
-        await self._apply_gear(gear)
-        return self._ok(gear=self.state.gear.value, blade_engaged=self.state.blade_engaged)
 
     async def engage_blade(self, on: bool) -> dict[str, Any]:
         if on:
@@ -223,7 +200,7 @@ class TractorControlService:
                 return self._reject("motors not authorized")
             if self.require_engine_running_for_blade and not self.state.engine_running:
                 return self._reject("engine must be running to engage blade")
-            if self.disengage_blade_in_reverse and self.state.gear == Transmission.REVERSE:
+            if self.disengage_blade_in_reverse and self.state.reversing:
                 return self._reject("cannot engage blade while in reverse")
         self.blade_pto.set(on)
         self.state.blade_engaged = bool(on)
@@ -236,10 +213,11 @@ class TractorControlService:
             return self._reject("motors not authorized")
         if self.require_blade_off_to_start and self.state.blade_engaged:
             return self._reject("blade/PTO must be disengaged to start")
-        if self.require_neutral_to_start and self.state.gear != Transmission.NEUTRAL:
-            return self._reject("transmission must be in neutral to start")
-        if self.require_clutch_to_start and self.state.clutch < self.clutch_pressed_threshold:
-            return self._reject("clutch/brake must be pressed to start")
+        if self.require_levers_neutral_to_start and (
+            abs(self.state.left_lever) > LEVER_NEUTRAL_EPS
+            or abs(self.state.right_lever) > LEVER_NEUTRAL_EPS
+        ):
+            return self._reject("drive levers must be neutral to start")
 
         self.state.engine = EngineState.STARTING
         await self.starter.pulse(self.starter_pulse_ms)
@@ -254,7 +232,7 @@ class TractorControlService:
         return self._ok(engine=self.state.engine.value)
 
     async def emergency_stop(self) -> dict[str, Any]:
-        """Disengage drive + blade and brake; leave the engine running.
+        """Disengage the blade and center/idle the drive; leave the engine running.
 
         Each PWM-bearing actuation gets its own try/except: a PCA9685 bus
         fault on one channel must not abort the rest of the safing sequence.
@@ -268,24 +246,20 @@ class TractorControlService:
         self.state.blade_engaged = False
 
         try:
-            await self._apply_servo(self.gas_pedal, 0.0, "ground_speed")
+            await self._apply_servo(self.left_lever, 0.0, "left_lever")
         except Exception:
-            logger.exception("Tractor e-stop: gas-pedal-to-0 actuation failed")
+            logger.exception("Tractor e-stop: left-lever-to-neutral actuation failed")
         try:
-            await self._apply_gear(Transmission.NEUTRAL)
+            await self._apply_servo(self.right_lever, 0.0, "right_lever")
         except Exception:
-            logger.exception("Tractor e-stop: gear-to-neutral actuation failed")
-        try:
-            await self._apply_servo(self.clutch, 1.0, "clutch")  # press clutch/brake
-        except Exception:
-            logger.exception("Tractor e-stop: clutch/brake actuation failed")
+            logger.exception("Tractor e-stop: right-lever-to-neutral actuation failed")
         try:
             await self._apply_servo(self.throttle, 0.0, "throttle")  # idle engine
         except Exception:
             logger.exception("Tractor e-stop: throttle-to-idle actuation failed")
 
         self.state.interlock_reason = "emergency_stop"
-        logger.warning("Tractor EMERGENCY STOP: drive+blade disengaged, brake set")
+        logger.warning("Tractor EMERGENCY STOP: blade off, levers neutral, throttle idle")
         return {"status": "emergency_stop", "engine": self.state.engine.value}
 
     async def clear_emergency(self) -> dict[str, Any]:
@@ -296,11 +270,10 @@ class TractorControlService:
     async def apply(self, command: TractorCommand) -> dict[str, Any]:
         """Apply a full command, honoring interlocks (rejections are collected)."""
         results: dict[str, Any] = {}
-        results["steering"] = await self.set_steering(command.steering)
         results["throttle"] = await self.set_throttle(command.throttle)
-        results["clutch"] = await self.set_clutch(command.clutch)
-        results["gear"] = await self.set_gear(command.gear)
-        results["ground_speed"] = await self.set_ground_speed(command.ground_speed)
+        results["levers"] = await self.set_levers(command.left_lever, command.right_lever)
+        # Blade last: a reverse+blade-on command surfaces as a visible
+        # "rejected" here rather than engaging then immediately auto-dropping.
         results["blade"] = await self.engage_blade(command.blade_engaged)
         return {"status": "applied", "results": results, "moving": self.state.moving}
 

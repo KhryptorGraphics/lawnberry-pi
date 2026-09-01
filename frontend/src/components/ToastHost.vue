@@ -8,6 +8,8 @@
       role="status"
       tabindex="0"
       @click="dismiss(t.id)"
+      @keydown.enter="dismiss(t.id)"
+      @keydown.space.prevent="dismiss(t.id)"
     >
       <span class="icon">{{ iconFor(t.type) }}</span>
       <span class="msg">{{ t.message }}</span>
@@ -62,6 +64,11 @@ const iconFor = (t?: string) => t === 'success' ? '✅' : t === 'error' ? '❌' 
   border: none;
   font-size: 1.1rem;
   cursor: pointer;
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .toast.success { border-color: rgba(0,255,146,0.6); color: #00ff92; }
 .toast.error { border-color: rgba(255,67,67,0.6); color: #ff6b6b; }

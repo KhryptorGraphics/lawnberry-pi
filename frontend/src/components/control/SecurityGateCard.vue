@@ -174,8 +174,8 @@ const totpCode = defineModel<string>('totpCode', { default: '' })
 
 .alert-danger {
   background: rgba(255, 67, 67, 0.1);
-  border: 1px solid #ff4343;
-  color: #ff4343;
+  border: 1px solid var(--danger);
+  color: var(--danger);
 }
 
 /* Security-gate-specific rules (moved verbatim from ControlView.vue). */
@@ -208,20 +208,20 @@ const totpCode = defineModel<string>('totpCode', { default: '' })
 
 .level-password {
   background: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
-  border: 1px solid #ffc107;
+  color: var(--warning);
+  border: 1px solid var(--warning);
 }
 
 .level-totp {
   background: rgba(0, 123, 255, 0.2);
-  color: #007bff;
-  border: 1px solid #007bff;
+  color: var(--info);
+  border: 1px solid var(--info);
 }
 
 .level-google {
   background: rgba(220, 53, 69, 0.2);
-  color: #dc3545;
-  border: 1px solid #dc3545;
+  color: var(--danger);
+  border: 1px solid var(--danger);
 }
 
 .level-cloudflare {

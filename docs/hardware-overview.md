@@ -254,29 +254,74 @@ venv/bin/python -m scripts.gps_smoke_test --duration 20 --interval 0.5
 ## Ride-On Tractor Platform (Alternate Configuration)
 
 **Function**: A second, constitutionally-recognized platform (Constitution
-Principle V): a converted Craftsman-class ride-on lawn tractor — Ackermann
-steering, gas engine — operated through seven discrete actuators instead of
-the two differential drive motors described above. Selected via
+Principle V): a converted 50" Toro TimeCutter zero-turn mower (ZTR) — gas
+engine, twin-lever hydrostatic drive — operated through five discrete
+actuators instead of the two differential drive motors described above.
+There is no steering wheel, gas pedal, clutch, or gear selector; each drive
+lever's own position sets that side's speed and direction. Selected via
 `config/tractor.yaml`'s `enabled: true` flag; a deployment runs exactly one
 platform, never both. See `docs/tractor-platform.md` for the full actuator
 table and API surface, and `docs/tractor-acceptance-criteria.md` for the
 safety sign-off checklist this platform must pass before unsupervised use.
 
 **Components**:
-- **5 positional actuators** (steering, throttle, gas pedal/ground-speed,
-  clutch/brake, gear F/N/R) — RC-PWM channels, bench-calibrated per channel.
+- **3 positional actuators** (`left_lever`, `throttle`, `right_lever`) — PCA9685
+  I2C PWM channels, bench-calibrated per channel. Two lever servos (Wingxine
+  ASMC-04B; manufacturer-rated 90 kg·cm @ 12V / 1.0s per 60°, 180 kg·cm @
+  24V / 0.5s per 60°) physically push/pull the mower's existing lap-bar
+  drive levers, run at 24V for E-stop settle-time margin (see Power below);
+  the engine and hydrostatic transaxles are otherwise stock.
 - **2 GPIO relays** (starter, blade PTO) — momentary crank pulse and latching
   PTO engage/disengage respectively.
 - **Standard lawn-tractor safety interlocks** (ANSI/OPEI-style): engine start
-  requires authorized + neutral + clutch pressed + blade off; blade/PTO
-  engages only with the engine running and not in reverse; selecting reverse
-  auto-disengages the blade (Reverse Operation System); emergency stop
-  disengages blade+drive and brakes while the engine keeps running.
+  requires authorized + both levers neutral + blade off (no clutch pedal on a
+  hydrostatic ZTR); blade/PTO engages only with the engine running and not in
+  reverse; reverse is defined as **both** levers negative (one lever negative
+  is a pivot turn, not reverse) and auto-disengages the blade (Reverse
+  Operation System); emergency stop disengages the blade, returns both levers
+  to neutral, and idles the throttle while the engine keeps running.
 
-**Hardware status note**: as configured today, only the 2 GPIO relays are
-functional on real hardware — the 5 positional actuators' RC-PWM transport is
-not accepted by the current RoboHAT firmware and is silently dropped. See
-`docs/hardware-feature-matrix.md`'s tractor section and
+**Power**: three separately-fused taps off the mower's 12V starting battery:
+1. 12V→5V/5A buck regulator (Pololu D24V50F5) → Raspberry Pi 5 (rated 5.1V/5A).
+2. 12V→24V boost converter (20A/480W) → both lever servos, powered directly
+   (the throttle servo shares this rail pending bench calibration otherwise).
+3. 12V → relay module (starter, blade PTO).
+
+**Wiring constraint (hardware-damage risk if skipped)**: the 24V rail does
+**NOT** connect to the PCA9685 breakout's `V+` terminal — that terminal is a
+passive pass-through bussed to every servo header, and the breakout's
+decoupling capacitor is typically rated 10-16V. Servo power runs directly
+from the boost converter to each servo; only the PWM signal wire from each
+servo goes to its PCA9685 channel; ground must be common across the boost
+converter, the PCA9685, and the Pi, or the servos will not see a valid pulse.
+
+**Why 24V**: this is a safety-margin choice, not a torque preference. The
+Constitution (Principle VI) requires positional actuators to *physically
+settle* within 500ms of an E-stop signal. At 12V the ASMC-04B's ~1.0s/60°
+rate leaves that 500ms budget only ~30° of unloaded rotation and zero
+margin — worse once real lap-bar spring/detent resistance and a
+simultaneous both-levers E-stop (worst-case load) are accounted for; at 24V
+the same budget buys roughly 60°. This is the datasheet rationale for the
+choice, not proof it holds on the real linkage — the actual measured
+settle time at 24V (not assumed) is required by
+`docs/tractor-acceptance-criteria.md` item 4.
+
+**Caution**: the boost converter draws roughly double its 24V-side current
+on the 12V input side, so sustained servo load could exceed what the
+TimeCutter's small-engine charging stator can supply. Bench-verify the
+mower's actual charging output before relying on this under sustained
+autonomous operation.
+
+(This power arrangement is distinct from — and not a replacement for — the
+original push-mower's LiFePO4/solar power system described above, which is
+specific to that platform.)
+
+**Hardware status note**: the actuation transport is PCA9685 I2C PWM (not
+RC-PWM/RoboHAT — that transport was replaced). As of this writing the
+actuator rework from the superseded 7-actuator (steering/throttle/gas-pedal/
+clutch/gear) set to the 5-actuator (`left_lever`/`throttle`/`right_lever`/
+`starter`/`blade_pto`) set described here is in progress in a parallel
+workstream; see `docs/hardware-feature-matrix.md`'s tractor section and
 `docs/tractor-acceptance-criteria.md` for what remains before this platform is
 field-ready.
 

@@ -28,14 +28,15 @@
                 <button
                   class="btn btn-xs"
                   :class="schedule.enabled ? 'btn-warning' : 'btn-success'"
+                  :disabled="busy"
                   @click="$emit('toggle', schedule)"
                 >
                   {{ schedule.enabled ? '⏸️ Disable' : '▶️ Enable' }}
                 </button>
-                <button class="btn btn-xs btn-secondary" @click="$emit('edit', schedule)">
+                <button class="btn btn-xs btn-secondary" :disabled="busy" @click="$emit('edit', schedule)">
                   ✏️ Edit
                 </button>
-                <button class="btn btn-xs btn-danger" @click="$emit('delete', schedule)">
+                <button class="btn btn-xs btn-danger" :disabled="busy" @click="$emit('delete', schedule)">
                   🗑️ Delete
                 </button>
               </div>
@@ -111,6 +112,7 @@ interface WeatherState {
 
 defineProps<{
   schedules: MowSchedule[]
+  busy: boolean
   currentWeather: WeatherState
   weatherClass: string
   weatherTemperatureDisplay: string
@@ -191,17 +193,17 @@ defineEmits<{
 }
 
 .btn-success {
-  background: #28a745;
-  color: white;
+  background: var(--accent-green);
+  color: var(--primary-dark);
 }
 
 .btn-warning {
-  background: #ffc107;
+  background: var(--warning);
   color: #000;
 }
 
 .btn-danger {
-  background: #ff4343;
+  background: var(--danger);
   color: white;
 }
 
@@ -222,6 +224,8 @@ defineEmits<{
 .btn-xs {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 /* Schedules-card-specific rules (moved verbatim from PlanningView.vue). */
@@ -309,11 +313,11 @@ defineEmits<{
 }
 
 .condition-warn {
-  color: #ffc107;
+  color: var(--warning);
 }
 
 .condition-bad {
-  color: #ff4343;
+  color: var(--danger);
 }
 
 .condition-detail {

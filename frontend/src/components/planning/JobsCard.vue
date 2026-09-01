@@ -34,6 +34,7 @@
                 <button
                   v-if="job.status === 'scheduled'"
                   class="btn btn-xs btn-success"
+                  :disabled="busy"
                   @click="$emit('start', job)"
                 >
                   ▶️ Start
@@ -41,6 +42,7 @@
                 <button
                   v-if="job.status === 'running'"
                   class="btn btn-xs btn-warning"
+                  :disabled="busy"
                   @click="$emit('pause', job)"
                 >
                   ⏸️ Pause
@@ -48,13 +50,14 @@
                 <button
                   v-if="job.status === 'paused'"
                   class="btn btn-xs btn-success"
+                  :disabled="busy"
                   @click="$emit('resume', job)"
                 >
                   ▶️ Resume
                 </button>
                 <button
                   class="btn btn-xs btn-danger"
-                  :disabled="job.status === 'completed'"
+                  :disabled="busy || job.status === 'completed'"
                   @click="$emit('cancel', job)"
                 >
                   ❌ Cancel
@@ -71,7 +74,7 @@
 
               <div v-if="job.status === 'running'" class="job-progress">
                 <div class="progress-bar">
-                  <div class="progress-fill" :style="{ width: `${job.progress}%` }" />
+                  <div class="progress-fill" :style="{ transform: `scaleX(${(job.progress ?? 0) / 100})` }" />
                 </div>
                 <span class="progress-text">{{ job.progress }}% complete</span>
                 <span v-if="job.estimated_remaining" class="time-remaining">
@@ -90,7 +93,10 @@
         <h3>Recent Job History</h3>
       </div>
       <div class="card-body">
-        <div class="history-list">
+        <div v-if="completedJobs.length === 0" class="empty-state">
+          <p>No completed jobs yet</p>
+        </div>
+        <div v-else class="history-list">
           <div
             v-for="job in completedJobs"
             :key="job.id"
@@ -140,6 +146,7 @@ defineProps<{
   jobs: MowJob[]
   completedJobs: CompletedJob[]
   areaUnit: string
+  busy: boolean
   formatJobStatus: (status: string | undefined) => string
   formatDateTime: (dateString: string) => string
   formatArea: (value: unknown) => string
@@ -216,17 +223,17 @@ defineEmits<{
 }
 
 .btn-success {
-  background: #28a745;
-  color: white;
+  background: var(--accent-green);
+  color: var(--primary-dark);
 }
 
 .btn-warning {
-  background: #ffc107;
+  background: var(--warning);
   color: #000;
 }
 
 .btn-danger {
-  background: #ff4343;
+  background: var(--danger);
   color: white;
 }
 
@@ -247,6 +254,8 @@ defineEmits<{
 .btn-xs {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 /* Jobs-card-specific rules (moved verbatim from PlanningView.vue). */
@@ -294,8 +303,8 @@ defineEmits<{
 
 .status-scheduled {
   background: rgba(0, 123, 255, 0.2);
-  color: #007bff;
-  border: 1px solid #007bff;
+  color: var(--info);
+  border: 1px solid var(--info);
 }
 
 .status-running {
@@ -306,14 +315,14 @@ defineEmits<{
 
 .status-paused {
   background: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
-  border: 1px solid #ffc107;
+  color: var(--warning);
+  border: 1px solid var(--warning);
 }
 
 .status-completed {
-  background: rgba(40, 167, 69, 0.2);
-  color: #28a745;
-  border: 1px solid #28a745;
+  background: rgba(0, 255, 146, 0.2);
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green);
 }
 
 .job-actions {
@@ -349,8 +358,10 @@ defineEmits<{
 
 .progress-fill {
   height: 100%;
+  width: 100%;
+  transform-origin: left;
   background: var(--accent-green);
-  transition: width 0.3s ease;
+  transition: transform 0.3s ease;
 }
 
 .progress-text, .time-remaining {

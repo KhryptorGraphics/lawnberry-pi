@@ -10,7 +10,6 @@ export interface WebSocketMessage {
 }
 
 let lastWsErrorLogAt = 0
-let lastReconnectLogAt = 0
 
 export class WebSocketService {
   private ws: WebSocket | null = null
@@ -72,7 +71,6 @@ export class WebSocketService {
           this.ws = new WebSocket(target)
         
           this.ws.onopen = () => {
-            console.log('WebSocket connected:', target)
             this.reconnectAttempts = 0
             // Remember working endpoint and stick to it across reconnects
             const goodIndex = this.urlCandidates.indexOf(base)
@@ -101,7 +99,6 @@ export class WebSocketService {
           }
         
           this.ws.onclose = () => {
-            console.log('WebSocket disconnected')
             this.stopHeartbeat()
             this.handleReconnect()
           }
@@ -150,10 +147,8 @@ export class WebSocketService {
         }
         break
       case 'connection.established':
-        console.log('Connection established:', message.client_id)
         break
       case 'subscription.confirmed':
-        console.log('Subscription confirmed for topic:', message.topic)
         break
       case 'subscription.error':
         console.error('Subscription error:', message)
@@ -162,7 +157,8 @@ export class WebSocketService {
         this.lastPongAt = Date.now()
         break
       default:
-        console.log('Unhandled message:', message)
+        // Unrecognized event type — nothing to do
+        break
     }
   }
 
@@ -188,13 +184,6 @@ export class WebSocketService {
       this.reconnectAttempts++
       const backoff = this.reconnectDelay * this.reconnectAttempts
       const jitter = Math.floor(Math.random() * 250)
-      // Throttle reconnection log chatter
-      const now = Date.now()
-      if (now - lastReconnectLogAt > 10000) {
-        console.log(`Attempting to reconnect... (#${this.reconnectAttempts}) in ${backoff + jitter}ms`)
-        lastReconnectLogAt = now
-      }
-
       // Only rotate if previous attempt failed immediately (onerror). If connection existed, keep same index.
 
       setTimeout(() => {

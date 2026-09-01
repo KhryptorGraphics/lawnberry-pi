@@ -329,11 +329,16 @@ onMounted(async () => {
 }
 
 .nav-link:hover,
-.nav-link.router-link-active {
+.nav-link.router-link-active,
+.nav-link:focus-visible {
   color: #ffffff;
   border-color: #00ffff;
   box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
   text-shadow: 0 0 10px #00ffff;
+}
+
+.nav-link:focus-visible {
+  outline: none;
 }
 
 .nav-user {
@@ -353,6 +358,12 @@ onMounted(async () => {
   font-size: 0.9rem;
 }
 
+.theme-toggle:focus-visible {
+  outline: none;
+  border-color: #00ffff;
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+}
+
 .login-link {
   color: #00ffff;
   text-decoration: none;
@@ -367,11 +378,16 @@ onMounted(async () => {
   clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
 }
 
-.login-link:hover {
+.login-link:hover,
+.login-link:focus-visible {
   background: rgba(0, 255, 255, 0.2);
   box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
   text-shadow: 0 0 5px #00ffff;
   text-decoration: none;
+}
+
+.login-link:focus-visible {
+  outline: none;
 }
 
 .app-main {

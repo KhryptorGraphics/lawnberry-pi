@@ -2016,3 +2016,78 @@ Notes:
 - RoboHAT firmware currently emits 2 PWM channels (`pwm,a,b`); 5 servo channels
   need the firmware to accept the per-channel `pwm,<ch>,<us>` form (documented).
 
+## 2026-09-01 — Governance/docs update: Craftsman tractor → Toro TimeCutter zero-turn platform swap
+
+Physical target changed before bench bring-up: Craftsman-class Ackermann
+ride-on tractor (7 actuators) → 50" Toro TimeCutter zero-turn mower, stock
+engine/hydrostatic transaxles, twin-lever drive (5 actuators: `left_lever`,
+`throttle`, `right_lever`, `starter`, `blade_pto`). Reverse redefined as BOTH
+levers negative (one lever negative is a pivot turn, not reverse). This
+session updated governance/spec/docs only. `config/tractor.yaml` and backend
+actuator code are owned by a parallel workstream — both were still the old
+7-actuator shape when this session started; mid-session the parallel
+workstream landed `config/tractor.yaml`'s matching 5-actuator rework
+(uncommitted as of this entry). Spot-checked and confirmed it matches these
+docs exactly: channels 0/1/2 for left_lever/throttle/right_lever, GPIO 5/26
+for starter/blade_pto, PCA9685 at 0x41, reverse defined as both levers
+negative. Backend service/router/model/test code was still in flight
+(uncommitted) as of this entry.
+
+Actions:
+- `.specify/memory/constitution.md`: v3.0.0 → v4.0.0 (major — a platform
+  description valid under the old text is replaced, not extended). Principle
+  V's recognized-platform (b) and Principle VI's positional-actuator examples
+  updated; new Sync Impact Report + Constitutional Change Log entry added;
+  the two open gaps (IMU tilt-cutoff, motor watchdog not wired to
+  `tractor_service.py`) and the bus-fault-failsafe requirement carried
+  forward unchanged.
+- `spec/hardware.yaml`: `tractor.actuators.positional` → `left_lever`,
+  `throttle`, `right_lever`; relay list/pca9685 address/constraints block
+  untouched (out of this swap's scope).
+- `docs/tractor-platform.md`, `docs/tractor-acceptance-criteria.md`:
+  rewritten for the 5-actuator platform (3-effect e-stop, per-lever latency
+  rows, two new sign-off items for the seat/OPC-switch decision and
+  pivot-vs-true-reverse blade behavior). Added a "Physical integration
+  decisions" section (seat/OPC switch, lever geometry vs. OEM park
+  interlock, no positive parking brake — all three still open/undecided).
+- `docs/hardware-overview.md`, `docs/hardware-feature-matrix.md`: corrected
+  the stale "RC-PWM via RoboHAT, non-functional" transport description to
+  PCA9685 I2C PWM (that swap landed in `e240c86`); updated the actuator set;
+  added the tractor platform's power arrangement — three fused 12V taps (Pi 5
+  via a Pololu D24V50F5 5V/5A buck regulator; lever servos via a 12V→24V/20A
+  boost converter, wired directly to the servos with only the PWM signal
+  through PCA9685 — NOT through the PCA9685 `V+` terminal, which is rated
+  for 10-16V; starter/blade-PTO relay module). The 24V choice and its
+  hardware-damage-risk wiring constraint were decided mid-session by the
+  parallel coordinator/actuation workstream and folded in here; see
+  `docs/hardware-overview.md`'s Power section for the full rationale
+  (Principle VI's 500ms physical-settle margin) and the new
+  actual-supply-voltage measurement requirement added to
+  `docs/tractor-acceptance-criteria.md` item 4.
+
+Validation:
+- `python3 scripts/check_hardware_pin_conflicts.py` — 0 conflicts (self-test
+  and real check both pass; the `tractor:` section edit in `spec/hardware.yaml`
+  doesn't affect this script's parse inputs, which are `pins.gpio_used` /
+  `pins.i2c_addresses` and `config/tractor.yaml`).
+- Grepped `docs/`, `spec/`, `.specify/` for craftsman/ackermann/seven/clutch/
+  gear/steering: all remaining hits inside files owned by this session are
+  negations ("no clutch pedal") or historical references (superseded-design
+  callouts, the 3.0.0 change-log entry, which is intentionally not rewritten).
+
+Notes:
+- NOT updated this pass (outside this session's file-ownership scope,
+  flagged for follow-up): `docs/field-validation-protocol.md`'s Tractor
+  Platform Addendum Test 6 still names a clutch/gear selector and checks
+  "all 5 effects" — a live bench-test procedure now contradicting the new
+  3-effect contract; highest-priority of the flagged items since it reads as
+  an executable test script, not descriptive prose. Also stale:
+  `docs/RELEASE_NOTES.md` (needs a *new* entry for this swap — do not rewrite
+  the retroactive `d2cb1ae` entry, which is a historical record of what
+  actually shipped then), `docs/operator-dashboard.md:10`,
+  `docs/ai-architecture.md` (the VLA model still outputs a single
+  differential-style steering axis; ownership of the steering→twin-lever
+  mixing inside `to_tractor_command()` is unassigned). `config/tractor.yaml`
+  and the backend tractor code are still the old 7-actuator shape as of this
+  entry — expected, per the parallel actuation workstream.
+

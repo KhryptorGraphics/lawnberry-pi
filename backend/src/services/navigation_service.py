@@ -239,7 +239,7 @@ class NavigationService:
 
     async def go_to_waypoint(self, waypoint: "MissionWaypoint"):  # noqa: F821
         """Navigate to a single waypoint and block until arrival."""
-        from ..models.tractor_control import TractorCommand, Transmission
+        from ..models.tractor_control import TractorCommand
         from .mission_service import get_mission_service
         from .tractor_service import get_tractor_service
 
@@ -249,9 +249,12 @@ class NavigationService:
         target_pos = Position(latitude=waypoint.lat, longitude=waypoint.lon)
         logger.info(f"Navigating to waypoint: {target_pos.latitude}, {target_pos.longitude}")
 
-        # Engage/disengage blade for this leg when hardware is available
+        # Engage/disengage blade for this leg when hardware is available.
+        # Gated off for the tractor platform: its blade/PTO is driven per-tick
+        # below through tractor.apply()'s blade_engaged field, so running both
+        # paths at once would have them fighting over the same blade state.
         try:
-            if os.getenv("SIM_MODE", "0") == "0":
+            if os.getenv("SIM_MODE", "0") == "0" and not tractor.enabled:
                 robohat = get_robohat_service()
                 if robohat is not None and robohat.running and robohat.status.serial_connected:
                     await robohat.send_blade_command(bool(waypoint.blade_on))
@@ -327,22 +330,31 @@ class NavigationService:
             if abs(heading_error) > 30:
                 forward_speed *= 0.5  # Slow down for sharp turns
 
+            # Same differential math for every platform: a zero-turn mower's
+            # twin drive levers and a differential-drive mower's wheel motors
+            # both just take independent left/right speed commands -- reuse it
+            # rather than inventing per-platform control math.
+            # ponytail: proportional heading-error control, not pure pursuit
+            # (this codebase has no wheelbase/steering-angle config that would
+            # make curvature math meaningful); revisit if field testing on
+            # either platform shows oscillation.
+            left_speed = forward_speed * (1 - turn_effort)
+            right_speed = forward_speed * (1 + turn_effort)
+
+            # Clamp speeds
+            left_speed = max(-self.max_speed, min(self.max_speed, left_speed))
+            right_speed = max(-self.max_speed, min(self.max_speed, right_speed))
+
             if tractor.enabled:
-                # Ackermann tractor: proportional heading-error -> steering angle,
-                # reusing turn_effort/forward_speed computed above for the
-                # differential path. ponytail: no pure pursuit (this codebase has
-                # no wheelbase/steering-degrees config to make curvature math
-                # meaningful); revisit if field testing shows oscillation.
                 # TractorCommand's ge=/le= fields reject out-of-range values
-                # instead of clamping, so clamp here before construction.
-                steering = max(-1.0, min(1.0, turn_effort))
-                ground_speed = max(0.0, min(1.0, forward_speed / self.max_speed))
+                # instead of clamping, so normalize onto the lever range and
+                # clamp here before construction.
+                left_lever = max(-1.0, min(1.0, left_speed / self.max_speed))
+                right_lever = max(-1.0, min(1.0, right_speed / self.max_speed))
                 cmd = TractorCommand(
-                    steering=steering,
+                    left_lever=left_lever,
+                    right_lever=right_lever,
                     throttle=self.tractor_engine_throttle,
-                    ground_speed=ground_speed,
-                    gear=Transmission.FORWARD,
-                    clutch=0.0,
                     blade_engaged=bool(waypoint.blade_on),
                 )
                 try:
@@ -358,13 +370,6 @@ class NavigationService:
                 # Simulation of movement
                 await asyncio.sleep(0.2)  # Control loop at 5Hz
                 continue
-
-            left_speed = forward_speed * (1 - turn_effort)
-            right_speed = forward_speed * (1 + turn_effort)
-
-            # Clamp speeds
-            left_speed = max(-self.max_speed, min(self.max_speed, left_speed))
-            right_speed = max(-self.max_speed, min(self.max_speed, right_speed))
 
             try:
                 await self.set_speed(left_speed, right_speed)
@@ -430,7 +435,7 @@ class NavigationService:
 
         tractor = get_tractor_service()
         if tractor.enabled:
-            await tractor.set_ground_speed(0.0)
+            await tractor.set_levers(0.0, 0.0)
         else:
             await self.set_speed(0.0, 0.0)
 
@@ -800,7 +805,7 @@ class NavigationService:
 
             tractor = get_tractor_service()
             if tractor.enabled:
-                await tractor.set_ground_speed(0.0)
+                await tractor.set_levers(0.0, 0.0)
                 await tractor.engage_blade(False)
             else:
                 await self.set_speed(0.0, 0.0)
@@ -847,10 +852,14 @@ class NavigationService:
             return True
 
         if tractor.enabled:
-            # Ride-on tractor: steering + ground-speed pedal + blade PTO. Interlocks
-            # (engine running, authorized) in the service gate actual motion.
+            # Zero-turn mower: twin drive levers + blade PTO. Interlocks (engine
+            # running, authorized) in the service gate actual motion.
             cmd = prediction.to_tractor_command()
-            cmd.ground_speed = cmd.ground_speed * self.navigation_state.target_velocity
+            scale = self.navigation_state.target_velocity
+            # TractorCommand's ge=/le= fields reject out-of-range values instead
+            # of clamping, and assignment isn't re-validated, so clamp by hand.
+            cmd.left_lever = max(-1.0, min(1.0, cmd.left_lever * scale))
+            cmd.right_lever = max(-1.0, min(1.0, cmd.right_lever * scale))
             await tractor.apply(cmd)
             return True
 

@@ -27,7 +27,6 @@
         v-if="platform === 'tractor'"
         :engine="tractorEngine"
         :emergency-stop-active="tractorEmergencyStopActive"
-        :gear="tractorGear"
         :moving="tractorMoving"
       />
       <PowerCard
@@ -154,10 +153,9 @@ const platform = computed(() => systemStore.platform)
 // Loading and UI state
 const dataStreamText = ref('>>> INITIALIZING SYSTEM CONNECTION...')
 
-// Tractor platform telemetry (engine/gear/moving only — see EngineCard.vue)
+// Tractor platform telemetry (engine/moving only — see EngineCard.vue)
 const tractorEngine = ref<'off' | 'starting' | 'running'>('off')
 const tractorEmergencyStopActive = ref(false)
-const tractorGear = ref<'forward' | 'neutral' | 'reverse'>('neutral')
 const tractorMoving = ref(false)
 
 // Preferences
@@ -1268,7 +1266,6 @@ function registerTelemetrySubscriptions() {
     if (!tractor) return
     tractorEngine.value = tractor.engine
     tractorEmergencyStopActive.value = tractor.emergency_stop_active
-    tractorGear.value = tractor.gear
     tractorMoving.value = tractor.moving
   })
 
@@ -1531,37 +1528,12 @@ onMounted(async () => {
   51%, 100% { opacity: 0.3; }
 }
 
-@keyframes textPulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
-}
-
 /* Dashboard Grid Layout */
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 1.5rem;
   margin-bottom: 2rem;
-}
-
-.telemetry-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.gps-metrics {
-  margin-top: 1rem;
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-  letter-spacing: 1px;
-}
-
-.gps-metrics .metric-line span {
-  color: #ffff00;
-  margin-left: 0.5rem;
 }
 
 /* Retro Cards */
@@ -1610,271 +1582,6 @@ onMounted(async () => {
   margin-bottom: 2rem;
 }
 
-
-
-/* Control Panel */
-.control-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.retro-btn.start-btn:hover:not(:disabled) {
-  border-color: #00ff00;
-  background: linear-gradient(135deg, #00ff00, #0a0a0a);
-}
-
-.retro-btn.pause-btn:hover:not(:disabled) {
-  border-color: #ffff00;
-  background: linear-gradient(135deg, #ffff00, #0a0a0a);
-}
-
-.retro-btn.stop-btn:hover:not(:disabled) {
-  border-color: #ff6600;
-  background: linear-gradient(135deg, #ff6600, #0a0a0a);
-}
-
-.retro-btn.emergency-btn:hover:not(:disabled) {
-  border-color: #ff0040;
-  background: linear-gradient(135deg, #ff0040, #0a0a0a);
-  animation: emergencyFlash 0.5s ease-in-out infinite;
-}
-
-@keyframes emergencyFlash {
-  0%, 100% { box-shadow: 0 0 20px rgba(255, 0, 64, 0.8); }
-  50% { box-shadow: 0 0 40px rgba(255, 0, 64, 1); }
-}
-
-
-.mode-display {
-  text-align: center;
-  padding: 1rem;
-  background: rgba(0, 255, 255, 0.1);
-  border: 1px solid rgba(0, 255, 255, 0.3);
-  margin-top: 1rem;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: #ffff00;
-}
-
-.mode-value {
-  color: #00ffff;
-  text-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
-}
-
-/* Progress Display */
-.progress-container {
-  text-align: center;
-}
-
-.progress-label {
-  font-size: 2rem;
-  font-weight: 900;
-  color: #00ffff;
-  margin-bottom: 1rem;
-  text-shadow: 0 0 15px rgba(0, 255, 255, 0.7);
-  letter-spacing: 2px;
-}
-
-.retro-progress {
-  position: relative;
-  height: 30px;
-  background: #1a1a1a;
-  border: 2px solid #00ffff;
-  overflow: hidden;
-}
-
-.progress-bar {
-  height: 100%;
-  background: linear-gradient(90deg, #00ffff, #ff00ff, #00ff00);
-  background-size: 200% 100%;
-  animation: progressGlow 2s linear infinite;
-  transition: width 0.5s ease;
-}
-
-@keyframes progressGlow {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-.progress-grid {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: repeating-linear-gradient(
-    90deg,
-    transparent,
-    transparent 9px,
-    rgba(0, 255, 255, 0.3) 10px
-  );
-}
-
-.gps-value {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: flex-end;
-  gap: 1.5rem;
-  font-size: 1.6rem;
-  letter-spacing: 1px;
-  text-transform: none;
-  text-shadow: none;
-}
-
-.gps-value::after {
-  display: none;
-}
-
-.gps-value .coord {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  min-width: 140px;
-  font-family: 'Courier New', monospace;
-  color: #ffff00;
-  text-shadow: 0 0 12px rgba(255, 255, 0, 0.5);
-}
-
-.gps-value .coord-label {
-  font-size: 0.75rem;
-  letter-spacing: 2px;
-  color: #00ffff;
-  text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);
-  margin-bottom: 0.35rem;
-}
-
-.gps-value .coord-value {
-  font-size: 1.9rem;
-  letter-spacing: 0.5px;
-}
-
-.gps-value .coord.no-fix {
-  align-items: center;
-  font-size: 1.4rem;
-  letter-spacing: 2px;
-  color: #ff0040;
-  text-shadow: 0 0 12px rgba(255, 0, 64, 0.6);
-}
-
-/* Battery Specific */
-.battery-card .metric-value {
-  color: #00ff00;
-  text-shadow: 0 0 15px rgba(0, 255, 0, 0.7);
-}
-
-.battery-bar {
-  position: relative;
-  height: 20px;
-  background: #1a1a1a;
-  border: 2px solid #00ffff;
-  margin: 1rem 0;
-  overflow: hidden;
-}
-
-.battery-fill {
-  height: 100%;
-  transition: width 0.5s ease;
-}
-
-.battery-fill.battery-good {
-  background: linear-gradient(90deg, #00ff00, #00ffff);
-}
-
-.battery-fill.battery-warning {
-  background: linear-gradient(90deg, #ffff00, #ff6600);
-}
-
-.battery-fill.battery-critical {
-  background: linear-gradient(90deg, #ff0040, #ff6600);
-  animation: batteryWarning 1s ease-in-out infinite;
-}
-
-@keyframes batteryWarning {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.battery-segments {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: repeating-linear-gradient(
-    90deg,
-    transparent,
-    transparent 18px,
-    rgba(0, 255, 255, 0.5) 20px
-  );
-}
-
-.battery-icon.battery-high {
-  color: #00ff00;
-}
-
-.battery-icon.battery-medium {
-  color: #ffff00;
-}
-
-.battery-icon.battery-low {
-  color: #ff0040;
-  animation: batteryLowBlink 1s ease-in-out infinite;
-}
-
-@keyframes batteryLowBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-
-.solar-card .metric-value {
-  color: #ffff00;
-  text-shadow: 0 0 15px rgba(255, 255, 0, 0.7);
-}
-
-.solar-icon {
-  font-size: 1.5rem;
-  color: #ffdd00;
-  filter: drop-shadow(0 0 12px rgba(255, 221, 0, 0.8));
-}
-
-.solar-grid {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}
-
-.solar-metric {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: 1;
-}
-
-.solar-metric .metric-label {
-  font-size: 0.75rem;
-  letter-spacing: 1px;
-  color: #00ffff;
-  text-transform: uppercase;
-}
-
-.solar-card .metric-reading {
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: #ffff00;
-  text-shadow: 0 0 12px rgba(255, 255, 0, 0.6);
-}
-
-.solar-card .metric-reading .unit {
-  font-size: 0.8rem;
-  margin-left: 0.25rem;
-  color: #00ffff;
-}
-
 /* Event Log */
 .events-card {
   grid-column: 1 / -1;
@@ -1890,15 +1597,7 @@ onMounted(async () => {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
-  
-  .telemetry-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  }
-  
-  .control-grid {
-    grid-template-columns: 1fr;
-  }
-  
+
   .retro-header {
     padding: 1rem;
   }
@@ -1908,14 +1607,6 @@ onMounted(async () => {
   .retro-title {
     font-size: 1.5rem;
     letter-spacing: 2px;
-  }
-
-  .telemetry-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .progress-label {
-    font-size: 1.5rem;
   }
 }
 </style>

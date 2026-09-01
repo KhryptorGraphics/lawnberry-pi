@@ -38,11 +38,9 @@ function emitTractorTick(wsEntry: ReturnType<typeof getTractorWsEntry>, tractor:
 
 function makeState(overrides: Record<string, any> = {}) {
   return {
-    steering: 0,
+    left_lever: 0,
+    right_lever: 0,
     throttle: 0,
-    ground_speed: 0,
-    gear: 'neutral',
-    clutch: 1,
     blade_engaged: false,
     engine: 'off',
     enabled: true,
@@ -52,6 +50,7 @@ function makeState(overrides: Record<string, any> = {}) {
     last_updated: new Date(2026, 0, 1, 12, 0, 0).toISOString(),
     engine_running: false,
     moving: false,
+    reversing: false,
     ...overrides,
   }
 }
@@ -83,29 +82,29 @@ describe('Tractor Store', () => {
     it('merges every field an ok response echoes back', async () => {
       const { store } = createStoreWithWs()
       store.state = makeState() as any
-      vi.mocked(api.tractorGear).mockResolvedValue({
+      vi.mocked(api.tractorLeftLever).mockResolvedValue({
         status: 'ok',
-        gear: 'reverse',
+        left_lever: -1,
         blade_engaged: false,
       } as any)
 
-      await store.setGear('reverse' as any)
+      await store.setLeftLever(-1)
 
-      expect(store.state?.gear).toBe('reverse')
+      expect(store.state?.left_lever).toBe(-1)
       expect(store.state?.blade_engaged).toBe(false)
     })
 
     it('does not mutate state on a rejected response', async () => {
       const { store } = createStoreWithWs()
-      store.state = makeState({ gear: 'neutral' }) as any
-      vi.mocked(api.tractorGear).mockResolvedValue({
+      store.state = makeState({ left_lever: 0 }) as any
+      vi.mocked(api.tractorLeftLever).mockResolvedValue({
         status: 'rejected',
         reason: 'emergency stop active',
       } as any)
 
-      await store.setGear('forward' as any)
+      await store.setLeftLever(1)
 
-      expect(store.state?.gear).toBe('neutral')
+      expect(store.state?.left_lever).toBe(0)
     })
   })
 
@@ -113,20 +112,20 @@ describe('Tractor Store', () => {
     it('drops an out-of-order WS tick older than the last applied tick (ordering guard, isolated — no local command involved)', () => {
       const { store, wsEntry } = createStoreWithWs()
       const newer = makeState({
-        steering: 0.9,
+        left_lever: 0.9,
         last_updated: new Date(2026, 0, 1, 12, 0, 5).toISOString(),
       })
       const older = makeState({
-        steering: 0.1,
+        left_lever: 0.1,
         last_updated: new Date(2026, 0, 1, 12, 0, 1).toISOString(),
       })
 
       emitTractorTick(wsEntry, newer)
-      expect(store.state?.steering).toBe(0.9)
+      expect(store.state?.left_lever).toBe(0.9)
 
       emitTractorTick(wsEntry, older)
 
-      expect(store.state?.steering).toBe(0.9) // stale tick dropped, newer state kept
+      expect(store.state?.left_lever).toBe(0.9) // stale tick dropped, newer state kept
     })
 
     it('keeps a local emergency-stop applied against an in-flight tick that lands before the reconciling fetch resolves (suppress-window guard, isolated from timestamp ordering)', async () => {
@@ -184,11 +183,11 @@ describe('Tractor Store', () => {
 
     it('drops an incoming tick with a missing or unparseable last_updated', () => {
       const { store, wsEntry } = createStoreWithWs()
-      store.state = makeState({ steering: 0.4 }) as any
+      store.state = makeState({ left_lever: 0.4 }) as any
 
-      emitTractorTick(wsEntry, { ...makeState({ steering: 0.7 }), last_updated: 'not-a-date' })
+      emitTractorTick(wsEntry, { ...makeState({ left_lever: 0.7 }), last_updated: 'not-a-date' })
 
-      expect(store.state?.steering).toBe(0.4)
+      expect(store.state?.left_lever).toBe(0.4)
     })
   })
 

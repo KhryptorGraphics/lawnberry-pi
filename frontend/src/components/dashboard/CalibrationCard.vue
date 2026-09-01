@@ -167,6 +167,11 @@ defineEmits<{
   text-shadow: none;
 }
 
+.retro-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #0a0a0a, 0 0 0 4px #00ffff, 0 0 20px rgba(0, 255, 255, 0.8);
+}
+
 .retro-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -190,7 +195,7 @@ defineEmits<{
 
 .calibration-error {
   margin-top: 0.75rem;
-  color: #ff4343;
+  color: var(--danger);
   font-size: 0.85rem;
   letter-spacing: 1px;
 }

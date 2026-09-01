@@ -1,8 +1,6 @@
-"""Actuator drivers for the ride-on tractor platform (RC-PWM servos + relays)."""
+"""Actuator drivers for the zero-turn mower platform (PCA9685 servos + relays)."""
 
 from .tractor_actuators import (
-    GearActuator,
-    GearCalibration,
     RelayActuator,
     ServoActuator,
     ServoCalibration,
@@ -11,7 +9,5 @@ from .tractor_actuators import (
 __all__ = [
     "ServoActuator",
     "ServoCalibration",
-    "GearActuator",
-    "GearCalibration",
     "RelayActuator",
 ]

@@ -120,21 +120,45 @@ const handleLogin = async () => {
 
 <style scoped>
 .login-container {
-  min-height: 100vh;
+  min-height: 60vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 1rem;
+  font-family: 'Courier New', 'Consolas', monospace;
 }
 
 .login-card {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 30%, #16213e 70%, #0a0a0a 100%);
+  border: 2px solid #00ffff;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  box-shadow:
+    0 8px 32px rgba(0, 255, 255, 0.3),
+    0 0 20px rgba(0, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 30px rgba(0, 255, 255, 0.05);
   padding: 2rem;
   width: 100%;
   max-width: 400px;
+}
+
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #00ffff, transparent);
+  animation: borderScan 3s linear infinite;
+}
+
+@keyframes borderScan {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 .login-header {
@@ -146,39 +170,109 @@ const handleLogin = async () => {
   height: 64px;
   width: auto;
   margin-bottom: 1rem;
+  filter: drop-shadow(0 0 10px #00ffff);
 }
 
 .login-header h1 {
   margin-bottom: 0.5rem;
-  color: #2c3e50;
+  color: #00ffff;
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
 }
 
 .login-header p {
-  color: #6c757d;
+  color: rgba(0, 255, 255, 0.6);
   margin-bottom: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .login-form {
   margin-bottom: 1.5rem;
 }
 
-.login-footer {
-  border-top: 1px solid #e9ecef;
-  padding-top: 1rem;
+.login-form .form-label {
+  color: #00ffff;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
 }
 
-.login-footer p {
-  margin: 0;
-  font-size: 0.875rem;
+.login-form .form-control {
+  background: #0a0a0a;
+  border: 1px solid #2d3748;
+  border-radius: 4px;
+  color: #e6f0ff;
+  font-family: inherit;
+  min-height: 44px;
+}
+
+.login-form .form-control::placeholder {
+  color: #9db0c6;
+}
+
+.login-form .form-control:focus {
+  border-color: #00ff92;
+  box-shadow: 0 0 0 2px rgba(0, 255, 146, 0.2);
+}
+
+.login-form .form-control.error {
+  border-color: #ff0040;
+}
+
+.login-form .form-control.error:focus {
+  box-shadow: 0 0 0 2px rgba(255, 0, 64, 0.2);
+}
+
+.login-form .form-error {
+  color: #ff0040;
+  font-family: inherit;
+}
+
+.login-form .btn-primary {
+  background: linear-gradient(135deg, #1a1a2e, #16213e, #0f0f23);
+  border: 2px solid #00ffff;
+  color: #00ffff;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  border-radius: 6px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 15px rgba(0, 255, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.login-form .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00ffff, #0a0a0a);
+  color: #000;
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+}
+
+.login-form .btn-primary:focus-visible {
+  outline: 2px solid #00ff92;
+  outline-offset: 2px;
+}
+
+.login-form .spinner {
+  border: 2px solid rgba(0, 255, 255, 0.2);
+  border-top-color: #00ffff;
 }
 
 @media (max-width: 480px) {
   .login-card {
     padding: 1.5rem;
   }
-  
+
   .login-header h1 {
-    font-size: 1.75rem;
+    font-size: 1.2rem;
   }
 }
 </style>

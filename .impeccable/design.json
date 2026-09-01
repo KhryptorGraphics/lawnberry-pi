@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-06T00:00:00Z",
+  "title": "Design System: LawnBerry Pi",
+  "extensions": {
+    "colorMeta": {
+      "signal-cyan": { "role": "primary", "displayName": "Signal Cyan", "canonical": "#00ffff", "tonalRamp": ["#0a0a0a", "#075050", "#049696", "#01dcdc", "#23feff", "#69fdff", "#affbff", "#f5faff"] },
+      "reactor-magenta": { "role": "secondary", "displayName": "Reactor Magenta", "canonical": "#ff00ff", "tonalRamp": ["#0a0a0a", "#500750", "#960496", "#dc01dc", "#fe24ff", "#fb6bff", "#f8b3ff", "#f5faff"] },
+      "void-violet": { "role": "tertiary", "displayName": "Void Violet", "canonical": "#2d1b69", "tonalRamp": ["#0a0a0a", "#140f25", "#1e1440", "#28195b", "#4a3b7e", "#837ba9", "#bcbad4", "#f5faff"] },
+      "void-black": { "role": "neutral", "displayName": "Void Black", "canonical": "#0a0a0a", "tonalRamp": ["#0a0a0a", "#0a0a0a", "#0a0a0a", "#0a0a0a", "#2c2c2d", "#6f7173", "#b2b5b9", "#f5faff"] },
+      "panel-navy": { "role": "neutral", "displayName": "Panel Navy", "canonical": "#16213e", "tonalRamp": ["#0a0a0a", "#0d1119", "#111728", "#141e37", "#36405a", "#767e91", "#b5bcc8", "#f5faff"] },
+      "status-green": { "role": "status", "displayName": "Go Green", "canonical": "#00ff00", "tonalRamp": ["#0a0a0a", "#075007", "#049604", "#01dc01", "#23fe24", "#69fd6d", "#affbb6", "#f5faff"] },
+      "status-yellow": { "role": "status", "displayName": "Caution Yellow", "canonical": "#ffff00", "tonalRamp": ["#0a0a0a", "#505007", "#969604", "#dcdc01", "#fefe24", "#fbfd6d", "#f8fbb6", "#f5faff"] },
+      "status-red": { "role": "status", "displayName": "Emergency Red", "canonical": "#ff0040", "tonalRamp": ["#0a0a0a", "#500719", "#960429", "#dc0138", "#fe245b", "#fb6b92", "#f8b3c8", "#f5faff"] },
+      "status-orange": { "role": "status", "displayName": "Alert Orange", "canonical": "#ff6600", "tonalRamp": ["#0a0a0a", "#502407", "#963f04", "#dc5901", "#fe7b24", "#fba56d", "#f8d0b6", "#f5faff"] },
+      "focus-mint": { "role": "status", "displayName": "Focus Mint", "canonical": "#00ff92", "tonalRamp": ["#0a0a0a", "#075031", "#049658", "#01dc7f", "#23fea2", "#69fdc1", "#affbe0", "#f5faff"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display / Metric", "purpose": "Metric readouts inside cards (the number the operator scans for first). Orbitron is declared but not loaded — renders as the Courier New fallback today." },
+      "title": { "displayName": "Brand Title", "purpose": "App title only, cyan-to-magenta gradient text." },
+      "label": { "displayName": "Label / Control", "purpose": "Nav links, buttons, card headers, status-bar text — all interactive or scannable chrome." }
+    },
+    "shadows": [
+      { "name": "card-rest", "value": "0 8px 32px rgba(0,255,255,0.3), 0 0 20px rgba(0,255,255,0.2), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 0 30px rgba(0,255,255,0.05)", "purpose": "Default card elevation — glow, not shadow." },
+      { "name": "card-hover", "value": "0 12px 40px rgba(0,255,255,0.4), 0 0 30px rgba(0,255,255,0.3), inset 0 1px 0 rgba(255,255,255,0.2), inset 0 0 40px rgba(0,255,255,0.1)", "purpose": "Card hover lift, paired with translateY(-4px)." },
+      { "name": "button-rest", "value": "0 4px 15px rgba(0,255,255,0.2), inset 0 1px 0 rgba(255,255,255,0.1)", "purpose": "Default button glow." },
+      { "name": "button-hover", "value": "0 0 20px rgba(0,255,255,0.8)", "purpose": "Button hover glow intensification." },
+      { "name": "emergency-pulse", "value": "animates between 0 0 20px rgba(255,0,64,0.8) and 0 0 40px rgba(255,0,64,1)", "purpose": "The one animated shadow, reserved for the emergency-stop control (emergencyFlash, 0.5s infinite)." }
+    ],
+    "motion": [
+      { "name": "grid-pulse", "value": "gridPulse 6s ease-in-out infinite (opacity 0.3 <-> 0.6)", "purpose": "Ambient backdrop breathing." },
+      { "name": "grid-shift", "value": "gridShift 20s linear infinite (background-position drift)", "purpose": "Ambient backdrop drift, independent loop from grid-pulse." },
+      { "name": "neon-sweep", "value": "neonSweep 3s linear infinite (translateX -100% -> 100%)", "purpose": "Header top-edge scanline sweep." },
+      { "name": "text-glow", "value": "textGlow 3s ease-in-out infinite (background-position 0% <-> 100%)", "purpose": "Brand title gradient shimmer." },
+      { "name": "border-scan", "value": "borderScan 3s linear infinite (translateX -100% -> 100%)", "purpose": "Card top-edge scanline, per-card." },
+      { "name": "status-pulse", "value": "statusPulse 2s ease-in-out infinite (scale 1 <-> 1.2)", "purpose": "Status-bar indicator dots." },
+      { "name": "metric-underline", "value": "metricUnderline 2s ease-in-out infinite (opacity + scaleX breathing)", "purpose": "Underline beneath metric values." },
+      { "name": "emergency-flash", "value": "emergencyFlash 0.5s ease-in-out infinite", "purpose": "Emergency-stop button glow alarm." },
+      { "name": "hover-lift", "value": "transition: all 0.3s ease; transform: translateY(-4px) on card hover", "purpose": "Standard interactive lift." },
+      { "name": "button-ease", "value": "cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Button state-transition easing." }
+    ],
+    "breakpoints": [
+      { "name": "tablet-tight", "value": "1200px" },
+      { "name": "mobile", "value": "768px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default mission-control action button (e.g. START, LOAD MODEL).",
+      "html": "<button class=\"ds-btn-primary\">ENGAGE</button>",
+      "css": ".ds-btn-primary { background: linear-gradient(135deg, #1a1a2e, #16213e, #0f0f23); border: 2px solid #00ffff; color: #00ffff; padding: 1.2rem 1.5rem; font-family: 'Orbitron', 'Courier New', monospace; font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 2px; cursor: pointer; border-radius: 6px; position: relative; overflow: hidden; backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0,255,255,0.2), inset 0 1px 0 rgba(255,255,255,0.1); transition: all 0.3s cubic-bezier(0.4,0,0.2,1); } .ds-btn-primary:hover { background: linear-gradient(135deg, #00ffff, #0a0a0a); color: #000; box-shadow: 0 0 20px rgba(0,255,255,0.8); } .ds-btn-primary:focus-visible { outline: 2px solid #00ff92; outline-offset: 2px; }"
+    },
+    {
+      "name": "Emergency Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The emergency-stop variant — same shell as Primary Button but with an alarm glow instead of a static hover state.",
+      "html": "<button class=\"ds-btn-emergency\">EMERGENCY STOP</button>",
+      "css": ".ds-btn-emergency { background: linear-gradient(135deg, #1a1a2e, #16213e, #0f0f23); border: 2px solid #00ffff; color: #00ffff; padding: 1.2rem 1.5rem; font-family: 'Orbitron', 'Courier New', monospace; font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 2px; cursor: pointer; border-radius: 6px; backdrop-filter: blur(10px); transition: all 0.3s cubic-bezier(0.4,0,0.2,1); } .ds-btn-emergency:hover { border-color: #ff0040; background: linear-gradient(135deg, #ff0040, #0a0a0a); animation: ds-emergency-flash 0.5s ease-in-out infinite; } @keyframes ds-emergency-flash { 0%, 100% { box-shadow: 0 0 20px rgba(255,0,64,0.8); } 50% { box-shadow: 0 0 40px rgba(255,0,64,1); } }"
+    },
+    {
+      "name": "Telemetry Card",
+      "kind": "card",
+      "refersTo": "card-primary",
+      "description": "The canonical card shell used for every metric/sensor tile across the dashboard.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-header\"><h4>VELOCITY</h4><span>🚀</span></div><div class=\"ds-card-body\"><div class=\"ds-metric\">42 <span class=\"ds-unit\">MPH</span></div></div></div>",
+      "css": ".ds-card { background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 30%, #16213e 70%, #0a0a0a 100%); border: 2px solid #00ffff; border-radius: 8px; position: relative; overflow: hidden; backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,255,255,0.3), 0 0 20px rgba(0,255,255,0.2), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 0 30px rgba(0,255,255,0.05); transition: all 0.3s ease; } .ds-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,255,255,0.4), 0 0 30px rgba(0,255,255,0.3), inset 0 1px 0 rgba(255,255,255,0.2), inset 0 0 40px rgba(0,255,255,0.1); } .ds-card-header { background: rgba(0,255,255,0.1); padding: 1rem 1.5rem; border-bottom: 1px solid #00ffff; display: flex; justify-content: space-between; align-items: center; } .ds-card-header h4 { margin: 0; font-size: 1.1rem; font-weight: 700; letter-spacing: 2px; color: #00ffff; text-shadow: 0 0 10px rgba(0,255,255,0.7); text-transform: uppercase; } .ds-card-body { padding: 1.5rem; text-align: center; } .ds-metric { font-size: 2rem; font-weight: 900; color: #00ffff; font-family: 'Orbitron', 'Courier New', monospace; letter-spacing: 3px; text-transform: uppercase; text-shadow: 0 0 20px rgba(0,255,255,0.8), 0 0 40px rgba(0,255,255,0.4), 0 2px 4px rgba(0,0,0,0.8); } .ds-metric .ds-unit { font-size: 1.5rem; color: #ffff00; }"
+    },
+    {
+      "name": "Chamfered Nav Link",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "The signature clipped-corner nav pill — used for nav links, the sign-in pill, and status-bar pills.",
+      "html": "<a class=\"ds-nav-link ds-active\">DASHBOARD</a>",
+      "css": ".ds-nav-link { color: #00ffff; text-decoration: none; padding: 0.45rem 0.9rem; border: 1px solid transparent; transition: all 0.3s ease; text-transform: uppercase; font-family: 'Courier New', 'Consolas', monospace; font-weight: 600; font-size: 0.9rem; letter-spacing: 0.7px; background: rgba(0,255,255,0.05); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); display: inline-block; } .ds-nav-link.ds-active, .ds-nav-link:hover { color: #ffffff; border-color: #00ffff; box-shadow: 0 0 15px rgba(0,255,255,0.5); text-shadow: 0 0 10px #00ffff; }"
+    },
+    {
+      "name": "Field Input",
+      "kind": "input",
+      "refersTo": null,
+      "description": "Text/select field — deliberately calmer than cards and buttons; this is where the operator types.",
+      "html": "<input class=\"ds-input\" placeholder=\"Boundary name\" />",
+      "css": ".ds-input { width: 100%; padding: 0.75rem; background: #0a0a0a; border: 1px solid #2d3748; border-radius: 4px; color: #e6f0ff; font-family: 'Courier New', 'Consolas', monospace; font-size: 1rem; } .ds-input::placeholder { color: #9db0c6; } .ds-input:focus { outline: none; border-color: #00ff92; box-shadow: 0 0 0 2px rgba(0,255,146,0.2); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Neon Field Terminal",
+    "overview": "The dashboard reads as a hardened diagnostic console bolted to real outdoor hardware, not a consumer app. Every surface is dark-void black shading into deep navy, lit from within by cyan signal glow with magenta as its rare second harmonic. Panels are chamfered like an equipment enclosure rather than softly rounded like a phone app; the interface is meant to feel monitored and alive — animated grid lines drift underneath, a scanline sweeps the header, metric values hum with an underline pulse — because the thing it's showing you is a machine that is actually moving outside, right now. This is a single-operator instrument panel, not a marketed product surface: legibility and honest machine-state read outrank charm. Nothing here should look calm when the mower isn't calm — the emergency-stop button's flashing red glow is not decoration, it's the same visual grammar as everything else turned up to its most urgent setting. This describes the app shell and Dashboard route only. Task-oriented routes (Control, Settings, Maps, Planning, Mission Planner) run a second sanctioned dialect, 'The Ready Room' — green-accented, small-radius, flat-bordered, system-sans-serif, no chamfer or glow — documented in prose in DESIGN.md; its tokens live in assets/theme.css, not in this sidecar, so the schema below stays scoped to the Neon Field Terminal.",
+    "keyCharacteristics": [
+      "Void-black-to-navy surfaces lit by cyan glow, magenta used only as a rare second signal",
+      "Chamfered (clipped-corner) panels and pills instead of soft rounded corners",
+      "Heavy, continuous ambient motion: pulsing grid, scanning header sweep, breathing glows",
+      "Monospace everywhere — this is a readout, not a magazine",
+      "Elevation is glow, not shadow"
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Cyan is the interface's default voice. Every other color — magenta, violet, the status palette — earns its appearance by meaning something specific. A screen that reaches for magenta or a status color without a reason has broken character.", "section": "colors" },
+      { "name": "The All-Caps Instrument Rule", "body": "Interactive and label text is uppercase with positive letter-spacing almost without exception. Sentence case reads as a foreign, softer register this system doesn't use.", "section": "typography" },
+      { "name": "The Glow-Not-Shadow Rule", "body": "Nothing in this system gets a neutral gray drop shadow. If an element needs to lift off the surface, it gets a colored glow keyed to its own state color.", "section": "elevation" },
+      { "name": "The Chamfered Panel Rule", "body": "Anything that behaves like a physical control or status readout gets clipped corners, not rounded ones. Anything that behaves like a content container gets a small border-radius instead. Don't mix the two on the same element.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do default new panels to the Neon Field Terminal system: void-black/navy gradient surface, 2px cyan border, glow-based elevation, uppercase monospace type.",
+      "Do reserve magenta for a genuine second-harmonic moment, never as a standalone color.",
+      "Do give physical/hardware-adjacent controls chamfered corners; give content containers small border-radius instead.",
+      "Do key any new glow/shadow to the element's own state color, not a neutral gray.",
+      "Do treat the emergency-stop control as visually distinct: it's the only button allowed a continuous alarm animation."
+    ],
+    "donts": [
+      "Don't build a new view in the plain white Bootstrap-admin style — that pocket (formerly AI/Tractor/Telemetry) was retheme onto the two sanctioned dialects; no live example remains.",
+      "Don't assume 'Orbitron' is actually rendering — it isn't loaded anywhere in index.html; design against the monospace fallback unless you also add the font.",
+      "Don't give a card, button, or panel a plain neutral gray drop shadow.",
+      "Don't add a static, non-animated focal element to a screen that's otherwise full of ambient motion — it will read as broken rather than calm."
+    ]
+  }
+}

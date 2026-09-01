@@ -92,10 +92,12 @@ comms:
   ethernet: { bench_only: true }   # Not for mower runtime
 
 tractor:
-  # Craftsman-class ride-on lawn tractor conversion (Ackermann steering, gas engine) —
-  # a second constitutionally-recognized platform alongside the differential-drive mower
-  # above (Constitution Principle V). See docs/tractor-platform.md for the actuator table
-  # and docs/tractor-acceptance-criteria.md for the safety sign-off checklist.
+  # 50" Toro TimeCutter zero-turn mower conversion (gas engine, twin-lever hydrostatic
+  # drive) — a second constitutionally-recognized platform alongside the differential-drive
+  # mower above (Constitution Principle V). Stock engine and hydrostatic transaxles are
+  # unmodified; two servos push/pull the existing drive levers over PCA9685 PWM. See
+  # docs/tractor-platform.md for the actuator table and docs/tractor-acceptance-criteria.md
+  # for the safety sign-off checklist.
   #
   # This section documents STRUCTURE AND CONSTRAINTS only. Final channel/pin/address
   # numbers are owned by config/tractor.yaml (actuation workstream) and are cross-checked
@@ -106,13 +108,15 @@ tractor:
   config_file: "config/tractor.yaml"
   actuators:
     positional:
-      # Driven over PCA9685 PWM (or equivalent) channels; channel numbers live in
-      # config/tractor.yaml, not here — this list is the fixed actuator set only.
-      - steering
+      # Driven over PCA9685 PWM channels; channel numbers live in config/tractor.yaml,
+      # not here — this list is the fixed actuator set only. Direction is intrinsic to
+      # each lever's own position on a hydrostatic drive — there is no separate
+      # steering, gas-pedal, clutch, or gear actuator. Reverse is defined as BOTH
+      # levers negative; one lever negative with the other at/above neutral is a
+      # zero-radius pivot turn, not reverse.
+      - left_lever
       - throttle
-      - gas_pedal
-      - clutch
-      - gear
+      - right_lever
     relay:
       # GPIO relays; gpio numbers live in config/tractor.yaml relays.*.gpio.
       - starter

@@ -6,10 +6,6 @@
     </div>
     <div class="card-content engine-content">
       <div class="metric-line">
-        <span class="metric-label">Gear</span>
-        <span class="metric-value">{{ gear }}</span>
-      </div>
-      <div class="metric-line">
         <span class="metric-label">Moving</span>
         <span class="metric-value">{{ moving ? 'YES' : 'NO' }}</span>
       </div>
@@ -20,13 +16,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-// Presentational only — engine/gear/moving is the confirmed minimal telemetry
-// scope for the tractor platform (no fuel/RPM/battery fields). Badge classes
-// match TractorControlView.vue's existing .badge-on/.badge-off/.badge-estop.
+// Presentational only — engine/moving is the confirmed minimal telemetry
+// scope for the tractor platform (no fuel/RPM/battery fields; twin-lever
+// hydrostatic drive has no gear selector to show). Badge classes match
+// TractorControlView.vue's existing .badge-on/.badge-off/.badge-estop.
 const props = defineProps<{
   engine: 'off' | 'starting' | 'running'
   emergencyStopActive: boolean
-  gear: 'forward' | 'neutral' | 'reverse'
   moving: boolean
 }>()
 
@@ -107,7 +103,7 @@ const badgeLabel = computed(() => (props.emergencyStopActive ? 'E-STOP' : props.
 
 .badge-off {
   background: #eceff1;
-  color: #607d8b;
+  color: #4c646f;
 }
 
 .badge-estop {

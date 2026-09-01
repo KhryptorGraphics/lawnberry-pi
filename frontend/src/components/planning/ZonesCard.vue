@@ -14,7 +14,13 @@
             :key="zone.id"
             class="zone-card"
             :class="{ active: selectedZoneId === zone.id }"
+            tabindex="0"
+            role="button"
+            :aria-pressed="selectedZoneId === zone.id"
+            :aria-label="`Select zone ${zone.name}`"
             @click="$emit('select', zone)"
+            @keydown.enter="$emit('select', zone)"
+            @keydown.space.prevent="$emit('select', zone)"
           >
             <div class="zone-header">
               <h4>{{ zone.name }}</h4>
@@ -39,10 +45,10 @@
             </div>
 
             <div class="zone-actions">
-              <button class="btn btn-xs btn-success" @click.stop="$emit('mow', zone)">
+              <button class="btn btn-xs btn-success" :disabled="busy" @click.stop="$emit('mow', zone)">
                 🌱 Mow Now
               </button>
-              <button class="btn btn-xs btn-secondary" @click.stop="$emit('edit', zone)">
+              <button class="btn btn-xs btn-secondary" :disabled="busy" @click.stop="$emit('edit', zone)">
                 ✏️ Edit
               </button>
             </div>
@@ -73,6 +79,7 @@ interface ZoneCard {
 defineProps<{
   zones: ZoneCard[]
   selectedZoneId: string | null
+  busy: boolean
   areaUnit: string
   cuttingHeightUnit: string
   formatPriority: (priority: string) => string
@@ -143,8 +150,8 @@ defineEmits<{
 }
 
 .btn-success {
-  background: #28a745;
-  color: white;
+  background: var(--accent-green);
+  color: var(--primary-dark);
 }
 
 .btn:hover:not(:disabled) {
@@ -164,6 +171,8 @@ defineEmits<{
 .btn-xs {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 /* Zones-card-specific rules (moved verbatim from PlanningView.vue). */
@@ -196,9 +205,15 @@ defineEmits<{
   transition: all 0.3s ease;
 }
 
-.zone-card:hover {
+.zone-card:hover,
+.zone-card:focus-visible {
   border-color: var(--accent-green);
   transform: translateY(-2px);
+}
+
+.zone-card:focus-visible {
+  outline: 2px solid var(--accent-green);
+  outline-offset: 2px;
 }
 
 .zone-card.active {
@@ -227,12 +242,12 @@ defineEmits<{
 
 .priority-high {
   background: rgba(255, 67, 67, 0.2);
-  color: #ff4343;
+  color: var(--danger);
 }
 
 .priority-medium {
   background: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
+  color: var(--warning);
 }
 
 .priority-low {

@@ -149,6 +149,13 @@ onUnmounted(() => {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
+.user-button:focus-visible {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  outline: 2px solid rgba(255, 255, 255, 0.3);
+  outline-offset: 2px;
+}
+
 .user-avatar {
   width: 32px;
   height: 32px;
@@ -270,6 +277,12 @@ onUnmounted(() => {
 
 .dropdown-item:hover {
   background-color: #f8f9fa;
+}
+
+.dropdown-item:focus-visible {
+  background-color: #f8f9fa;
+  outline: 2px solid #f8f9fa;
+  outline-offset: 2px;
 }
 
 .dropdown-item:disabled {

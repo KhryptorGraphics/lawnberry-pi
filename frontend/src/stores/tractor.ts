@@ -5,17 +5,15 @@ import {
   tractorAuthorize,
   tractorBlade,
   tractorClearEmergency,
-  tractorClutch,
   tractorEmergencyStop,
-  tractorGear,
-  tractorSpeed,
+  tractorLeftLever,
+  tractorRightLever,
   tractorStart,
   tractorStopEngine,
-  tractorSteering,
   tractorThrottle,
 } from '../services/api'
 import { useWebSocket } from '../services/websocket'
-import type { TractorActuatorResponse, Transmission, TractorState } from '../types/control'
+import type { TractorActuatorResponse, TractorState } from '../types/control'
 
 // How long to distrust incoming telemetry.tractor WS ticks after a local
 // emergency-stop/revoke: long enough to bridge an in-flight, pre-action tick
@@ -78,10 +76,10 @@ export const useTractorStore = defineStore('tractor', () => {
     }
   }
 
-  /** Merge every field an 'ok' actuator response echoes back (e.g. gear changes
-   * also echo blade_engaged when ROS auto-disengages it). Never mutates on a
-   * 'rejected' response. Loosely typed at this boundary by design — see
-   * TractorActuatorResponse. */
+  /** Merge every field an 'ok' actuator response echoes back (e.g. a lever
+   * change also echoes blade_engaged when ROS auto-disengages it). Never
+   * mutates on a 'rejected' response. Loosely typed at this boundary by
+   * design — see TractorActuatorResponse. */
   function mergeOkFields(result: TractorActuatorResponse): TractorActuatorResponse {
     if (result.status === 'ok' && state.value) {
       const fields: Record<string, unknown> = { ...result }
@@ -91,20 +89,14 @@ export const useTractorStore = defineStore('tractor', () => {
     return result
   }
 
-  async function setSteering(value: number) {
-    return mergeOkFields(await tractorSteering(value))
+  async function setLeftLever(value: number) {
+    return mergeOkFields(await tractorLeftLever(value))
+  }
+  async function setRightLever(value: number) {
+    return mergeOkFields(await tractorRightLever(value))
   }
   async function setThrottle(value: number) {
     return mergeOkFields(await tractorThrottle(value))
-  }
-  async function setGroundSpeed(value: number) {
-    return mergeOkFields(await tractorSpeed(value))
-  }
-  async function setClutch(value: number) {
-    return mergeOkFields(await tractorClutch(value))
-  }
-  async function setGear(gear: Transmission) {
-    return mergeOkFields(await tractorGear(gear))
   }
   async function setBlade(engaged: boolean) {
     return mergeOkFields(await tractorBlade(engaged))
@@ -136,8 +128,8 @@ export const useTractorStore = defineStore('tractor', () => {
 
   async function emergencyStop() {
     // Instant local write in the safe direction (stopped/unauthorized), then
-    // reconcile the rest of the fields (blade/gear/clutch/throttle/speed) from
-    // a REST fetch once the command lands — see fetchState()'s ground-truth note.
+    // reconcile the rest of the fields (blade/levers/throttle) from a REST
+    // fetch once the command lands — see fetchState()'s ground-truth note.
     if (state.value) {
       state.value.emergency_stop_active = true
       state.value.authorized = false
@@ -184,11 +176,9 @@ export const useTractorStore = defineStore('tractor', () => {
     isLoading,
     error,
     fetchState,
-    setSteering,
+    setLeftLever,
+    setRightLever,
     setThrottle,
-    setGroundSpeed,
-    setClutch,
-    setGear,
     setBlade,
     startEngine,
     stopEngine,

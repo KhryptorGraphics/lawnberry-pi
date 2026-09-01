@@ -556,8 +556,7 @@ const detectedTimezoneNote = computed(() => {
 const browserTimezone = (() => {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch (error) {
-    console.debug('Unable to resolve browser timezone', error)
+  } catch {
     return undefined
   }
 })()
@@ -695,9 +694,8 @@ async function maybeApplyDetectedTimezone() {
         return
       }
     }
-  } catch (e) {
+  } catch {
     // Non-fatal: keep default
-    console.debug('Timezone auto-detect failed; leaving default', e)
   }
 }
 
@@ -951,8 +949,8 @@ function onTabKeydown(e: KeyboardEvent, idx: number) {
 
 .alert-danger {
   background: rgba(255, 67, 67, 0.1);
-  border: 1px solid #ff4343;
-  color: #ff4343;
+  border: 1px solid var(--danger);
+  color: var(--danger);
 }
 
 @media (max-width: 768px) {

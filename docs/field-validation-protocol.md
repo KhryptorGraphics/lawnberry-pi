@@ -329,41 +329,61 @@ not replace — the procedures above.
 **Do not reuse this document's existing slope figures (Configuration D: 10%
 grade / 15° stable / 25°+ auto-stop) or obstacle-clearance figures for the
 tractor.** Those numbers were derived for a small, low-center-of-gravity
-differential-drive robot. A Craftsman-class ride-on tractor has a materially
+differential-drive robot. A 50" zero-turn ride-on mower has a materially
 different mass, wheelbase, center of gravity, and rollover risk profile.
 
-**Open input needed** (not invented here): real maximum safe slope/tip angle,
-stopping distance, and obstacle-clearance figures for the specific tractor
-being deployed, sourced from the vehicle's actual manufacturer/conversion
-specifications. Do not begin tractor slope or obstacle testing until these
-figures are supplied and added to this addendum.
+**Slope figures — now sourced, no longer an open input.** The Toro operator's
+manual (TimeCutter Max 50 in, form 3465-589) specifies a **maximum rated slope
+of 15°** and a machine weight of **292 kg (644 lb)**. Use 15° as the hard
+ceiling for this platform; it supersedes the "open input needed" request above
+for slope figures. Obstacle-clearance figures remain unsourced.
+
+**Zero-turn braking caveat**: the machine *does* have a positive parking brake
+— the levers' outboard PARK position — but it is **not reachable by the
+fore/aft-only servo linkage**, so `emergency_stop()` yields hydrostatic
+self-braking only (see `docs/tractor-platform.md`, "Physical integration
+decisions"). Slope testing must account for the machine's ability to creep
+after an autonomous stop, and the parking brake must be set by hand whenever
+the machine is left unattended. Zero-turn mowers also lose steering authority
+on slopes when a drive wheel breaks traction, which the differential-drive
+figures above do not model.
+
+**Partially resolved.** Maximum slope (15°) and machine weight (292 kg /
+644 lb) now come from the manufacturer's own operator's manual — see the
+slope-figures note above. Still **open input needed** (not invented here):
+stopping distance and obstacle-clearance figures for the specific machine as
+converted. Do not begin obstacle testing until those are supplied and added
+to this addendum.
 
 ### Test 6: Engine-Running Emergency Stop
 
 **Duration**: 15 minutes
 **Observer**: Required
 
-1. Start the tractor, complete the operator-attestation gate (Constitution
+1. Start the mower, complete the operator-attestation gate (Constitution
    Principle VI), authorize motion, and start the engine.
-2. With the engine running and a non-neutral gear / non-zero throttle or
-   gas-pedal command active (on a stand with wheels off the ground, or in a
+2. With the engine running and both levers commanded off-neutral / a non-zero
+   throttle command active (on a stand with wheels off the ground, or in a
    clear area), trigger emergency stop via each available path in turn:
    physical e-stop (if fitted), web interface stop, and API
    `POST /api/v2/tractor/emergency-stop`.
-3. For each path, visually/mechanically confirm all 5 effects specified in
-   `docs/tractor-acceptance-criteria.md` §2: blade/PTO disengages, gas pedal
-   returns to 0, gear reaches neutral, clutch/brake reaches pressed, throttle
-   reaches idle — and that the **engine keeps running** (this is the
-   tractor's specified emergency-stop behavior, not a defect).
+3. For each path, visually/mechanically confirm all 3 effects specified in
+   `docs/tractor-acceptance-criteria.md` §2: blade/PTO disengages, the left
+   lever reaches neutral, the right lever reaches neutral, throttle reaches
+   idle — and that the **engine keeps running** (this is the platform's
+   specified emergency-stop behavior, not a defect).
 4. Confirm authorization is revoked and a subsequent drive command is
    rejected until `clear_emergency` is explicitly called by an operator.
 
-**Pass Criteria**: All 5 effects observed on the physical machine for every
+**Pass Criteria**: All 3 effects observed on the physical machine for every
 stop path, within the latency tiers in Constitution Principle VI (relay:
 <100ms; positional command issuance: <100ms; positional physical settle:
-<500ms). This test's result is necessary evidence, not sufficient evidence,
-for `docs/tractor-acceptance-criteria.md` — see that document for full
-measurement and sign-off requirements.
+<500ms). Measure each lever's physical settle **separately** — an E-stop
+drives both simultaneously, which is the worst-case load, and the 500ms tier
+is the specific reason the servos run at 24V rather than 12V (see
+`docs/tractor-acceptance-criteria.md` §4). This test's result is necessary
+evidence, not sufficient evidence, for `docs/tractor-acceptance-criteria.md` —
+see that document for full measurement and sign-off requirements.
 
 ### Test 7: Human-Exclusion-Zone Check
 
@@ -392,3 +412,4 @@ exclusion zone as a human, not software, responsibility.
 |---------|------|--------|---------|
 | 1.0 | 2026-01-09 | Claude | Initial protocol |
 | 1.1 | 2026-07-08 | Claude (tractor-safety-governance) | Added Tractor Platform Addendum (Tests 6-7): engine-running e-stop procedure, human-exclusion-zone check; explicitly flagged real ride-on slope/obstacle figures as an open input, not carried over from the mower figures above |
+| 1.2 | 2026-09-01 | Claude | Platform swapped from Craftsman-class Ackermann tractor to 50" Toro TimeCutter zero-turn (Constitution v4.0.0). Test 6 rewritten for the 3-effect e-stop (both levers to neutral) — it previously instructed verifying a clutch and gear selector this platform does not have — with per-lever settle measurement called out. Added the no-positive-parking-brake slope caveat |

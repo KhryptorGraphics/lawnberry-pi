@@ -10,8 +10,8 @@
       <div class="card">
         <div class="card-header">
           <h3>Autonomous AI Control</h3>
-          <span class="badge" :class="status?.enabled ? 'badge-on' : 'badge-off'">
-            {{ status?.enabled ? 'ENABLED' : 'DISABLED' }}
+          <span class="badge" :class="status ? (status.enabled ? 'badge-on' : 'badge-off') : 'badge-off'">
+            {{ status ? (status.enabled ? 'ENABLED' : 'DISABLED') : 'LOADING…' }}
           </span>
         </div>
         <div class="card-body">
@@ -31,8 +31,8 @@
             </div>
           </div>
           <div class="actions">
-            <button class="btn btn-success" :disabled="busy || status?.enabled" @click="enableAI">Enable AI</button>
-            <button class="btn btn-secondary" :disabled="busy || !status?.enabled" @click="disableAI">Disable AI</button>
+            <button class="btn btn-success" :disabled="busy || !status || status.enabled" @click="enableAI">Enable AI</button>
+            <button class="btn btn-secondary" :disabled="busy || !status || !status.enabled" @click="disableAI">Disable AI</button>
           </div>
           <p v-if="!status?.model_loaded" class="hint">
             No model is loaded — deploy a <code>.hef</code> below before autonomous mowing.
@@ -129,6 +129,7 @@
               </tr>
             </tbody>
           </table>
+          <p v-else-if="datasetsError" class="health-warn">⚠️ Couldn't load datasets. <button class="link-btn" type="button" @click="loadDatasets">Retry</button></p>
           <p v-else class="text-muted">No datasets available.</p>
         </div>
       </div>
@@ -182,6 +183,7 @@ const status = ref<AIStatus | null>(null)
 const metrics = ref<AIMetrics | null>(null)
 const health = ref<AIHealth | null>(null)
 const datasets = ref<Dataset[]>([])
+const datasetsError = ref(false)
 const modelPath = ref('')
 const busy = ref(false)
 const toast = useToastStore()
@@ -238,8 +240,10 @@ async function loadHealth() {
 async function loadDatasets() {
   try {
     datasets.value = (await api.get('/api/v2/ai/datasets')).data || []
+    datasetsError.value = false
   } catch {
     datasets.value = []
+    datasetsError.value = true
   }
 }
 async function refreshAll() {
@@ -328,26 +332,80 @@ onUnmounted(() => {
   gap: 1.25rem;
 }
 .metrics-card { grid-column: 1 / -1; }
-.card { background: var(--card-bg, #fff); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-.card-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color, #eee); }
-.card-header h3 { margin: 0; font-size: 1.05rem; }
+.card {
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 30%, #16213e 70%, #0a0a0a 100%);
+  border: 2px solid #00ffff;
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0,255,255,0.3), 0 0 20px rgba(0,255,255,0.2), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 0 30px rgba(0,255,255,0.05);
+}
+.card-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid #00ffff; background: rgba(0,255,255,0.1); }
+.card-header h3 { margin: 0; font-size: 1.05rem; color: #00ffff; text-shadow: 0 0 10px rgba(0,255,255,0.5); text-transform: uppercase; letter-spacing: 2px; }
 .card-body { padding: 1.25rem; }
 .status-rows { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
 .status-rows .row { display: flex; justify-content: space-between; gap: 1rem; }
 .status-rows .row span { color: var(--text-muted, #6c757d); }
-.status-rows .row.warn strong { color: #b42318; }
+.status-rows .row.warn strong { color: #ff0040; }
 .actions { display: flex; gap: 0.75rem; }
 .hint { margin-top: 0.75rem; color: var(--text-muted, #6c757d); font-size: 0.9rem; }
-.hint code { background: #f1f1f1; padding: 0.05rem 0.3rem; border-radius: 4px; }
-.health-warn { margin-top: 0.75rem; color: #b42318; }
+.hint code { background: rgba(0,255,255,0.08); color: #00ffff; padding: 0.05rem 0.3rem; border-radius: 4px; }
+.health-warn { margin-top: 0.75rem; color: #ff0040; }
+.link-btn { background: none; border: none; padding: 0; color: #ff0040; cursor: pointer; text-decoration: underline; font: inherit; }
+.text-muted { color: var(--text-muted); }
 .load-model { display: flex; flex-direction: column; gap: 0.5rem; }
 .load-model label { font-size: 0.9rem; color: var(--text-muted, #6c757d); }
-.load-model .form-control { padding: 0.5rem 0.75rem; border: 1px solid var(--border-color, #ccc); border-radius: 8px; }
+.load-model .form-control {
+  padding: 0.75rem;
+  background: #0a0a0a;
+  border: 1px solid #2d3748;
+  border-radius: 4px;
+  color: #e6f0ff;
+  font-family: inherit;
+}
+.load-model .form-control:focus {
+  outline: none;
+  border-color: #00ff92;
+  box-shadow: 0 0 0 2px rgba(0,255,146,0.2);
+}
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 1rem; }
 .badge { padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
-.badge-on { background: #d1f7e0; color: #0c7a43; }
-.badge-off { background: #eceff1; color: #607d8b; }
+.badge-on { background: rgba(0,255,0,0.15); color: #00ff00; border: 1px solid #00ff00; text-shadow: 0 0 10px rgba(0,255,0,0.7); }
+.badge-off { background: rgba(157,176,198,0.15); color: var(--text-muted); border: 1px solid var(--text-muted); }
 .ds-table { width: 100%; border-collapse: collapse; }
-.ds-table th, .ds-table td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--border-color, #eee); }
+.ds-table th, .ds-table td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid rgba(0,255,255,0.15); }
 .ds-table th { color: var(--text-muted, #6c757d); font-weight: 600; }
+.btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(135deg, #1a1a2e, #16213e, #0f0f23);
+  border: 2px solid #00ffff;
+  color: #00ffff;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 15px rgba(0,255,255,0.2), inset 0 1px 0 rgba(255,255,255,0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00ffff, #0a0a0a);
+  color: #000;
+  box-shadow: 0 0 20px rgba(0,255,255,0.8);
+}
+.btn:focus-visible { outline: 2px solid #00ff92; outline-offset: 2px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary { border-color: var(--text-muted); color: var(--text-muted); box-shadow: none; }
+.btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--text-muted), #0a0a0a);
+  color: #000;
+  box-shadow: 0 0 15px rgba(157,176,198,0.5);
+}
+.btn-success:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00ff00, #0a0a0a);
+  color: #000;
+  box-shadow: 0 0 20px rgba(0,255,0,0.8);
+}
+.btn-xs { padding: 0.25rem 0.5rem; font-size: 0.75rem; min-height: 44px; min-width: 44px; }
 </style>

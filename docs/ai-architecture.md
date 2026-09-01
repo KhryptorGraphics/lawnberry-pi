@@ -142,7 +142,20 @@ class ActionPrediction:
     def to_motor_commands(self) -> Dict[str, float]:
         """Convert to differential drive commands."""
         ...
+
+    def to_tractor_command(self, engine_throttle: float = 0.75) -> TractorCommand:
+        """Map the same action onto a zero-turn mower's twin drive levers."""
+        ...
 ```
+
+The model predicts a single `steering` axis regardless of platform; the
+platform-specific mapping happens in these two methods. `to_motor_commands()`
+applies an arcade mix (steering biases the left/right balance around throttle)
+to produce differential wheel speeds for the push-mower. `to_tractor_command()`
+reuses that *exact same mix* and maps it onto the zero-turn's `left_lever` /
+`right_lever` fields — so both platforms are driven by one control model, not
+two. Engine throttle (RPM) is held at a steady mowing value on the tractor
+platform, not driven by the model. See `docs/tractor-platform.md`.
 
 ### 4. Navigation Integration
 

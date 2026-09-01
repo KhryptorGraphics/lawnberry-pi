@@ -98,8 +98,8 @@ function undoLast() {
   justify-content: space-between;
   margin-bottom: .5rem;
 }
-.btn { padding: .25rem .5rem; border: 1px solid var(--primary-light); background: var(--primary-dark); color: var(--text-color); border-radius: 4px; cursor: pointer; }
-.btn-xs { font-size: .75rem; }
+.btn { padding: .25rem .5rem; border: 1px solid var(--primary-light); background: var(--primary-dark); color: var(--text-color); border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.btn-xs { font-size: .75rem; min-height: 44px; min-width: 44px; }
 .btn-danger { background: #5a1a1a; border-color: #a33; color: #fff; }
 .list-actions { display: flex; gap: .5rem; }
 </style>

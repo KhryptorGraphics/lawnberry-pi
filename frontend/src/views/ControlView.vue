@@ -28,7 +28,10 @@
           <div class="status-light" />
           <span>{{ formatSystemStatus(systemStatus) }}</span>
         </div>
-        
+        <div v-if="telemetryStale" class="telemetry-stale-warning">
+          ⚠️ Telemetry hasn't updated in a while — readouts below may be out of date
+        </div>
+
         <div class="session-info">
           <small>Control session expires in {{ formatTimeRemaining(sessionTimeRemaining) }}</small>
           <button class="btn btn-sm btn-secondary" @click="lockControl">
@@ -587,9 +590,16 @@ async function loadSecurityConfig() {
   }
 }
 
+// Telemetry polls every 5s; 3 consecutive misses (~15s) means something is
+// actually wrong, not a single transient blip — surface it so the operator
+// doesn't act on a stale battery/position/velocity readout without knowing.
+const telemetryFailureStreak = ref(0)
+const telemetryStale = computed(() => telemetryFailureStreak.value >= 3)
+
 async function refreshTelemetry() {
   try {
     const snapshot = await control.fetchRoboHATStatus()
+    telemetryFailureStreak.value = 0
     const source = (snapshot?.telemetry_source as ControlTelemetry['telemetry_source']) ?? telemetry.value.telemetry_source ?? 'unknown'
 
     if (source === 'hardware') {
@@ -628,7 +638,9 @@ async function refreshTelemetry() {
       systemStatus.value = snapshot.safety_state
     }
   } catch (error) {
-    // Non-fatal: keep previous telemetry
+    // Non-fatal on its own — keep previous telemetry — but track the streak
+    // so sustained failures become visible instead of silently stale data.
+    telemetryFailureStreak.value += 1
   }
 }
 
@@ -1107,12 +1119,6 @@ onUnmounted(() => {
   margin-bottom: 0.5rem;
 }
 
-.security-gate {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 60vh;
-}
 
 .card {
   background: var(--secondary-dark);
@@ -1177,6 +1183,16 @@ onUnmounted(() => {
   color: #f6c75f;
 }
 
+.telemetry-stale-warning {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #f6c75f;
+  border-radius: 999px;
+  background: rgba(246, 199, 95, 0.08);
+  color: #f6c75f;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
 .controller-chip--danger {
   border-color: #ff6b6b;
   color: #ff6b6b;
@@ -1202,10 +1218,6 @@ onUnmounted(() => {
   transition: all 0.3s ease;
 }
 
-.btn-primary {
-  background: var(--accent-green);
-  color: var(--primary-dark);
-}
 
 .btn-secondary {
   background: var(--primary-light);
@@ -1213,34 +1225,64 @@ onUnmounted(() => {
 }
 
 .btn-success {
-  background: #28a745;
-  color: white;
+  background: var(--accent-green);
+  color: var(--primary-dark);
 }
 
 .btn-warning {
-  background: #ffc107;
+  background: var(--warning);
   color: #000;
 }
 
 .btn-info {
-  background: #17a2b8;
+  background: var(--info);
   color: white;
 }
 
+/*
+ * Matches DESIGN.md's documented Emergency Button (Emergency Red #ff0040,
+ * glow elevation, emergencyFlash keyframe) instead of a bespoke flat-red
+ * button — this is the single most safety-critical control in the app, so
+ * it can't be the one place the system looks different. Unlike the
+ * hover-triggered flash on the Dashboard mission-control panel, this one
+ * flashes at rest: this page is the primary touch/mobile control surface,
+ * where hover never fires, so the alarm cue can't depend on it.
+ */
 .btn-emergency {
-  background: #ff0000;
-  color: white;
-  font-size: 1.25rem;
+  background: linear-gradient(135deg, #2a0a12, #1a0a0a, #0f0505);
+  border: 2px solid #ff0040;
+  color: #ff0040;
+  font-family: 'Orbitron', 'Courier New', monospace;
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(255, 0, 64, 0.7);
   padding: 1rem 2rem;
   width: 100%;
   margin-bottom: 2rem;
-  animation: pulse 2s infinite;
+  border-radius: 6px;
+  backdrop-filter: blur(10px);
+  transition: background 0.2s ease, color 0.2s ease;
+  animation: emergencyFlash 1.5s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7); }
-  70% { box-shadow: 0 0 0 10px rgba(255, 0, 0, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0); }
+.btn-emergency:hover:not(:disabled),
+.btn-emergency:focus-visible:not(:disabled) {
+  background: linear-gradient(135deg, #ff0040, #0a0a0a);
+  color: #000;
+  text-shadow: none;
+  animation-duration: 0.5s;
+}
+
+.btn-emergency:disabled {
+  animation: none;
+  box-shadow: none;
+}
+
+@keyframes emergencyFlash {
+  0%, 100% { box-shadow: 0 0 20px rgba(255, 0, 64, 0.5); }
+  50% { box-shadow: 0 0 40px rgba(255, 0, 64, 0.9); }
 }
 
 .btn:hover:not(:disabled) {
@@ -1282,7 +1324,7 @@ onUnmounted(() => {
 }
 
 .status-indicator.emergency .status-light {
-  background: #ff0000;
+  background: #ff0040;
   animation: blink 1s infinite;
 }
 
@@ -1339,7 +1381,7 @@ onUnmounted(() => {
 .movement-readout {
   display: flex;
   gap: 1.5rem;
-  font-family: 'Roboto Mono', 'Fira Code', monospace;
+  font-family: 'Courier New', 'Consolas', monospace;
   font-size: 1rem;
   color: var(--text-muted);
 }
@@ -1382,8 +1424,8 @@ onUnmounted(() => {
 
 .alert-danger {
   background: rgba(255, 67, 67, 0.1);
-  border: 1px solid #ff4343;
-  color: #ff4343;
+  border: 1px solid var(--danger);
+  color: var(--danger);
 }
 
 @media (max-width: 768px) {

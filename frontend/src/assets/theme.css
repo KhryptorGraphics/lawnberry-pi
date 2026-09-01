@@ -5,7 +5,9 @@
   --primary: #00d1b2;
   --primary-600: #00b39a;
   --accent: #7c5cff;
-  --danger: #ff5a7a;
+  --danger: #ff4343;
+  --warning: #ffc107;
+  --info: #17a2b8;
   --card: #12141a;
   --card-2: #151823;
   --border: #1e2230;
@@ -20,6 +22,16 @@
    * (BoundaryEditor's #00FF92, RtkDiagnosticsPanel's #0a0a0a/#00ffff,
    * this file's own --bg/--text/--muted/--card/--border) to match what
    * each view's author evidently intended, not a new palette.
+   *
+   * --danger/--warning/--info: same idea. --danger existed but had zero
+   * consumers (grep confirms no var(--danger) usage anywhere), so its
+   * value is realigned to #ff4343 — the value ~10 files already hardcode
+   * for .btn-danger/.alert-danger/status-danger text. --warning/--info
+   * didn't exist at all; added at #ffc107/#17a2b8, the values those same
+   * files already use consistently for .btn-warning/.btn-info. This is
+   * the operational-console dialect's own established palette (distinct
+   * from the cyan Neon Field Terminal system in DESIGN.md) — not a new
+   * color decision.
    */
   --accent-green: #00ff92;
   --accent-green-hover: #00cc75;
@@ -50,7 +62,9 @@
   --primary: #17c964;
   --primary-600: #13a454;
   --accent: #0072f5;
-  --danger: #f31260;
+  --danger: #ff4343;
+  --warning: #ffc107;
+  --info: #17a2b8;
   --card: #0f1722;
   --card-2: #0b1420;
   --border: #162032;

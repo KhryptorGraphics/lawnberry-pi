@@ -8,14 +8,15 @@
     <!-- Search and Quick Actions -->
     <div class="search-section">
       <div class="search-bar">
-        <input 
+        <input
+          ref="searchInputRef"
           v-model="searchQuery"
-          type="text" 
+          type="text"
           placeholder="Search documentation..."
           class="search-input"
           @input="performSearch"
         >
-        <button class="search-button">🔍</button>
+        <button class="search-button" aria-label="Search" @click="searchInputRef?.focus()">🔍</button>
       </div>
       <div class="quick-actions">
         <button class="btn btn-primary" @click="showQuickStart">⚡ Quick Start</button>
@@ -64,8 +65,8 @@
         <div v-if="searchResults.length > 0" class="search-results">
           <h3>🔍 Search Results</h3>
           <div class="result-list">
-            <button 
-              v-for="result in searchResults" 
+            <button
+              v-for="result in searchResults"
               :key="result.id"
               class="search-result"
               @click="selectDoc(result)"
@@ -74,6 +75,10 @@
               <div class="result-excerpt">{{ result.excerpt }}</div>
             </button>
           </div>
+        </div>
+        <div v-else-if="searchQuery.trim()" class="search-results">
+          <h3>🔍 Search Results</h3>
+          <p class="result-excerpt">No results for "{{ searchQuery }}"</p>
         </div>
       </div>
 
@@ -87,11 +92,16 @@
 
           <!-- Featured Guides -->
           <div class="featured-guides">
-            <div 
-              v-for="guide in featuredGuides" 
+            <div
+              v-for="guide in featuredGuides"
               :key="guide.id"
               class="guide-card"
+              tabindex="0"
+              role="button"
+              :aria-label="`Open guide: ${guide.title}`"
               @click="selectDoc(guide)"
+              @keydown.enter="selectDoc(guide)"
+              @keydown.space.prevent="selectDoc(guide)"
             >
               <div class="guide-icon">{{ guide.icon }}</div>
               <div class="guide-content">
@@ -163,7 +173,7 @@
                   <div class="progress-bar">
                     <div 
                       class="progress-fill" 
-                      :style="{ width: `${(currentStep / (selectedDoc.steps?.length ?? 1)) * 100}%` }"
+                      :style="{ transform: `scaleX(${currentStep / (selectedDoc.steps?.length ?? 1)})` }"
                     />
                   </div>
                   <span class="progress-text">Step {{ currentStep }} of {{ selectedDoc.steps?.length ?? 0 }}</span>
@@ -310,6 +320,7 @@ const docs = ref<DocInfo[]>([])
 const selectedDoc = ref<DocInfo | null>(null)
 const searchQuery = ref('')
 const searchResults = ref<DocInfo[]>([])
+const searchInputRef = ref<HTMLInputElement | null>(null)
 const expandedSections = ref<string[]>(['getting-started'])
 const currentStep = ref(1)
 
@@ -889,10 +900,10 @@ watch(searchQuery, (newQuery) => {
 }
 
 .page-header h1 {
-  color: #00ff9f;
+  color: #00ff92;
   font-size: 2.5rem;
   margin-bottom: 0.5rem;
-  text-shadow: 0 0 10px #00ff9f33;
+  text-shadow: 0 0 10px #00ff9233;
 }
 
 /* Search Section */
@@ -921,11 +932,12 @@ watch(searchQuery, (newQuery) => {
 
 .search-input:focus {
   outline: none;
+  box-shadow: 0 0 0 2px #00ff92;
 }
 
 .search-button {
   padding: 0.75rem 1rem;
-  background: #00ff9f;
+  background: #00ff92;
   border: none;
   color: #0b111b;
   cursor: pointer;
@@ -969,7 +981,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .nav-section h3 {
-  color: #00ff9f;
+  color: #00ff92;
   margin-bottom: 1rem;
   font-size: 1.1rem;
 }
@@ -987,6 +999,8 @@ watch(searchQuery, (newQuery) => {
   align-items: center;
   width: 100%;
   padding: 0.5rem;
+  min-height: 44px;
+  min-width: 44px;
   background: transparent;
   border: 1px solid #2c3e50;
   border-radius: 4px;
@@ -996,14 +1010,15 @@ watch(searchQuery, (newQuery) => {
   transition: all 0.2s;
 }
 
-.category-toggle:hover {
+.category-toggle:hover,
+.category-toggle:focus-visible {
   background: #1a2332;
-  border-color: #00ff9f;
+  border-color: #00ff92;
 }
 
 .category-toggle.expanded {
   background: #1a2332;
-  border-color: #00ff9f;
+  border-color: #00ff92;
 }
 
 .nav-items {
@@ -1016,6 +1031,8 @@ watch(searchQuery, (newQuery) => {
   display: block;
   width: 100%;
   padding: 0.4rem 0.5rem;
+  min-height: 44px;
+  min-width: 44px;
   background: transparent;
   border: none;
   color: #9aa4b2;
@@ -1026,15 +1043,16 @@ watch(searchQuery, (newQuery) => {
   transition: all 0.2s;
 }
 
-.nav-item:hover {
+.nav-item:hover,
+.nav-item:focus-visible {
   background: #1a2332;
   color: #e6e6e6;
 }
 
 .nav-item.active {
-  background: #00ff9f22;
-  color: #00ff9f;
-  border-left: 3px solid #00ff9f;
+  background: #00ff9222;
+  color: #00ff92;
+  border-left: 3px solid #00ff92;
 }
 
 /* Search Results */
@@ -1045,7 +1063,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .search-results h3 {
-  color: #00ff9f;
+  color: #00ff92;
   margin-bottom: 1rem;
   font-size: 1.1rem;
 }
@@ -1070,13 +1088,13 @@ watch(searchQuery, (newQuery) => {
 
 .search-result:hover {
   background: #1a2332;
-  border-color: #00ff9f;
+  border-color: #00ff92;
 }
 
 .result-title {
   font-weight: 500;
   margin-bottom: 0.25rem;
-  color: #00ff9f;
+  color: #00ff92;
 }
 
 .result-excerpt {
@@ -1100,7 +1118,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .welcome-header h2 {
-  color: #00ff9f;
+  color: #00ff92;
   font-size: 2rem;
   margin-bottom: 0.5rem;
 }
@@ -1128,11 +1146,17 @@ watch(searchQuery, (newQuery) => {
   text-align: left;
 }
 
-.guide-card:hover {
+.guide-card:hover,
+.guide-card:focus-visible {
   background: #243447;
-  border-color: #00ff9f;
+  border-color: #00ff92;
   transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(0, 255, 159, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 255, 146, 0.1);
+}
+
+.guide-card:focus-visible {
+  outline: 2px solid #00ff92;
+  outline-offset: 2px;
 }
 
 .guide-icon {
@@ -1141,7 +1165,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .guide-content h3 {
-  color: #00ff9f;
+  color: #00ff92;
   margin-bottom: 0.5rem;
 }
 
@@ -1166,7 +1190,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .status-overview h3 {
-  color: #00ff9f;
+  color: #00ff92;
   margin-bottom: 1rem;
 }
 
@@ -1224,6 +1248,8 @@ watch(searchQuery, (newQuery) => {
   color: #58a6ff;
   cursor: pointer;
   padding: 0;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .breadcrumb-current {
@@ -1237,7 +1263,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .document-body h1 {
-  color: #00ff9f;
+  color: #00ff92;
   font-size: 2rem;
   margin-bottom: 1rem;
 }
@@ -1275,8 +1301,10 @@ watch(searchQuery, (newQuery) => {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #00ff9f, #58a6ff);
-  transition: width 0.3s ease;
+  width: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, #00ff92, #58a6ff);
+  transition: transform 0.3s ease;
 }
 
 .progress-text {
@@ -1293,8 +1321,8 @@ watch(searchQuery, (newQuery) => {
 }
 
 .setup-step.active {
-  border-color: #00ff9f;
-  box-shadow: 0 0 20px rgba(0, 255, 159, 0.1);
+  border-color: #00ff92;
+  box-shadow: 0 0 20px rgba(0, 255, 146, 0.1);
 }
 
 .setup-step.completed {
@@ -1314,7 +1342,7 @@ watch(searchQuery, (newQuery) => {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #00ff9f;
+  background: #00ff92;
   color: #0b111b;
   display: flex;
   align-items: center;
@@ -1360,6 +1388,8 @@ watch(searchQuery, (newQuery) => {
   color: #58a6ff;
   cursor: pointer;
   font-size: 0.875rem;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .code-block pre {
@@ -1401,7 +1431,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .content h1, .content h2, .content h3, .content h4, .content h5, .content h6 {
-  color: #00ff9f;
+  color: #00ff92;
   margin: 1.5rem 0 0.75rem;
 }
 
@@ -1429,7 +1459,7 @@ watch(searchQuery, (newQuery) => {
   border: 1px solid #2c3e50;
   border-radius: 4px;
   padding: 0.2rem 0.4rem;
-  color: #00ff9f;
+  color: #00ff92;
   font-size: 0.9em;
 }
 
@@ -1459,7 +1489,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .content blockquote {
-  border-left: 4px solid #00ff9f;
+  border-left: 4px solid #00ff92;
   background: #1a2332;
   padding: 1rem;
   margin: 1rem 0;
@@ -1476,7 +1506,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .toc h4 {
-  color: #00ff9f;
+  color: #00ff92;
   margin-bottom: 1rem;
 }
 
@@ -1497,7 +1527,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .toc a:hover {
-  color: #00ff9f;
+  color: #00ff92;
 }
 
 /* Related Documents */
@@ -1510,7 +1540,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .related-docs h4 {
-  color: #00ff9f;
+  color: #00ff92;
   margin-bottom: 1rem;
 }
 
@@ -1536,7 +1566,7 @@ watch(searchQuery, (newQuery) => {
 
 .related-item:hover {
   background: #243447;
-  border-color: #00ff9f;
+  border-color: #00ff92;
 }
 
 .related-icon {
@@ -1569,7 +1599,7 @@ watch(searchQuery, (newQuery) => {
 }
 
 .btn-primary {
-  background: #00ff9f;
+  background: #00ff92;
   color: #0b111b;
 }
 
@@ -1596,12 +1626,12 @@ watch(searchQuery, (newQuery) => {
 }
 
 .btn-success {
-  background: #28a745;
-  color: white;
+  background: var(--accent-green);
+  color: #0b111b;
 }
 
 .btn-success:hover {
-  background: #218838;
+  background: #00cc75;
 }
 
 .btn-sm {
@@ -1622,15 +1652,15 @@ watch(searchQuery, (newQuery) => {
 }
 
 .alert-success {
-  background: #28a74533;
-  border: 1px solid #28a745;
-  color: #28a745;
+  background: rgba(0, 255, 146, 0.2);
+  border: 1px solid var(--accent-green);
+  color: var(--accent-green);
 }
 
 .alert-danger {
-  background: #dc354533;
-  border: 1px solid #dc3545;
-  color: #dc3545;
+  background: rgba(255, 67, 67, 0.2);
+  border: 1px solid var(--danger);
+  color: var(--danger);
 }
 
 /* Responsive Design */

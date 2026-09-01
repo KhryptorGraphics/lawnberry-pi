@@ -125,20 +125,22 @@ export type ControlModeResult = { status: string; mode: 'manual' | 'autonomous' 
   unknown
 >
 
-// Ride-on tractor platform
-export type Transmission = 'forward' | 'neutral' | 'reverse'
+// 50" zero-turn mower platform: twin-lever hydrostatic drive (two servos
+// actuate the mower's existing drive levers), engine stays stock.
 export type EngineState = 'off' | 'starting' | 'running'
 
 // GET /tractor/state — Pydantic model, serialized 1:1 via model_dump(mode="json").
-// engine_running/moving are @computed_field properties (derived server-side, not
-// independently settable); enabled reflects TractorControlService.enabled (fixed
-// at backend process start from config/tractor.yaml, not live-repolled).
+// engine_running/moving/reversing are @computed_field properties (derived
+// server-side, not independently settable); enabled reflects
+// TractorControlService.enabled (fixed at backend process start from
+// config/tractor.yaml, not live-repolled). left_lever/right_lever: -1 (full
+// reverse) .. 0 (neutral/stopped) .. +1 (full forward), one per drive wheel.
+// reversing is true only when BOTH levers are negative — a single lever
+// negative is a routine pivot turn, not reverse.
 export interface TractorState {
-  steering: number
+  left_lever: number
+  right_lever: number
   throttle: number
-  ground_speed: number
-  gear: Transmission
-  clutch: number
   blade_engaged: boolean
   engine: EngineState
   enabled: boolean
@@ -148,9 +150,10 @@ export interface TractorState {
   last_updated: string
   engine_running: boolean
   moving: boolean
+  reversing: boolean
 }
 
-// POST /tractor/{steering,throttle,speed,clutch,gear,blade,starter,stop-engine,
+// POST /tractor/{left-lever,right-lever,throttle,blade,starter,stop-engine,
 // emergency-stop,clear-emergency} — all follow tractor_service.py's _reject/_ok pattern
 export type TractorActuatorResponse =
   | { status: 'rejected'; reason: string }

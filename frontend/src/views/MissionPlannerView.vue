@@ -44,10 +44,10 @@
       <label for="mission-name-input" class="visually-hidden">Mission Name</label>
       <input id="mission-name-input" v-model="missionName" placeholder="Mission Name">
       <button :disabled="!missionName || missionStore.waypoints.length === 0" @click="createMission">Create Mission</button>
-      <button :disabled="!missionStore.currentMission" @click="startMission">Start Mission</button>
-      <button :disabled="missionStore.missionStatus !== 'running'" @click="pauseMission">Pause</button>
-      <button :disabled="missionStore.missionStatus !== 'paused'" @click="resumeMission">Resume</button>
-      <button :disabled="!missionStore.currentMission" @click="abortMission">Abort</button>
+      <button :disabled="missionActionBusy || !missionStore.currentMission" @click="startMission">Start Mission</button>
+      <button :disabled="missionActionBusy || missionStore.missionStatus !== 'running'" @click="pauseMission">Pause</button>
+      <button :disabled="missionActionBusy || missionStore.missionStatus !== 'paused'" @click="resumeMission">Resume</button>
+      <button :disabled="missionActionBusy || !missionStore.currentMission" @click="abortMission">Abort</button>
     </div>
     <div v-if="missionStore.currentMission">
       <h2>Mission Status: {{ missionStore.missionStatus }}</h2>
@@ -74,6 +74,10 @@ const telemetrySocket = useWebSocket('telemetry');
 
 const missionMapRef = ref<any>(null);
 const followMower = ref(true);
+// Guards start/pause/resume/abort against double-submit — these trigger
+// real autonomous motion, so a duplicate click while one is in flight is a
+// safety-relevant risk, not just a UX nicety.
+const missionActionBusy = ref(false);
 const mowerLatLng = ref<[number, number] | null>(null);
 const gpsAccuracyMeters = ref<number | null>(null);
 const missionName = ref('');
@@ -193,20 +197,44 @@ function undoLastWaypoint() {
 }
 
 const startMission = async () => {
-  const ok = await missionStore.startCurrentMission();
-  toast.show(ok ? 'Mission started' : 'Failed to start mission', ok ? 'success' : 'error');
+  if (missionActionBusy.value) return;
+  missionActionBusy.value = true;
+  try {
+    const ok = await missionStore.startCurrentMission();
+    toast.show(ok ? 'Mission started' : 'Failed to start mission', ok ? 'success' : 'error');
+  } finally {
+    missionActionBusy.value = false;
+  }
 };
 const pauseMission = async () => {
-  const ok = await missionStore.pauseCurrentMission();
-  toast.show(ok ? 'Mission paused' : 'Failed to pause mission', ok ? 'success' : 'error');
+  if (missionActionBusy.value) return;
+  missionActionBusy.value = true;
+  try {
+    const ok = await missionStore.pauseCurrentMission();
+    toast.show(ok ? 'Mission paused' : 'Failed to pause mission', ok ? 'success' : 'error');
+  } finally {
+    missionActionBusy.value = false;
+  }
 };
 const resumeMission = async () => {
-  const ok = await missionStore.resumeCurrentMission();
-  toast.show(ok ? 'Mission resumed' : 'Failed to resume mission', ok ? 'success' : 'error');
+  if (missionActionBusy.value) return;
+  missionActionBusy.value = true;
+  try {
+    const ok = await missionStore.resumeCurrentMission();
+    toast.show(ok ? 'Mission resumed' : 'Failed to resume mission', ok ? 'success' : 'error');
+  } finally {
+    missionActionBusy.value = false;
+  }
 };
 const abortMission = async () => {
-  const ok = await missionStore.abortCurrentMission();
-  toast.show(ok ? 'Mission aborted' : 'Failed to abort mission', ok ? 'success' : 'error');
+  if (missionActionBusy.value) return;
+  missionActionBusy.value = true;
+  try {
+    const ok = await missionStore.abortCurrentMission();
+    toast.show(ok ? 'Mission aborted' : 'Failed to abort mission', ok ? 'success' : 'error');
+  } finally {
+    missionActionBusy.value = false;
+  }
 };
 
 </script>
@@ -235,17 +263,5 @@ const abortMission = async () => {
   align-items: center;
 }
 .map-toolbar { display:flex; gap:1rem; align-items:center; }
-.provider-badge { font-size:.85rem; opacity:.75; }
 .follow-toggle { display:flex; align-items:center; gap:.4rem; }
-
-/* Numbered waypoint dot */
-.wp-pin-wrap { background: transparent; border: none; }
-.wp-pin {
-  width: 22px; height: 22px; border-radius: 50%;
-  background: #00ffff; color: #001018; font-weight: 800;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 8px rgba(0,255,255,0.6);
-  border: 2px solid #001018;
-}
-.wp-pin span { font-size: 12px; line-height: 1; }
 </style>

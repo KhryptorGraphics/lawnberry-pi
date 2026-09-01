@@ -1,34 +1,30 @@
-# Craftsman-class ride-on lawn tractor actuation config.
+# 50" Toro TimeCutter zero-turn mower actuation config.
 #
-# Positional actuators (steering, throttle, gas/ground-speed pedal, clutch, gear)
-# are PCA9685 I2C PWM channels (0-indexed). Starter and blade PTO are GPIO
-# relays on the Pi. Calibrate the microsecond endpoints on the bench so each
-# actuator hits its real mechanical limits before driving the machine.
+# The mower's gas engine and hydrostatic transaxles are untouched: two
+# high-torque servos physically push/pull the existing twin drive levers.
+# Positional actuators (left lever, throttle, right lever) are PCA9685 I2C
+# PWM channels (0-indexed). Starter and blade PTO are GPIO relays on the Pi.
+# Calibrate the microsecond endpoints on the bench so each actuator hits its
+# real mechanical limits before driving the machine.
 #
-# Set enabled: true on the converted tractor.
+# Set enabled: true on the converted mower.
 enabled: false
 
 pca9685:
   # 0x40 is the PCA9685's power-on-reset default, which collides with the
   # INA3221 power monitor already on the bus at 0x40 (spec/hardware.yaml).
   # 0x41 is reached by bridging the board's A0 solder-jumper.
-  # NOTE: not yet cross-checked against scripts/check_hardware_pin_conflicts.py
-  # (landing separately) -- re-verify this address once that script exists.
   address: 0x41
   bus: 1
   frequency_hz: 50
 
 actuators:
-  # Steering: bidirectional, -1 (full left) .. +1 (full right), centered.
-  steering:   { channel: 0, us_min: 1000, us_center: 1500, us_max: 2000, bidirectional: true }
+  # Left drive lever: bidirectional, -1 (full reverse) .. +1 (full forward), detent-centered.
+  left_lever:  { channel: 0, us_min: 1000, us_center: 1500, us_max: 2000, bidirectional: true }
   # Engine throttle (RPM lever): 0 (idle) .. 1 (full).
-  throttle:   { channel: 1, us_min: 1100, us_max: 1900, bidirectional: false }
-  # Ground-speed / gas pedal: 0 (stop) .. 1 (full).
-  gas_pedal:  { channel: 2, us_min: 1100, us_max: 1900, bidirectional: false }
-  # Clutch/brake pedal: 0 (released/driving) .. 1 (fully pressed = declutched + braked).
-  clutch:     { channel: 3, us_min: 1100, us_max: 1900, bidirectional: false }
-  # Gear selector: three discrete positions.
-  gear:       { channel: 4, us_forward: 1900, us_neutral: 1500, us_reverse: 1100 }
+  throttle:    { channel: 1, us_min: 1100, us_max: 1900, bidirectional: false }
+  # Right drive lever: bidirectional, -1 (full reverse) .. +1 (full forward), detent-centered.
+  right_lever: { channel: 2, us_min: 1000, us_center: 1500, us_max: 2000, bidirectional: true }
 
 relays:
   # Momentary starter solenoid (crank for pulse_ms, then release).
@@ -37,15 +33,14 @@ relays:
   # GPIO 6 (the old default) collides with spec/hardware.yaml's ToF Left
   # Interrupt. Reassigned to GPIO 26, which is not in spec/hardware.yaml's
   # gpio_used list today.
-  # NOTE: not yet cross-checked against scripts/check_hardware_pin_conflicts.py
-  # (landing separately) -- re-verify this pin once that script exists.
   blade_pto:  { gpio: 26, active_high: true }
 
-# Standard lawn-tractor safety interlocks (ANSI/OPEI-style).
+# Standard interlocks (ANSI/OPEI-style), adapted for a hydrostatic ZTR with
+# no clutch/brake pedal.
 interlocks:
-  require_neutral_to_start: true        # engine cranks only in NEUTRAL
-  require_clutch_to_start: true         # ...with the clutch/brake pressed
-  require_blade_off_to_start: true      # ...and the blade/PTO disengaged
+  require_levers_neutral_to_start: true  # engine cranks only with both drive levers neutral
+  require_blade_off_to_start: true       # ...and the blade/PTO disengaged
   require_engine_running_for_blade: true # PTO engages only with the engine running
-  disengage_blade_in_reverse: true      # Reverse Operation System: no blade in reverse
-  clutch_pressed_threshold: 0.9         # clutch value considered "pressed"
+  # Reverse Operation System: reverse is defined as BOTH levers pulled back
+  # together (a single lever back is a pivot turn) -- no blade in reverse.
+  disengage_blade_in_reverse: true

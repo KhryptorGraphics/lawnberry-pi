@@ -1,6 +1,6 @@
 <template>
   <div v-show="visible" class="top-progress">
-    <div class="bar" :style="{ width: width + '%' }" />
+    <div class="bar" :style="{ transform: `scaleX(${width / 100})` }" />
   </div>
 </template>
 
@@ -44,8 +44,10 @@ onUnmounted(() => { if (timer) window.clearInterval(timer) })
 }
 .bar {
   height: 100%;
+  width: 100%;
+  transform-origin: left;
   background: linear-gradient(90deg, #00ff92, #00c8ff, #ff00ff);
   box-shadow: 0 0 12px rgba(0,255,146,0.6);
-  transition: width .2s ease;
+  transition: transform .2s ease;
 }
 </style>

@@ -107,11 +107,11 @@ defineProps<{
 }
 
 .safety-warning {
-  color: #ffc107;
+  color: var(--warning);
 }
 
 .safety-danger {
-  color: #ff4343;
+  color: var(--danger);
 }
 
 @media (max-width: 768px) {

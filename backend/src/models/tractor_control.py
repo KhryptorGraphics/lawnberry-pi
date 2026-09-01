@@ -1,19 +1,18 @@
-"""Actuation model for a converted ride-on lawn tractor (Craftsman class).
+"""Actuation model for a 50" Toro TimeCutter zero-turn mower conversion.
 
-Unlike the differential-drive robot model in ``motor_control.py`` (two wheel
-motors), a lawn tractor is an Ackermann-steered, gas-engine vehicle operated
-through discrete actuators:
+The mower's gas engine and hydrostatic transaxles are kept completely
+intact; two high-torque servos physically push/pull the existing twin drive
+levers instead of an Ackermann steering rack. The actuation model is:
 
-- **steering**   — continuous, -1 (full left) .. +1 (full right)
-- **throttle**   — continuous, 0 (idle) .. 1 (full engine RPM)
-- **ground_speed** (gas/drive pedal) — continuous, 0 (stop) .. 1 (full)
-- **gear**       — discrete forward / neutral / reverse selector
-- **clutch**     — continuous, 0 (engaged/driving) .. 1 (pressed = declutched/brake)
-- **blade** (PTO)— on/off power take-off clutch
-- **starter**    — momentary engine-crank relay (an action, not a sustained state)
+- **left_lever** / **right_lever** — continuous, -1 (full reverse) .. +1
+  (full forward), 0 = neutral detent
+- **throttle**    — continuous, 0 (idle) .. 1 (full engine RPM)
+- **blade** (PTO) — on/off power take-off clutch
+- **starter**     — momentary engine-crank relay (an action, not a sustained state)
 
-Positional actuators are driven as RC-PWM channels on the RoboHAT RP2040;
-starter and blade PTO are GPIO relays. See ``services/tractor_service.py``.
+Positional actuators (levers, throttle) are driven as PCA9685 I2C PWM
+channels; starter and blade PTO are GPIO relays. See
+``services/tractor_service.py``.
 """
 
 from __future__ import annotations
@@ -23,13 +22,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, computed_field
 
-
-class Transmission(StrEnum):
-    """Gear selector position."""
-
-    FORWARD = "forward"
-    NEUTRAL = "neutral"
-    REVERSE = "reverse"
+# Lever magnitude below which a lever reads as "neutral" (in its detent).
+LEVER_NEUTRAL_EPS = 0.05
 
 
 class EngineState(StrEnum):
@@ -41,29 +35,24 @@ class EngineState(StrEnum):
 
 
 class TractorCommand(BaseModel):
-    """A complete desired actuation state for the tractor.
+    """A complete desired actuation state for the mower.
 
     Each field is independent; partial updates are applied via the per-actuator
-    service methods. ``ground_speed`` only produces motion when the engine is
-    running, a gear is selected, and the clutch is released.
+    service methods.
     """
 
-    steering: float = Field(0.0, ge=-1.0, le=1.0)
+    left_lever: float = Field(0.0, ge=-1.0, le=1.0)
+    right_lever: float = Field(0.0, ge=-1.0, le=1.0)
     throttle: float = Field(0.0, ge=0.0, le=1.0)
-    ground_speed: float = Field(0.0, ge=0.0, le=1.0)
-    gear: Transmission = Transmission.NEUTRAL
-    clutch: float = Field(0.0, ge=0.0, le=1.0)  # 1.0 = fully pressed (declutched)
     blade_engaged: bool = False
 
 
 class TractorState(BaseModel):
     """Observed/last-commanded actuator state plus interlock status."""
 
-    steering: float = 0.0
+    left_lever: float = 0.0
+    right_lever: float = 0.0
     throttle: float = 0.0
-    ground_speed: float = 0.0
-    gear: Transmission = Transmission.NEUTRAL
-    clutch: float = 1.0  # safe default: clutch pressed (no drive)
     blade_engaged: bool = False
     engine: EngineState = EngineState.OFF
     enabled: bool = False  # platform-detection flag: is a tractor actually configured
@@ -84,16 +73,25 @@ class TractorState(BaseModel):
     @property
     def moving(self) -> bool:
         """Whether the drivetrain is delivering motion."""
-        return (
-            self.engine_running
-            and self.gear != Transmission.NEUTRAL
-            and self.clutch < 0.5
-            and self.ground_speed > 0.0
+        return self.engine_running and (
+            abs(self.left_lever) > LEVER_NEUTRAL_EPS or abs(self.right_lever) > LEVER_NEUTRAL_EPS
         )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reversing(self) -> bool:
+        """True only when BOTH levers are pulled back past neutral.
+
+        A single lever going negative while the other stays forward is a
+        routine zero-radius pivot turn while mowing forward, not reverse --
+        treating that as reverse would drop the blade on every pivot turn.
+        Reverse is deliberately defined as both levers pulled back together.
+        """
+        return self.left_lever < -LEVER_NEUTRAL_EPS and self.right_lever < -LEVER_NEUTRAL_EPS
 
 
 __all__ = [
-    "Transmission",
+    "LEVER_NEUTRAL_EPS",
     "EngineState",
     "TractorCommand",
     "TractorState",

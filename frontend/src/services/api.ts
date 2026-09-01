@@ -100,26 +100,19 @@ export async function planningJobAction(
   return response.data
 }
 
-// --- Ride-on lawn tractor actuation ---
-export type TractorGear = Transmission
+// --- 50" zero-turn mower: twin-lever hydrostatic drive actuation ---
 
 export async function getTractorState(): Promise<TractorState> {
   return (await apiService.get<TractorState>('/api/v2/tractor/state')).data
 }
-export async function tractorSteering(value: number): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/steering', { value })).data
+export async function tractorLeftLever(value: number): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/left-lever', { value })).data
+}
+export async function tractorRightLever(value: number): Promise<TractorActuatorResponse> {
+  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/right-lever', { value })).data
 }
 export async function tractorThrottle(value: number): Promise<TractorActuatorResponse> {
   return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/throttle', { value })).data
-}
-export async function tractorSpeed(value: number): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/speed', { value })).data
-}
-export async function tractorClutch(value: number): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/clutch', { value })).data
-}
-export async function tractorGear(gear: TractorGear): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/gear', { gear })).data
 }
 export async function tractorBlade(engaged: boolean): Promise<TractorActuatorResponse> {
   return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/blade', { engaged })).data
@@ -157,7 +150,6 @@ import type {
   AutonomyReturnResult,
   AutonomyStatusResult,
   ControlModeResult,
-  Transmission,
   TractorState,
   TractorActuatorResponse,
   TractorAuthResult,

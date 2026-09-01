@@ -580,12 +580,36 @@ p {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  
+
   .loading::after {
     animation: none;
   }
-  
+
   .spinner {
     animation: none;
+  }
+
+  /*
+   * The blanket kill above is correct for decorative motion (grid pulse,
+   * scanlines, glow shimmer, metric underlines) but was also silencing
+   * animations that carry actual state: the emergency-stop alarm and the
+   * online/offline/error status dots. Restoring real (if calmer) motion
+   * here keeps that information legible instead of freezing it away.
+   */
+  .btn-emergency,
+  .retro-btn.emergency-btn:hover:not(:disabled),
+  .retro-btn.emergency-btn:focus-visible:not(:disabled) {
+    animation-duration: 1.2s !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  .status-indicator,
+  .power-indicator,
+  .activity-pulse,
+  .log-indicator,
+  .status-light,
+  .log-level {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
   }
 }

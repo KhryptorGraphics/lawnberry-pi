@@ -11,7 +11,13 @@
             :key="pattern.id"
             class="pattern-card"
             :class="{ selected: selectedPattern === pattern.id }"
+            tabindex="0"
+            role="button"
+            :aria-pressed="selectedPattern === pattern.id"
+            :aria-label="`Select ${pattern.name} pattern`"
             @click="$emit('update:selectedPattern', pattern.id)"
+            @keydown.enter="$emit('update:selectedPattern', pattern.id)"
+            @keydown.space.prevent="$emit('update:selectedPattern', pattern.id)"
           >
             <div class="pattern-preview">
               <div class="pattern-visual" :class="`pattern-${pattern.id}`" />
@@ -108,6 +114,12 @@ defineEmits<{
 .pattern-card.selected {
   border-color: var(--accent-green);
   background: rgba(0, 255, 146, 0.1);
+}
+
+.pattern-card:focus-visible {
+  border-color: var(--accent-green);
+  outline: 2px solid var(--accent-green);
+  outline-offset: 2px;
 }
 
 .pattern-preview {

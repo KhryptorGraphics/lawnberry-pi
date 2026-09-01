@@ -1,10 +1,10 @@
-"""RC-PWM servo / linear-actuator and GPIO-relay drivers for the tractor.
+"""PCA9685 positional-servo and GPIO-relay drivers for the zero-turn mower.
 
-Positional actuators (steering, throttle, gas pedal, clutch, gear) are RC-PWM
+Positional actuators (left/right drive lever, throttle) are PCA9685 I2C PWM
 channels: a normalized command maps to a pulse width in microseconds that the
-RoboHAT RP2040 emits on the corresponding channel. The microsecond mapping is a
-pure function (unit-testable); the actual serial write is performed by
-``TractorControlService`` via the RoboHAT bridge.
+PCA9685 emits on the corresponding channel. The microsecond mapping is a pure
+function (unit-testable); the actual I2C write is performed by
+``TractorControlService`` via ``PCA9685Driver``.
 
 The starter and blade-PTO are GPIO relays. ``RelayActuator`` is SIM-safe: it
 only touches GPIO on real hardware (lazy import) and otherwise tracks state.
@@ -75,41 +75,6 @@ class ServoActuator:
     @property
     def us(self) -> int:
         return self._us
-
-
-@dataclass
-class GearCalibration:
-    """Pulse widths for the three forward/neutral/reverse selector positions."""
-
-    channel: int
-    us_forward: int = 1900
-    us_neutral: int = 1500
-    us_reverse: int = 1100
-
-
-class GearActuator:
-    """Discrete forward/neutral/reverse selector driven as an RC-PWM channel."""
-
-    def __init__(self, name: str, calibration: GearCalibration):
-        self.name = name
-        self.cal = calibration
-        self._gear: str = "neutral"
-
-    def microseconds(self, gear: str) -> int:
-        mapping = {
-            "forward": self.cal.us_forward,
-            "neutral": self.cal.us_neutral,
-            "reverse": self.cal.us_reverse,
-        }
-        return int(mapping.get(str(gear), self.cal.us_neutral))
-
-    def command(self, gear: str) -> int:
-        self._gear = str(gear)
-        return self.microseconds(self._gear)
-
-    @property
-    def gear(self) -> str:
-        return self._gear
 
 
 class RelayActuator:

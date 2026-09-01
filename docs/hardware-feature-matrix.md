@@ -211,25 +211,28 @@ This document provides a complete matrix of hardware components, their capabilit
 ### Ride-On Tractor Platform (Alternate Configuration)
 
 A second, constitutionally-recognized platform (Constitution Principle V):
-a converted Craftsman-class ride-on tractor (Ackermann steering, gas engine)
-instead of the differential-drive chassis above. Enabled via `config/tractor.yaml`
+a converted 50" Toro TimeCutter zero-turn mower (gas engine, twin-lever
+hydrostatic drive) instead of the differential-drive chassis above. No
+steering, gas pedal, clutch, or gear selector — each drive lever's position
+sets that side's speed/direction directly. Enabled via `config/tractor.yaml`
 `enabled: true`; see `docs/tractor-platform.md` and `docs/tractor-acceptance-criteria.md`.
 
 | Component | Specification | Status | Notes |
 |-----------|---------------|--------|-------|
-| **Steering** | Positional, RC-PWM | ⚠️ Logic implemented, transport non-functional | −1..+1, bench-calibrated µs endpoints |
-| **Throttle** | Positional, RC-PWM | ⚠️ Logic implemented, transport non-functional | 0 (idle)..1 (full RPM) |
-| **Gas pedal (ground speed)** | Positional, RC-PWM | ⚠️ Logic implemented, transport non-functional | 0 (stop)..1 (full) |
-| **Clutch / brake** | Positional, RC-PWM | ⚠️ Logic implemented, transport non-functional | 0 (driving)..1 (declutch+brake) |
-| **Gear (F/N/R)** | Discrete, RC-PWM | ⚠️ Logic implemented, transport non-functional | Reverse auto-disengages blade |
+| **left_lever** | Positional, PCA9685 I2C PWM (ch 0) | ⚠️ PCA9685 transport implemented; lever actuation logic in rework (platform swap) | −1 (full reverse)..0 (neutral)..+1 (full forward) |
+| **throttle** | Positional, PCA9685 I2C PWM (ch 1) | ⚠️ PCA9685 transport implemented; actuation logic in rework (platform swap) | 0 (idle)..1 (full RPM) |
+| **right_lever** | Positional, PCA9685 I2C PWM (ch 2) | ⚠️ PCA9685 transport implemented; lever actuation logic in rework (platform swap) | −1 (full reverse)..0 (neutral)..+1 (full forward) |
 | **Starter** | Momentary GPIO relay | ✅ Functional on hardware | Crank pulse |
-| **Blade PTO** | Latching GPIO relay | ⚠️ Functional on hardware, GPIO conflicts with ToF Left Interrupt | Must be reassigned — see `spec/hardware.yaml` `tractor:` section |
+| **Blade PTO** | Latching GPIO relay | ✅ Functional on hardware, GPIO 26 | Reassigned off GPIO 6 (ToF Left Interrupt conflict); verified conflict-free by `scripts/check_hardware_pin_conflicts.py` |
 
-**Known gap** (verified, not speculative): `tractor_service.py` sends 5-channel
-RC-PWM commands the RoboHAT RP2040 firmware does not parse — those commands are
-silently dropped today while the service reports `"status":"ok"` regardless.
-Only the 2 GPIO relays (starter, blade PTO) are genuinely functional on real
-hardware as of this writing. See `docs/tractor-acceptance-criteria.md`.
+**Known gap** (verified, not speculative): the actuation transport has moved
+from RC-PWM (RoboHAT — not parsed by firmware, silently dropped) to PCA9685
+I2C PWM. That transport swap has landed, but `tractor_service.py`'s actuator
+*logic* is still mid-rework — from the superseded 7-actuator (steering/
+throttle/gas-pedal/clutch/gear) set to the 5-actuator (`left_lever`/
+`throttle`/`right_lever`/`starter`/`blade_pto`) set described here — in a
+parallel workstream. Do not treat lever actuation as field-ready until
+`docs/tractor-acceptance-criteria.md` is satisfied on real hardware.
 
 ---
 

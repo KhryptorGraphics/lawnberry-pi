@@ -116,20 +116,20 @@ class ActionPrediction:
         }
 
     def to_tractor_command(self, engine_throttle: float = 0.75) -> "TractorCommand":  # noqa: F821
-        """Map the VLA action to a ride-on lawn-tractor command.
+        """Map the VLA action to a zero-turn mower's twin drive levers.
 
-        steering -> steering; throttle (desired speed) -> the ground-speed/gas
-        pedal while in FORWARD with the clutch released; blade -> PTO. The engine
-        throttle (RPM) is held at a steady mowing value, not driven by the model.
+        Reuses the exact arcade-mix differential math from ``to_motor_commands()``
+        below (steering biases the left/right balance around throttle) and maps
+        it onto the lever fields instead of motor speeds. Engine throttle (RPM)
+        is held at a steady mowing value, not driven by the model.
         """
-        from .tractor_control import TractorCommand, Transmission
+        from .tractor_control import TractorCommand
 
+        motors = self.to_motor_commands()
         return TractorCommand(
-            steering=self.steering,
+            left_lever=max(-1.0, min(1.0, motors["left_speed"])),
+            right_lever=max(-1.0, min(1.0, motors["right_speed"])),
             throttle=engine_throttle,
-            ground_speed=max(0.0, self.throttle),
-            gear=Transmission.FORWARD,
-            clutch=0.0,
             blade_engaged=bool(self.blade),
         )
 

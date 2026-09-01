@@ -139,7 +139,7 @@ defineEmits<{
 }
 
 .camera-feed-error {
-  border-color: #ff4343;
+  border-color: var(--danger);
 }
 
 .camera-frame {

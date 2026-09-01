@@ -50,15 +50,13 @@ const getRoboHATStatus = vi.fn()
 const getMapConfiguration = vi.fn()
 const saveMapConfiguration = vi.fn()
 
-// Ride-on tractor actuation — see frontend/src/stores/tractor.ts and
-// frontend/src/views/TractorControlView.vue. Any test mounting either without
-// these would crash on an undefined import.
+// Twin-lever zero-turn mower actuation — see frontend/src/stores/tractor.ts
+// and frontend/src/views/TractorControlView.vue. Any test mounting either
+// without these would crash on an undefined import.
 const getTractorState = vi.fn()
-const tractorSteering = vi.fn()
+const tractorLeftLever = vi.fn()
+const tractorRightLever = vi.fn()
 const tractorThrottle = vi.fn()
-const tractorSpeed = vi.fn()
-const tractorClutch = vi.fn()
-const tractorGear = vi.fn()
 const tractorBlade = vi.fn()
 const tractorStart = vi.fn()
 const tractorStopEngine = vi.fn()
@@ -75,11 +73,9 @@ vi.mock('@/services/api', () => ({
   getMapConfiguration,
   saveMapConfiguration,
   getTractorState,
-  tractorSteering,
+  tractorLeftLever,
+  tractorRightLever,
   tractorThrottle,
-  tractorSpeed,
-  tractorClutch,
-  tractorGear,
   tractorBlade,
   tractorStart,
   tractorStopEngine,
@@ -186,11 +182,9 @@ beforeEach(() => {
   getMapConfiguration.mockReset()
   saveMapConfiguration.mockReset()
   getTractorState.mockReset()
-  tractorSteering.mockReset()
+  tractorLeftLever.mockReset()
+  tractorRightLever.mockReset()
   tractorThrottle.mockReset()
-  tractorSpeed.mockReset()
-  tractorClutch.mockReset()
-  tractorGear.mockReset()
   tractorBlade.mockReset()
   tractorStart.mockReset()
   tractorStopEngine.mockReset()

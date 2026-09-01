@@ -431,8 +431,8 @@ async function ensureBaseLayer() {
       } else if (typeof layer.remove === 'function') {
         layer.remove();
       }
-    } catch (e) {
-      console.debug('Error removing Google layer:', e);
+    } catch {
+      // Non-fatal: layer may already be removed
     }
     googleLayerHandlers = {};
     googleBaseLayer = null;
@@ -1435,18 +1435,25 @@ function retryOriginalTiles() {
 }
 
 .btn-success {
-  background: #28a745;
-  color: white;
+  background: var(--accent-green);
+  color: var(--primary-dark);
 }
 
 .btn-warning {
-  background: #ffc107;
+  background: var(--warning);
   color: #000;
 }
 
 .btn:hover:not(:disabled) {
   transform: translateY(-2px);
   opacity: 0.9;
+}
+
+.btn:focus-visible:not(:disabled) {
+  transform: translateY(-2px);
+  opacity: 0.9;
+  outline: 2px solid var(--accent-green);
+  outline-offset: 2px;
 }
 
 .btn:disabled {
@@ -1494,6 +1501,8 @@ function retryOriginalTiles() {
   color: var(--text-color);
   font-size: 0.75rem;
   padding: 0.35rem 0.65rem;
+  min-height: 44px;
+  min-width: 44px;
   border-radius: 4px;
   cursor: pointer;
   transition: opacity 0.2s ease;
@@ -1503,13 +1512,19 @@ function retryOriginalTiles() {
   opacity: 0.85;
 }
 
+.mini-btn:focus-visible:not(:disabled) {
+  opacity: 0.85;
+  outline: 2px solid var(--accent-green);
+  outline-offset: 2px;
+}
+
 .mini-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
 .mini-btn-danger {
-  background: #ff4343;
+  background: var(--danger);
   color: #fff;
 }
 
@@ -1549,28 +1564,6 @@ function retryOriginalTiles() {
   border: 1px solid var(--primary-light);
   border-radius: 4px;
   color: var(--text-color);
-}
-
-.map-placeholder {
-  width: 100%;
-  height: 100%;
-  background: var(--primary-dark);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border: 2px dashed var(--primary-light);
-}
-
-.placeholder-text {
-  font-size: 1.25rem;
-  color: var(--text-muted);
-  margin-bottom: 1rem;
-}
-
-.current-points {
-  color: var(--accent-green);
-  font-size: 0.875rem;
 }
 
 .editor-status {
@@ -1621,8 +1614,8 @@ function retryOriginalTiles() {
 
 .alert-danger {
   background: rgba(255, 67, 67, 0.1);
-  border: 1px solid #ff4343;
-  color: #ff4343;
+  border: 1px solid var(--danger);
+  color: var(--danger);
 }
 
 /* Tile loading and error indicators */
@@ -1713,6 +1706,8 @@ function retryOriginalTiles() {
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: white;
   padding: 0.25rem 0.5rem;
+  min-height: 44px;
+  min-width: 44px;
   border-radius: 4px;
   font-size: 0.75rem;
   cursor: pointer;
@@ -1722,6 +1717,12 @@ function retryOriginalTiles() {
 
 .retry-btn:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+.retry-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.3);
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

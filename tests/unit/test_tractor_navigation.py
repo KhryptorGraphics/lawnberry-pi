@@ -1,4 +1,5 @@
-"""Tests for Ackermann tractor autonomous waypoint navigation in NavigationService.
+"""Tests for zero-turn mower (twin-lever hydrostatic drive) autonomous waypoint
+navigation in NavigationService.
 
 Modeled on tests/unit/test_ai_navigation_loop.py's style: direct NavigationService
 instantiation with monkeypatch on the lazily-imported get_tractor_service()/
@@ -10,8 +11,8 @@ from types import SimpleNamespace
 import pytest
 
 from backend.src.models import NavigationMode, Position
+from backend.src.models.action_prediction import ActionPrediction
 from backend.src.models.mission import MissionWaypoint
-from backend.src.models.tractor_control import Transmission
 from backend.src.services.navigation_service import NavigationService
 
 
@@ -23,16 +24,18 @@ class _FakeTractorState:
 class _FakeTractor:
     """Minimal stand-in for TractorControlService, fully controlled by tests.
 
-    Deliberately has no authorize()/revoke()/clear_emergency() — if production
-    code ever calls one of those, the test fails loudly with AttributeError
-    instead of silently passing.
+    Deliberately has no authorize()/revoke()/clear_emergency()/set_left_lever()/
+    set_right_lever() -- if production code ever calls one of those, the test
+    fails loudly with AttributeError instead of silently passing. Production
+    code only needs apply() (per-tick drive) and set_levers() (soft stop).
     """
 
     def __init__(self, enabled: bool, engine_running: bool = False):
         self.enabled = enabled
         self.state = _FakeTractorState(engine_running)
         self.applied: list = []
-        self.ground_speed_calls: list[float] = []
+        self.levers_calls: list[tuple[float, float]] = []
+        self.blade_calls: list[bool] = []
         self.emergency_stop_calls = 0
         self.start_engine_calls = 0
         self.start_engine_result = {"status": "ok", "engine": "running"}
@@ -41,9 +44,13 @@ class _FakeTractor:
         self.applied.append(cmd)
         return {"status": "applied"}
 
-    async def set_ground_speed(self, value: float):
-        self.ground_speed_calls.append(value)
-        return {"status": "ok", "ground_speed": value}
+    async def set_levers(self, left: float, right: float):
+        self.levers_calls.append((left, right))
+        return {"status": "ok", "left_lever": left, "right_lever": right}
+
+    async def engage_blade(self, on: bool):
+        self.blade_calls.append(bool(on))
+        return {"status": "ok", "blade_engaged": bool(on)}
 
     async def start_engine(self):
         self.start_engine_calls += 1
@@ -71,9 +78,10 @@ def _patch_empty_mission_service(monkeypatch) -> None:
 
 
 async def test_go_to_waypoint_tractor_command_sign_and_values(monkeypatch):
-    """A known +20deg heading error must produce a positive (right) steering
-    command and a ground_speed normalized from the same forward_speed math the
-    differential path uses, with the waypoint's blade flag carried through."""
+    """A known +20deg heading error must produce lever values matching the
+    differential path's exact formula (left_speed/right_speed normalized onto
+    -1..1 by max_speed), with the correct sign: turning right speeds up the
+    right lever relative to the left, same convention as the mower fleet."""
     nav = NavigationService()
     nav.navigation_state.current_position = Position(latitude=40.0, longitude=-83.0)
 
@@ -99,15 +107,21 @@ async def test_go_to_waypoint_tractor_command_sign_and_values(monkeypatch):
 
     assert len(tractor.applied) == 1
     cmd = tractor.applied[0]
-    assert cmd.steering == pytest.approx(20.0 / 45.0, abs=1e-6)
-    assert cmd.ground_speed == pytest.approx(0.5, abs=1e-6)  # 0.4 base / 0.8 max_speed
-    assert cmd.gear == Transmission.FORWARD
-    assert cmd.clutch == 0.0
+
+    # base_speed = 0.5 * 0.8 = 0.4 (waypoint speed=50, max_speed=0.8); turn_effort
+    # = 20/45. Same left_speed/right_speed formula as the differential branch,
+    # then normalized onto the -1..1 lever range by max_speed.
+    turn_effort = 20.0 / 45.0
+    expected_left = (0.4 * (1 - turn_effort)) / nav.max_speed
+    expected_right = (0.4 * (1 + turn_effort)) / nav.max_speed
+    assert cmd.left_lever == pytest.approx(expected_left, abs=1e-6)
+    assert cmd.right_lever == pytest.approx(expected_right, abs=1e-6)
+    assert cmd.right_lever > cmd.left_lever  # right turn: right lever pulled ahead
     assert cmd.blade_engaged is True
     assert cmd.throttle == pytest.approx(nav.tractor_engine_throttle)
 
-    # Arrival is a soft stop: ground speed zeroed, no authorization revoked.
-    assert tractor.ground_speed_calls == [0.0]
+    # Arrival is a soft stop: both levers to neutral, no authorization revoked.
+    assert tractor.levers_calls == [(0.0, 0.0)]
     assert tractor.emergency_stop_calls == 0
 
 
@@ -115,7 +129,7 @@ async def test_go_to_waypoint_tractor_command_sign_and_values(monkeypatch):
 
 
 async def test_go_to_waypoint_interrupted_uses_soft_stop(monkeypatch):
-    """Mission interruption (pause/abort) must zero ground speed without
+    """Mission interruption (pause/abort) must zero both drive levers without
     revoking tractor authorization -- never emergency_stop()."""
     nav = NavigationService()
     nav.navigation_state.current_position = Position(latitude=40.0, longitude=-83.0)
@@ -134,7 +148,7 @@ async def test_go_to_waypoint_interrupted_uses_soft_stop(monkeypatch):
 
     await nav.go_to_waypoint(waypoint)
 
-    assert tractor.ground_speed_calls == [0.0]
+    assert tractor.levers_calls == [(0.0, 0.0)]
     assert tractor.emergency_stop_calls == 0
     assert tractor.applied == []
 
@@ -159,7 +173,7 @@ async def test_go_to_waypoint_apply_failure_triggers_hard_stop(monkeypatch):
     await nav.go_to_waypoint(waypoint)
 
     assert tractor.emergency_stop_calls == 1
-    assert tractor.ground_speed_calls == []
+    assert tractor.levers_calls == []
 
 
 # --------------------------- engine auto-start gating ---------------------------
@@ -229,6 +243,67 @@ async def test_emergency_stop_skips_tractor_when_disabled(monkeypatch):
 
     assert await nav.emergency_stop() is True
     assert tractor.emergency_stop_calls == 0
+
+
+# ------------------------- blade-command path audit -------------------------
+
+
+async def test_go_to_waypoint_skips_robohat_blade_command_when_tractor_enabled(monkeypatch):
+    """Regression guard for the audited bug: the RoboHAT blade command used to
+    run unconditionally (SIM_MODE=0) regardless of platform. On a tractor
+    deployment the blade is driven exclusively through tractor.apply()'s
+    blade_engaged field; get_robohat_service() must not even be called.
+
+    The spy records instead of raising: the production blade block wraps the
+    call in a broad ``except Exception``, which would silently swallow a
+    raise-based spy and let the test pass even if the gate regressed.
+    """
+    monkeypatch.setenv("SIM_MODE", "0")
+    nav = NavigationService()
+    nav.navigation_state.current_position = Position(latitude=40.0, longitude=-83.0)
+    nav.navigation_state.heading = 0.0
+
+    waypoint = MissionWaypoint(lat=40.001, lon=-83.001, blade_on=True)
+    _patch_empty_mission_service(monkeypatch)
+    tractor = _FakeTractor(enabled=True)
+
+    async def _apply_then_arrive(cmd):
+        tractor.applied.append(cmd)
+        nav.navigation_state.current_position = Position(latitude=40.001, longitude=-83.001)
+        return {"status": "applied"}
+
+    tractor.apply = _apply_then_arrive
+    _patch_tractor(monkeypatch, tractor)
+
+    robohat_calls: list[int] = []
+    monkeypatch.setattr(
+        "backend.src.services.navigation_service.get_robohat_service",
+        lambda: robohat_calls.append(1),
+    )
+
+    await nav.go_to_waypoint(waypoint)
+
+    assert robohat_calls == []
+    assert len(tractor.applied) == 1
+    assert tractor.applied[0].blade_engaged is True
+
+
+# ----------------------- action_prediction -> tractor command -----------------------
+
+
+def test_action_prediction_to_tractor_command_reuses_motor_math():
+    """to_tractor_command() must reuse to_motor_commands()'s exact arcade-mix
+    values, just renamed onto the lever fields, with gear/clutch forcing gone."""
+    p = ActionPrediction(steering=-0.4, throttle=0.6, blade=True, confidence=0.9)
+    motors = p.to_motor_commands()
+    cmd = p.to_tractor_command()
+
+    assert cmd.left_lever == pytest.approx(motors["left_speed"])
+    assert cmd.right_lever == pytest.approx(motors["right_speed"])
+    assert cmd.left_lever == pytest.approx(0.36)
+    assert cmd.right_lever == pytest.approx(0.6)
+    assert cmd.throttle == pytest.approx(0.75)  # steady mowing RPM, not driven by the model
+    assert cmd.blade_engaged is True
 
 
 # --------------------- regression guard: differential path ---------------------
