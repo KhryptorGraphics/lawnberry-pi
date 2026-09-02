@@ -84,10 +84,17 @@ GPIO → opto module → Bosch relay coil → load.
 |---|---|---|
 | 4 | M6 rod ends / heim joints — 2 male, 2 female | [SA6TK male](https://www.amazon.com/uxcell-Bearing-M6x1-0-Joint-Thread/dp/B07WM39B6R) · [PHS6 female](https://www.amazon.com/uxcell-Bearing-Joint-Female-Thread/dp/B0BDG6S9YP) |
 | — | M6 threaded rod, clevis pins + R-clips | local |
+| 2 | **Square U-bolts** for the 3" × 1.5" frame rail, 5/16" leg — servo mount + e-stop bracket | hardware store |
+| 2 | **Round U-bolts** for the lap-bar tube, 1/4" leg — size to your measured OD | hardware store |
 
 Ball joints at both rod ends are not optional — they give the angular freedom
 the lever needs, and the clevis pin lets you unpin the linkage in seconds to
 restore full manual PARK travel.
+
+U-bolts do all the clamping. Every mount is a saddle: the printed part locates
+and spreads load, steel takes the tension. A printed clamp ear carrying bolt
+preload on a vibrating petrol machine is the weakest possible arrangement, and
+U-bolts also absorb the fact that Toro does not publish the lap-bar tube OD.
 
 ### Safety & enclosure
 
@@ -110,10 +117,11 @@ restore full manual PARK travel.
 
 ### Mounts
 
-Parametric OpenSCAD sources and rendered STLs live in `hardware/mounts/`.
-**The published dimensions are placeholders** — the Toro operator's manual
-carries no dimensioned drawings, so measure the machine, edit `common.scad`,
-and re-render. Print the clamps in PETG or ASA; buy the linkage.
+Parametric OpenSCAD sources, rendered STLs and preview images live in
+`hardware/mounts/`. The **frame rail dimension is researched and real**
+(3" × 1.5" × 0.120" wall, Toro's published carrier-frame spec); the **lap-bar
+tube OD is not published by Toro** and must be measured — edit `common.scad`
+and re-render. Print the saddles in PETG or ASA; buy the U-bolts and linkage.
 
 ---
 ### Sources (live Amazon via the `amazon` MCP scraper)
