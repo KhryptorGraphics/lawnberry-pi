@@ -43,12 +43,12 @@
 
 include <common.scad>
 
-tray_l       = 195;   // fits the Zulkit box's internal floor with margin
-tray_w       = 145;
+tray_l       = 165;   // sized for enclosure_body.scad's interior
+tray_w       = 120;
 tray_t       = 4;
 rim          = 7;
 foot_h       = 9;     // lifts the tray off the enclosure floor
-foot_od      = 14;
+foot_od      = 12;
 post_h       = 12;    // board standoffs -- tall, to clear any film of water
 post_od      = 8;
 
@@ -56,16 +56,17 @@ post_od      = 8;
 pi5_holes    = [[-29, -24.5], [29, -24.5], [-29, 24.5], [29, 24.5]];
 pololu_holes = [[-6.75, -8.0], [6.75, 8.0]];   // 0.53" x 0.63", opposite corners
 
-pi5_pos      = [-46,  26, 0];
-pololu_pos   = [ 62, -46, 0];
+pi5_pos      = [-36,  24, 0];
+pololu_pos   = [ 70,  40, 0];
 
 // Generic mounting grid for boards whose patterns are not published.
 grid_pitch   = 10;
-grid_x       = [12 : grid_pitch : 82];
-grid_y       = [-26 : grid_pitch : 54];
+// Kept clear of the feet (which occupy y = +/-43..55) and of the Pi footprint.
+grid_x       = [-72 : grid_pitch : 78];
+grid_y       = [-40 : grid_pitch : -10];
 
 // Cable entry edge. Ties here take strain before it reaches a gland.
-tie_x        = [-70 : 24 : 74];
+tie_x        = [-56 : 24 : 56];
 
 module standoff(d = m3_clear, h = post_h) {
     difference() {
@@ -79,10 +80,15 @@ module board_posts(holes, pos, d = m3_clear) {
         for (h = holes) translate([h[0], h[1], 0]) standoff(d);
 }
 
-// Feet raising the whole tray off the enclosure floor.
+// Feet raising the whole tray off the enclosure floor. Their M4 bores are ALSO
+// the enclosure fixing points -- bolt down through the foot into the box floor.
+// There is deliberately no separate set of fixing holes; two hole patterns in
+// the same corners is how you end up drilling through a foot.
+// Four corner feet, not six: a mid-span foot at x=0 lands exactly on the
+// enclosure's centre cable-gland boss.
 module feet() {
-    for (x = [-1, 0, 1], y = [-1, 1])
-        translate([x * (tray_l / 2 - 20), y * (tray_w / 2 - 16), -foot_h])
+    for (x = [-1, 1], y = [-1, 1])
+        translate([x * (tray_l / 2 - 18), y * (tray_w / 2 - 11), -foot_h])
             difference() {
                 cylinder(h = foot_h + 0.1, d = foot_od);
                 translate([0, 0, -1]) cylinder(h = foot_h + 3, d = m4_clear);
@@ -100,26 +106,24 @@ module tray_base() {
                     plate(tray_l - wall * 2, tray_w - wall * 2, rim + 2, r = 8);
             }
         }
-        // Enclosure fixing holes -- MEASURE your box's boss positions
-        for (x = [-1, 1], y = [-1, 1])
-            translate([x * (tray_l / 2 - 12), y * (tray_w / 2 - 12), -1])
-                cylinder(h = tray_t + 2, d = m4_clear);
         // Generic M3 mounting grid
         for (x = grid_x, y = grid_y)
             translate([x, y, -1]) cylinder(h = tray_t + 2, d = m3_clear);
-        // Perimeter drain slots -- anything landing on the tray leaves it
+        // Perimeter drains -- notches cut fully THROUGH the rim, not blind
+        // slots ending inside it. A drain that stops at the rim does not
+        // drain; it also leaves a tangent face and a non-manifold mesh.
         for (x = [-2 : 2])
-            for (y = [-1, 1])
-                translate([x * 36, y * (tray_w / 2 - 10), -1])
-                    rotate([0, 0, 90]) slot(6, 12, tray_t + 2);
-        // Corner drains, the low points if the machine is parked off-level
+            translate([x * 30, tray_w / 2 - 7, -1])
+                rotate([0, 0, 90]) slot(6, 24, rim + 2);
+        // Corner drains, the low points if the machine is parked off-level.
+        // Positioned inboard of the feet, not over them.
         for (x = [-1, 1], y = [-1, 1])
-            translate([x * (tray_l / 2 - 26), y * (tray_w / 2 - 22), -1])
+            translate([x * 45, y * 30, -1])
                 cylinder(h = tray_t + 2, d = 9);
         // Cable tie-down slot pairs along the entry edge
         for (x = tie_x)
             for (dx = [-4, 4])
-                translate([x + dx, -tray_w / 2 + 15, -1])
+                translate([x + dx, -tray_w / 2 + 9, -1])
                     rotate([0, 0, 90]) slot(3.4, 7, tray_t + 2);
     }
 }

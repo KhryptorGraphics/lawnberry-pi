@@ -73,7 +73,9 @@ satisfy an interlock no actuator can reach.
 | `lapbar_pushrod_clamp.scad` | 2 | Lap-bar saddle with ball-joint eye. |
 | `throttle_servo_mount.scad` | 1 | Throttle servo, control-panel foot. |
 | `estop_bracket.scad` | 1 | 22 mm mushroom button on the frame rail. |
-| `electronics_tray.scad` | 1 | Pi 5 + PCA9685 + regulator + relay module, for the IP65 box. See **Weatherproofing** below. |
+| `enclosure_body.scad` | 1 | Printed weatherproof box. Gasket groove, gland bosses, mounting ears. |
+| `enclosure_lid.scad` | 1 | Lid with drip skirt and internal stiffening ribs. |
+| `electronics_tray.scad` | 1 | Pi 5 + PCA9685 + regulator + relay module. Drops into the body. See **Weatherproofing** below. |
 | `prev_*.png` | — | Rendered previews, for sanity-checking geometry before printing. |
 
 ```bash
@@ -104,10 +106,28 @@ the manifold check and were only visible in a render.
 
 ## Weatherproofing
 
-The purchased IP65 box does the sealing — a printed enclosure would be worse,
-because layer lines are porous and the plastic warps and UV-degrades. The tray's
-job is to make it survivable when water gets in anyway, which on a petrol
-machine it eventually will.
+The enclosure is printed (`enclosure_body.scad` + `enclosure_lid.scad`). A
+printed box seals fine **provided it doesn't rely on the plastic to seal**:
+
+- A **3 mm silicone O-ring cord** sits in a groove in the body's top flange and
+  the lid compresses it. The gasket seals, not the mating faces.
+- **Lid screws sit outboard of the groove**, so tightening squeezes the cord
+  instead of bowing the lid away from it.
+- The flange is **10 mm wide** so the groove has real material either side. A
+  groove cut into a 4 mm wall leaves lips that split.
+- The lid's **drip skirt** overhangs the flange, throwing runoff clear of the
+  seam. On a horizontal-seam box this matters more than the gasket, because a
+  gasket sitting under standing water eventually wicks.
+- Lid ribs are on the **inside**; ribs on the outer face would form channels
+  that hold water and grit right over the seam.
+
+**The one thing that will sink it is porous walls.** Layer lines leak if
+under-extruded. Print hot and slow enough to fuse layers, 5+ perimeters, and
+wipe the inside with epoxy or conformal coat if unsure. No gasket rescues a
+weeping wall.
+
+Beyond the box, the tray's job is to make it survivable when water gets in
+anyway, which on a petrol machine it eventually will.
 
 Outdoor enclosures rarely fail through the gasket. They fail because water
 tracks in along a cable, or because condensation forms: a sealed box heated by
@@ -119,7 +139,7 @@ So the system is three parts, and the tray is only one:
 
 | Element | Purpose |
 |---|---|
-| **PG9 cable glands**, one per entry | Stop water tracking in along cables. No un-glanded holes, ever. |
+| **PG9 cable glands** through the floor bosses, one per entry | Stop water tracking in along cables. No un-glanded holes, ever. |
 | **M12 breather vent** | Passes vapour and equalises pressure, blocks liquid. This is what stops condensation accumulating. |
 | **This tray** | Assumes water gets in: stands on 9 mm feet so liquid pools on the enclosure floor *below* the boards; drains its own surface through perimeter and corner slots; carries boards on 12 mm standoffs; cable tie-down slots take strain before it reaches a gland or connector. |
 
