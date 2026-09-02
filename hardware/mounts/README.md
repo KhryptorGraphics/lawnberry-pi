@@ -73,7 +73,7 @@ satisfy an interlock no actuator can reach.
 | `lapbar_pushrod_clamp.scad` | 2 | Lap-bar saddle with ball-joint eye. |
 | `throttle_servo_mount.scad` | 1 | Throttle servo, control-panel foot. |
 | `estop_bracket.scad` | 1 | 22 mm mushroom button on the frame rail. |
-| `electronics_tray.scad` | 1 | Pi 5 + PCA9685 + regulator + relay module, for the IP65 box. |
+| `electronics_tray.scad` | 1 | Pi 5 + PCA9685 + regulator + relay module, for the IP65 box. See **Weatherproofing** below. |
 | `prev_*.png` | — | Rendered previews, for sanity-checking geometry before printing. |
 
 ```bash
@@ -101,6 +101,39 @@ the manifold check and were only visible in a render.
   angular freedom the lever needs, and the clevis pin lets you unpin in seconds
   to restore full manual PARK travel.
 - Use the **metal servo arms supplied with the servo**. Never a printed horn.
+
+## Weatherproofing
+
+The purchased IP65 box does the sealing — a printed enclosure would be worse,
+because layer lines are porous and the plastic warps and UV-degrades. The tray's
+job is to make it survivable when water gets in anyway, which on a petrol
+machine it eventually will.
+
+Outdoor enclosures rarely fail through the gasket. They fail because water
+tracks in along a cable, or because condensation forms: a sealed box heated by
+the engine and the sun and then cooled overnight pumps moist air in and out and
+condenses it inside. A *perfectly* sealed box is worse, since the water that
+forms cannot leave.
+
+So the system is three parts, and the tray is only one:
+
+| Element | Purpose |
+|---|---|
+| **PG9 cable glands**, one per entry | Stop water tracking in along cables. No un-glanded holes, ever. |
+| **M12 breather vent** | Passes vapour and equalises pressure, blocks liquid. This is what stops condensation accumulating. |
+| **This tray** | Assumes water gets in: stands on 9 mm feet so liquid pools on the enclosure floor *below* the boards; drains its own surface through perimeter and corner slots; carries boards on 12 mm standoffs; cable tie-down slots take strain before it reaches a gland or connector. |
+
+Two installation rules:
+
+- **Mount the enclosure with the glands facing DOWN**, and leave a drip loop in
+  every cable below its gland. A gland on a top face is an invitation.
+- **Vent on the bottom or a side face** — never the top, never where the deck
+  discharge can spray it.
+
+Heat is the other half of the problem. A sealed box holding a Pi 5 and a Hailo
+accelerator runs hot with no airflow. Mount out of direct sun, and check the
+Pi's thermal throttling on the first hot-weather run before trusting it to a
+long mow.
 
 ## Material and print settings
 

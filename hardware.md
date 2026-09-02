@@ -102,9 +102,46 @@ U-bolts also absorb the fact that Toro does not publish the lap-bar tube OD.
 |---|---|---|---|
 | 1 | E-stop mushroom button, 1NC/1NO, 2-pack | $11 | [B07R9QTBG7](https://www.amazon.com/mxuteuk-Mushroom-Emergency-Warranty-HB2-ES545/dp/B07R9QTBG7/) |
 | 1 | IP65 enclosure, 220×170×110 mm | $19 | [B08KWFYQQR](https://www.amazon.com/Zulkit-Dustproof-Waterproof-Electrical-220x170x110/dp/B08KWFYQQR/) |
+| 1 | **IP68 cable glands, PG9 10-pack** (4–8 mm cable) — every cable entry | $8 | [B0FC2XJ4CW](https://www.amazon.com/Anyinn-PG9-Waterproof-Connectors-Locknut/dp/B0FC2XJ4CW/) |
+| 1 | **IP68 breather vent, M12×1.5, 2-pack** — pressure equalisation | $6 | [B0F4NM8NT5](https://www.amazon.com/2-Pack-IP68-Industrial-Breather-Vent/dp/B0F4NM8NT5/) |
 | — | **Bus-fault watchdog** — 555 + relay + passives. No suitable off-the-shelf module found; Amazon "watchdog" results are cycle timers, which are the wrong part | ~$10 | electronics supplier |
 
-**≈ $240 total** for the conversion hardware.
+**≈ $254 total** for the conversion hardware.
+
+### Weatherproofing — the part that actually matters
+
+An IP65 box alone does not keep electronics dry on a petrol machine. Outdoor
+enclosures rarely fail by bulk ingress through the gasket; they fail two other
+ways, and neither is fixed by a better seal:
+
+1. **Water tracking in along a cable.** Every wire entering the box is a leak
+   path unless it goes through a gland. Hence the PG9 glands — one per entry,
+   no exceptions, and no drilling a hole and stuffing wire through it.
+2. **Condensation.** A sealed box heated by the engine and afternoon sun, then
+   cooled overnight, pumps moist air in and out and condenses it on the
+   coldest surface inside. A *perfectly* sealed box is actually worse, because
+   the water that forms has no way to leave. Hence the breather vent — it
+   passes water vapour and equalises pressure while blocking liquid.
+
+Two rules when you mount it:
+
+- **Glands face DOWN.** Mount the enclosure so every cable entry is on the
+  bottom face, and leave a drip loop in each cable below its gland so water
+  runs off the low point instead of tracking up into the fitting.
+- **Vent on the bottom or a side face**, never the top, and never where it can
+  be sprayed directly by the deck discharge.
+
+The printed tray (`hardware/mounts/electronics_tray.scad`) assumes water gets
+in eventually: it stands on feet so anything liquid pools on the enclosure
+floor *below* the boards, drains its own surface through perimeter and corner
+slots, carries the boards on 12 mm standoffs clear of the floor, and has
+cable tie-down slots so cable movement never works a gland seal or a connector
+loose.
+
+Heat is the other half. A sealed box holding a Pi 5 and a Hailo accelerator
+will run hot with no airflow — mount the enclosure out of direct sun, in
+whatever airflow the machine has, and check the Pi's thermal throttling in the
+first hot-weather run before trusting it to a long mow.
 
 ### Wiring rules
 
