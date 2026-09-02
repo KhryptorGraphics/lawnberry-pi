@@ -34,151 +34,195 @@ Cheapest current options (all V3/V4, SX1262):
 
 ---
 
-## 2. Zero-turn conversion BOM
+## 2. Zero-turn conversion BOM — all Amazon, cheapest sourcing
 
-> **Supersedes the Craftsman/Ackermann parts list.** The platform is now a
-> **50" Toro TimeCutter gas-engine zero-turn** with twin-lever hydrostatic
-> drive — see `docs/tractor-platform.md`. The old list called for five RC-PWM
-> channels (steering, throttle, gas pedal, clutch, gear); the zero-turn needs
-> **three** (left lever, right lever, throttle) plus two relays.
+> **Supersedes the Craftsman/Ackermann parts list.** The platform is a **50"
+> Toro TimeCutter gas-engine zero-turn** with twin-lever hydrostatic drive —
+> see `docs/tractor-platform.md`. The old list called for five RC-PWM channels
+> (steering, throttle, gas pedal, clutch, gear); the zero-turn needs **three**
+> (left lever, right lever, throttle) plus two relays.
 
-The mower's engine and hydrostatic transaxles stay **stock**. Three servos
-physically actuate the existing operator controls. There are **no drive motors
-and no motor-driver/H-bridge stage** — these servos accept RC PWM (0.5–2.5 ms)
-directly, so the PCA9685 *is* the layer between the Pi and the actuators.
+The mower's engine and hydrostatic transaxles stay **stock**. Servos actuate
+the existing operator controls. There are **no drive motors and no
+motor-driver/H-bridge stage** — these servos take RC PWM (0.5–2.5 ms) directly,
+so the PCA9685 *is* the layer between the Pi and the actuators.
+
+Every line below is an Amazon link with a price. Nothing is left as "hardware
+store" or "electronics supplier".
 
 ### Actuation
 
 | Qty | Part | Price | Link |
 |---|---|---|---|
-| 3 | **DSSERVO RDS51150SG** 150 kg 12 V servo — left lever, right lever, throttle. 165 kg·cm @ 12 V, 0.21 s/60°, mounting brackets included | $36 ea | [B0C69W2QP7](https://www.amazon.com/ANNIMOS-Voltage-Digital-Steering-Brackets/dp/B0C69W2QP7/) |
-| 1 | **Adafruit PCA9685** 16-ch PWM driver — I²C at 0x41 (0x40 collides with the INA3221) | $14.95 | [adafruit.com/product/815](https://www.adafruit.com/product/815) |
+| 2 | **DSSERVO RDS51150SG** 150 kg 12 V servo — left + right drive levers. 165 kg·cm @ 12 V, 0.21 s/60°, brackets included | $36 ea = **$72** | [B0C69W2QP7](https://www.amazon.com/ANNIMOS-Voltage-Digital-Steering-Brackets/dp/B0C69W2QP7/) |
+| 1 | **PCA9685** 16-ch PWM driver, generic | $5 | [B07RMTN4NZ](https://www.amazon.com/Dorhea-PCA9685-Interface-Controller-Raspberry/dp/B07RMTN4NZ/) |
+| *(1)* | *Third servo for throttle — **optional**, see below* | *+$36* | *same as above* |
 
-Servo *speed* is why this part was chosen over the Wingxine ASMC-04B.
-Constitution Principle VI requires positional actuators to *physically reach*
-their safe position within 500 ms of an E-stop. At 0.21 s/60° that budget buys
-~140° of rotation at 12 V; the ASMC-04B's 1.0 s/60° at 12 V buys only ~30°, and
-would need a 24 V boost converter to comply.
+**Skip the throttle servo to save $36.** A ZTR throttle is set-and-forget: you
+push it to FAST before mowing and leave it. The software holds it at a fixed
+value anyway (`tractor_engine_throttle`, default 0.75) rather than modulating
+it. Set it by hand, leave PCA9685 channel 1 unused, and nothing else changes.
+Add it later if you want remote throttle.
+
+Servo *speed* is why this part beats the Wingxine ASMC-04B. Constitution
+Principle VI requires positional actuators to *physically reach* their safe
+position within 500 ms of an E-stop. At 0.21 s/60° that budget buys ~140° of
+rotation at 12 V; the ASMC-04B's 1.0 s/60° buys only ~30°, and would need a
+24 V boost converter to comply.
 
 ### Power
 
 | Qty | Part | Price | Link |
 |---|---|---|---|
-| 1 | **Pololu D24V50F5** 5 V/5 A regulator — Pi 5 supply. Bare 5 V output, which sidesteps the Pi 5 USB-C power-negotiation quirk | $32.95 | [pololu.com/product/2851](https://www.pololu.com/product/2851) |
-| 1 | Inline fuse holders + assorted fuses, 12 AWG | $6 | [B0FDJYRGB7](https://www.amazon.com/Cooclensportey-Inline-Holder-Waterproof-Standard/dp/B0FDJYRGB7/) |
-| — | 12–14 AWG wire, ring lugs, heat shrink | ~$15 | local |
+| 1 | **DROK buck converter** 9–36 V → 5.2 V, 3.5–6 A — Pi 5 supply | $8 | [B01NALDSJ0](https://www.amazon.com/Converter-DROK-Regulator-Inverter-Transformer/dp/B01NALDSJ0/) |
+| 1 | Inline fuse holders + assorted fuses, 12 AWG, 4-pack | $6 | [B0FDJYRGB7](https://www.amazon.com/Cooclensportey-Inline-Holder-Waterproof-Standard/dp/B0FDJYRGB7/) |
+| 1 | 14 AWG primary wire, red + black, 50 ft total | $8 | [B07D74Z4R1](https://www.amazon.com/American-Gauge-Copper-Wire/dp/B07D74Z4R1/) |
+
+⚠️ **This is the one line where cheapest carries real risk.** The Pololu
+D24V50F5 ($32.95, pololu.com) has published dropout and thermal curves; the
+DROK is a generic module whose 6 A claim is a marketing number. A Pi that
+browns out mid-mow is a safety event on a 644 lb machine, not an
+inconvenience. If you buy the DROK, **load-test it before trusting it**: run
+the Pi + Hailo at full tilt and confirm 5 V holds and the module isn't
+scorching. If it sags, spend the extra $25.
 
 ### Engine & implement
 
 | Qty | Part | Price | Link |
 |---|---|---|---|
-| 1 | Opto-isolated 30 A relay module — GPIO interface stage | $9 | [B0CHFJSNP6](https://www.amazon.com/HiLetgo-Channel-Optocoupler-Isolation-Trigger/dp/B0CHFJSNP6/) |
-| 1 | Bosch-style 40 A relay + sealed harness, 2-pack — load stage (starter, blade PTO) | $8 | [B093GMF6M1](https://www.amazon.com/Hamolar-Pack-Relay-SPDT-Harness/dp/B093GMF6M1/) |
+| 1 | Opto-isolated 30 A relay module, 2-pack — GPIO interface stage | $9 | [B0CHFJSNP6](https://www.amazon.com/HiLetgo-Channel-Optocoupler-Isolation-Trigger/dp/B0CHFJSNP6/) |
+| 1 | Bosch-style 40 A relay + sealed harness, 2-pack — load stage | $8 | [B093GMF6M1](https://www.amazon.com/Hamolar-Pack-Relay-SPDT-Harness/dp/B093GMF6M1/) |
 
-A Pi GPIO cannot drive a 40 A automotive relay coil directly. The chain is
-GPIO → opto module → Bosch relay coil → load.
+A Pi GPIO cannot drive a 40 A automotive relay coil. The chain is
+GPIO → opto module → Bosch relay coil → starter / blade PTO.
 
-### Linkage — buy it, don't print it
-
-| Qty | Part | Link |
-|---|---|---|
-| 4 | M6 rod ends / heim joints — 2 male, 2 female | [SA6TK male](https://www.amazon.com/uxcell-Bearing-M6x1-0-Joint-Thread/dp/B07WM39B6R) · [PHS6 female](https://www.amazon.com/uxcell-Bearing-Joint-Female-Thread/dp/B0BDG6S9YP) |
-| — | M6 threaded rod, clevis pins + R-clips | local |
-| 2 | **Square U-bolts** for the 3" × 1.5" frame rail, 5/16" leg — servo mount + e-stop bracket | hardware store |
-| 2 | **Round U-bolts** for the lap-bar tube, 1/4" leg — size to your measured OD | hardware store |
-
-Ball joints at both rod ends are not optional — they give the angular freedom
-the lever needs, and the clevis pin lets you unpin the linkage in seconds to
-restore full manual PARK travel.
-
-U-bolts do all the clamping. Every mount is a saddle: the printed part locates
-and spreads load, steel takes the tension. A printed clamp ear carrying bolt
-preload on a vibrating petrol machine is the weakest possible arrangement, and
-U-bolts also absorb the fact that Toro does not publish the lap-bar tube OD.
-
-### Safety & enclosure
+### Linkage and mounting
 
 | Qty | Part | Price | Link |
 |---|---|---|---|
-| 1 | E-stop mushroom button, 1NC/1NO, 2-pack | $11 | [B07R9QTBG7](https://www.amazon.com/mxuteuk-Mushroom-Emergency-Warranty-HB2-ES545/dp/B07R9QTBG7/) |
-| — | **Enclosure — printed**, `hardware/mounts/enclosure_body.scad` + `enclosure_lid.scad`. Nothing to buy | — | see `hardware/mounts/README.md` |
-| 1 | **3 mm silicone O-ring cord**, ~1.2 m — the enclosure gasket. Cord stock, cut and butt-joined in the groove | ~$9 | hardware/industrial supplier |
-| 12 | M4×16 screws + M4 heat-set inserts — lid fixing | ~$12 | hardware store |
-| 1 | **IP68 cable glands, PG9 10-pack** (4–8 mm cable) — every cable entry | $8 | [B0FC2XJ4CW](https://www.amazon.com/Anyinn-PG9-Waterproof-Connectors-Locknut/dp/B0FC2XJ4CW/) |
-| 1 | **IP68 breather vent, M12×1.5, 2-pack** — pressure equalisation | $6 | [B0F4NM8NT5](https://www.amazon.com/2-Pack-IP68-Industrial-Breather-Vent/dp/B0F4NM8NT5/) |
-| — | **Bus-fault watchdog** — 555 + relay + passives. No suitable off-the-shelf module found; Amazon "watchdog" results are cycle timers, which are the wrong part | ~$10 | electronics supplier |
+| 1 | **M6 rod ends**, 4 pcs with jam nuts — ball joints for both pushrod ends | $9 | [B0C7N2N5MN](https://www.amazon.com/uxcell-Female-Bearing-Thread-Self-Lubricating/dp/B0C7N2N5MN/) |
+| 1 | **M6 threaded rod**, 300 mm, 2 pcs — cut to length for the pushrods | $7 | [B0CW6769K7](https://www.amazon.com/M6-1-0-300mm-Threaded-Threads-Stainless/dp/B0CW6769K7/) |
+| 1 | **Square U-bolts M8**, 40 mm (1.5") wide, 4 sets — servo mounts + e-stop bracket onto the 3"×1.5" frame rail | $11 | [B0DT98CFW8](https://www.amazon.com/Square-Length-Plated-Carbon-Washers/dp/B0DT98CFW8/) |
+| 1 | **Round U-bolts**, 1/4" × 1" wide, 8 sets — lap-bar saddles | $9 | [B0G4LXR4KD](https://www.amazon.com/SVLING-u-Bolts-Stainless-Washers-Trailer/dp/B0G4LXR4KD/) |
 
-**≈ $256 total** for the conversion hardware (enclosure now printed, not bought).
+Ball joints at **both** rod ends are not optional — they give the angular
+freedom the lever needs, and a clevis pin at the lever end lets you unpin the
+linkage in seconds to restore full manual PARK travel.
 
-### Weatherproofing — the part that actually matters
+U-bolts do all the clamping. Every printed mount is a saddle: the plastic
+locates and spreads load, steel takes the tension. Square U-bolts wrap the
+rail's 1.5" dimension (the saddle sits on the 3" face); round ones pull the lap
+bar into the printed V-groove.
+
+### Safety
+
+| Qty | Part | Price | Link |
+|---|---|---|---|
+| 1 | E-stop mushroom button 1NC/1NO, 2-pack | $11 | [B07R9QTBG7](https://www.amazon.com/mxuteuk-Mushroom-Emergency-Warranty-HB2-ES545/dp/B07R9QTBG7/) |
+| 1 | **NE555 timer**, 10-pack — bus-fault watchdog | $6 | [B00K243MIQ](https://www.amazon.com/Texas-Instruments-NE555P-Single-Precision/dp/B00K243MIQ/) |
+| 1 | IP68 cable glands PG9, 10-pack (4–8 mm cable) | $8 | [B0FC2XJ4CW](https://www.amazon.com/Anyinn-PG9-Waterproof-Connectors-Locknut/dp/B0FC2XJ4CW/) |
+| 1 | IP68 breather vent M12×1.5, 2-pack | $6 | [B0F4NM8NT5](https://www.amazon.com/2-Pack-IP68-Industrial-Breather-Vent/dp/B0F4NM8NT5/) |
+
+The watchdog is a retriggerable monostable: the Pi emits a continuous pulse
+train, and if the pulses stop — hang, crash, power loss, dead I²C — the timer
+expires and drops a relay carrying servo power. The servos go limp and the lap
+bars' own return springs pull the levers to neutral. That spring return is
+manufacturer-documented (see `docs/tractor-platform.md`), which is what makes
+this failsafe viable. Use a spare channel on the relay module above; the
+555 plus a few passives is the only part you assemble yourself.
+
+### Enclosure — printed, not bought
+
+| Qty | Part | Price | Link |
+|---|---|---|---|
+| — | `hardware/mounts/enclosure_body.scad` + `enclosure_lid.scad` + `electronics_tray.scad` | — | print them |
+| 1 | **3 mm silicone O-ring cord**, 10 ft — the gasket (needs ~1.2 m) | $17 | [B096N67R2D](https://www.amazon.com/118-Silicone-Durometer-Ring-Stock/dp/B096N67R2D/) |
+| 1 | **M4 heat-set inserts + screws**, 261 pcs with insert tips | $13 | [B0G8X7GGBJ](https://www.amazon.com/Ktehloy-261Pcs-M4-Threaded-Inserts/dp/B0G8X7GGBJ/) |
+
+---
+
+## Totals
+
+| Build | Cost |
+|---|---|
+| **Two servos** (manual throttle) | **$213** |
+| Three servos (remote throttle) | **$249** |
+
+Already owned, nothing to buy: Raspberry Pi 5, Hailo-8L, ZED-F9P RTK GPS,
+BNO085 IMU, camera, ToF sensors, INA3221.
+
+### Where the savings came from
+
+| Change | Saved |
+|---|---|
+| Generic PCA9685 instead of Adafruit | $10 |
+| DROK buck instead of Pololu D24V50F5 (**read the warning above**) | $25 |
+| Printed enclosure instead of the Zulkit IP65 box | $19 |
+| Throttle servo dropped (optional) | $36 |
+
+Everything previously listed as "hardware store", "local" or "electronics
+supplier" — U-bolts, rod ends, threaded rod, wire, silicone cord, inserts,
+the 555 — is now a priced Amazon line. The list is complete as written.
+
+### What I would not cheap out on
+
+The buck converter, for the reason above. Everything else on this list is a
+commodity where the generic and the name-brand do the same job; a power supply
+feeding the compute that steers a 644 lb machine is not.
+
+---
+
+## Weatherproofing
 
 The enclosure is **printed** (`hardware/mounts/enclosure_body.scad` +
-`enclosure_lid.scad`), not bought. A printed box can be made to seal well, but
-only because it does not rely on the plastic to seal: a 3 mm silicone O-ring
-cord sits in a groove in the body's flange and the lid compresses it, with the
-lid screws outboard of the groove so tightening squeezes the cord rather than
-bowing the lid off it.
+`enclosure_lid.scad`). A printed box seals fine, but only because it does not
+rely on the plastic to seal: a 3 mm silicone O-ring cord sits in a groove in
+the body's flange and the lid compresses it, with the lid screws outboard of
+the groove so tightening squeezes the cord rather than bowing the lid off it.
 
 **The walls still have to be watertight.** Printed walls leak along layer lines
-if under-extruded. Print hot and slow enough that layers fuse properly, use 5+
+if under-extruded. Print hot and slow enough that layers fuse, use 5+
 perimeters, and if in doubt wipe the inside with epoxy or acrylic conformal
 coat. A gasket cannot rescue a porous wall.
 
 Beyond the box itself, outdoor enclosures rarely fail by bulk ingress through
-the seal; they fail two other ways, and neither is fixed by a better gasket:
+the seal. They fail two other ways, and neither is fixed by a better gasket:
 
 1. **Water tracking in along a cable.** Every wire entering the box is a leak
    path unless it goes through a gland. Hence the PG9 glands — one per entry,
-   no exceptions, and no drilling a hole and stuffing wire through it.
+   no exceptions.
 2. **Condensation.** A sealed box heated by the engine and afternoon sun, then
-   cooled overnight, pumps moist air in and out and condenses it on the
-   coldest surface inside. A *perfectly* sealed box is actually worse, because
-   the water that forms has no way to leave. Hence the breather vent — it
-   passes water vapour and equalises pressure while blocking liquid.
+   cooled overnight, pumps moist air in and out and condenses it on the coldest
+   surface inside. A *perfectly* sealed box is worse, because the water that
+   forms has no way to leave. Hence the breather vent.
 
 Two rules when you mount it:
 
-- **Glands face DOWN.** Mount the enclosure so every cable entry is on the
-  bottom face, and leave a drip loop in each cable below its gland so water
-  runs off the low point instead of tracking up into the fitting.
-- **Vent on the bottom or a side face**, never the top, and never where it can
-  be sprayed directly by the deck discharge.
+- **Glands face DOWN.** Every cable entry on the bottom face, with a drip loop
+  below each gland so water runs off the low point instead of tracking up.
+- **Vent on the bottom or a side face**, never the top, and never where the
+  deck discharge can spray it.
 
-The printed tray (`hardware/mounts/electronics_tray.scad`) assumes water gets
-in eventually: it stands on feet so anything liquid pools on the enclosure
-floor *below* the boards, drains its own surface through perimeter and corner
-slots, carries the boards on 12 mm standoffs clear of the floor, and has
-cable tie-down slots so cable movement never works a gland seal or a connector
-loose.
+The printed tray assumes water gets in eventually: it stands on feet so liquid
+pools on the enclosure floor *below* the boards, drains its own surface through
+perimeter and corner slots, carries boards on 12 mm standoffs, and has cable
+tie-down slots so cable movement never works a gland seal or connector loose.
 
-Heat is the other half. A sealed box holding a Pi 5 and a Hailo accelerator
-will run hot with no airflow — mount the enclosure out of direct sun, in
-whatever airflow the machine has, and check the Pi's thermal throttling in the
-first hot-weather run before trusting it to a long mow.
+Heat is the other half. A sealed box holding a Pi 5 and a Hailo runs hot with
+no airflow — mount out of direct sun and check thermal throttling on the first
+hot-weather run before trusting it to a long mow.
 
-### Wiring rules
+## Mounts
 
-- **Never run servo power through the PCA9685's `V+` terminal.** These servos
-  stall at 8 A each; that board's trace and terminal block will not carry 16 A.
-  Battery → 12–14 AWG → servos direct, on a 20 A fuse. Signal wire only to the
-  PCA9685 header, common ground.
-- Three separately fused taps off the 12 V battery: Pi regulator, servo rail,
-  relay module.
-
-### Mounts
-
-Parametric OpenSCAD sources, rendered STLs and preview images live in
+Parametric OpenSCAD sources, STLs and preview renders are in
 `hardware/mounts/`. The **frame rail dimension is researched and real**
 (3" × 1.5" × 0.120" wall, Toro's published carrier-frame spec). The **lap-bar
-tube OD is not published by Toro anywhere** — so the lap-bar saddle uses a
-self-centring 90° V-groove that seats 12.8–34 mm (0.50"–1.34") instead of a
+tube OD is not published by Toro anywhere**, so the lap-bar saddle uses a
+self-centring 90° V-groove seating 12.8–34 mm (0.50"–1.34") instead of a
 guessed radius. Only the linkage standoff geometry needs measuring. Print the
-saddles in PETG or ASA; buy the U-bolts and linkage.
+saddles in PETG or ASA.
 
 ---
-### Sources (live Amazon via the `amazon` MCP scraper)
-- LoRa: [AITRIP V3 2-pack](https://www.amazon.com/AITRIP-Development-Dual-core-Protective-Compatible/dp/B0CWNCKXSL) ·
-  [V3 + antenna](https://www.amazon.com/Display-ESP-32S-Bluetooth-Development-Transceiver/dp/B07HD1CRPD) ·
-  [Heltec V4](https://www.amazon.com/Heltec-Development-Display-Meshtastic-Communication/dp/B0FS1R4HXH) ·
-  [Heltec V3 902–928](https://www.amazon.com/Heltec-Development-863-870MHz-ESP32-S3FN8-902-928MHz/dp/B0D1H1FN9Y)
-- Prices and stock change; re-check before ordering.
+### Sources
+All parts above are live Amazon listings scraped via the `amazon` MCP tool.
+Prices and stock change — re-check before ordering.
