@@ -3,12 +3,15 @@
 // Seats on the motion-control (lap bar) tube, held by two U-bolts, and gives
 // the pushrod a single ball-joint anchor. Print TWO.
 //
-// WHY A U-BOLT SADDLE AND NOT A SPLIT CLAMP
-// Toro does not publish the lap-bar tube OD, and universal ZTR accessory
-// brackets advertise a 0.8"-2" fit range, so a fixed-diameter printed clamp
-// would be a guess with no tolerance. A U-bolt saddle takes whatever the tube
-// actually measures (set lapbar_tube_od in common.scad), and puts the clamping
-// preload through steel instead of printed ears.
+// WHY A V-GROOVE U-BOLT SADDLE AND NOT A MATCHED SPLIT CLAMP
+// Toro does not publish the lap-bar tube OD. It is absent from the operator's
+// manual, the setup instructions, the service manual, the product page, the
+// parts catalogues and every grip/accessory listing checked; aftermarket ZTR
+// brackets only ever quote a broad 0.8"-2" fit range. So this part does not
+// depend on knowing it: a 90-degree V-groove seats any tube in v_range()
+// concentrically and self-centres it, and the U-bolt pulls it into the V. No
+// measurement required, and clamping preload goes through steel rather than
+// printed ears.
 //
 // CRITICAL GEOMETRY CONSTRAINT
 // Per the Toro operator's manual (form 3465-589) the levers move on TWO axes:
@@ -26,10 +29,11 @@
 include <common.scad>
 
 saddle_l      = 78;    // along the lap-bar tube
-// Computed so the U-bolt legs keep `wall` of material outboard of them --
-// see saddle_width() in common.scad. Do not hardcode this.
-saddle_w      = saddle_width(lapbar_tube_od, ubolt_leg_lapbar);
-body_t        = 20;    // saddle body height before the seat is cut
+v_depth       = 17;    // V-groove depth -> seats tubes ~12.8-34 mm (0.5"-1.34")
+body_t        = 30;    // saddle body height before the V is cut
+// Computed so the U-bolt legs keep `wall` of material outboard of them, sized
+// off the widest tube the V accepts -- see saddle_width() in common.scad.
+saddle_w      = saddle_width(v_range(v_depth)[1], ubolt_leg_lapbar);
 ubolt_span    = 52;    // between U-bolt centres
 // Must clear the saddle body, which is itself computed -- an offset smaller
 // than saddle_w/2 buries the eye inside the block instead of standing it off.
@@ -65,20 +69,13 @@ module lapbar_pushrod_clamp() {
             // Arm out to the ball-joint eye, inboard and clear of the swing
             translate([0, 0, anchor_thk / 2]) anchor_arm();
         }
-        // Tube seat along the saddle's long axis
-        translate([0, 0, body_t])
-            rotate([0, 0, 0])
-                rotate([0, 90, 0])
-                    cylinder(h = saddle_l + 2, d = lapbar_tube_od + clearance * 2,
-                             center = true);
-        // Clear everything above the tube centreline so the saddle is a cradle
-        translate([0, 0, body_t + (lapbar_tube_od + 20) / 2])
-            cube([saddle_l + 2, saddle_w + 2, lapbar_tube_od + 20],
-                 center = true);
-        // U-bolt legs, straddling the tube
+        // V-groove seat, self-centring on any tube in v_range(v_depth)
+        v_seat(saddle_l + 2, v_depth, body_t);
+        // U-bolt legs, straddling the V
         for (x = [-1, 1], y = [-1, 1])
             translate([x * ubolt_span / 2,
-                       y * ubolt_leg_offset(lapbar_tube_od, ubolt_leg_lapbar),
+                       y * ubolt_leg_offset(v_range(v_depth)[1],
+                                            ubolt_leg_lapbar),
                        -1])
                 cylinder(h = body_t + 2, d = ubolt_leg_lapbar);
     }

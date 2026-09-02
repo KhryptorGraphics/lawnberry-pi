@@ -119,9 +119,11 @@ U-bolts also absorb the fact that Toro does not publish the lap-bar tube OD.
 
 Parametric OpenSCAD sources, rendered STLs and preview images live in
 `hardware/mounts/`. The **frame rail dimension is researched and real**
-(3" × 1.5" × 0.120" wall, Toro's published carrier-frame spec); the **lap-bar
-tube OD is not published by Toro** and must be measured — edit `common.scad`
-and re-render. Print the saddles in PETG or ASA; buy the U-bolts and linkage.
+(3" × 1.5" × 0.120" wall, Toro's published carrier-frame spec). The **lap-bar
+tube OD is not published by Toro anywhere** — so the lap-bar saddle uses a
+self-centring 90° V-groove that seats 12.8–34 mm (0.50"–1.34") instead of a
+guessed radius. Only the linkage standoff geometry needs measuring. Print the
+saddles in PETG or ASA; buy the U-bolts and linkage.
 
 ---
 ### Sources (live Amazon via the `amazon` MCP scraper)

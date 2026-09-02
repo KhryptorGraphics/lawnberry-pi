@@ -8,11 +8,27 @@ the LawnBerry Pi drive-by-wire hardware to a 50" Toro TimeCutter zero-turn.
 | Dimension | Status |
 |---|---|
 | Frame rail: **3" × 1.5" × 0.120" wall rectangular steel** | **Published by Toro** for the TimeCutter carrier frame. Used directly. |
-| Lap-bar tube OD | **Not published.** Default 25.4 mm (1") is a common ZTR size; universal ZTR brackets advertise a 0.8"–2" fit range. **Measure yours.** |
+| Lap-bar tube OD | **Not published, and no longer needed.** The saddle uses a self-centring V-groove that seats **12.8–34 mm (0.50"–1.34")**. |
 | Servo body 65 × 30 × 48 mm | Manufacturer spec (DSSERVO RDS51150SG). |
 | Servo U-bracket hole spacing | Approximate — mounting holes are slotted to absorb error. |
 
 Everything machine-facing lives in `common.scad`. Edit it, re-render.
+
+### On the lap-bar diameter
+
+Toro does not publish it. It is absent from the operator's manual (form
+3465-589), the setup instructions (form 3363-807), the TimeCutter Z service
+manual, the product page, the parts catalogues, and every grip and accessory
+listing checked — aftermarket ZTR brackets only ever quote a broad 0.8"–2"
+range. The setup instructions do establish that the lever is a tube pinned to
+a "control arm shaft" with two 3/8" bolts, which implies roughly 1" or larger,
+but that is an inference, not a specification.
+
+Rather than ship a guessed radius, the saddle uses a **90° V-groove**. Any tube
+in range seats concentrically and self-centres; the U-bolt pulls it into the V.
+No measurement, no reprint. The tube centre sits 0.707 × D above the V apex, so
+its height varies slightly with diameter — irrelevant for a ball-jointed link
+with an adjustable rod length.
 
 ## Why U-bolts instead of printed split clamps
 
@@ -77,7 +93,9 @@ the manifold check and were only visible in a render.
 ## Hardware you need beyond the prints
 
 - **U-bolts, 4 total**: 2 square/rectangular for the 3" × 1.5" frame rail
-  (5/16" leg), 2 round for the lap bar (1/4" leg, sized to your measured tube).
+  (5/16" leg), 2 round for the lap bar (1/4" leg — buy to suit the tube once
+  you can see it; the V-groove handles the diameter, the U-bolt just needs to
+  reach around).
 - **M6 rod ends** — 2 male, 2 female — plus M6 threaded rod and clevis pins
   with R-clips. Ball joints at *both* rod ends are not optional: they give the
   angular freedom the lever needs, and the clevis pin lets you unpin in seconds
@@ -99,6 +117,15 @@ machine, outdoors.
 If a saddle shows any sign of creep, have it cut from aluminium. Printed
 plastic is fine for locating a servo; it is not fine as the only thing between
 a 644 lb machine and an uncommanded lever movement.
+
+## What still needs measuring
+
+Only the servo standoff/linkage geometry — `standoff` in
+`servo_frame_mount.scad` and `anchor_reach` in `lapbar_pushrod_clamp.scad` —
+which set how far the servo sits off the rail and where the rod anchors. Work
+these out with the lever in neutral and check the full fore/aft sweep, and the
+outboard PARK swing, before committing. The frame rail is a known dimension and
+the lap-bar diameter is handled by the V-groove, so nothing else is a guess.
 
 ## Remaining bench check
 

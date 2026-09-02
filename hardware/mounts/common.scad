@@ -106,12 +106,28 @@ module frame_ubolt_slots(t, span, leg = ubolt_leg_frame) {
             cylinder(h = t + 2, d = leg);
 }
 
-// Curved seat matching a round tube, for the lap-bar saddle.
-module tube_seat(od, len, depth_frac = 0.5) {
-    r = od / 2 + clearance;
-    intersection() {
-        rotate([0, 90, 0]) cylinder(h = len, r = r, center = true);
-        translate([0, 0, -r * (1 - depth_frac) - r])
-            cube([len + 2, od + 4, r * 2], center = true);
-    }
+// 90-degree V-groove seat for a round tube, apex down, opening +Z, tube axis
+// along X. Subtract from a saddle body whose top face is at z = top.
+//
+// WHY A V AND NOT A MATCHED RADIUS
+// Toro does not publish the lap-bar tube OD, and it could not be found in the
+// operator's manual, setup instructions, service manual, product page, parts
+// catalogues or grip listings. A V-groove makes that irrelevant: any tube
+// inside v_range() seats concentrically and self-centres, and the U-bolt pulls
+// it down into the V. A matched-radius cradle would have been a guess that
+// fits exactly one diameter.
+//
+// Trade-off worth knowing: the tube centre sits 0.707*D above the apex, so
+// its height above the saddle varies with diameter. That shifts the pushrod
+// eye slightly relative to the tube axis -- harmless for a ball-jointed link,
+// and the rod length is adjustable anyway.
+module v_seat(len, depth, top) {
+    translate([len / 2, 0, 0])
+        rotate([0, -90, 0])
+            linear_extrude(height = len)
+                polygon([[top - depth, 0], [top + 1, -(depth + 1)],
+                         [top + 1,  (depth + 1)]]);
 }
+
+// Tube diameters a V-groove of this depth will seat sensibly.
+function v_range(depth) = [depth * 0.75, depth * 2.0];
