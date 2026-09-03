@@ -9,7 +9,7 @@
 //     lid compresses it. The gasket seals, not the plastic.
 //   * Lid screws sit OUTBOARD of the gasket groove, so tightening squeezes
 //     the cord rather than bowing the lid away from it.
-//   * The flange is wide (12 mm) so the groove has real material either side.
+//   * The flange is wide (10 mm) so the groove has real material either side.
 //     A groove cut into a 3-4 mm wall leaves paper-thin lips that split.
 //   * Cable glands enter through the FLOOR, on thickened bosses. Mounting
 //     ears on the back wall hold the box off its mounting surface so those
@@ -22,13 +22,13 @@
 //   * Walls MUST be watertight: print hot enough and slow enough that layers
 //     fuse. A gasket cannot save a porous wall. Consider a wipe of epoxy or
 //     acrylic conformal coat on the inside if in doubt.
-//   * Footprint is 216 x 166 mm -- needs a 220 x 220 bed or larger.
+//   * Footprint is 201 x 160 mm -- fits a 220 x 220 bed.
 //
 //   openscad -o enclosure_body.stl enclosure_body.scad
 
 include <common.scad>
 
-// Interior sized around electronics_tray.scad (195 x 145) with clearance.
+// Interior sized around electronics_tray.scad (165 x 120) with clearance.
 inner_l      = 173;
 inner_w      = 128;
 inner_h      = 85;
