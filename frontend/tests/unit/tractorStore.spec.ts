@@ -69,7 +69,7 @@ describe('Tractor Store', () => {
   describe('fetchState', () => {
     it('loads state via REST', async () => {
       const { store } = createStoreWithWs()
-      const s = makeState({ steering: 0.5 })
+      const s = makeState({ left_lever: 0.5 })
       vi.mocked(api.getTractorState).mockResolvedValue(s)
 
       await store.fetchState()
