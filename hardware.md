@@ -90,11 +90,15 @@ scorching. If it sags, spend the extra $25.
 
 | Qty | Part | Price | Link |
 |---|---|---|---|
-| 1 | Opto-isolated 30 A relay module, 2-pack — GPIO interface stage | $9 | [B0CHFJSNP6](https://www.amazon.com/HiLetgo-Channel-Optocoupler-Isolation-Trigger/dp/B0CHFJSNP6/) |
-| 1 | Bosch-style 40 A relay + sealed harness, 2-pack — load stage | $8 | [B093GMF6M1](https://www.amazon.com/Hamolar-Pack-Relay-SPDT-Harness/dp/B093GMF6M1/) |
+| 2 | Opto-isolated 30 A relay module, 2-pack — GPIO interface stage (4 channels: starter, blade PTO, watchdog servo-cutoff, 1 spare) | $9 ea = $18 | [B0CHFJSNP6](https://www.amazon.com/HiLetgo-Channel-Optocoupler-Isolation-Trigger/dp/B0CHFJSNP6/) |
+| 2 | Bosch-style 40 A relay + sealed harness, 2-pack — load stage (4 relays: same allocation) | $8 ea = $16 | [B093GMF6M1](https://www.amazon.com/Hamolar-Pack-Relay-SPDT-Harness/dp/B093GMF6M1/) |
 
 A Pi GPIO cannot drive a 40 A automotive relay coil. The chain is
-GPIO → opto module → Bosch relay coil → starter / blade PTO.
+GPIO → opto module → Bosch relay coil → starter / blade PTO. Bumped from one
+2-pack each to two: the bus-fault watchdog below needs its own channel to cut
+servo power, and reusing this exact opto-module → relay pattern for that
+channel — rather than a bespoke transistor-and-flyback-diode driver stage —
+keeps every relay-switched load in the build opto-isolated the same way.
 
 ### Linkage and mounting
 
@@ -119,17 +123,35 @@ bar into the printed V-groove.
 | Qty | Part | Price | Link |
 |---|---|---|---|
 | 1 | E-stop mushroom button 1NC/1NO, 2-pack | $11 | [B07R9QTBG7](https://www.amazon.com/mxuteuk-Mushroom-Emergency-Warranty-HB2-ES545/dp/B07R9QTBG7/) |
-| 1 | **NE555 timer**, 10-pack — bus-fault watchdog | $6 | [B00K243MIQ](https://www.amazon.com/Texas-Instruments-NE555P-Single-Precision/dp/B00K243MIQ/) |
+| 1 | **74HC123 dual retriggerable monostable**, DIP-16, 2-pack — bus-fault watchdog | $6 | [B09KJJRWKC](https://www.amazon.com/74HC123-HD74HC123AP-SN74HC123N-MM74HC123AN-DIP-16/dp/B09KJJRWKC/) |
 | 1 | IP68 cable glands PG9, 10-pack (4–8 mm cable) | $8 | [B0FC2XJ4CW](https://www.amazon.com/Anyinn-PG9-Waterproof-Connectors-Locknut/dp/B0FC2XJ4CW/) |
 | 1 | IP68 breather vent M12×1.5, 2-pack | $6 | [B0F4NM8NT5](https://www.amazon.com/2-Pack-IP68-Industrial-Breather-Vent/dp/B0F4NM8NT5/) |
 
-The watchdog is a retriggerable monostable: the Pi emits a continuous pulse
-train, and if the pulses stop — hang, crash, power loss, dead I²C — the timer
-expires and drops a relay carrying servo power. The servos go limp and the lap
-bars' own return springs pull the levers to neutral. That spring return is
-manufacturer-documented (see `docs/tractor-platform.md`), which is what makes
-this failsafe viable. Use a spare channel on the relay module above; the
-555 plus a few passives is the only part you assemble yourself.
+**Correction from an earlier pass**: this was originally specced as an NE555
+described as "a retriggerable monostable" — that description is wrong. A
+plain 555 does not retrigger cleanly off a repeating pulse train; the
+textbook circuit that does ("missing pulse detector") is a specific,
+fussier wiring of it, not a stock monostable. The 74HC123 genuinely *is* a
+retriggerable monostable — it's the correct part for this job, not a
+workaround. The more purpose-built alternative, a dedicated supervisor IC
+(Analog Devices' MAX6369 family — pin-selectable timeout, built for exactly
+this), was checked and isn't sold on Amazon (eBay/Newark only), so it didn't
+make this list.
+
+**Circuit**: feed the Pi's continuous heartbeat pulse train (any free GPIO,
+software-side this is `backend/src/safety/tractor_safety_monitor.py`'s
+20 Hz tick — see the constitution follow-up in that module) into the
+74HC123's A trigger input with /CLR tied high; each pulse retriggers the RC
+timing network before it can time out. Size R/C for a timeout comfortably
+above the 20 Hz (50 ms) tick but short enough to matter — a 50 kΩ/1 µF pair
+lands near a 200 ms window per the datasheet's `t = 0.45×R×C` — then take
+the output to a spare channel on the opto-relay module above, cutting the
+servo power rail on timeout. Loss of pulses — hang, crash, power loss, dead
+I²C — drops that relay, the servos go limp, and the lap bars' own return
+springs pull the levers to neutral. That spring return is
+manufacturer-documented (see `docs/tractor-platform.md`), which is what
+makes this failsafe viable. The 74HC123 plus the RC pair is the only part
+you assemble yourself.
 
 ### Enclosure — printed, not bought
 
@@ -145,8 +167,8 @@ this failsafe viable. Use a spare channel on the relay module above; the
 
 | Build | Cost |
 |---|---|
-| **Two servos** (manual throttle) | **$213** |
-| Three servos (remote throttle) | **$249** |
+| **Two servos** (manual throttle) | **$230** |
+| Three servos (remote throttle) | **$266** |
 
 Already owned, nothing to buy: Raspberry Pi 5, Hailo-8L, ZED-F9P RTK GPS,
 BNO085 IMU, camera, ToF sensors, INA3221.
@@ -162,7 +184,10 @@ BNO085 IMU, camera, ToF sensors, INA3221.
 
 Everything previously listed as "hardware store", "local" or "electronics
 supplier" — U-bolts, rod ends, threaded rod, wire, silicone cord, inserts,
-the 555 — is now a priced Amazon line. The list is complete as written.
+the watchdog IC — is now a priced Amazon line. The list is complete as
+written. (The relay-module and Bosch-relay lines above grew from one 2-pack
+each to two — $17 net — once the watchdog needed its own cutoff channel;
+that's folded into the totals below, not on top of them.)
 
 ### What I would not cheap out on
 
