@@ -38,9 +38,13 @@ from .middleware.rate_limiting import register_global_rate_limiter
 from .middleware.sanitization import register_sanitization_middleware
 from .middleware.security import register_security_middleware
 from .nav.gps_degradation import GPSDegradationMonitor
+from .safety.estop_handler import EstopHandler
+from .safety.motor_authorization import MotorAuthorization
 from .safety.safety_monitor import get_safety_monitor
 from .safety.safety_triggers import set_safety_event_handler
 from .safety.safety_validator import validate_on_start
+from .safety.tractor_safety_monitor import TractorSafetyMonitor
+from .safety.watchdog import Watchdog
 from .services.camera_stream_service import camera_service
 from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
 from .services.tractor_service import get_tractor_service
@@ -140,6 +144,27 @@ async def lifespan(app: FastAPI):
         tractor = get_tractor_service()
         if tractor.enabled:
             await tractor.initialize()
+            # Constitution Principle VI follow-up (Sync Impact Report, v3.0.0):
+            # IMU tilt-cutoff and a motor-watchdog heartbeat were never wired to
+            # tractor_service.py. Both close here: a dedicated EstopHandler (not
+            # tied to the tractor's own authorize()/revoke(), which is already
+            # live via the API) so a timeout still calls tractor.emergency_stop()
+            # through the watchdog's on_timeout hook, and a 20Hz monitor task
+            # whose own liveness doubles as the heartbeat source.
+            tractor_watchdog = Watchdog(
+                EstopHandler(MotorAuthorization()),
+                timeout_ms=safety_limits.watchdog_timeout_ms,
+                on_timeout=tractor.emergency_stop,
+            )
+            tractor_safety_monitor = TractorSafetyMonitor(
+                tractor,
+                tractor_watchdog,
+                tilt_threshold_degrees=safety_limits.tilt_threshold_degrees,
+            )
+            await tractor_watchdog.start()
+            await tractor_safety_monitor.start()
+            app.state.tractor_watchdog = tractor_watchdog
+            app.state.tractor_safety_monitor = tractor_safety_monitor
     except Exception:
         _log.exception("Tractor service initialization failed")
     # camera-stream.service is the sole camera owner in production (the
@@ -159,6 +184,10 @@ async def lifespan(app: FastAPI):
     set_safety_event_handler(None)
     if getattr(app.state, "gps_deg_monitor", None):
         await app.state.gps_deg_monitor.stop()
+    if getattr(app.state, "tractor_safety_monitor", None):
+        await app.state.tractor_safety_monitor.stop()
+    if getattr(app.state, "tractor_watchdog", None):
+        await app.state.tractor_watchdog.stop()
     await websocket_hub.stop_telemetry_loop()
     if os.getenv("SIM_MODE", "0") == "1":
         try:
