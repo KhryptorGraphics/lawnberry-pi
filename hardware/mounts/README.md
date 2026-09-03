@@ -75,7 +75,7 @@ satisfy an interlock no actuator can reach.
 | `estop_bracket.scad` | 1 | 22 mm mushroom button on the frame rail. |
 | `enclosure_body.scad` | 1 | Printed weatherproof box. Gasket groove, gland bosses, mounting ears. |
 | `enclosure_lid.scad` | 1 | Lid with drip skirt and internal stiffening ribs. |
-| `electronics_tray.scad` | 1 | Pi 5 + PCA9685 + regulator + relay module. Drops into the body. See **Weatherproofing** below. |
+| `electronics_tray.scad` | 1 | Pi 5 + PCA9685 + regulator + relay modules + watchdog board. Drops into the body. See **Board stacking** and **Weatherproofing** below. |
 | `prev_*.png` | — | Rendered previews, for sanity-checking geometry before printing. |
 
 ```bash
@@ -103,6 +103,51 @@ the manifold check and were only visible in a render.
   angular freedom the lever needs, and the clevis pin lets you unpin in seconds
   to restore full manual PARK travel.
 - Use the **metal servo arms supplied with the servo**. Never a printed horn.
+
+## Board stacking
+
+The board set outgrew a single flat bay. Laid side by side, PCA9685 (62.5 mm)
++ two opto relay modules (50 mm each) + the 74HC123 watchdog board (50 mm)
+need **212.5 mm** against a **150 mm** bay — 142% over. The bay is only 30 mm
+tall, so boards must lie long-axis along X, which makes width, not area, the
+constraint that actually binds.
+
+Growing the tray was the wrong answer: it cascades into `enclosure_body.scad`,
+which is already 201 × 160 mm and sized to fit a 220 × 220 bed. So the fix is
+vertical:
+
+- **The two opto relay modules stack directly on each other.** They're
+  identical parts from the same 2-pack, so the hole patterns match — M3
+  standoffs between them, no adapter plate, no printed part. Frees 50 mm.
+- **The 74HC123 watchdog board moves to a second grid bay** in the pocket
+  right of the Pi 5, which was previously unused floor.
+
+Main bay then carries PCA9685 + the relay stack = 112.5 mm against 140 mm.
+
+### Vertical budget — check this before you commit
+
+| | mm |
+|---|---|
+| Interior height | 85 |
+| − tray feet | 9 |
+| − tray floor | 4 |
+| **Available above tray** | **72** |
+| Module 1: standoff 12 + PCB 1.6 + relay can ~18 | 31.6 |
+| Module 2: standoff 25 + PCB 1.6 + relay can ~18 | 44.6 |
+| **Stack total** | **~58** |
+| Lid internal ribs hang down | 7 |
+| **Effective margin** | **~7** |
+
+**Relay can height is the term that bites**, and it's the one number here I
+haven't measured — 18 mm is an estimate for a 30 A can. Measure yours before
+printing anything that depends on it. If the cans are taller than ~22 mm the
+stack stops fitting under the lid ribs, and the fallback is dropping the
+second opto module and driving the watchdog's cutoff relay with a discrete
+transistor and flyback diode instead.
+
+Two grid bays also means the main bay lost its outermost column: holes at
+x = 78 were being drilled through the rim's inner wall (which starts at
+x = 77.5). That was a pre-existing defect, fixed in the same pass.
 
 ## Weatherproofing
 

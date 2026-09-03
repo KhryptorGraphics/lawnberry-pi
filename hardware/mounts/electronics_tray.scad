@@ -1,7 +1,14 @@
-// Electronics tray for the IP65 enclosure (Zulkit 220 x 170 x 110 mm).
+// Electronics tray for the printed enclosure (enclosure_body.scad).
 //
-// Carries the Raspberry Pi 5, Adafruit PCA9685, Pololu D24V50F5 regulator and
-// the opto-isolated relay module.
+// Carries the Raspberry Pi 5, the PCA9685, the 5V regulator, TWO opto-isolated
+// relay modules (stacked -- see BOARD BUDGET below) and the 74HC123 bus-fault
+// watchdog board.
+//
+// Note on the regulator posts: the dedicated 2-hole pattern here is the Pololu
+// D24V50F5's (0.53" x 0.63", published). The cheapest-path BOM in hardware.md
+// specs a generic DROK buck instead, whose pattern is not published -- mount
+// that one on the M3 grid like the other generic boards. The Pololu posts stay
+// because that part is the recommended upgrade, and its pattern is known.
 //
 // WEATHER STRATEGY -- the tray is one part of it, not the whole thing
 //
@@ -37,6 +44,31 @@
 //                         vary by supplier; an invented pattern would fit
 //                         nothing.
 //
+// BOARD BUDGET -- why there are now two grid bays
+// The set outgrew a single bay. Laid flat side by side, PCA9685 (62.5 mm) +
+// two opto relay modules (50 mm each) + the 74HC123 watchdog board (50 mm)
+// need 212.5 mm of width against a 150 mm bay -- 142% over. The bay is only
+// 30 mm tall, so boards must lie long-axis along X and width, not area, is
+// the binding constraint.
+//
+// Resolved by stacking rather than by growing the tray (which would have
+// pushed enclosure_body.scad past the 220 x 220 bed it is sized to fit):
+//   * The two opto relay modules are IDENTICAL parts from the same 2-pack,
+//     so they stack directly board-on-board on M3 standoffs -- same hole
+//     pattern, no adapter, no printed part. That frees 50 mm of bay.
+//   * The 74HC123 board moves to a second bay in the open pocket right of
+//     the Pi 5, which was previously unused floor.
+// Main bay then carries PCA9685 (62.5) + the relay stack (50) = 112.5 mm
+// against 140 mm. Fits with room to spare.
+//
+// VERTICAL BUDGET for that stack (measure your own relay cans before
+// committing -- can height is the term that actually bites):
+//   interior 85 - feet 9 - tray floor 4            = 72 mm above the tray
+//   standoff 12 + PCB 1.6 + relay can ~18          = 31.6 mm (module 1)
+//   standoff 25 + PCB 1.6 + relay can ~18          = 44.6 mm more
+//   total ~58 mm, and the lid's internal ribs hang down 7 mm -> ~65 mm
+//   usable. Roughly 7 mm of margin. It fits, but it is not generous.
+//
 // This is the only part in the set with no structural safety role.
 //
 //   openscad -o electronics_tray.stl electronics_tray.scad
@@ -61,9 +93,19 @@ pololu_pos   = [ 70,  40, 0];
 
 // Generic mounting grid for boards whose patterns are not published.
 grid_pitch   = 10;
-// Kept clear of the feet (which occupy y = +/-43..55) and of the Pi footprint.
-grid_x       = [-72 : grid_pitch : 78];
+// Main bay. Kept clear of the feet (which occupy y = +/-43..55) and of the Pi
+// footprint. Upper X bound is 68, not 78: the rim's inner wall starts at
+// x = 77.5, so a hole at 78 was being drilled through the rim itself.
+grid_x       = [-72 : grid_pitch : 68];
 grid_y       = [-40 : grid_pitch : -10];
+
+// Second bay, in the open pocket right of the Pi 5. Added for the 74HC123
+// bus-fault watchdog board (see hardware.md) once the main bay no longer had
+// the width for it -- see the stacking note in the header. Bounded to stay
+// clear of the Pi (x <= 6.5), the Pololu posts (x >= 63) and the corner drain
+// at (45, 30).
+grid2_x      = [14 : grid_pitch : 54];
+grid2_y      = [2 : grid_pitch : 22];
 
 // Cable entry edge. Ties here take strain before it reaches a gland.
 tie_x        = [-56 : 24 : 56];
@@ -106,8 +148,11 @@ module tray_base() {
                     plate(tray_l - wall * 2, tray_w - wall * 2, rim + 2, r = 8);
             }
         }
-        // Generic M3 mounting grid
+        // Generic M3 mounting grid -- main bay
         for (x = grid_x, y = grid_y)
+            translate([x, y, -1]) cylinder(h = tray_t + 2, d = m3_clear);
+        // Second bay, right of the Pi 5 (74HC123 watchdog board)
+        for (x = grid2_x, y = grid2_y)
             translate([x, y, -1]) cylinder(h = tray_t + 2, d = m3_clear);
         // Perimeter drains -- notches cut fully THROUGH the rim, not blind
         // slots ending inside it. A drain that stops at the rim does not

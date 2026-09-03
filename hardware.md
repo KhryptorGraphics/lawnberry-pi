@@ -160,6 +160,14 @@ you assemble yourself.
 | — | `hardware/mounts/enclosure_body.scad` + `enclosure_lid.scad` + `electronics_tray.scad` | — | print them |
 | 1 | **3 mm silicone O-ring cord**, 10 ft — the gasket (needs ~1.2 m) | $17 | [B096N67R2D](https://www.amazon.com/118-Silicone-Durometer-Ring-Stock/dp/B096N67R2D/) |
 | 1 | **M4 heat-set inserts + screws**, 261 pcs with insert tips | $13 | [B0G8X7GGBJ](https://www.amazon.com/Ktehloy-261Pcs-M4-Threaded-Inserts/dp/B0G8X7GGBJ/) |
+| 1 | **M3 nylon standoff kit**, 260 pcs male/female + screws/nuts — board mounting *and* the relay stack | $6 | [B0BNB1K5P2](https://www.amazon.com/Standoffs-Threaded-Assortment-Motherboard-Circuit/dp/B0BNB1K5P2/) |
+
+The standoff kit was an omission until now: the tray's docstring has always
+said boards sit on 12 mm standoffs, but they were never actually a line item.
+Stacking makes it worse — you need ~12 mm for the lower boards and ~25 mm
+between the two relay modules to clear the first one's relay can. If the
+assortment tops out below 25 mm, thread two female-female standoffs together;
+that is normal practice and what the kit is for.
 
 ---
 
@@ -167,8 +175,8 @@ you assemble yourself.
 
 | Build | Cost |
 |---|---|
-| **Two servos** (manual throttle) | **$230** |
-| Three servos (remote throttle) | **$266** |
+| **Two servos** (manual throttle) | **$236** |
+| Three servos (remote throttle) | **$272** |
 
 Already owned, nothing to buy: Raspberry Pi 5, Hailo-8L, ZED-F9P RTK GPS,
 BNO085 IMU, camera, ToF sensors, INA3221.
