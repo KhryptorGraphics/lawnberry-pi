@@ -191,7 +191,7 @@ python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}');
 **Pi Connection Details**:
 - Host: 192.168.1.64 (update if different)
 - User: kp
-- Password: terramax123 (for initial setup only)
+- Password: ask the operator (never commit credentials; needed for initial key setup only)
 
 **Steps**:
 ```bash
