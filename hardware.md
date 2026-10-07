@@ -104,19 +104,20 @@ keeps every relay-switched load in the build opto-isolated the same way.
 
 | Qty | Part | Price | Link |
 |---|---|---|---|
-| 1 | **M6 rod ends**, 4 pcs with jam nuts — ball joints for both pushrod ends | $9 | [B0C7N2N5MN](https://www.amazon.com/uxcell-Female-Bearing-Thread-Self-Lubricating/dp/B0C7N2N5MN/) |
-| 1 | **M6 threaded rod**, 300 mm, 2 pcs — cut to length for the pushrods | $7 | [B0CW6769K7](https://www.amazon.com/M6-1-0-300mm-Threaded-Threads-Stainless/dp/B0CW6769K7/) |
-| 1 | **Square U-bolts M8**, 40 mm (1.5") wide, 4 sets — servo mounts + e-stop bracket onto the 3"×1.5" frame rail | $11 | [B0DT98CFW8](https://www.amazon.com/Square-Length-Plated-Carbon-Washers/dp/B0DT98CFW8/) |
-| 1 | **Round U-bolts**, 1/4" × 1" wide, 8 sets — lap-bar saddles | $9 | [B0G4LXR4KD](https://www.amazon.com/SVLING-u-Bolts-Stainless-Washers-Trailer/dp/B0G4LXR4KD/) |
+| 8 | **M6 × 35 bolts, washers and steel nuts** — four per solid arm root, inserted from under the free 8 mm layer ears into side-entry nut slots at z=16–22.5; verify washer land and actual nut grip before ordering | Unpriced | Hardware store |
+| 8 | **M6 × 35 bolts + locking nuts** — four per arm joining the flanged/spigoted lower-arm/head lap; check real washer stack, engagement and spigot clearance | Unpriced | Hardware store |
+| 12 + 12 | **12 × M5 × 25 pad bolts/nuts and 12 × M4 × 10–12 short jaw screws/nuts** — two M5 per pad into side-access steel nuts and two M4 per handed half-jaw into top-loaded nuts. Print three left/right pairs; fit from +Y. M4 tips bear outside the tower tube: never drill its USB cable wall. Verify actual bolt lengths at fit-up | Unpriced | Hardware store |
+| 14 + 2 | **14 × M6 × 55 and 2 × M6 × 25 bolts + washers/locking nuts** — per rod, four spigot-splice bolts, two positive-lock bolts and one clamp-yoke pin at 55 mm; one crank pin through the servo's metal arm and rod eye at 25 mm. Verify grip length/engagement at fit-up | Unpriced | Hardware store |
+| 8 | **M5 × 50 bolts, broad washers and locking nuts** — four through-bolts per fully printed lap-bar clamp; starting length for the current 45.8 mm clamp stack, verify with actual washers and nuts | Unpriced | Hardware store |
+| 8 | **M2.5 screws + nuts** — four per RDS51150 stationary-holder pattern on the **lateral** servo face at each arm head; choose length for the actual holder/washer stack | Unpriced | Hardware store |
+| 1 set | **Square U-bolts M8**, nominal 40 mm inside width — the E-stop fixture only; verify rail and ≥102.6 mm free leg reach | Reprice; formerly $11 per 4-pack | [B0DT98CFW8](https://www.amazon.com/Square-Length-Plated-Carbon-Washers/dp/B0DT98CFW8/) |
 
-Ball joints at **both** rod ends are not optional — they give the angular
-freedom the lever needs, and a clevis pin at the lever end lets you unpin the
-linkage in seconds to restore full manual PARK travel.
+Each 940 mm rod is three bolted 40 mm tube pieces plus a sliding 29.1 mm inner bar; two steel M6 bolts
+form its positive length lock. Each rod uses one M6 crank pin through the servo's metal arm and one at
+the clamp's paired yoke/eye joint. Four M5 clamp bolts per steering bar grip a user-measured tube.
 
-U-bolts do all the clamping. Every printed mount is a saddle: the plastic
-locates and spreads load, steel takes the tension. Square U-bolts wrap the
-rail's 1.5" dimension (the saddle sits on the 3" face); round ones pull the lap
-bar into the printed V-groove.
+The original fit-gauge rail envelope **76.2 × 38.1 mm is not confirmed** for this Toro. The E-stop
+U-bolt and bracket are not part of the new servo-arm load path.
 
 ### Safety
 
@@ -147,27 +148,35 @@ above the 20 Hz (50 ms) tick but short enough to matter — a 50 kΩ/1 µF pair
 lands near a 200 ms window per the datasheet's `t = 0.45×R×C` — then take
 the output to a spare channel on the opto-relay module above, cutting the
 servo power rail on timeout. Loss of pulses — hang, crash, power loss, dead
-I²C — drops that relay, the servos go limp, and the lap bars' own return
-springs pull the levers to neutral. That spring return is
-manufacturer-documented (see `docs/tractor-platform.md`), which is what
-makes this failsafe viable. The 74HC123 plus the RC pair is the only part
-you assemble yourself.
+I²C — must remove servo power through the independent hardware path. A geared servo
+is not guaranteed to go limp or let the fitted lap bars return to neutral when unpowered.
+The exact mower and complete fitted linkage must demonstrate neutral return; until then
+this is an **unproven failsafe**, not manufacturer-confirmed system behaviour.
+Preserve OEM interlocks. See `docs/tractor-acceptance-criteria.md` item 10.
 
 ### Enclosure — printed, not bought
 
 | Qty | Part | Price | Link |
 |---|---|---|---|
-| — | `hardware/mounts/enclosure_body.scad` + `enclosure_lid.scad` + `electronics_tray.scad` | — | print them |
-| 1 | **3 mm silicone O-ring cord**, 10 ft — the gasket (needs ~1.2 m) | $17 | [B096N67R2D](https://www.amazon.com/118-Silicone-Durometer-Ring-Stock/dp/B096N67R2D/) |
-| 1 | **M4 heat-set inserts + screws**, 261 pcs with insert tips | $13 | [B0G8X7GGBJ](https://www.amazon.com/Ktehloy-261Pcs-M4-Threaded-Inserts/dp/B0G8X7GGBJ/) |
-| 1 | **M3 nylon standoff kit**, 260 pcs male/female + screws/nuts — board mounting *and* the relay stack | $6 | [B0BNB1K5P2](https://www.amazon.com/Standoffs-Threaded-Assortment-Motherboard-Circuit/dp/B0BNB1K5P2/) |
+| — | Body (integral hitch tongue), **295 × 285 × 8 mm sandwich-layer center panel with two separate arms**, lid, tray, **4 relay sleds + 2 utility sleds**, camera tower (base + N segments + cap + backing template) | — | [Printable inventory and assembly](hardware/mounts/README.md) |
+| 1 | **3 mm silicone O-ring cord**, 10 ft — approximately 634 mm perimeter plus trimming/splice allowance | $17 historical | [B096N67R2D](https://www.amazon.com/118-Silicone-Durometer-Ring-Stock/dp/B096N67R2D/) |
+| 12 each | **M4 screws, ordinary hex nuts and flat washers** — lid; nominal M4 ×12 starting length, verify actual stack | Unpriced | Heat-set inserts are no longer used |
+| 4 sets | M4 tray fasteners + sealing washers/sealant — add the 8 mm sandwich-layer thickness to the measured grip length; seal floor penetrations | Unpriced | Do not reuse short bolts blindly |
+| 1 | OEM-rated bolt/thread for the measured ball-hole stack, including the adapter layer | Unpriced | Hole/thread and engagement unverified; fit `hitch_gauge` first |
+| 0 or 2 | M6 auxiliary through-bolts only if the actual plate has matching holes; otherwise another positively keyed frame restraint must be designed | Unpriced | A single center bolt is not an approved powered-steering torque path |
+| 6 + 2 | M5 wall bolts (6) and longer foot bolts (2) through the tongue + 8 mm layer; measure grip length and nut engagement | Unpriced | Hardware store |
+| 1 strip | ≥2 mm metal, ~110 × 130 mm — backing inside the box wall behind the tower flange, from the printed template | Unpriced | Own source |
+| 4 per joint | M4 × 16 + nuts — tower segment flanges (N+1 joints); plus 2 × M4 × 20 for the camera foot on the cap | Unpriced | Hardware store |
+| 1 | **USB camera** + cable long enough for the tower height plus the run inside the box | Unpriced | The owned CSI Pi camera cannot make this run; a USB camera is required for the tower |
 
-The standoff kit was an omission until now: the tray's docstring has always
-said boards sit on 12 mm standoffs, but they were never actually a line item.
-Stacking makes it worse — you need ~12 mm for the lower boards and ~25 mm
-between the two relay modules to clear the first one's relay can. If the
-assortment tops out below 25 mm, thread two female-female standoffs together;
-that is normal practice and what the kit is for.
+The enclosure reserves **four individual single-channel relay boards**, one per deck at 40 mm pitch.
+Two utility decks sit above the Pi/Hailo reservation. PCB mounting patterns remain unknown: transfer
+them to removable drilling carriers, using insulating spacers. Validate actual board/cable envelopes
+before printing the body. Interior is 169 ×128 ×180 mm; lid footprint 219 ×178 mm. This is not a rated
+enclosure. The center panel matches the box-footprint flange and continues to the hitch tongue; two
+separate arms carry outboard servos. Plate dimensions, anti-rotation, bar OD, and linkage locations
+remain physical measurement/qualification gates. The camera tower routes USB through the enclosure;
+see [§ Camera tower](hardware/mounts/README.md#camera-tower).
 
 ---
 
@@ -177,6 +186,10 @@ that is normal practice and what the kit is for.
 |---|---|
 | **Two servos** (manual throttle) | **$236** |
 | Three servos (remote throttle) | **$272** |
+
+These are **historical electronics totals**, not a complete current build quote. The
+new printed adapter, arms, clamps and rods, their metal fasteners, and any needed
+hitch anti-rotation hardware are unpriced. Do not treat these totals as an order-ready BOM.
 
 Already owned, nothing to buy: Raspberry Pi 5, Hailo-8L, ZED-F9P RTK GPS,
 BNO085 IMU, camera, ToF sensors, INA3221.
@@ -190,12 +203,9 @@ BNO085 IMU, camera, ToF sensors, INA3221.
 | Printed enclosure instead of the Zulkit IP65 box | $19 |
 | Throttle servo dropped (optional) | $36 |
 
-Everything previously listed as "hardware store", "local" or "electronics
-supplier" — U-bolts, rod ends, threaded rod, wire, silicone cord, inserts,
-the watchdog IC — is now a priced Amazon line. The list is complete as
-written. (The relay-module and Bosch-relay lines above grew from one 2-pack
-each to two — $17 net — once the watchdog needed its own cutoff channel;
-that's folded into the totals below, not on top of them.)
+The linked electronics listings remain sourcing references, not a complete purchase order.
+All steering/hitch interfaces still require measurement and qualification; a positive hitch
+torque restraint may require additional metal hardware. Prices/variants must be rechecked.
 
 ### What I would not cheap out on
 
@@ -207,27 +217,17 @@ feeding the compute that steers a 644 lb machine is not.
 
 ## Weatherproofing
 
-The enclosure is **printed** (`hardware/mounts/enclosure_body.scad` +
-`enclosure_lid.scad`). A printed box seals fine, but only because it does not
-rely on the plastic to seal: a 3 mm silicone O-ring cord sits in a groove in
-the body's flange and the lid compresses it, with the lid screws outboard of
-the groove so tightening squeezes the cord rather than bowing the lid off it.
+The printed enclosure has a 3 mm silicone cord in a constant-width 3.8 ×2.4 mm
+groove, with screws/nut pockets outboard of the seal. It is **not IP-rated**.
+Printing quality, cord splice/compression, gland and vent compatibility, and all
+fastener penetrations require unpowered ingress testing. Conformal coating is not
+a substitute for a demonstrated enclosure seal; use a rated commercial enclosure
+where a documented ingress rating is required.
 
-**The walls still have to be watertight.** Printed walls leak along layer lines
-if under-extruded. Print hot and slow enough that layers fuse, use 5+
-perimeters, and if in doubt wipe the inside with epoxy or acrylic conformal
-coat. A gasket cannot rescue a porous wall.
-
-Beyond the box itself, outdoor enclosures rarely fail by bulk ingress through
-the seal. They fail two other ways, and neither is fixed by a better gasket:
-
-1. **Water tracking in along a cable.** Every wire entering the box is a leak
-   path unless it goes through a gland. Hence the PG9 glands — one per entry,
-   no exceptions.
-2. **Condensation.** A sealed box heated by the engine and afternoon sun, then
-   cooled overnight, pumps moist air in and out and condenses it on the coldest
-   surface inside. A *perfectly* sealed box is worse, because the water that
-   forms has no way to leave. Hence the breather vent.
+Water can track along cables or enter through porous layers and fasteners.
+Temperature cycling can produce condensation. Proper glands, downward drip loops
+and a suitable breather help manage these risks; a breather does not guarantee
+dryness or provide sufficient cooling for a Pi/Hailo stack.
 
 Two rules when you mount it:
 
@@ -236,10 +236,10 @@ Two rules when you mount it:
 - **Vent on the bottom or a side face**, never the top, and never where the
   deck discharge can spray it.
 
-The printed tray assumes water gets in eventually: it stands on feet so liquid
-pools on the enclosure floor *below* the boards, drains its own surface through
-perimeter and corner slots, carries boards on 12 mm standoffs, and has cable
-tie-down slots so cable movement never works a gland seal or connector loose.
+The tray sits 10 mm above the floor on body supports, with through-bores and cable
+pass-throughs. The four body/tray fasteners penetrate the floor and need sealing
+washers/sealant. Component boards use insulating spacers on the removable sleds.
+Strain-relieve cables without blocking terminal access, ventilation or drain paths.
 
 Heat is the other half. A sealed box holding a Pi 5 and a Hailo runs hot with
 no airflow — mount out of direct sun and check thermal throttling on the first
@@ -247,15 +247,18 @@ hot-weather run before trusting it to a long mow.
 
 ## Mounts
 
-Parametric OpenSCAD sources, STLs and preview renders are in
-`hardware/mounts/`. The **frame rail dimension is researched and real**
-(3" × 1.5" × 0.120" wall, Toro's published carrier-frame spec). The **lap-bar
-tube OD is not published by Toro anywhere**, so the lap-bar saddle uses a
-self-centring 90° V-groove seating 12.8–34 mm (0.50"–1.34") instead of a
-guessed radius. Only the linkage standoff geometry needs measuring. Print the
-saddles in PETG or ASA.
-
----
-### Sources
+Parametric OpenSCAD sources, **42 STL variants**, fit coupons and assembly previews are in
+[`hardware/mounts/`](hardware/mounts/README.md); machine measurement and installation guidance is in
+[`hardware/mounts/INSTALL.md`](hardware/mounts/INSTALL.md). The target is the Toro TimeCutter MAX
+50 in MyRIDE, model 77502. The prototypes include a box-footprint
+hitch sandwich panel, splayed servo arms with printed sway bars back to the camera base mount,
+four-bolt printed lap-bar clamps and positively locked three-piece rods. Their 940 mm length is an
+estimate in [`TORO_77502_LINKAGE.md`](hardware/mounts/TORO_77502_LINKAGE.md). Each clamp's paired
+yoke ears support the rod eye in double shear with an M6 through-bolt. The single-axis pins stay
+parallel to the mower's left-right axis; a built skew carries the lap bar's outboard offset.
+Mower/plate dimensions, bar OD, servo crank, rod endpoints and full
+travel remain measurement gates. **A positive anti-rotation hitch attachment has not been established;
+powered steering is not approved by these files.** The user-owned `estop_bracket.3mf` remains untouched
+and must be resliced against its current STL.
 All parts above are live Amazon listings scraped via the `amazon` MCP tool.
 Prices and stock change — re-check before ordering.

@@ -1,0 +1,87 @@
+# Toro TimeCutter MAX 50 in MyRIDE — pushrod length estimate
+
+Machine: **Toro 50 in (127 cm) TimeCutter® MAX MyRIDE®, model 77502**, Kawasaki FR691V,
+twin-lever HG-EZT2200 hydrostatic drive. Operator's manual **3483-555** covers both the TimeCutter
+MAX and MyRIDE variants. The serial plate selects the parts catalogue.
+
+**This is an estimate, not a fit.** Toro publishes overall dimensions and assembly drawings
+without lap-bar or hitch coordinates. Measure the lap-bar values below before printing rods.
+
+## Result
+
+| Quantity | Estimate | Range carried by the estimate |
+|---|---|---|
+| Hitch-hole centre → lap-bar clamp pin, fore-aft | **35 in (889 mm)** | 31–39 in |
+| Lap-bar clamp pin from mower centreline | **14 in (356 mm)** | 13–15.5 in |
+| Clamp pin height | level with the servo crank pin | set by choosing the clamp height on the lever |
+| Rod pin span in the fore-and-aft plane | **934 mm (36.8 in)** | ≈ 830–1040 mm |
+| Rod pin-to-pin length | **940 mm (37.0 in)** | ≈ 33–41 in |
+| Lateral offset carried by the rod | **103 mm** outboard at the lap bar | ≈ 80–150 mm |
+| Built rod skew | **6.3°** | follows the measured offset |
+
+The CAD default uses the estimate. The rod trims ±15 mm (three lock settings); beyond that,
+re-enter the measured values and rebuild.
+
+## Basis
+
+- **Measured station:** the servo face is 8¼ in (209.55 mm) left/right of the ball-hole centre and
+  1 ft 6 in (457.2 mm) above the plate-top datum (`enclosure_common.scad`). The crank pin is
+  55 mm above the shaft at neutral; the rod eye plane is 43.5 mm outboard of the servo face.
+- **Toro data:** [model 77502 page](https://www.toro.com/en/product/77502): assembled depth
+  80 in, width 61.5 in, height 47 in, 19 in seat, 20 in rear tyres, 3 × 1.5 in tubular frame,
+  standard hitch bracket. [Operator's manual 3483-555](https://www.toro.com/getpub/281676): two-axis
+  motion-control levers that swing **outward to PARK**, lever height/tilt adjustment by bolts,
+  and seat-only MyRIDE suspension adjustment. [Setup instructions 3464-688](https://www.toro.com/getpub/246581):
+  the rear hitch bracket bolts beneath the rear frame plate.
+- **Photo recognition:** in Toro's straight-front studio image of the TimeCutter MAX, scaled by the
+  19 in seat, the lever lower arms meet the fender pods at about ±15–16 in in PARK and run inboard
+  toward the seat-front corners. In the 3/4 views, the levers mount at the front of the fender pods,
+  ahead of the seat and roughly above the front half of the 20 in rear tyres. The fore-aft
+  estimate combines the hitch bracket's rearmost position, the Kawasaki engine bay behind the
+  seat, and the seat depth. The 3/4 photographs alone cannot resolve better than about ±4 in.
+- **Servo:** the supplied photo matches the listing used in `hardware.md`,
+  [ANNIMOS B0C69W2QP7](https://www.amazon.com/dp/B0C69W2QP7): RDS51150SG, 18-tooth spline,
+  165 kg·cm at 12 V, two U-shaped aluminium holders and two aluminium discs. The listing's
+  dimensioned drawing gives the 65 × 30 × 48 mm body, 61.4 mm disc and 24 × 24 mm M2.5 holder pattern.
+
+## Why the rod changed
+
+| Problem in the 500–650 mm rod | Change |
+|---|---|
+| About 300 mm too short for this machine | 940 mm default pin length from the estimate above |
+| Stretched to 940 mm, the 32 mm tube / 21.1 mm inner bar buckles below the 540 N stall force at a 30 mm horn (margin 0.77) | 40 mm × 5 mm square tube in three bolted pieces plus a 29.1 mm inner bar: Euler load ≈ 1.96 kN at E = 1.5 GPa |
+| Horn pointed along the rod at neutral, so the servo started near dead centre | Metal crank points **up** at neutral, square to a level rod |
+| Servo fork prongs would collide with the 61.4 mm disc and body | Single eye outboard of the metal arm; fit check sweeps it ±35° against the body, disc and crank |
+| Planar YZ placement required the lap bar directly in front of the servo | Both pins remain global X; the eye fittings carry a 6.3° built skew |
+
+At the 55 mm crank radius required for disc clearance, the stall force is
+16.2 N·m / 0.055 m ≈ **295 N**, giving an Euler margin of about **6.7**. The buckling check
+treats the splices as continuous and uses a modulus assumption; it is not a strength rating.
+The skew adds an axial thrust of about 0.11 × rod force on each pin. The clamp ears and
+servo-arm washers carry that thrust.
+
+## Measure before printing
+
+1. Neutral: both levers centred (not PARK), seat occupied or loaded to normal riding weight. Set each
+   lever's bolt-adjusted height and tilt first; changing either later invalidates these values.
+2. Choose the clamp point on each lever where a level rod from the servo crank height reaches it
+   and the clamp clears grip, PARK swing, seat, fender and deck lift. Record from the
+   **hitch-hole centre**:
+   - forward distance to the clamp pin → `lapbar_pin_fwd_mm`
+   - distance from the mower centreline → `lapbar_pin_x_mm`
+   - height relative to the crank pin → `lapbar_pin_dz_mm` (0 = level rod)
+3. On the servo's metal arm/holder, measure the pin hole radius from the output shaft and the
+   arm thickness → `servo_crank_r`, `servo_crank_t`. The rod section needs ≥ 55 mm at ±35°.
+   If the kit part is shorter, use a steel crank plate bolted to the disc or reduce
+   `servo_crank_travel_deg`, then let `rod_servo_sweep` recheck it.
+4. Move each lever fully forward and reverse and record the clamp-pin travel. With a 55 mm crank,
+   ±35° gives ±31.5 mm of rod travel. More travel needs a longer crank and recalculated force.
+5. **MyRIDE check:** while the operator rides, measure fore-aft movement of each clamp pin relative
+   to the hitch plate. Any fore-aft platform motion becomes a direct lever command because the
+   servos mount on the frame. The level rod makes vertical-only motion negligible (25 mm vertical
+   ≈ 0.3 mm span change), but fore-aft motion is not. Stop if it is more than a few millimetres.
+6. Enter the values, run `python3 hardware/mounts/build_printables.py`, and print only if every
+   rod assert and fit check passes.
+
+Routing past the engine, muffler, belts and seat platform cannot be checked from Toro's published
+data. Keep ASA well away from the muffler and exhaust heat.

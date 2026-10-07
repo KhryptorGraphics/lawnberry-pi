@@ -1,61 +1,56 @@
-// E-stop panel bracket.
-//
-// Carries a 22 mm mushroom emergency-stop button. Seats on the 3" x 1.5"
-// rectangular frame rail and is held by two U-bolts, same as the servo mount.
-//
-// Position it so it can be struck by someone standing OFF the machine,
-// without reaching over the deck or the operator station. Verify by walking
-// up to the parked mower and hitting it without leaning in.
-//
-//   openscad -o estop_bracket.stl estop_bracket.scad
-
+// Frame-mounted E-stop panel; FDM ASA, 0.2 mm layers. Not a rated safety enclosure.
+// HB2-ES545 listing drawing: 22 mm panel bore, 40 mm mushroom, 42 mm rear depth,
+// contact envelope 30 x 29 mm. Source and applicability: README.md.
+// Print base down; support the horizontal button bore and rear-facing gussets.
+// The 3 mm panel is a design choice, NOT a sourced maximum panel thickness.
 include <common.scad>
 
-button_hole  = 22.5;   // 22 mm button + fit
-face_l       = 66;     // along the rail
-face_h       = 66;     // standing up
-face_t       = 7;
-saddle_l     = 104;
-saddle_t     = 10;
-ubolt_span   = 70;
-gusset_reach = 26;
+estop_bore = 22.5;                 // 0.5 mm diametral print allowance
+estop_panel_t = 3;
+estop_panel_w = 96;
+estop_panel_h = 80;
+estop_axis_z = 54;
+estop_panel_y = -26;              // rear face; mushroom faces negative Y
+estop_base_l = 148;
+estop_base_t = 10;
+estop_ubolt_span = 124;
+estop_cover_x = 35;
+estop_cover_z = 27;
 
-// Vertical plate standing in the XZ plane, thickness along Y, rising from Z=0.
-module button_face() {
+module estop_panel() {
     difference() {
-        translate([0, 0, face_h / 2])
-            cube([face_l, face_t, face_h], center = true);
-        // Button bore, through Y
-        translate([0, face_t / 2 + 1, face_h / 2])
-            rotate([90, 0, 0])
-                cylinder(h = face_t + 2, d = button_hole);
-        // Anti-rotation notch. Deliberately overlaps into the bore -- a notch
-        // that merely touches the bore wall leaves a tangent edge and a
-        // non-manifold mesh.
-        translate([-2.1, face_t / 2 + 1, face_h / 2 + button_hole / 2 - 2])
-            rotate([90, 0, 0])
-                cube([4.2, 5.2, face_t + 2]);
+        plate(estop_panel_w, estop_panel_h, estop_panel_t, 6);
+        translate([0, 0, -1]) cylinder(h = estop_panel_t + 2, d = estop_bore);
+        for (x = [-1, 1], y = [-1, 1])
+            translate([x * estop_cover_x, y * estop_cover_z, -1])
+                cylinder(h = estop_panel_t + 2, d = m3_clear);
     }
 }
 
-module gusset() {
-    rotate([0, -90, 0])
-        linear_extrude(height = wall)
-            polygon([[0, 0], [face_h * 0.7, 0], [0, gusset_reach]]);
+module estop_panel_placed() {
+    translate([0, estop_panel_y, estop_axis_z])
+        rotate([90, 0, 0]) estop_panel();
 }
 
 module estop_bracket() {
     difference() {
         union() {
-            frame_saddle(saddle_l, saddle_t, ubolt_span);
-            translate([0, 0, saddle_t]) button_face();
-            for (x = [-1, 1])
-                translate([x * (face_l / 2 - 8) + wall / 2,
-                           face_t / 2, saddle_t])
-                    gusset();
+            frame_saddle(estop_base_l, estop_base_t, estop_ubolt_span);
+            estop_panel_placed();
+            // Continuous toe joins the panel bottom to the base; contacts sit above it.
+            translate([-estop_panel_w / 2 + 6, estop_panel_y - estop_panel_t, 8])
+                cube([estop_panel_w - 12, 7, 10]);
+            // Ribs remain outside the removable cover (x +/-40).
+            for (x = [-46, 42])
+                translate([x, 0, 0]) rotate([90, 0, 90])
+                    linear_extrude(height = 4)
+                        polygon([[estop_panel_y, 8], [27, 8],
+                                 [estop_panel_y, estop_axis_z + 36]]);
         }
-        frame_ubolt_slots(saddle_t, ubolt_span);
+        frame_ubolt_slots(estop_base_t, estop_ubolt_span);
     }
 }
 
+// Verify with selected switch fitted: front projection, retention screws,
+// service access, and a direct palm strike from off the parked mower.
 estop_bracket();

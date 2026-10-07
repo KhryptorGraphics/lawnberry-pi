@@ -1,162 +1,94 @@
-// Printed weatherproof enclosure -- BODY.
+// Upright electronics enclosure with an integral rear hitch tongue. ASA, bed-down.
+// Floor glands point DOWN with drip loops. NOT a certified watertight box.
 //
-// Replaces the purchased IP65 box. Holds electronics_tray.scad.
+// MOUNT: the tongue (a 16 mm slab off the bottom of the +Y wall, two vertical
+// gussets up that wall) rests on the mower's horizontal hitch plate and bolts
+// through the plate's existing ball hole. The box stands vertical BESIDE the
+// plate and hangs from the tongue as a cantilever. Print bed is z=0 = floor
+// bottom = tongue bottom, so no assembly offset exists.
 //
-// HOW A PRINTED BOX IS MADE TO SEAL
-// Printed walls are porous along layer lines and the mating faces are never
-// flat enough to seal on their own, so this design does not try. Instead:
-//   * A 3 mm silicone O-ring cord sits in a groove in the top flange, and the
-//     lid compresses it. The gasket seals, not the plastic.
-//   * Lid screws sit OUTBOARD of the gasket groove, so tightening squeezes
-//     the cord rather than bowing the lid away from it.
-//   * The flange is wide (10 mm) so the groove has real material either side.
-//     A groove cut into a 3-4 mm wall leaves paper-thin lips that split.
-//   * Cable glands enter through the FLOOR, on thickened bosses. Mounting
-//     ears on the back wall hold the box off its mounting surface so those
-//     glands have clearance and cables can drip-loop below.
-//   * The breather vent goes in a SIDE wall, low. Never the top face.
+// Cantilever check (2 kg box, 6x dynamic factor, bolt 168 mm from box centre):
+//   moment at the hitch bolt      ~24 N*m (incl. the camera tower on the tongue)
+//   tongue slab alone at the bolt  3.9 MPa  -> FOS 10.7 vs 42 MPa ASA in-plane
+//   tongue root with gussets      <0.2 MPa  -> FOS >60 even vs 11 MPa interlayer
+//   hitch bolt tension            ~780 N   (40 mm prying lever) -- trivial for M8+
+// Bed-down printing puts the slab's bending stress along the filament. The
+// gussets are layer-stacked, but their stress is negligible. The single bolt
+// resists twist only by friction over the tongue's contact patch: torque it to
+// the hardware's rating and, if the plate may be drilled, use the two optional
+// M6 anti-twist holes flanking it. Recheck after the first season.
 //
-// PRINT NOTES
-//   * Open side up, no supports needed. 5+ perimeters, >=40% infill.
-//   * PETG or ASA. Not PLA -- it warps in a hot machine and UV-degrades.
-//   * Walls MUST be watertight: print hot enough and slow enough that layers
-//     fuse. A gasket cannot save a porous wall. Consider a wipe of epoxy or
-//     acrylic conformal coat on the inside if in doubt.
-//   * Footprint is 201 x 160 mm -- fits a 220 x 220 bed.
-//
-//   openscad -o enclosure_body.stl enclosure_body.scad
+// TOWER: six M5 holes and a 24 mm cable port in the +Y wall take camera_tower.scad's
+// base; two M5 holes in the tongue take its foot. Port is between the stacks.
+// Seal every wall/floor penetration outside; USB plugs cannot pass a gland insert,
+// so the port needs a split grommet or sealant, fitted after the cable.
+include <enclosure_common.scad>
+body_part = "body";                // body | hitch_gauge
 
-include <common.scad>
-
-// Interior sized around electronics_tray.scad (165 x 120) with clearance.
-inner_l      = 173;
-inner_w      = 128;
-inner_h      = 85;
-
-e_wall       = 4.0;    // side wall
-e_floor      = 4.5;    // floor
-flange_w     = 10.0;   // outward flange carrying gasket + screws
-flange_t     = 6.0;
-
-gasket_cord  = 3.0;    // silicone O-ring cord diameter
-groove_w     = gasket_cord + 0.3;
-groove_d     = gasket_cord * 0.72;   // ~28% compression when closed
-
-lid_screw    = m4_clear;
-insert_od    = 5.7;    // M4 heat-set insert pocket; tap or self-tap instead
-insert_h     = 8.0;
-
-gland_hole   = 15.2;   // PG9
-vent_hole    = 12.5;   // M12 x 1.5 breather
-gland_boss   = 24;     // boss OD around each gland
-gland_boss_h = 3.0;    // extra floor thickness at the gland
-
-tray_l       = 165;    // must match electronics_tray.scad
-tray_w       = 120;
-
-outer_l      = inner_l + 2 * e_wall;
-outer_w      = inner_w + 2 * e_wall;
-flange_l     = outer_l + 2 * flange_w;
-flange_ow    = outer_w + 2 * flange_w;
-
-// Lid screw positions, outboard of the gasket groove.
-screw_x      = [-1, -0.34, 0.34, 1];
-screw_y      = [-1, 1];
-screw_inset  = flange_w / 2;
-
-function screw_pos_x(f) = f * (outer_l / 2 + screw_inset);
-function screw_pos_y(f) = f * (outer_w / 2 + screw_inset);
-
-// Gasket groove centre-line, midway through the flange.
-groove_off   = flange_w * 0.28;
-
-module rounded_ring(l, w, r, h) {
-    hull()
-        for (x = [-1, 1], y = [-1, 1])
-            translate([x * (l / 2 - r), y * (w / 2 - r), 0])
-                cylinder(h = h, r = r);
-}
-
-// Closed path for the gasket groove, following the wall outline.
-module gasket_groove() {
+module enclosure_tongue() {
+    y0 = box_inner_w / 2;          // start inside the wall thickness, fused to floor + wall
     difference() {
-        rounded_ring(outer_l + 2 * groove_off + groove_w,
-                     outer_w + 2 * groove_off + groove_w, 10, groove_d + 1);
-        translate([0, 0, -0.5])
-            rounded_ring(outer_l + 2 * groove_off - groove_w,
-                         outer_w + 2 * groove_off - groove_w, 10,
-                         groove_d + 2);
-    }
-}
-
-module shell() {
-    union() {
-        // Walls + floor
-        difference() {
-            rounded_ring(outer_l, outer_w, 8, inner_h + e_floor);
-            translate([0, 0, e_floor])
-                rounded_ring(inner_l, inner_w, 6, inner_h + 1);
-        }
-        // Top flange
-        translate([0, 0, inner_h + e_floor - flange_t])
-            difference() {
-                rounded_ring(flange_l, flange_ow, 10, flange_t);
-                translate([0, 0, -1])
-                    rounded_ring(inner_l, inner_w, 6, flange_t + 2);
+        union() {
+            translate([-tongue_w / 2, y0, 0]) cube([tongue_w, tongue_end_y() - tongue_w / 2 - y0, tongue_t]);
+            translate([0, tongue_end_y() - tongue_w / 2, 0]) intersection() {
+                cylinder(d = tongue_w, h = tongue_t);
+                translate([-tongue_w / 2, 0, 0]) cube([tongue_w, tongue_w, tongue_t]);
             }
-        // Gland bosses, thickening the floor locally
-        for (i = [-1, 0, 1])
-            translate([i * 44, -inner_w / 2 + 22, 0])
-                cylinder(h = e_floor + gland_boss_h, d = gland_boss);
-        // Tray mounting bosses
-        for (x = [-1, 1], y = [-1, 1])
-            translate([x * (tray_l / 2 - 18), y * (tray_w / 2 - 11), 0])
-                cylinder(h = e_floor + 6, d = 11);
-        // Mounting ears on the back wall -- hold the box off its surface so
-        // the floor glands have clearance for a drip loop.
-        for (x = [-1, 1])
-            translate([x * (outer_l / 2 - 26), outer_w / 2 + 7, 0])
-                hull() {
-                    translate([0, -8, 0]) cube([26, 1, 22], center = true);
-                    translate([0, 6, 0]) cube([26, 1, 22], center = true);
-                }
+            // Two gussets from the tongue up the +Y wall, outside the tower base
+            for (x = [-1, 1])
+                translate([x * (tongue_w / 2 - tongue_gusset_t / 2) - tongue_gusset_t / 2, 0, 0])
+                    rotate([90, 0, 90]) linear_extrude(height = tongue_gusset_t)
+                        polygon([[y0, tongue_t - 0.1], [tongue_bolt_y() - 25, tongue_t - 0.1],
+                                 [y0, tongue_t + tongue_gusset_h]]);
+        }
+        translate([0, tongue_bolt_y(), -1]) cylinder(d = hitch_hole_d, h = tongue_t + 2);
+        for (x = [-1, 1]) translate([x * tongue_aux_bolt_x, tongue_bolt_y(), -1])
+            cylinder(d = m6_clear, h = tongue_t + 2);
+        for (p = tower_foot_bolts) translate([p[0], p[1], -1]) cylinder(d = tower_wall_bolt_d, h = tongue_t + 2);
     }
 }
 
 module enclosure_body() {
     difference() {
-        shell();
-        // Gasket groove in the flange top
-        translate([0, 0, inner_h + e_floor - groove_d]) gasket_groove();
-        // Lid screw inserts, outboard of the groove
-        for (fx = screw_x, fy = screw_y)
-            translate([screw_pos_x(fx), screw_pos_y(fy),
-                       inner_h + e_floor - insert_h])
-                cylinder(h = insert_h + 1, d = insert_od);
-        for (fy = [-0.34, 0.34])
-            for (fx = [-1, 1])
-                translate([fx * (outer_l / 2 + screw_inset),
-                           fy * outer_w / 2 * 1.0,
-                           inner_h + e_floor - insert_h])
-                    cylinder(h = insert_h + 1, d = insert_od);
-        // Cable glands through the floor
-        for (i = [-1, 0, 1])
-            translate([i * 44, -inner_w / 2 + 22, -1])
-                cylinder(h = e_floor + gland_boss_h + 2, d = gland_hole);
-        // Breather vent, low in a side wall
-        translate([outer_l / 2 + 1, 34, e_floor + 16])
-            rotate([0, -90, 0])
-                cylinder(h = e_wall + 2, d = vent_hole);
-        // Tray fixing holes
-        for (x = [-1, 1], y = [-1, 1])
-            translate([x * (tray_l / 2 - 18), y * (tray_w / 2 - 11), e_floor])
-                cylinder(h = 8, d = 3.2);
-        // Mounting-ear bolt holes
-        for (x = [-1, 1])
-            translate([x * (outer_l / 2 - 26), outer_w / 2 + 7, 0])
-                rotate([90, 0, 0])
-                    cylinder(h = 40, d = m6_clear, center = true);
+        union() {
+            difference() {
+                plate(box_outer_l,box_outer_w,box_top,box_corner);
+                translate([0,0,box_floor])
+                    plate(box_inner_l,box_inner_w,box_top+1,box_corner-box_wall);
+            }
+            translate([0,0,box_top-box_flange_t]) difference() {
+                plate(box_flange_l,box_flange_w,box_flange_t,box_corner+box_flange);
+                translate([0,0,-1]) plate(box_inner_l,box_inner_w,box_flange_t+2,box_corner-box_wall);
+            }
+            for(p=tray_fixings) translate([p[0],p[1],box_floor-0.1])
+                cylinder(d=tray_support_d,h=tray_lift+0.1);
+            enclosure_tongue();
+        }
+        translate([0,0,box_top-seal_depth]) enclosure_seal_path(seal_depth+0.5);
+        for(p=lid_screw_points) {
+            translate([p[0],p[1],box_top-box_flange_t-1]) cylinder(d=lid_screw_d,h=box_flange_t+2);
+            translate([p[0],p[1],box_top-box_flange_t-0.1])
+                cylinder(d=lid_nut_pocket_d,h=lid_nut_pocket_depth+0.1,$fn=6);
+        }
+        for(p=gland_centres) translate([p[0],p[1],-1]) cylinder(d=gland_cutout_d,h=box_floor+2);
+        translate([box_outer_l/2+1,28,30]) rotate([0,-90,0]) cylinder(d=vent_cutout_d,h=box_wall+2);
+        for(p=tray_fixings) translate([p[0],p[1],-1]) cylinder(d=tray_fixing_d,h=tray_bottom_z+2);
+        // Tower base bolts and cable port through the +Y wall
+        for(p=tower_base_bolts) translate([p[0],box_inner_w/2-1,p[1]])
+            rotate([-90,0,0]) cylinder(d=tower_wall_bolt_d,h=box_wall+2);
+        translate([0,box_inner_w/2-1,tower_port_z]) rotate([-90,0,0]) cylinder(d=tower_port_d,h=box_wall+2);
     }
 }
 
-enclosure_body();
+// Small coupon: just the hitch hole. Fit it on the mower's ball/bolt/hole first.
+module hitch_gauge() {
+    side = max(hitch_hole_d + 30, 60);
+    difference() {
+        plate(side, side, 3, 8);
+        translate([0, 0, -1]) cylinder(d = hitch_hole_d, h = 5);
+    }
+}
+
+if (body_part == "body") enclosure_body();
+else if (body_part == "hitch_gauge") hitch_gauge();
+else assert(false, "body_part must be body or hitch_gauge");

@@ -8,14 +8,15 @@ levers independently commands its own side's ground speed and direction, and
 the mower's own hydrostatic transaxles turn that into motion (push a lever
 forward to drive that side forward, pull it back to reverse it, center it to
 stop that side). The engine and both hydrostatic transaxles are kept stock;
-two high-torque servos (Wingxine ASMC-04B) physically push/pull the existing
-lap-bar levers. Only the PWM signal from each servo runs through the same
-PCA9685 I2C PWM transport already used elsewhere on this platform — servo
-power itself is a dedicated 24V rail, run at 24V rather than 12V specifically
-for E-stop physical-settle margin under Principle VI's 500ms requirement
-(see `docs/hardware-overview.md`'s Power section for the full power tree,
-the wiring constraint, and the rationale). It is operated through five
-discrete actuators.
+two high-torque servos physically push/pull the existing lap-bar levers.
+The current mechanical BOM in `hardware.md` selects ANNIMOS/DSSERVO RDS51150SG
+12 V units; the printable stationary-side interface follows the listing's
+RDS51150 drawing and still requires a purchased-revision fit check.
+The older ASMC-04B **24 V** power design in other platform documents is not
+applicable to these servos: do not connect them to 24 V. This CAD redesign
+does not validate or migrate the electrical power system, calibration or
+500 ms physical-settle requirement. PWM control remains via the PCA9685.
+The platform exposes the five discrete actuators below.
 
 ## Actuators
 
@@ -136,12 +137,12 @@ questions that were previously guesses — those are marked **confirmed**.
 | Throttle | continuous-variable lever, SLOW–FAST |
 | Bypass levers | both sides of the engine; disengage hydro drive for pushing |
 
-**Model caveat**: form 3465-589 covers the *TimeCutter Max 50 in*. The
-deployment target has been described as "TimeCutter 2", which is not a
-published Toro model name; the 50" line includes TimeCutter, TimeCutter MAX
-and TimeCutter MyRIDE. Control architecture is consistent across the line, so
-the confirmed items above hold, but dimensions may differ — check the serial
-plate and pull the matching manual before fabricating.
+**Model**: the deployment target is the **Toro 50 in TimeCutter MAX MyRIDE, model 77502**. Its
+current operator's manual is **3483-555**, which covers both the TimeCutter MAX and MyRIDE variants
+and repeats the confirmed lever, PARK and interlock behaviour above; form 3465-589 is the earlier
+TimeCutter MAX manual. Toro publishes no lap-bar coordinates, so the printed pushrods use the
+photo-and-specification estimate in `hardware/mounts/TORO_77502_LINKAGE.md`; measure the serial
+plate and linkage before fabricating.
 
 ## Configuration
 

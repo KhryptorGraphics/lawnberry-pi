@@ -1,0 +1,1306 @@
+{
+  "tool": "OpenSCAD version 2021.01",
+  "status": "mesh_and_named_geometry_checks_passed_not_physical_qualification",
+  "sources_sha256": {
+    "accessory_mounts.scad": "9b52e1be10a2cb767b416a8a5cc2771ab0ff360e96b25bb4dd567f40c3777e82",
+    "actuation_fit_gauge.scad": "832631f8cfc0bd3f3d13a645d1b70a19fc1a65a78764513d347f442e2f3825dc",
+    "arm_support.scad": "e6b92555d41b3dc0704dc06995f2697ee5a70f7fa9ad665ca23cedd3849a4c3f",
+    "assemblies.scad": "e0a7ae7811e629c27fc59470425ee011a9c2b4f8c7d1667a686b1c51960eeeda",
+    "camera_mount.scad": "157539e04b021fe955508bbe1e3b11ac34a8515069dbd05b3948d82fcffdff16",
+    "camera_tower.scad": "76a7b1d3b4c865fbc7607571d377e84551f43ac39ad51790d00eeb083ec86941",
+    "common.scad": "7f7de77317ab1d51cabb622cfb4743e652d1e8d6313758b212c736f912c2aee6",
+    "electronics_tray.scad": "8a1ecfcb7f552e04fc6ba2c59568b4a6f760871db5ff2ecc35375bc5561a6a91",
+    "enclosure_board_sled.scad": "8b4ee58012aa40ff814333cd34d17bb00b563911c62fa37943217f3d45724782",
+    "enclosure_body.scad": "83101b8712272bb105895c5d8f32f4e1c1c80c9e09f7fa4f9ee51cb576701121",
+    "enclosure_common.scad": "9f382f1a4ec694f3e9584d46ff14b962808f3e1a3edd4f58a593f89aa0f63931",
+    "enclosure_lid.scad": "e2ca7ceb5c6a629e1df82487d790f162fc8593b0cc679da1f55be32eb5766790",
+    "estop_bracket.scad": "ee007ceb2bf31e109cc799e1b025250d833401b048209d2e2d1f259f8ae0b7b2",
+    "estop_contact_cover.scad": "1524aa425ecbe415b1f7f2b09144cb3fdf0c8e4519e523a2a258c5a40438c8f3",
+    "fit_checks.scad": "14bb704a3e8a406a8c1fbad4320443ad9986f1fbc0c9a5459cebda59ac28641f",
+    "hitch_arm_layer.scad": "c5260e1eed335fcc3497357d85c924bdc7cbb59e9414abfd62e3200efe54fca5",
+    "lapbar_four_bolt_clamp.scad": "31632ac4219b3a3819becff97c522b73f7cecdf056e15dc9a814cdf7f1943c4f",
+    "pushrod.scad": "89946d070b1cb96adcd70480977292a7a4e6fd9c4fdee77ba8a2dc7fbea8629b",
+    "sensor_carrier.scad": "7ca3da27ecd6e52e6e4166445839d0bf4abc174977433ddaea9bf77993fe4f22",
+    "throttle_servo_mount.scad": "c2b4666848308ddc14136e9fe55a9cdeb10a065b435098627d7e48a9c26156fc"
+  },
+  "parts": {
+    "arm_layer_center": {
+      "triangles": 5388,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -147.5,
+          -85.0,
+          0.0
+        ],
+        [
+          147.5,
+          200.0,
+          8.0
+        ]
+      ],
+      "size_mm": [
+        295.0,
+        285.0,
+        8.0
+      ],
+      "volume_mm3": 490977.64,
+      "sha256": "6a4e8699b7baab3982140a2d817131bfa8029ee5ef90b8ff5a3d86ec37421b2c",
+      "source": "hitch_arm_layer.scad",
+      "parameters": {
+        "arm_part": "center"
+      }
+    },
+    "arm_layer_left": {
+      "triangles": 6780,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          60.929725646972656,
+          8.658971637487411e-07,
+          0.0
+        ],
+        [
+          360.0,
+          95.06892395019531,
+          88.0
+        ]
+      ],
+      "size_mm": [
+        299.07,
+        95.069,
+        88.0
+      ],
+      "volume_mm3": 890762.133,
+      "sha256": "a5bdad77ef87e198b5a4a21860873de34541bccce0b287eb79bb4701519b29ef",
+      "source": "hitch_arm_layer.scad",
+      "parameters": {
+        "arm_part": "left"
+      }
+    },
+    "arm_layer_right": {
+      "triangles": 6780,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          8.658971637487411e-07,
+          0.0
+        ],
+        [
+          299.0702819824219,
+          95.06892395019531,
+          88.0
+        ]
+      ],
+      "size_mm": [
+        299.07,
+        95.069,
+        88.0
+      ],
+      "volume_mm3": 890762.144,
+      "sha256": "a3ca7d638a95c8bf31297080b2195c2e654a47c9d35bb5eb8c6c581da42ef814",
+      "source": "hitch_arm_layer.scad",
+      "parameters": {
+        "arm_part": "right"
+      }
+    },
+    "arm_head_left": {
+      "triangles": 2692,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          5.089143542136298e-07,
+          0.0,
+          7.801272658980452e-07
+        ],
+        [
+          88.5014877319336,
+          88.0,
+          189.3284149169922
+        ]
+      ],
+      "size_mm": [
+        88.501,
+        88.0,
+        189.328
+      ],
+      "volume_mm3": 297368.929,
+      "sha256": "b8d3b1e51462c0d64cc05b2530a39dd19d8e6f7c2e5c8c2a84a0a9273cff85ba",
+      "source": "hitch_arm_layer.scad",
+      "parameters": {
+        "arm_part": "head_left"
+      }
+    },
+    "arm_head_right": {
+      "triangles": 2692,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          4.4783237740375625e-07,
+          0.0,
+          7.801272658980452e-07
+        ],
+        [
+          88.5014877319336,
+          88.0,
+          189.3284149169922
+        ]
+      ],
+      "size_mm": [
+        88.501,
+        88.0,
+        189.328
+      ],
+      "volume_mm3": 297368.936,
+      "sha256": "784db3f458a613d78c3ed707495409452bd59501969e1917734bc952161640f2",
+      "source": "hitch_arm_layer.scad",
+      "parameters": {
+        "arm_part": "head_right"
+      }
+    },
+    "arm_brace_bar_left_0": {
+      "triangles": 1648,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          1.4329597775031289e-07,
+          0.0
+        ],
+        [
+          49.90528106689453,
+          104.46383666992188,
+          60.0
+        ]
+      ],
+      "size_mm": [
+        49.905,
+        104.464,
+        60.0
+      ],
+      "volume_mm3": 41018.514,
+      "sha256": "a0442b2e7a8daf9b62eb319f3720c9478abad8a7ab7d5926898f45135dcb72c9",
+      "source": "arm_support.scad",
+      "parameters": {
+        "arm_brace_part": "bar_0",
+        "arm_brace_side": "left"
+      }
+    },
+    "arm_brace_bar_left_1": {
+      "triangles": 1648,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          4.452715529623674e-08,
+          0.0
+        ],
+        [
+          49.90528106689453,
+          122.31111907958984,
+          60.0
+        ]
+      ],
+      "size_mm": [
+        49.905,
+        122.311,
+        60.0
+      ],
+      "volume_mm3": 48300.205,
+      "sha256": "ee288a067bdd450c49485fecc549320d210983cc2e1959a3ec694cdeb1e55afb",
+      "source": "arm_support.scad",
+      "parameters": {
+        "arm_brace_part": "bar_1",
+        "arm_brace_side": "left"
+      }
+    },
+    "arm_brace_bar_left_2": {
+      "triangles": 1648,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          6.857063112875039e-07,
+          0.0
+        ],
+        [
+          49.90528106689453,
+          135.6965789794922,
+          60.0
+        ]
+      ],
+      "size_mm": [
+        49.905,
+        135.697,
+        60.0
+      ],
+      "volume_mm3": 53761.469,
+      "sha256": "2e3dce24d664b386b862bf6bd61316e0e83d4e798e381c3ec77204837d4f137e",
+      "source": "arm_support.scad",
+      "parameters": {
+        "arm_brace_part": "bar_2",
+        "arm_brace_side": "left"
+      }
+    },
+    "arm_brace_bar_right_0": {
+      "triangles": 1648,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          -1.9073486612342094e-07,
+          0.0
+        ],
+        [
+          49.90528106689453,
+          104.46383666992188,
+          60.0
+        ]
+      ],
+      "size_mm": [
+        49.905,
+        104.464,
+        60.0
+      ],
+      "volume_mm3": 41018.513,
+      "sha256": "bac8676b6ad3166051053a8527007afd93f85bd4305c08e7014fbb343bcd3e83",
+      "source": "arm_support.scad",
+      "parameters": {
+        "arm_brace_part": "bar_0",
+        "arm_brace_side": "right"
+      }
+    },
+    "arm_brace_bar_right_1": {
+      "triangles": 1648,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          -1.9073486612342094e-07,
+          0.0
+        ],
+        [
+          49.90528106689453,
+          122.31111145019531,
+          60.0
+        ]
+      ],
+      "size_mm": [
+        49.905,
+        122.311,
+        60.0
+      ],
+      "volume_mm3": 48300.201,
+      "sha256": "e7fe76af0e30fb32bf964e5cb3aa93e7d018e03ad5437ad2500cf95c8ce90673",
+      "source": "arm_support.scad",
+      "parameters": {
+        "arm_brace_part": "bar_1",
+        "arm_brace_side": "right"
+      }
+    },
+    "arm_brace_bar_right_2": {
+      "triangles": 1648,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          -1.9073486612342094e-07,
+          0.0
+        ],
+        [
+          49.90528106689453,
+          135.6965789794922,
+          60.0
+        ]
+      ],
+      "size_mm": [
+        49.905,
+        135.697,
+        60.0
+      ],
+      "volume_mm3": 53761.473,
+      "sha256": "c15332b1c27916ab40a81adee9767e46b379b8941927a93fe027022e46c7c021",
+      "source": "arm_support.scad",
+      "parameters": {
+        "arm_brace_part": "bar_2",
+        "arm_brace_side": "right"
+      }
+    },
+    "lapbar_clamp_anchor": {
+      "triangles": 1556,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -25.0,
+          -29.899999618530273,
+          0.0
+        ],
+        [
+          25.0,
+          71.9000015258789,
+          22.899999618530273
+        ]
+      ],
+      "size_mm": [
+        50.0,
+        101.8,
+        22.9
+      ],
+      "volume_mm3": 84415.9,
+      "sha256": "cb7d625de775d70b62732a8393bdaacda5b6a9e9d5ff0ac7741f72abd594bb44",
+      "source": "lapbar_four_bolt_clamp.scad",
+      "parameters": {
+        "clamp_part": "anchor"
+      }
+    },
+    "lapbar_clamp_cap": {
+      "triangles": 1460,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -25.0,
+          -29.899999618530273,
+          0.0
+        ],
+        [
+          25.0,
+          71.9000015258789,
+          22.899999618530273
+        ]
+      ],
+      "size_mm": [
+        50.0,
+        101.8,
+        22.9
+      ],
+      "volume_mm3": 85078.52,
+      "sha256": "22efea48d1f4af5133d5d22d6bb31d569c16fd6553ee72466b0824759915b520",
+      "source": "lapbar_four_bolt_clamp.scad",
+      "parameters": {
+        "clamp_part": "cap"
+      }
+    },
+    "lapbar_clamp_gauge_0": {
+      "triangles": 512,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -17.799999237060547,
+          -17.799999237060547,
+          0.0
+        ],
+        [
+          17.799999237060547,
+          17.799999237060547,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        35.6,
+        35.6,
+        3.0
+      ],
+      "volume_mm3": 1439.676,
+      "sha256": "625f0f1e1ed47c7240c4cee394fbaaf69253aa784b2b86256293bb1aed2be534",
+      "source": "lapbar_four_bolt_clamp.scad",
+      "parameters": {
+        "clamp_part": "gauge",
+        "clamp_gauge_index": 0
+      }
+    },
+    "lapbar_clamp_gauge_1": {
+      "triangles": 512,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -17.899999618530273,
+          -17.899999618530273,
+          0.0
+        ],
+        [
+          17.899999618530273,
+          17.899999618530273,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        35.8,
+        35.8,
+        3.0
+      ],
+      "volume_mm3": 1449.085,
+      "sha256": "43fb653fa57016b69a608eb66f61db8dd24909eef7f2aba6cdd74b59ece49ab4",
+      "source": "lapbar_four_bolt_clamp.scad",
+      "parameters": {
+        "clamp_part": "gauge",
+        "clamp_gauge_index": 1
+      }
+    },
+    "lapbar_clamp_gauge_2": {
+      "triangles": 512,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -18.0,
+          -18.0,
+          0.0
+        ],
+        [
+          18.0,
+          18.0,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        36.0,
+        36.0,
+        3.0
+      ],
+      "volume_mm3": 1458.495,
+      "sha256": "163495f80dfb2cd4c15561fdfef9408e764ad2589e34848d8e311712085bae38",
+      "source": "lapbar_four_bolt_clamp.scad",
+      "parameters": {
+        "clamp_part": "gauge",
+        "clamp_gauge_index": 2
+      }
+    },
+    "pushrod_servo_end": {
+      "triangles": 1408,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -16.340984344482422,
+          -20.0,
+          0.0
+        ],
+        [
+          258.8709716796875,
+          20.0,
+          40.0
+        ]
+      ],
+      "size_mm": [
+        275.212,
+        40.0,
+        40.0
+      ],
+      "volume_mm3": 203541.254,
+      "sha256": "dc831a27948fe822af9d11ccdff1ad4edd95ac7514320801b48670a7f9b3dd4a",
+      "source": "pushrod.scad",
+      "parameters": {
+        "rod_part": "servo_end"
+      }
+    },
+    "pushrod_middle": {
+      "triangles": 1604,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -4.4294606027506234e-07,
+          -20.0,
+          0.0
+        ],
+        [
+          274.8709716796875,
+          20.0,
+          40.0
+        ]
+      ],
+      "size_mm": [
+        274.871,
+        40.0,
+        40.0
+      ],
+      "volume_mm3": 212012.438,
+      "sha256": "27ed028cde20180832b9b513d0b78ea61e3cfcb2d0a077b41cbff2750c8249d6",
+      "source": "pushrod.scad",
+      "parameters": {
+        "rod_part": "middle"
+      }
+    },
+    "pushrod_sleeve": {
+      "triangles": 2112,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -8.858921205501247e-07,
+          -20.0,
+          0.0
+        ],
+        [
+          224.87098693847656,
+          20.0,
+          40.0
+        ]
+      ],
+      "size_mm": [
+        224.871,
+        40.0,
+        40.0
+      ],
+      "volume_mm3": 156043.411,
+      "sha256": "837c0f325f01d8d4bb95fcb070ea67a25089ccb017b939a537efe4786d9104de",
+      "source": "pushrod.scad",
+      "parameters": {
+        "rod_part": "sleeve"
+      }
+    },
+    "pushrod_inner": {
+      "triangles": 1876,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          -14.549999237060547,
+          7.629394644936838e-07
+        ],
+        [
+          396.3409729003906,
+          19.26527214050293,
+          29.099998474121094
+        ]
+      ],
+      "size_mm": [
+        396.341,
+        33.815,
+        29.1
+      ],
+      "volume_mm3": 294256.424,
+      "sha256": "05fec7389c9a83f6367946279b172bc473c6a4ab17dd4e971eeb8a8e6d85a17e",
+      "source": "pushrod.scad",
+      "parameters": {
+        "rod_part": "inner"
+      }
+    },
+    "pushrod_gauge_0": {
+      "triangles": 32,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          40.0,
+          40.0,
+          40.0
+        ]
+      ],
+      "size_mm": [
+        40.0,
+        40.0,
+        40.0
+      ],
+      "volume_mm3": 28953.601,
+      "sha256": "247ac80105d30f6e54e3b9517ec51189903ca42020a26f59f154f4abd3205e3d",
+      "source": "pushrod.scad",
+      "parameters": {
+        "rod_part": "gauge",
+        "rod_gauge_index": 0
+      }
+    },
+    "pushrod_gauge_1": {
+      "triangles": 32,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          40.0,
+          40.0,
+          40.0
+        ]
+      ],
+      "size_mm": [
+        40.0,
+        40.0,
+        40.0
+      ],
+      "volume_mm3": 27999.998,
+      "sha256": "209c342cb92bb8e35bdbac943133faab99aca9f020cb0207144e612797021211",
+      "source": "pushrod.scad",
+      "parameters": {
+        "rod_part": "gauge",
+        "rod_gauge_index": 1
+      }
+    },
+    "pushrod_gauge_2": {
+      "triangles": 32,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          40.0,
+          40.0,
+          40.0
+        ]
+      ],
+      "size_mm": [
+        40.0,
+        40.0,
+        40.0
+      ],
+      "volume_mm3": 27033.596,
+      "sha256": "279243d938111b53dba5d1a519cf600a1b0424ac1540318c0a4e9d9b7e9d1b00",
+      "source": "pushrod.scad",
+      "parameters": {
+        "rod_part": "gauge",
+        "rod_gauge_index": 2
+      }
+    },
+    "throttle_servo_mount": {
+      "triangles": 2412,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -55.0,
+          -36.0,
+          0.0
+        ],
+        [
+          55.0,
+          36.0,
+          68.0
+        ]
+      ],
+      "size_mm": [
+        110.0,
+        72.0,
+        68.0
+      ],
+      "volume_mm3": 82414.54,
+      "sha256": "8a8b593694cdaca86c800a8c7d182cd2440e1e433d919ba79b6507fcae86e6f1",
+      "source": "throttle_servo_mount.scad",
+      "parameters": {}
+    },
+    "estop_bracket": {
+      "triangles": 2924,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -74.0,
+          -33.5,
+          0.0
+        ],
+        [
+          74.0,
+          33.5,
+          94.0
+        ]
+      ],
+      "size_mm": [
+        148.0,
+        67.0,
+        94.0
+      ],
+      "volume_mm3": 137956.192,
+      "sha256": "3cb742ef9e6f80536fdf03e23f53edb08618b12a70309b5eb0b35446c9af9f53",
+      "source": "estop_bracket.scad",
+      "parameters": {}
+    },
+    "estop_contact_cover": {
+      "triangles": 3032,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -40.0,
+          -35.0,
+          0.0
+        ],
+        [
+          40.0,
+          35.0,
+          51.0
+        ]
+      ],
+      "size_mm": [
+        80.0,
+        70.0,
+        51.0
+      ],
+      "volume_mm3": 42600.296,
+      "sha256": "30747a8d5a422a51bbd747b3ad8f688db45259919b91cec253b9bcd9547670a3",
+      "source": "estop_contact_cover.scad",
+      "parameters": {}
+    },
+    "enclosure_body": {
+      "triangles": 11168,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -105.5,
+          -85.0,
+          0.0
+        ],
+        [
+          105.5,
+          200.0,
+          184.5
+        ]
+      ],
+      "size_mm": [
+        211.0,
+        285.0,
+        184.5
+      ],
+      "volume_mm3": 914969.669,
+      "sha256": "c84b12062ba46ef49e6e9f3a1c24cd8c0bc934f0cd63ad3e9b765ba7ff224661",
+      "source": "enclosure_body.scad",
+      "parameters": {}
+    },
+    "hitch_gauge": {
+      "triangles": 528,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -30.0,
+          -30.0,
+          0.0
+        ],
+        [
+          30.0,
+          30.0,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        60.0,
+        60.0,
+        3.0
+      ],
+      "volume_mm3": 9693.253,
+      "sha256": "d533963829a0c51e2d016937c138c247bbadb4837c897af2120bf11701382e68",
+      "source": "enclosure_body.scad",
+      "parameters": {
+        "body_part": "hitch_gauge"
+      }
+    },
+    "camera_tower_base": {
+      "triangles": 4032,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -55.0,
+          -175.0,
+          0.0
+        ],
+        [
+          55.0,
+          -16.0,
+          83.0
+        ]
+      ],
+      "size_mm": [
+        110.0,
+        159.0,
+        83.0
+      ],
+      "volume_mm3": 358164.166,
+      "sha256": "108e33baa1cf457a4383321eda2b0a81ed0f2d30eca9242a81189faa125956b9",
+      "source": "camera_tower.scad",
+      "parameters": {
+        "tower_part": "base"
+      }
+    },
+    "camera_tower_segment": {
+      "triangles": 2176,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          -35.0,
+          0.0
+        ],
+        [
+          370.0,
+          35.0,
+          70.0
+        ]
+      ],
+      "size_mm": [
+        370.0,
+        70.0,
+        70.0
+      ],
+      "volume_mm3": 356161.139,
+      "sha256": "e31735d679fd84aa575ac10a1c576ffa772358e4ea405044372301cf6c42bca0",
+      "source": "camera_tower.scad",
+      "parameters": {
+        "tower_part": "segment"
+      }
+    },
+    "camera_tower_cap": {
+      "triangles": 2168,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -35.0,
+          -35.0,
+          0.0
+        ],
+        [
+          35.0,
+          35.0,
+          30.0
+        ]
+      ],
+      "size_mm": [
+        70.0,
+        70.0,
+        30.0
+      ],
+      "volume_mm3": 112508.696,
+      "sha256": "df2c679fad834f186322497bb99a1ecb9517e494fd57b77ab81b5d3523967c2f",
+      "source": "camera_tower.scad",
+      "parameters": {
+        "tower_part": "cap"
+      }
+    },
+    "camera_tower_backing": {
+      "triangles": 2088,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -55.0,
+          -65.0,
+          0.0
+        ],
+        [
+          55.0,
+          65.0,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        110.0,
+        130.0,
+        3.0
+      ],
+      "volume_mm3": 41024.796,
+      "sha256": "686bb4fe99046232dc701ff5fc11dd5d8186baf92ed153ba0c734b21e4686b0e",
+      "source": "camera_tower.scad",
+      "parameters": {
+        "tower_part": "backing"
+      }
+    },
+    "enclosure_lid": {
+      "triangles": 3692,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -109.5,
+          -89.0,
+          0.0
+        ],
+        [
+          109.5,
+          89.0,
+          11.999999046325684
+        ]
+      ],
+      "size_mm": [
+        219.0,
+        178.0,
+        12.0
+      ],
+      "volume_mm3": 215777.944,
+      "sha256": "0e1d98cb6bbf4a55aceed41e74a192826d037597273cb8d6f87e8e5ef81b130b",
+      "source": "enclosure_lid.scad",
+      "parameters": {}
+    },
+    "electronics_tray": {
+      "triangles": 7572,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -83.5,
+          -60.0,
+          0.0
+        ],
+        [
+          83.5,
+          60.0,
+          11.5
+        ]
+      ],
+      "size_mm": [
+        167.0,
+        120.0,
+        11.5
+      ],
+      "volume_mm3": 66144.702,
+      "sha256": "2822676c14dbddbcccf12de0d4499a01ff5f63c232c2a725126420774294ce8c",
+      "source": "electronics_tray.scad",
+      "parameters": {}
+    },
+    "relay_board_sled": {
+      "triangles": 2380,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -31.0,
+          -50.0,
+          0.0
+        ],
+        [
+          31.0,
+          50.0,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        62.0,
+        100.0,
+        3.0
+      ],
+      "volume_mm3": 16749.803,
+      "sha256": "cf5a3101b2498cf5dc0aacfc2421a1026758d11168d65c6d2b3748866e6b5d31",
+      "source": "enclosure_board_sled.scad",
+      "parameters": {
+        "sled_type": "relay"
+      }
+    },
+    "utility_board_sled": {
+      "triangles": 2380,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -38.5,
+          -50.0,
+          0.0
+        ],
+        [
+          38.5,
+          50.0,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        77.0,
+        100.0,
+        3.0
+      ],
+      "volume_mm3": 21249.803,
+      "sha256": "ab7406585b6e9a76104e2fb659de67f64b08e83629e7a7e28c499145a6254952",
+      "source": "enclosure_board_sled.scad",
+      "parameters": {
+        "sled_type": "utility"
+      }
+    },
+    "camera_carrier": {
+      "triangles": 2840,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -18.0,
+          -33.0,
+          0.0
+        ],
+        [
+          18.0,
+          17.0,
+          16.0
+        ]
+      ],
+      "size_mm": [
+        36.0,
+        50.0,
+        16.0
+      ],
+      "volume_mm3": 4807.516,
+      "sha256": "182a9be35928fc97690c726f4d5ef52696fcc15e9c95f3e7b1887af67651474d",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "carrier"
+      }
+    },
+    "camera_foot": {
+      "triangles": 1604,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -30.0,
+          -20.0,
+          0.0
+        ],
+        [
+          30.0,
+          20.0,
+          24.0
+        ]
+      ],
+      "size_mm": [
+        60.0,
+        40.0,
+        24.0
+      ],
+      "volume_mm3": 11197.635,
+      "sha256": "cb4643ae7278173b3e3872c362313a8c0379e5bc1a39fb98c3e29a5f7ec9193f",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "foot"
+      }
+    },
+    "sensor_carrier": {
+      "triangles": 1296,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -32.0,
+          -41.0,
+          0.0
+        ],
+        [
+          32.0,
+          25.0,
+          16.0
+        ]
+      ],
+      "size_mm": [
+        64.0,
+        66.0,
+        16.0
+      ],
+      "volume_mm3": 10500.039,
+      "sha256": "cfcb9b59be6a8fe4c3eb285c634ca0328bc7d5f63d20f1e4a1b775fa70604a3a",
+      "source": "sensor_carrier.scad",
+      "parameters": {}
+    },
+    "harness_saddle": {
+      "triangles": 1156,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -20.0,
+          -12.0,
+          0.0
+        ],
+        [
+          20.0,
+          12.0,
+          8.999999046325684
+        ]
+      ],
+      "size_mm": [
+        40.0,
+        24.0,
+        9.0
+      ],
+      "volume_mm3": 4667.347,
+      "sha256": "6109e76d3f3038ef9c4e9e89869a857f43c897e67e2ac80366c2b224ddf0b47a",
+      "source": "accessory_mounts.scad",
+      "parameters": {
+        "accessory_part": "harness_saddle"
+      }
+    },
+    "equipment_saddle": {
+      "triangles": 1132,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -38.5,
+          -24.0,
+          0.0
+        ],
+        [
+          38.5,
+          24.0,
+          8.999999046325684
+        ]
+      ],
+      "size_mm": [
+        77.0,
+        48.0,
+        9.0
+      ],
+      "volume_mm3": 22824.852,
+      "sha256": "e8f5f3cd847958ead3b831adbd7722d74b4f52b4f59c19ce25ba799a973a6a11",
+      "source": "accessory_mounts.scad",
+      "parameters": {
+        "accessory_part": "equipment_saddle"
+      }
+    },
+    "antenna_deck": {
+      "triangles": 2380,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -60.0,
+          -60.0,
+          0.0
+        ],
+        [
+          60.0,
+          60.0,
+          4.0
+        ]
+      ],
+      "size_mm": [
+        120.0,
+        120.0,
+        4.0
+      ],
+      "volume_mm3": 54906.08,
+      "sha256": "32e7bfb11d759bef6453f4b7539b37e85e5ae0699e5253c21347d8b7a6369ee9",
+      "source": "accessory_mounts.scad",
+      "parameters": {
+        "accessory_part": "antenna_deck"
+      }
+    }
+  },
+  "empty_interference_checks": [
+    "body_lid",
+    "body_tray",
+    "sled_clearance",
+    "pi_bores",
+    "tray_fixings",
+    "pi_keepout",
+    "stack_columns",
+    "stack_payloads",
+    "lid_nut_access",
+    "throttle_bores",
+    "frame_bores",
+    "frame_nut_access",
+    "arm_layer_hitch_bore",
+    "arm_servo_pattern",
+    "arm_layer_aux_bores",
+    "arm_tower_clearance",
+    "arm_joint_bores",
+    "arm_layer_root_clearance",
+    "arm_plate_clearance",
+    "arm_brace_stations",
+    "arm_brace_pair_clearance",
+    "arm_brace_insertion",
+    "arm_brace_bar_fit",
+    "arm_brace_bolt_bores",
+    "clamp_four_bolts",
+    "arm_layer_gland_paths",
+    "arm_layer_box_fasteners",
+    "arm_layer_tray_clearance",
+    "clamp_tube_fit",
+    "clamp_pin_bore",
+    "rod_lock_bores",
+    "rod_end_bores",
+    "rod_lock_bores_max",
+    "rod_clamp_interface",
+    "rod_clamp_sweep",
+    "rod_servo_sweep",
+    "tongue_bore",
+    "tongue_aux_bores",
+    "tower_wall_bores",
+    "tower_foot_bores",
+    "tower_port",
+    "tower_body_clearance",
+    "tower_lid_clearance",
+    "tower_joint",
+    "tower_cable_path",
+    "tower_cap_bores",
+    "tower_cap_socket",
+    "estop_cover",
+    "estop_contacts",
+    "estop_bore",
+    "camera_bores",
+    "camera_pitch",
+    "sensor_pitch"
+  ],
+  "nonempty_contact_checks": [
+    "arm_brace_bar_contact_0",
+    "arm_brace_bar_contact_1",
+    "arm_brace_bar_contact_2",
+    "arm_root_seat_contact_0",
+    "arm_root_seat_contact_1"
+  ]
+}

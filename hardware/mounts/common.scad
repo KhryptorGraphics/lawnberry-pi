@@ -1,133 +1,79 @@
-// Shared parameters and helper modules for the LawnBerry Pi zero-turn
-// actuation mounts (Toro TimeCutter 50" conversion).
-//
-// DESIGN BASIS -- researched, not guessed:
-//   * Frame is 3" x 1.5" x 0.120" wall RECTANGULAR steel tube (Toro published
-//     spec for the TimeCutter/TimeCutter MAX carrier frame). It is NOT round,
-//     so frame mounts use a saddle plate + U-bolts, not a round clamp.
-//   * Lap-bar tube OD is NOT published by Toro. Universal ZTR accessory
-//     brackets quote a 0.8"-2" fit range, so the lap-bar saddle is
-//     parametric and U-bolted rather than a fixed-diameter split clamp.
-//
-// U-bolts do the clamping everywhere. That is deliberate: a printed clamp ear
-// carrying the preload of a bolt is the weakest possible arrangement, and
-// U-bolts also absorb the dimensional uncertainty above. Printed parts here
-// only locate and spread load; steel takes the tension.
-
+// Shared dimensions in mm; FDM fit allowances are design choices, not tolerances
+// guaranteed by vendors. Exact mower model/serial and printer remain unknown.
+// 76.2 x 38.1 rectangular rail is an UNVERIFIED selected envelope, not a
+// specification for all TimeCutters (Toro also sells C-channel frames).
 $fn = 64;
+frame_rail_w = 76.2;                // depth wrapped by square U-bolt
+frame_rail_h = 38.1;                // contact face width between U-bolt legs
+frame_ubolt_inside_w = 40;
+frame_ubolt_leg_nominal_d = 8;
+frame_ubolt_center_pitch = frame_ubolt_inside_w + frame_ubolt_leg_nominal_d;
+frame_ubolt_leg_hole_d = 9;
+frame_ubolt_backing_t = 3;
+frame_ubolt_washer_t = 2.4;
+frame_ubolt_nut_h = 8;
+frame_ubolt_thread_projection = 3;  // beyond full nut, not a second nut engagement
+// Four-bolt printed steering-bar clamp. The 25.4 mm tube is only a coupon default;
+// measure the actual lap-bar tube and tune its fit before printing working clamps.
+clamp_tube_od_mm = 25.4;
+clamp_tube_clearance_mm = 0.4;
+clamp_shell_mm = 10;
+clamp_bolt_x_mm = 18;
+clamp_bolt_clear_mm = 5.5;          // four M5 clamp bolts
+clamp_nut_af_mm = 8.2;
+clamp_nut_depth_mm = 4.8;
+clamp_pin_bore_mm = 6.6;
+clamp_rod_eye_length_mm = 32;
+clamp_rod_eye_width_mm = 20;
+clamp_rod_eye_t_mm = 8;             // printed single-eye lug thickness
+clamp_rod_gap_mm = 9;               // yoke clearance around the eye, nominally 0.5 mm per side
+clamp_yoke_span_mm = 42;            // ear width clears the eye through its planar sweep
+clamp_yoke_reach_mm = 42;           // total outboard yoke extension from the clamp body
+clamp_yoke_root_overlap_mm = 4;     // fuse each printed ear into its half beyond the bar opening
+clamp_yoke_sweep_clearance_mm = 1;
+clamp_gauge_wall_mm = 5;
+clamp_r_mm = (clamp_tube_od_mm + clamp_tube_clearance_mm) / 2;
+clamp_half_h_mm = clamp_r_mm + clamp_shell_mm;
+clamp_bolt_y_mm = clamp_r_mm + 7;
+clamp_w_mm = 2 * (clamp_bolt_y_mm + clamp_shell_mm);
+clamp_l_mm = 2 * (clamp_bolt_x_mm + 7);
+clamp_gauge_index = 1;
 
-// ------------------------------------------------------------ machine (known)
-// Toro published carrier-frame spec, converted from 3" x 1.5" x 0.120".
-frame_rail_w      = 76.2;   // 3"
-frame_rail_h      = 38.1;   // 1.5"
+function clamp_rod_eye_sweep_radius_mm() =
+    sqrt(pow(clamp_rod_eye_length_mm/2, 2) + pow(clamp_rod_eye_width_mm/2, 2));
 
-// MEASURE: lap-bar tube OD. 25.4 (1") is the common ZTR size and a sane
-// starting guess, but Toro does not publish it -- calipers, then re-render.
-lapbar_tube_od    = 25.4;
+// Exact listing's RDS51150 stationary-holder SIDE drawing, not bottom holes.
+// RDS51150 vs purchased RDS51150SG revision must be confirmed with the coupon.
+servo_side_hole_pitch = 24;
+servo_side_hole_clear_d = 2.9;       // M2.5 with 0.4 mm diametral allowance
+servo_side_tool_bore_d = 6;
+m3_clear = 3.4;
+m4_clear = 4.5;
+m5_clear = 5.5;
+m6_clear = 6.4;
+m8_clear = 8.4;
+wall = 5;
+clearance = 0.4;
 
-// ----------------------------------------------------------------- servo
-// DSSERVO RDS51150SG, manufacturer spec: 65 x 30 x 48 mm, 165 kg.cm @ 12V,
-// 0.21 s/60deg. Ships with U-shaped aluminium holders; these mounts bolt to
-// those holders rather than gripping the servo body.
-servo_body_l      = 65;
-servo_body_w      = 30;
-servo_body_h      = 48;
-// MEASURE: hole spacing on the supplied U-bracket. Slots absorb error.
-servo_bracket_hole_spacing_x = 50;
-servo_bracket_hole_spacing_y = 20;
+function frame_ubolt_required_leg_length(saddle_t) =
+    frame_rail_w + saddle_t + frame_ubolt_backing_t + frame_ubolt_washer_t +
+    frame_ubolt_nut_h + frame_ubolt_thread_projection;
+function saddle_width(pitch, bore) = pitch + bore + 2 * wall;
 
-// --------------------------------------------------------------- fixings
-m3_clear          = 3.4;
-m4_clear          = 4.5;
-m5_clear          = 5.5;
-m6_clear          = 6.4;
-m8_clear          = 8.4;
 
-// U-bolt leg diameter. 5/16" (7.94) is typical for a 3" square U-bolt;
-// 1/4" (6.35) for a 1" round one.
-ubolt_leg_frame   = 8.4;    // 5/16" + clearance
-ubolt_leg_lapbar  = 6.8;    // 1/4"  + clearance
-
-// ----------------------------------------------------------------- print
-wall              = 5.0;    // structural wall; do not thin below 4 mm
-saddle_wall       = 8.0;    // under a U-bolt, where load concentrates
-clearance         = 0.4;    // printer fit clearance, tune per machine
-
-// ---------------------------------------------------------------- helpers
-
-// Slotted hole -- absorbs mounting error without a reprint.
 module slot(d, len, h) {
-    hull() {
-        translate([-len / 2, 0, 0]) cylinder(h = h, d = d);
-        translate([ len / 2, 0, 0]) cylinder(h = h, d = d);
-    }
+    hull() for (x = [-len / 2, len / 2]) translate([x, 0, 0]) cylinder(h = h, d = d);
 }
-
-// Rounded plate, centred on the origin, growing in +Z.
 module plate(l, w, t, r = 6) {
-    hull()
-        for (x = [-1, 1], y = [-1, 1])
-            translate([x * (l / 2 - r), y * (w / 2 - r), 0])
-                cylinder(h = t, r = r);
+    assert(l >= 2 * r && w >= 2 * r && t > 0);
+    hull() for (x = [-1, 1], y = [-1, 1])
+        translate([x * (l / 2 - r), y * (w / 2 - r), 0]) cylinder(h = t, r = r);
 }
-
-// Centre-line offset of a U-bolt leg from the tube axis: half the tube, half
-// the leg, fit clearance, plus a little standoff so the leg does not scrub
-// the tube corner.
-function ubolt_leg_offset(tube_across, leg) =
-    tube_across / 2 + leg / 2 + clearance + 1.5;
-
-// Minimum saddle width that keeps `wall` of material outboard of the U-bolt
-// legs. Computed, not hardcoded -- getting this wrong breaks the holes out
-// through the edge of the part.
-function saddle_width(tube_across, leg) =
-    2 * (ubolt_leg_offset(tube_across, leg) + leg / 2 + wall);
-
-// Saddle that seats against a flat face of the rectangular frame rail and is
-// held by two U-bolts wrapping the rail. Solid; subtract frame_ubolt_slots()
-// and add your own boss.
-//   span = distance between the two U-bolt centre lines
-module frame_saddle(l, t, span, leg = ubolt_leg_frame) {
-    difference() {
-        plate(l, saddle_width(frame_rail_h, leg), t, r = 8);
-        // Shallow relief so the saddle beds onto the rail face rather than
-        // rocking on a flat-to-flat contact.
-        translate([0, 0, -0.01])
-            cube([l + 2, frame_rail_h + clearance * 2, 1.2], center = true);
-    }
+module frame_saddle(l, t, span, leg = frame_ubolt_leg_hole_d) {
+    assert(l / 2 - span / 2 - leg / 2 >= 5, "U-bolt hole too near saddle end");
+    plate(l, saddle_width(frame_ubolt_center_pitch, leg), t, 8);
 }
-
-// The two U-bolt leg pairs for a frame saddle. Subtract from the saddle.
-module frame_ubolt_slots(t, span, leg = ubolt_leg_frame) {
+module frame_ubolt_slots(t, span, leg = frame_ubolt_leg_hole_d) {
     for (x = [-1, 1], y = [-1, 1])
-        translate([x * span / 2,
-                   y * ubolt_leg_offset(frame_rail_h, leg),
-                   -1])
-            cylinder(h = t + 2, d = leg);
+        translate([x * span / 2, y * frame_ubolt_center_pitch / 2, -1]) cylinder(h = t + 2, d = leg);
 }
-
-// 90-degree V-groove seat for a round tube, apex down, opening +Z, tube axis
-// along X. Subtract from a saddle body whose top face is at z = top.
-//
-// WHY A V AND NOT A MATCHED RADIUS
-// Toro does not publish the lap-bar tube OD, and it could not be found in the
-// operator's manual, setup instructions, service manual, product page, parts
-// catalogues or grip listings. A V-groove makes that irrelevant: any tube
-// inside v_range() seats concentrically and self-centres, and the U-bolt pulls
-// it down into the V. A matched-radius cradle would have been a guess that
-// fits exactly one diameter.
-//
-// Trade-off worth knowing: the tube centre sits 0.707*D above the apex, so
-// its height above the saddle varies with diameter. That shifts the pushrod
-// eye slightly relative to the tube axis -- harmless for a ball-jointed link,
-// and the rod length is adjustable anyway.
-module v_seat(len, depth, top) {
-    translate([len / 2, 0, 0])
-        rotate([0, -90, 0])
-            linear_extrude(height = len)
-                polygon([[top - depth, 0], [top + 1, -(depth + 1)],
-                         [top + 1,  (depth + 1)]]);
-}
-
-// Tube diameters a V-groove of this depth will seat sensibly.
-function v_range(depth) = [depth * 0.75, depth * 2.0];
