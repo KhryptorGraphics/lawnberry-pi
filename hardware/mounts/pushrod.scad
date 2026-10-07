@@ -18,9 +18,11 @@
 // with a 29.1 mm solid inner bar sliding in the last piece. The old 32 mm tube /
 // 21.1 mm bar stretched to this span buckles below the servo stall force.
 // Two steel M6 bolts lock the inner bar at one of rod_index_count settings; each
-// spigot splice takes two more. The servo end is a single eye outboard of the metal
-// output arm (one M6, washers set the trim); the lap-bar end is the single eye that
-// the printed clamp's paired yoke ears hold in double shear.
+// spigot splice takes two more. The servo end is a single eye on the kit crank's M6
+// pin, outboard of the metal arm (one M6, washers set the trim); the disc's perimeter
+// holes carry nothing and the arm bolts to the disc spline at the drawing's 61.4 mm
+// envelope. The lap-bar end is the single eye that the printed clamp's paired yoke
+// ears hold in double shear.
 //
 // Public interface (use <pushrod.scad>):
 //   rod_outer_piece(k), rod_outer(), rod_inner(), rod_assembly(index)

@@ -129,9 +129,23 @@ arm_joint_spigot = 30;
 arm_joint_spigot_h = 5;
 // Servo face is a LATERAL plate: the output shaft runs across the machine, so the
 // horn sweeps the YZ plane and the rod pushes the drive handle fore-and-aft.
-// 4-M2.5 on 24 mm from the RDS51150 stationary-holder SIDE drawing.
+// Vendor ANNIMOS B0C69W2QP7 dimensioned drawing (RDS51150): case 65 x 30 x 48 with the
+// output shaft along the 48 mm dimension. The mounting flange is the 65 x 30 face
+// perpendicular to the shaft; it carries 4-M2.5 on 24 x 24 and is the printed head's
+// mate. The kit's round disc sits on the output spline; case + disc is the drawing's
+// 61.4 mm overall axial envelope, and the metal crank's inner face lands on the disc.
+servo_case_l = 65;                     // case length, along Y (across the arm)
+servo_case_w = 30;                     // case width, along Z (up)
+servo_case_axial = 48;                 // case depth along the output shaft
+servo_axial_env = 61.4;                // drawing: case + disc, overall axial envelope
+servo_disc_t = servo_axial_env-servo_case_axial;   // disc proud of the flange: 13.4
+servo_disc_d = 30;                     // MEASURE: the drawing does not dimension the disc;
+                                       // ~30 mm scaled off its side view (= the case width)
+servo_shaft_offset_l = 0;              // MEASURE: output position along the case from the
+                                       // flange centre; the drawing draws it off-centre
+function servo_shaft_y() = assembly_arm_y+servo_shaft_offset_l;
 servo_face_t = 6;
-servo_face_w = 60;                     // along Y, across the arm
+servo_face_w = 70;                     // along Y, across the arm; covers the 65 mm flange
 servo_face_h = 60;                     // up
 servo_face_out_x = arm_col_d/2;       // outboard face of the column; the head's reach to
                                       // the servo plate is derived, never assumed
@@ -140,9 +154,11 @@ servo_face_out_x = arm_col_d/2;       // outboard face of the column; the head's
 // from the 77502 specification/product images and the measured servo station.
 // See TORO_77502_LINKAGE.md, then measure the lapbar_pin_* and crank values.
 // The crank is the RDS51150SG kit's metal output arm/holder, crank-up at neutral.
-servo_crank_r = 55;          // pin radius on the metal crank; >=55 clears the disc at +/-35 deg
+servo_crank_r = 55;          // MEASURE the kit arm's pin radius; rod_servo_sweep proves the
+                             // rod transition clears the case and disc over +/-35 deg
 servo_crank_t = 4;           // metal arm thickness at that pin; MEASURE
-servo_crank_face_x = 33;     // inner face outboard of the holder face: 30 body + 3 disc
+servo_crank_face_x = servo_axial_env;  // crank inner face = disc outer face; the drawing's
+                             // 61.4 mm overall envelope, NOT a 30 mm body plus a 3 mm disc
 servo_crank_washer = 2.5;    // washer stack between arm and rod eye; absorbs trim
 servo_crank_travel_deg = 35; // each way from vertical neutral; swept in fit_checks
 lapbar_pin_fwd_mm = 889;     // ESTIMATE 35 in: hitch-hole centre forward to clamp pin
@@ -151,22 +167,26 @@ lapbar_pin_dz_mm = 0;        // clamp pin above crank pin at neutral; 0 keeps ro
 function servo_crank_eye_x() = servo_station_x+servo_crank_face_x+servo_crank_t
                                +servo_crank_washer+clamp_rod_eye_t_mm/2;
 function servo_crank_pin_at(side, angle) =
-    [side*servo_crank_eye_x(), assembly_arm_y+servo_crank_r*sin(angle),
+    [side*servo_crank_eye_x(), servo_shaft_y()+servo_crank_r*sin(angle),
      arm_tip_z+servo_crank_r*cos(angle)];
 function servo_crank_pin(side) = servo_crank_pin_at(side, 0);
 function lapbar_pin(side) =
     [side*lapbar_pin_x_mm, tongue_bolt_y()+lapbar_pin_fwd_mm,
      arm_tip_z+servo_crank_r+lapbar_pin_dz_mm];
-// Vendor body 65 x 30 x 48 outboard of the holder face, plus its 61.4 mm disc.
+// Vendor case 65 x 30 x 48 outboard of the mounting flange, then the kit's disc on the
+// output spline, out to the drawing's 61.4 mm overall axial envelope.
 module servo_body_envelope(side) {
-    translate([side > 0 ? servo_station_x : -servo_station_x-30,
-               assembly_arm_y-32.5, arm_tip_z-24]) cube([30,65,48]);
-    translate([side*(servo_station_x+30)-(side > 0 ? 0 : 3), assembly_arm_y, arm_tip_z])
-        rotate([0,90,0]) cylinder(d=61.4,h=3);
+    translate([side > 0 ? servo_station_x : -servo_station_x-servo_case_axial,
+               servo_shaft_y()-servo_case_l/2, arm_tip_z-servo_case_w/2])
+        cube([servo_case_axial,servo_case_l,servo_case_w]);
+    translate([side > 0 ? servo_station_x+servo_case_axial
+                        : -servo_station_x-servo_case_axial-servo_disc_t,
+               servo_shaft_y(), arm_tip_z])
+        rotate([0,90,0]) cylinder(d=servo_disc_d,h=servo_disc_t);
 }
 // Metal output arm at a crank angle (0 = up), inner face on the servo disc.
 module servo_crank_arm(side, angle) {
-    shaft = [0,assembly_arm_y,arm_tip_z];
+    shaft = [0,servo_shaft_y(),arm_tip_z];
     pin = servo_crank_pin_at(side, angle);
     hull() for(p=[shaft,pin])
         translate([side > 0 ? servo_station_x+servo_crank_face_x

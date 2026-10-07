@@ -5,7 +5,9 @@
 // have a closed rectangular beam section with a central web and a solid bolt-root.
 //
 // Servo interface: RDS51150 stationary-holder SIDE, 4-M2.5 on 24 x 24 mm from the
-// ANNIMOS listing drawing. Verify the RDS51150SG revision and actual holder before use.
+// ANNIMOS listing drawing. Confirmed 2026-10-07: the holder's 65 x 30 mounting face
+// carries this pattern and is the printed head's only mate; the further holes in the
+// user's photos are not fastening points. Verify the RDS51150SG revision before use.
 // Hitch interface: 20 mm hole/aux M6 centres mirror the *enclosure* tongue, not a
 // verified mower hitch drawing. A single central bolt does not establish a torque
 // path for opposed servos. Use the aux holes only when the actual hitch plate can be
@@ -275,7 +277,8 @@ module arm_head() {
                 // rib, upright, outboard of the mating plane
                 translate([0,-arm_col_w/2,0])
                     cube([servo_face_dx()-servo_face_t,arm_col_w,arm_head_rise()+servo_face_h/2]);
-                // servo face: normal along the machine's X, so the horn sweeps YZ
+                // servo face: normal along the machine's X, so the horn sweeps YZ;
+                // the land covers the holder's whole 65 x 30 flange
                 translate([servo_face_dx()-servo_face_t,-servo_face_w/2,arm_head_rise()-servo_face_h/2])
                     cube([servo_face_t,servo_face_w,servo_face_h]);
             }

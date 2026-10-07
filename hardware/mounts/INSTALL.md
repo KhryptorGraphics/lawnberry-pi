@@ -140,8 +140,8 @@ four M6 ×55 splice bolts, two M6 ×55 lock bolts, one M6 ×55 clamp-yoke pin, a
 pin, each with washers and a locking nut. Verify actual stacks before ordering.
 The 40 mm square tube has 5 mm walls; the 29.1 mm inner bar slides with 0.45 mm clearance per side.
 
-The default **940 mm** pin length is the Toro TimeCutter MAX 50 in MyRIDE estimate in
-`TORO_77502_LINKAGE.md`, not a measurement. The three lock settings give 925/940/955 mm.
+The default **936.9 mm** pin length is the Toro TimeCutter MAX 50 in MyRIDE estimate in
+`TORO_77502_LINKAGE.md`, not a measurement. The three lock settings give 921.9/936.9/951.9 mm.
 Measure first, set the clamp-pin and crank values in `enclosure_common.scad`, then rebuild.
 
 1. Select the loose/nominal/tight square-fit coupon. Join the three outer pieces spigot-first with
@@ -151,7 +151,7 @@ Measure first, set the clamp-pin and crank values in `enclosure_common.scad`, th
    of the metal arm with the 2.5 mm washer stack. Fit the inner eye between the clamp's paired yoke
    ears (9 mm gap). Both bores are Ø6.6 mm. Changing one lock step moves the servo eye 1.6 mm
    along its pin; correct it with washers.
-3. Both pin axes must stay parallel to the mower's left-right axis. The rod's 6.3° skew carries the
+3. Both pin axes must stay parallel to the mower's left-right axis. The rod's 4.54° skew carries the
    lap bar's extra outboard offset; it does not permit out-of-plane articulation. Do not bend the
    clamp, force a tilted pin, or use loose pins to hide a mismatch.
 4. With servos unpowered, hand-cycle neutral, full forward, full reverse and outboard PARK. Remove a

@@ -15,9 +15,9 @@ without lap-bar or hitch coordinates. Measure the lap-bar values below before pr
 | Lap-bar clamp pin from mower centreline | **14 in (356 mm)** | 13–15.5 in |
 | Clamp pin height | level with the servo crank pin | set by choosing the clamp height on the lever |
 | Rod pin span in the fore-and-aft plane | **934 mm (36.8 in)** | ≈ 830–1040 mm |
-| Rod pin-to-pin length | **940 mm (37.0 in)** | ≈ 33–41 in |
-| Lateral offset carried by the rod | **103 mm** outboard at the lap bar | ≈ 80–150 mm |
-| Built rod skew | **6.3°** | follows the measured offset |
+| Rod pin-to-pin length | **936.9 mm (36.9 in)** | ≈ 33–41 in |
+| Lateral offset carried by the rod | **74.2 mm** outboard at the lap bar | follows the `lapbar_pin_x_mm` estimate; the clamp point is not measured |
+| Built rod skew | **4.54°** | follows the offset |
 
 The CAD default uses the estimate. The rod trims ±15 mm (three lock settings); beyond that,
 re-enter the measured values and rebuild.
@@ -26,7 +26,8 @@ re-enter the measured values and rebuild.
 
 - **Measured station:** the servo face is 8¼ in (209.55 mm) left/right of the ball-hole centre and
   1 ft 6 in (457.2 mm) above the plate-top datum (`enclosure_common.scad`). The crank pin is
-  55 mm above the shaft at neutral; the rod eye plane is 43.5 mm outboard of the servo face.
+  55 mm above the shaft at neutral; the rod eye plane is 71.9 mm outboard of the servo face
+  (the drawing's 61.4 mm axial envelope plus the crank and eye stack).
 - **Toro data:** [model 77502 page](https://www.toro.com/en/product/77502): assembled depth
   80 in, width 61.5 in, height 47 in, 19 in seat, 20 in rear tyres, 3 × 1.5 in tubular frame,
   standard hitch bracket. [Operator's manual 3483-555](https://www.toro.com/getpub/281676): two-axis
@@ -42,22 +43,24 @@ re-enter the measured values and rebuild.
 - **Servo:** the supplied photo matches the listing used in `hardware.md`,
   [ANNIMOS B0C69W2QP7](https://www.amazon.com/dp/B0C69W2QP7): RDS51150SG, 18-tooth spline,
   165 kg·cm at 12 V, two U-shaped aluminium holders and two aluminium discs. The listing's
-  dimensioned drawing gives the 65 × 30 × 48 mm body, 61.4 mm disc and 24 × 24 mm M2.5 holder pattern.
+  dimensioned drawing gives the 65 × 30 × 48 mm case with the output shaft along the
+  48 mm dimension, a 61.4 mm overall axial envelope (case plus the kit's disc), a disc of
+  about Ø30 mm that the drawing does not dimension, and the 24 × 24 mm M2.5 flange pattern.
 
 ## Why the rod changed
 
 | Problem in the 500–650 mm rod | Change |
 |---|---|
-| About 300 mm too short for this machine | 940 mm default pin length from the estimate above |
-| Stretched to 940 mm, the 32 mm tube / 21.1 mm inner bar buckles below the 540 N stall force at a 30 mm horn (margin 0.77) | 40 mm × 5 mm square tube in three bolted pieces plus a 29.1 mm inner bar: Euler load ≈ 1.96 kN at E = 1.5 GPa |
+| About 300 mm too short for this machine | 936.9 mm default pin length from the estimate above |
+| Stretched to ~937 mm, the 32 mm tube / 21.1 mm inner bar buckles below the 540 N stall force at a 30 mm horn (margin 0.77) | 40 mm × 5 mm square tube in three bolted pieces plus a 29.1 mm inner bar: Euler load ≈ 1.96 kN at E = 1.5 GPa |
 | Horn pointed along the rod at neutral, so the servo started near dead centre | Metal crank points **up** at neutral, square to a level rod |
-| Servo fork prongs would collide with the 61.4 mm disc and body | Single eye outboard of the metal arm; fit check sweeps it ±35° against the body, disc and crank |
-| Planar YZ placement required the lap bar directly in front of the servo | Both pins remain global X; the eye fittings carry a 6.3° built skew |
+| Servo fork prongs would collide with the disc and the case | Single eye outboard of the metal arm; fit check sweeps it ±35° against the case, disc and crank |
+| Planar YZ placement required the lap bar directly in front of the servo | Both pins remain global X; the eye fittings carry a 4.54° built skew |
 
-At the 55 mm crank radius required for disc clearance, the stall force is
+At the 55 mm crank radius assumed for the kit arm, the stall force is
 16.2 N·m / 0.055 m ≈ **295 N**, giving an Euler margin of about **6.7**. The buckling check
 treats the splices as continuous and uses a modulus assumption; it is not a strength rating.
-The skew adds an axial thrust of about 0.11 × rod force on each pin. The clamp ears and
+The skew adds an axial thrust of about 0.079 × rod force on each pin. The clamp ears and
 servo-arm washers carry that thrust.
 
 ## Measure before printing
@@ -71,9 +74,11 @@ servo-arm washers carry that thrust.
    - distance from the mower centreline → `lapbar_pin_x_mm`
    - height relative to the crank pin → `lapbar_pin_dz_mm` (0 = level rod)
 3. On the servo's metal arm/holder, measure the pin hole radius from the output shaft and the
-   arm thickness → `servo_crank_r`, `servo_crank_t`. The rod section needs ≥ 55 mm at ±35°.
-   If the kit part is shorter, use a steel crank plate bolted to the disc or reduce
-   `servo_crank_travel_deg`, then let `rod_servo_sweep` recheck it.
+   arm thickness → `servo_crank_r`, `servo_crank_t`; caliper the case and the disc and set
+   `servo_disc_d` (the drawing does not dimension it). 55 mm is a placeholder radius. The eye
+   and rod transition must clear the case and disc over ±35°, which `rod_servo_sweep` decides.
+   If the kit part is shorter or the sweep fails, use a steel crank plate bolted to the disc
+   or reduce `servo_crank_travel_deg`, then rebuild.
 4. Move each lever fully forward and reverse and record the clamp-pin travel. With a 55 mm crank,
    ±35° gives ±31.5 mm of rod travel. More travel needs a longer crank and recalculated force.
 5. **MyRIDE check:** while the operator rides, measure fore-aft movement of each clamp pin relative

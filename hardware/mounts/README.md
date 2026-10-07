@@ -13,7 +13,7 @@ There are no replacement drive-motor mounts in this package.
    measure the hitch plate's hole, width, depth and thickness. Plate dimensions remain unverified.
 2. Print `hitch_gauge`, `arm_layer_gauge`, `fit_gauge_2`, all three `lapbar_clamp_gauge_*`
    coupons, and all three `pushrod_gauge_*` coupons. Measure the steering tubes and servo-holder revision.
-3. The rods are generated from an **estimate** (`TORO_77502_LINKAGE.md`): 940 mm pin-to-pin.
+3. The rods are generated from an **estimate** (`TORO_77502_LINKAGE.md`): 936.9 mm pin-to-pin.
    Measure the lap-bar clamp point, crank radius and travel; set `lapbar_pin_*`/`servo_crank_*`
    in `enclosure_common.scad` and rebuild before printing rods.
 4. The printed center layer, arms, clamps and rods are **fit/load-test prototypes**, not qualified
@@ -32,12 +32,12 @@ but mower clearance and load capacity remain unverified.
 
 | Interface | Basis and current treatment |
 |---|---|
-| RDS51150 stationary-holder **side** | Exact ANNIMOS listing drawing shows four M2.5 holes on **24 × 24 mm** centres; print bores Ø2.9. Replaces the unsupported 50 × 20 M5 pattern. Drawing says RDS51150; verify the purchased RDS51150SG revision with the coupon. |
+| RDS51150 stationary-holder **side** | Confirmed 2026-10-07: the holder's **65 × 30 mm** mounting flange — the case face square to the output shaft — carries four M2.5 holes on **24 × 24 mm** centres, and only those four fasten; print bores Ø2.9. Replaces the unsupported 50 × 20 M5 pattern. Drawing says RDS51150; verify the purchased RDS51150SG revision with the coupon. |
 | Hitch sandwich + arm layer | The enclosure flange is **211 × 170 mm**; an 8 mm center layer continues to the modeled hitch hole and has 42 mm side ears (STL envelope **295 × 285 × 8 mm**). Hole Ø20.8 and auxiliary M6 centres ±40 mm mirror the unverified enclosure tongue. The **160 × 120 × 8 mm** mower-plate envelope is schematic; measure it. |
 | Splayed servo arm | **MEASURED** station: servo face **209.55 mm** left/right of the ball-hole centre, **457.2 mm** from its plate-top datum, splayed **12.58°** from vertical. The axis extrapolates to x=±110, while the solid 60 × 70 × 50 mm root seats on the center layer **top** at z=0 and y=123. Four M6 per root enter upward into side-access steel nuts; the hollow 50 × 70 mm column has a through-channel and 6 mm walls/web. Lower arm joint at local t=355 mm; printed head retains a four-M6 flanged/spigoted lap and lateral servo face. Neither fit nor strength on the real mower is established. |
 | Arm sway bars | Three handed first-article braces per side land at z=110/190/250 mm. Each left/right half-jaw occupies its own side of the tower; the pair forms a rear-open U with a 0.4 mm centre gap. Fit from **+Y toward the box**, never from -Y or over a flange. Two top-loaded M4 nuts per half retain short screws bearing **outside** the USB-cable tube. Two M5 bores meet each arm pad's side-entry nuts, with 0.2 mm face clearance. These are **not steering-load parts**; test slip, creep, nut pullout and pad damage unpowered. |
 | Lap-bar connector | Fully printed two-piece split clamp, four M5 bolts per side. Paired clamp yoke ears capture one 32 × 20 × 8 mm rod eye in double shear with an M6 through-pin. Default tube OD **25.4 mm is coupon-only**; clamp preload, coating, slip and print strength need physical testing. |
-| Pushrods | Toro 77502 **estimate**: 940 mm pin-to-pin, 934 mm fore-aft span, lap-bar pin 103 mm outboard of the crank (6.3° built skew). 40 mm square tube, 5 mm walls, in three bolted pieces plus a 29.1 mm solid inner bar; three lock settings at 15 mm (±15 mm trim). Both ends are 32 × 20 × 8 mm eyes on Ø6.6 bores. The servo crank points up at neutral with a 55 mm minimum radius to clear the disc over ±35°. See [`TORO_77502_LINKAGE.md`](TORO_77502_LINKAGE.md). |
+| Pushrods | Toro 77502 **estimate**: 936.9 mm pin-to-pin, 934 mm fore-aft span, lap-bar pin 74.2 mm outboard of the crank (4.54° built skew — it fell from 103 mm/6.3° when the crank moved out to the drawing's 61.4 mm datum). 40 mm square tube, 5 mm walls, in three bolted pieces plus a 29.1 mm solid inner bar; three lock settings at 15 mm (±15 mm trim). Both ends are 32 × 20 × 8 mm eyes on Ø6.6 bores. The servo crank points up at neutral; its inner face lands on the kit disc at the drawing's **61.4 mm** overall axial envelope, and `rod_servo_sweep` proves the eye and rod transition clear the case and disc over ±35°. See [`TORO_77502_LINKAGE.md`](TORO_77502_LINKAGE.md). |
 | E-stop rail U-bolts | Selected BOM 40 mm inside + 8 mm leg = 48 mm centre pitch, printed Ø9. Used only by the E-stop fixture; the 76.2 × 38.1 mm rail remains unverified. |
 | E-stop HB2-ES545 | Listing drawing: Ø22 panel opening, Ø40 mushroom, 42 mm rear projection, 30 × 29 mm contact envelope. Print bore Ø22.5; 3 mm panel is a design choice, not a vendor maximum thickness. No guessed anti-rotation notch. |
 | Pi 5 | Official reference drawing: **85 × 56 mm PCB**, **58 × 49 mm** mounting pitch, 3.5 mm edge offsets, Ø2.7 PCB holes. Tray uses M2.5 with Ø2.9 through-bores. Pattern centre is offset 10 mm from board centre. |
@@ -88,7 +88,7 @@ CAD files. Never print an assembly view as one fused part.
 | `arm_layer_gauge` | 1 first | Coupon for the enclosure tongue's ball-hole/auxiliary-hole pattern. It is not a Toro hitch gauge. |
 | `lapbar_clamp_anchor`, `lapbar_clamp_cap` | 1 each per side | Fully printed two-piece clamp with paired yoke ears; four M5 through-bolts per side. The clamp pin passes through both ears and the single rod eye in double shear. Default Ø25.4 tube is sample-only. |
 | `lapbar_clamp_gauge_0`–`_2` | 1 each | Three diametral fit coupons; select from the measured tube OD and fit the actual print/material first. |
-| `pushrod_servo_end`, `pushrod_middle`, `pushrod_sleeve`, `pushrod_inner` | 1 each per side (2 sets) | One 940 mm rod per side; the same set serves both sides, turned 180° about its own axis on the left. Two M6 bolts per spigot splice, two M6 lock bolts, one M6 crank pin through the metal servo arm and one M6 pin through the clamp yoke. The servo end has a 5 mm vent; keep it clear. Generated from the estimate: measure first. |
+| `pushrod_servo_end`, `pushrod_middle`, `pushrod_sleeve`, `pushrod_inner` | 1 each per side (2 sets) | One 936.9 mm rod per side; the same set serves both sides, turned 180° about its own axis on the left. Two M6 bolts per spigot splice, two M6 lock bolts, one M6 crank pin through the metal servo arm and one M6 pin through the clamp yoke. The servo end has a 5 mm vent; keep it clear. Generated from the estimate: measure first. |
 | `pushrod_gauge_0`–`_2` | 1 each | Sliding-fit coupons (tight/nominal/loose) for the 29.1 mm inner bar in the 40 mm sleeve. |
 | `throttle_servo_mount` | 0 or 1 | Optional stationary-side fixture; four M6 slots at nominal 76 × 40 pitch with ±4 mm X travel. Installer-selected support, not a Toro panel pattern. |
 | `estop_bracket` | 1 | Ø22 mushroom panel with external gussets and two square U-bolts. |
@@ -183,7 +183,8 @@ along its hitch tongue. Two 42 mm side ears carry the detachable arms; its envel
 bolts inserted from beneath its free side ear into accessible side-loaded steel nuts.
 The root's 50 × 70 mm hollow column has 6 mm walls and central web. Two
 Ø8 side vents near its root open both channel lobes instead of trapping sealed
-voids; keep them unobstructed. Its servo holder face has four M2.5 on 24 × 24 mm.
+voids; keep them unobstructed. Its servo holder face has four M2.5 on 24 × 24 mm —
+the holder's 65 × 30 flange, and only those four screw.
 Print each lower arm lying flat, long axis in the bed plane. None of these
 prints is qualified for powered steering.
 
@@ -197,7 +198,7 @@ enclosure flange. Verify washer land on the side ears and clearance from the
 actual mower plate and tower before fastening.
 
 **Only the servo station is measured** — 209.55 mm out, on a 457.2 mm arm, splayed 12.58° from
-vertical. The crank, lap-bar clamp point and 940 mm rod are a Toro 77502 **estimate**
+vertical. The crank, lap-bar clamp point and 936.9 mm rod are a Toro 77502 **estimate**
 (`TORO_77502_LINKAGE.md`); every plate dimension is schematic. None are measured mower coordinates.
 
 The tongue/adapter also has two optional M6 auxiliary holes at x=±40, y=`tongue_bolt_y()`.
@@ -263,7 +264,11 @@ the tie points.
 - The two stationary servo holders bolt to the **lateral** 24 × 24 mm M2.5 pattern on each arm head.
   The output shaft runs across the machine. The kit's metal output arm or holder is the crank: it
   points **up** at neutral, square to the level rod, and the rod eye sits outboard of it on an
-  M6 pin. A crank radius below 55 mm lets the rod transition hit the 61.4 mm disc at ±35°.
+  M6 pin. The case and its disc are the drawing's 65 × 30 × 48 mm and 61.4 mm axial
+  envelope; the disc is about Ø30 and is not dimensioned on the drawing, so a caliper
+  reading replaces `servo_disc_d` before any clearance claim. A crank radius below
+  55 mm lets the rod transition hit the case and disc at ±35°; `rod_servo_sweep` is the
+  check that decides, not a fixed minimum.
   Keep the crank sweep clear of the camera tower column and its sway-bar collars.
 - Each tubular steering bar receives a two-piece printed clamp with **four M5 through-bolts per
   side** and broad washers. The OEM bar is not drilled. Tube OD, coating, clamp slip and long-term
@@ -272,7 +277,7 @@ the tie points.
 - Each rod is a straight member between parallel global-X pins. The lap bar is farther outboard
   than the servo, so the eye fittings carry the measured lateral offset as a built skew. Changing the
   lock setting moves the servo eye 1.6 mm along its pin; take that up with the 2.5 mm washer stack.
-  Larger changes need measured values and a rebuild. The skew adds about 0.11 × rod force as axial
+  Larger changes need measured values and a rebuild. The skew adds about 0.079 × rod force as axial
   thrust on both pins. Remove a pin to check manual PARK; the linkage cannot follow the outboard swing.
 - Each arm root uses four M6 through-bolts and washers/nuts, and each head joins its lower arm with
   four more M6 through a flanged, spigoted lap. The 50 × 70 × 6 mm-walled column and its 6 mm central
