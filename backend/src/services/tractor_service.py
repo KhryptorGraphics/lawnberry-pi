@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -64,7 +65,13 @@ def _servo_cal(raw: dict | None, channel: int, bidirectional: bool) -> ServoCali
 
 
 class TractorControlService:
-    """Actuation + interlock coordinator for the zero-turn mower."""
+    """Actuation + interlock coordinator for the zero-turn mower.
+
+    Every accepted actuation notifies an optional ``on_change`` callback
+    (see ``_notify``) so the W1 capture service can log ``commands.jsonl``
+    without polling; the emergency-stop path logs its safing values once,
+    after the servos.
+    """
 
     def __init__(self, config: dict[str, Any] | None = None):
         cfg = config if config is not None else _load_tractor_config()
@@ -101,7 +108,19 @@ class TractorControlService:
 
         # Safe initial state: both levers neutral, blade off, engine off.
         self.state = TractorState(enabled=self.enabled)
+        # Capture-stream hook; called on_change(kind, values, source) after every
+        # accepted actuation. None when nothing subscribed.
+        self.on_change: Callable[[str, dict[str, Any], str], None] | None = None
         self.initialized = False
+
+    def _notify(self, kind: str, source: str, **values: Any) -> None:
+        """Fire the capture hook. Logging must never break actuation."""
+        if self.on_change is None:
+            return
+        try:
+            self.on_change(kind, values, source)
+        except Exception:
+            logger.exception("tractor on_change hook failed (kind=%s)", kind)
 
     # ----------------------------- lifecycle -----------------------------
 
@@ -154,7 +173,9 @@ class TractorControlService:
 
     # --------------------------- actuator API ----------------------------
 
-    async def set_levers(self, left: float, right: float) -> dict[str, Any]:
+    async def set_levers(
+        self, left: float, right: float, source: str = "operator"
+    ) -> dict[str, Any]:
         """Command both drive levers together.
 
         The single chokepoint for lever commands: ``set_left_lever``,
@@ -174,25 +195,27 @@ class TractorControlService:
             await self.engage_blade(False)
         await self._apply_servo(self.left_lever, left, "left_lever")
         await self._apply_servo(self.right_lever, right, "right_lever")
+        self._notify("levers", source, left=self.state.left_lever, right=self.state.right_lever)
         return self._ok(
             left_lever=self.state.left_lever,
             right_lever=self.state.right_lever,
             moving=self.state.moving,
         )
 
-    async def set_left_lever(self, value: float) -> dict[str, Any]:
-        return await self.set_levers(value, self.state.right_lever)
+    async def set_left_lever(self, value: float, source: str = "operator") -> dict[str, Any]:
+        return await self.set_levers(value, self.state.right_lever, source=source)
 
-    async def set_right_lever(self, value: float) -> dict[str, Any]:
-        return await self.set_levers(self.state.left_lever, value)
+    async def set_right_lever(self, value: float, source: str = "operator") -> dict[str, Any]:
+        return await self.set_levers(self.state.left_lever, value, source=source)
 
-    async def set_throttle(self, value: float) -> dict[str, Any]:
+    async def set_throttle(self, value: float, source: str = "operator") -> dict[str, Any]:
         if self.state.emergency_stop_active:
             return self._reject("emergency stop active")
         await self._apply_servo(self.throttle, value, "throttle")
+        self._notify("throttle", source, throttle=self.state.throttle)
         return self._ok(throttle=self.state.throttle)
 
-    async def engage_blade(self, on: bool) -> dict[str, Any]:
+    async def engage_blade(self, on: bool, source: str = "operator") -> dict[str, Any]:
         if on:
             if self.state.emergency_stop_active:
                 return self._reject("emergency stop active")
@@ -204,6 +227,7 @@ class TractorControlService:
                 return self._reject("cannot engage blade while in reverse")
         self.blade_pto.set(on)
         self.state.blade_engaged = bool(on)
+        self._notify("blade", source, blade=self.state.blade_engaged)
         return self._ok(blade_engaged=self.state.blade_engaged)
 
     async def start_engine(self) -> dict[str, Any]:
@@ -231,7 +255,7 @@ class TractorControlService:
         self.state.engine = EngineState.OFF
         return self._ok(engine=self.state.engine.value)
 
-    async def emergency_stop(self) -> dict[str, Any]:
+    async def emergency_stop(self, source: str = "operator") -> dict[str, Any]:
         """Disengage the blade and center/idle the drive; leave the engine running.
 
         Each PWM-bearing actuation gets its own try/except: a PCA9685 bus
@@ -259,6 +283,7 @@ class TractorControlService:
             logger.exception("Tractor e-stop: throttle-to-idle actuation failed")
 
         self.state.interlock_reason = "emergency_stop"
+        self._notify("emergency_stop", source, left=0.0, right=0.0, throttle=0.0, blade=False)
         logger.warning("Tractor EMERGENCY STOP: blade off, levers neutral, throttle idle")
         return {"status": "emergency_stop", "engine": self.state.engine.value}
 
@@ -267,14 +292,16 @@ class TractorControlService:
         self.state.interlock_reason = None
         return self._ok()
 
-    async def apply(self, command: TractorCommand) -> dict[str, Any]:
+    async def apply(self, command: TractorCommand, source: str = "operator") -> dict[str, Any]:
         """Apply a full command, honoring interlocks (rejections are collected)."""
         results: dict[str, Any] = {}
-        results["throttle"] = await self.set_throttle(command.throttle)
-        results["levers"] = await self.set_levers(command.left_lever, command.right_lever)
+        results["throttle"] = await self.set_throttle(command.throttle, source=source)
+        results["levers"] = await self.set_levers(
+            command.left_lever, command.right_lever, source=source
+        )
         # Blade last: a reverse+blade-on command surfaces as a visible
         # "rejected" here rather than engaging then immediately auto-dropping.
-        results["blade"] = await self.engage_blade(command.blade_engaged)
+        results["blade"] = await self.engage_blade(command.blade_engaged, source=source)
         return {"status": "applied", "results": results, "moving": self.state.moving}
 
     def get_state(self) -> TractorState:
