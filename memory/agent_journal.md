@@ -222,3 +222,34 @@ wouldn't survive a restart; not fixed here.
 
 New contract test `test_get_ai_status_serializes_control_mode` — confirmed it
 returns 500 without the fix and 200 with it, rather than assuming.
+
+## 2026-10-06 — Toro zero-turn conversion, autonomy pipeline, W1 capture
+
+Branch `feat/toro-zero-turn-platform`. The tractor platform moved from the
+never-built Craftsman Ackermann design to a Toro TimeCutter MAX 50" MyRIDE
+(model 77502) zero-turn: twin-lever servos, the reverse rule "both levers
+negative", and IMU tilt-cutoff plus a watchdog wired to the tractor
+(constitution v4.0.0). The printable mounts were redesigned around measured
+splayed servo arms and estimated 940 mm pushrods. They are fit/load-test
+prototypes only. Autonomy work added the Pi↔Thor link and strategist (W6/W7),
+the workshop SDG/training pipeline (W2/W4/W5), and the W1 capture logger with
+its integrity gate.
+
+Verified facts that change earlier assumptions:
+
+- The Pi's accelerator is a **Hailo-8L**, not a Hailo-8. Compiles target
+  `hailo8l`. HailoRT 4.24 benchmarks: yolo26s 41.7 FPS, yolo26m 20.6 FPS.
+- **Stopping `lawnberry-backend` has taken the Pi off the network.** It
+  also stops the camera (PartOf=). About 10 s later the HaLow SPI driver
+  failed (`ret:-71`) and only a power-cycle recovered it. Restart the
+  backend only with physical access.
+- **The IMU is not usable.** `config.txt` has `dtparam=i2c_arm=off`, and
+  `BNO085Driver` returns a constant 0/0/0 on hardware. Buses 13/14 ACK every
+  address, so probing them would fake an ONLINE level IMU and silently
+  disable tilt cutoff.
+- **The latest SDG v1 run passed the rejection gate with blown-out RGB.**
+  37 of 40 sampled frames were white. The gate checks labels, not image
+  sanity. The run is kept as `v1-blown` and needs a re-render.
+
+Not done: the 60 s Pi capture session (indoors, no RTK; backend-restart
+hazard above), real IMU support, DFC compile (wheel needs a Hailo login).
