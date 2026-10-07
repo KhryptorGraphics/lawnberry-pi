@@ -163,6 +163,33 @@ for the actuation/navigation workstream, not yet resolved here.
   not fixed by this document.
 - UI: the **Tractor** dashboard view (`/tractor`).
 
+## Pi ↔ Thor link (autonomy W7)
+
+The Thor runs strategy (coverage plan, waypoints); the Pi keeps every safety
+decision. `backend/src/models/thor_link.py` defines protocol v1: one compact JSON
+UDP datagram per message, at most 1,200 B. The uplink (10 Hz) carries position,
+RTK fix, distilled detections and health; raw imagery never crosses HaLow. The
+downlink carries waypoint windows (at most 16 per datagram, indexed by
+`start_index`) or `pause`. `backend/src/services/thor_link_service.py` is the Pi's
+slow loop. It is separate from `TractorSafetyMonitor` and the watchdog, and never
+feeds them. When no valid downlink arrives within 0.5 s, or on `pause`, it enters
+**safe hold**: blade off, then both levers neutral through the interlocked
+`TractorControlService` methods, without revoking authorization (the
+acceptance-criteria soft stop). It re-asserts neutral if anything moves the mower
+while held, and resumes only on a fresh plan.
+
+On the Thor, `backend/src/nav/thor_strategist.py` answers each uplink with the next
+waypoint window. It pauses unless the fix is `rtk_fixed`, adds confident detections
+as keep-out circles and replans the uncovered remainder, never regresses progress on
+stale reports, and saves/loads coverage state for resume. In-sim tests
+(`tests/unit/test_thor_strategist.py`) show >97% coverage with zero boundary/no-go
+leg violations on a 60 × 40 m yard with a flower bed. They do not include learned
+policy or Isaac Sim runs (W3/W4 blocked).
+
+**Not yet wired into `main.py`.** It stays unwired until rung 1 (bench) of the
+test ladder, so two unproven subsystems never go live together. Toolchain status
+per host is in `docs/autonomy-toolchain-matrix.md`.
+
 ## Code
 
 - `models/tractor_control.py`, `drivers/actuators/tractor_actuators.py`,

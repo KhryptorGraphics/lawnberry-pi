@@ -84,6 +84,7 @@ data/*.json
 data/*.csv
 data/exports/
 memory/*.json
+workshop/sdg_assets.generated.json
 
 # Process files
 *.pid

@@ -22,6 +22,9 @@ Tip: Use your editor’s outline and the section links below to jump to an area 
 | `backend/src/services/sensor_manager.py` | Aggregates and validates readings (GPS/RTK, BME280, ToF, INA3221, Victron) and computes derived statuses. | Sensors/telemetry | Public helpers (non‑private shown): validation and mapping helpers, e.g., `_map_rtk_fix_type`, `_map_sensor_status` (internal); top‑level API is via service class instance methods. |
 | `backend/src/services/navigation_service.py` | Orchestrates navigation lifecycle (missions, return‑to‑base, coverage). | Navigation | Service class public API (see methods exposed via FastAPI); delegates to `nav/*` algorithms. |
 | `backend/src/services/mission_service.py` | Mission execution and lifecycle management; integrates with NavigationService. | Missions | `get_mission_service(nav_service: NavigationService) -> MissionService`. |
+| `backend/src/models/thor_link.py` | Versioned Pi↔Thor UDP link protocol (W7): compact uplink/downlink models with a per-datagram byte budget. | Autonomy link | `encode(message) -> bytes`, `decode_uplink(data) -> Uplink`, `decode_downlink(data) -> Downlink`, `worst_case_link_bytes_per_second() -> float`; models `Detection`, `Uplink`, `Waypoint`, `Downlink`; `LinkBudgetError`. |
+| `backend/src/services/thor_link_service.py` | Pi-side slow network loop to the Thor; enters non-revoking safe hold (levers neutral, blade off) on link timeout or pause; decoupled from the fast safety loop. | Autonomy link | `ThorLinkService(tractor, thor_addr, bind_addr=("0.0.0.0", 47101), timeout_s=0.5, uplink_hz=10.0, build_uplink=None, clock=time.monotonic)`; `start()`, `stop()`, `tick()`, `link_fresh() -> bool`, `current_plan() -> Downlink \| None`. |
+| `backend/src/nav/thor_strategist.py` | Thor-side coverage strategist (W6): boustrophedon plan inside boundary minus no-go zones, visibility-graph transits, obstacle replans from uplinks, progress tracking and JSON resume. Runs on the Thor; decides where, never whether safe. | Autonomy strategy | `ThorStrategist(boundary, no_go=None, config=None, plan_id="plan")`; `replan(start=None)`, `on_uplink(up) -> Downlink`, `waypoints()`, `coverage_fraction(upto=None)`, `violations()`, `free_area()`, `leg_is_legal(a, b)`, `save(path)`, `load(path)`; `StrategyConfig`, `PlanError`. |
 | `backend/src/services/jobs_service.py` | Lightweight job scheduler for recurring/one‑off tasks with persistence. | Jobs/scheduling | Public methods: `get_job(job_id)`, `update_job(job_id, **updates)`, `delete_job(job_id)`, `start_job(job_id)`, `pause_job(job_id)`, `resume_job(job_id)`, `cancel_job(job_id)`, `get_next_scheduled_jobs(limit=10)` |
 | `backend/src/services/websocket_hub.py` | Tracks WebSocket clients and dispatch; lifecycle and disconnect management. | Realtime/websocket | Class with `disconnect(client_id: str)` and related management APIs. |
 | `backend/src/services/telemetry_hub.py` | WebSocket telemetry fan‑out per client and hub; health reporting. | Realtime/websocket | `is_healthy() -> bool` and client/session management on service classes. |
@@ -96,12 +99,29 @@ Many Bash and Python scripts automate setup, backups, diagnostics, and validatio
 | `scripts/generate_docs_bundle.py` | Bundle docs for distribution. | Docs | Module CLI (see source). |
 | `scripts/rtk_diagnostics_watch.py` | Continuously monitor RTK status/output. | Navigation/GPS | Module CLI (see source). |
 | Other helpers under `.specify/scripts/bash/` | Internal feature plan tooling for agent context updates. | Meta/tooling | Many small shell functions; see sources. |
+| `scripts/isaacsim-headless.sh` | Run an Isaac Sim 6.0 Python script headless in the NGC container on the workshop (repo at `/workspace`, data root `$LB/data` at `/data`). | Workshop/simulation | CLI: `isaacsim-headless.sh script.py [args...]`; env `ISAACSIM_GPU` (default 1 = 3080 Ti), `ISAACSIM_IMAGE`, `ISAACSIM_CACHE` (default `~/nvme2/lawnberrypiserver/cache/isaacsim`), `LB_DATA`. |
+| `scripts/isaacsim-rdp.sh` | Open the Isaac Sim desktop app inside the caller's xrdp session (xorgxrdp or Xvnc), never the console; exports the X cookie for the container user; mounts `$LB/data` at `/data`. | Workshop/simulation | Shell function: `rdp_display`; CLI passes extra args to `isaac-sim.sh`. |
+| `scripts/pi_install_hailort.sh` | Install a from-source HailoRT (driver, libhailort, hailortcli, Hailo-8L firmware via update-alternatives) on the mower Pi; holds apt pkgs; rollback in header. | Ops/Pi | CLI: `pi_install_hailort.sh VERSION [BUILD_DIR]`; env `SUDO_PASS`. |
+| `scripts/hailo_compile.sh` | W5 DFC compile of a trained ONNX to a `hailo8l` HEF, deploy + smoke on the Pi, evaluate; blocked only on the DFC wheel. | Workshop/models | CLI: `hailo_compile.sh --tag TAG [--dry-run]`. |
 
 ## Tools and misc.
 
 | Path | Purpose | Subsystem | Callable interfaces |
 |---|---|---|---|
 | `backend/src/tools/log_bundle_generator.py` | Build downloadable log bundles (bytes payload, filename, size). | Ops | `generate_log_bundle(time_range_minutes: int | None = None) -> tuple[str, bytes, int, list[str]]`. |
+
+## Workshop pipeline (offline, x86 server)
+
+| Path | Purpose | Subsystem | Callable interfaces |
+|---|---|---|---|
+| `workshop/classes.py` | Detector class set in priority order (YOLO index order is append-only), open-vocabulary prompts, per-tier recall gates. | Workshop/datasets | `DetClass(name, tier, prompt)`; constants `CLASSES`, `NAMES`, `HARD_STOP`, `RECALL_GATE`. |
+| `workshop/autolabel.py` | W2 auto-labeling: perceptual-hash frame dedup, MM Grounding DINO large proposals, YOLO labels and a review queue. | Workshop/datasets | `dedup(frames, min_hamming)`, `to_yolo(box, w, h)`, `prompt_lookup()`, `main()` (CLI `python -m workshop.autolabel`). |
+| `workshop/review.py` | W2 release gate: refuses unreviewed boxes, too few spot checks, or a high spot-check error rate. | Workshop/datasets | `release_check(ds, min_spot_fraction=0.05, max_spot_error_rate=0.02) -> list[str]`; CLI `python -m workshop.review DIR`. |
+| `workshop/idpass.py` | W4 instance-ID pass: sparse emissive palette, doubling-safe object ids, tolerant decode, 2x-brightness fold, small-stray (edge blend) tolerance, tight visible boxes. | Workshop/synthetic data | `id_to_rgb(id)`, `id_to_emissive(id)`, `decode(img)`, `fold_doubled(ids, assigned)`, `boxes(ids, assigned, min_pixels=20, max_stray_pixels=200)`, `yolo_line(cls, x0, y0, x1, y1, w, h)`; `OBJECT_IDS`; `IdPassError`. |
+| `workshop/isaac_sdg.py` | W4 synthetic data generator in Isaac Sim: randomised sun/sky/ground/camera, file assets plus procedural hose/sprinkler geometry (`PROCEDURAL`), beauty pass, ID-pass labels, manifest. Paths under `/data` and `/workspace` pass through. | Workshop/synthetic data | CLI: `--assets --out --frames --seed --width --height --accum --max-objects --cam-height --save-id`. |
+| `workshop/build_assets_json.py` | Merge converted Objaverse USDs into the SDG asset config with container (`/data`) paths; writes untracked `sdg_assets.generated.json`. | Workshop/synthetic data | `container_path(path, data_root)`, `build(base, manifest, manifest_dir, data_root)`; CLI `--base --manifest --data-root --out`. |
+| `workshop/train_detector.py` | W5 YOLO26s training on real + SDG data (deterministic md5 split, SDG never in val), per-class recall vs gates, ONNX opset 17 export, run manifest. | Workshop/models | `stage_dataset(out, sources, link)`, `write_yaml(out)`; CLI `--real --sdg --tag --epochs --imgsz --batch --device --seed --model --out-root --link --smoke-sdg-val`. |
+| `workshop/sdg_assets.json` | Class → Omniverse asset paths used by the generator; empty lists are coverage gaps. | Workshop/synthetic data | Data file. |
 
 ## Notes and scope
 

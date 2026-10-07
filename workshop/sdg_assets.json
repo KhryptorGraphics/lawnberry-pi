@@ -1,0 +1,77 @@
+{
+  "person": [
+    "/Isaac/People/Characters/F_Business_02/F_Business_02.usd",
+    "/Isaac/People/Characters/F_Medical_01/F_Medical_01.usd",
+    "/Isaac/People/Characters/M_Medical_01/M_Medical_01.usd",
+    "/Isaac/People/Characters/female_adult_police_02/female_adult_police_02.usd",
+    "/Isaac/People/Characters/male_adult_construction_03/male_adult_construction_03.usd",
+    "/Isaac/People/Characters/male_adult_police_04/male_adult_police_04.usd",
+    "/Characters/Reallusion/Worker/Worker.usd",
+    "/Characters/Reallusion/Debra/Debra.usd"
+  ],
+  "pet": [],
+  "wildlife": [],
+  "hose": [],
+  "sprinkler_head": [],
+  "toy": [
+    "/ArchVis/Residential/Entertainment/Toys/WaterGun.usd",
+    "/ArchVis/Residential/Entertainment/Games/Ball_Walnut.usd",
+    "/ArchVis/Residential/Entertainment/Games/RubixCube.usd",
+    "/Isaac/Props/YCB/Axis_Aligned/061_foam_brick.usd"
+  ],
+  "tool": [
+    "/ArchVis/Residential/Misc/Ladders/Ladder.usd",
+    "/ArchVis/Residential/Misc/PaintRoller/PaintRoller.usd",
+    "/Isaac/Props/YCB/Axis_Aligned/035_power_drill.usd",
+    "/Isaac/Props/YCB/Axis_Aligned/052_extra_large_clamp.usd",
+    "/Isaac/Props/YCB/Axis_Aligned/037_scissors.usd"
+  ],
+  "rock": [
+    "/Vegetation/Rocks/rock_small_01.usda",
+    "/Vegetation/Rocks/rock_small_04.usda",
+    "/Vegetation/Rocks/rock_small_07.usda",
+    "/Vegetation/Rocks/rock_small_10.usda",
+    "/Vegetation/Rocks/rock_small_13.usda"
+  ],
+  "root": [],
+  "furniture": [
+    "/ArchVis/Residential/Furniture/Outdoors/Dellwood/Dellwood_LoungeChair.usd",
+    "/ArchVis/Residential/Furniture/Outdoors/Dellwood/Dellwood_DiningTable.usd",
+    "/ArchVis/Residential/Furniture/Outdoors/Roxana/Roxana_FoldingChair.usd",
+    "/ArchVis/Residential/Furniture/Outdoors/Roxana/Roxana_Rocker.usd",
+    "/ArchVis/Residential/Furniture/Outdoors/Roxana/Roxana_RoundEndTable.usd"
+  ],
+  "planter": [
+    "/ArchVis/Residential/Outdoors/Planters/Anza_Medium.usd",
+    "/ArchVis/Residential/Outdoors/Planters/GardenPlanter_Large.usd",
+    "/ArchVis/Residential/Outdoors/Planters/ChippedPlanter_Medium.usd",
+    "/ArchVis/Residential/Outdoors/Planters/SquareGardenPlanter_Tall.usd"
+  ],
+  "house": [],
+  "fence": [
+    "/ArchVis/Industrial/Railing/MetalFencing_A1.usd",
+    "/ArchVis/Industrial/Railing/MetalFencing_A2.usd"
+  ],
+  "shed": [],
+  "wall": [],
+  "bed": [],
+  "edging": [],
+  "tree": [
+    "/Vegetation/Trees/American_Beech.usd",
+    "/Vegetation/Trees/Black_Oak.usd",
+    "/Vegetation/Trees/Japanese_Maple.usd",
+    "/Vegetation/Trees/Colorado_Spruce.usd"
+  ],
+  "path": [],
+  "driveway": [],
+  "mulch": [],
+  "water": [],
+  "dropoff": [],
+  "unknown_obstacle": [
+    "/ArchVis/Industrial/Containers/Cardboard/Cardbox_B2.usd",
+    "/ArchVis/Industrial/Containers/Wooden/WoodenCrate_A1.usd",
+    "/ArchVis/Residential/Outdoors/Decor/GardenMoai.usd",
+    "/ArchVis/Residential/Outdoors/Decor/PinkFlamingos.usd",
+    "/ArchVis/Residential/Outdoors/FirePits/Bowl.usd"
+  ]
+}

@@ -1,0 +1,13 @@
+# Workshop env (x86 server, V100 sm_70 / P100 sm_60), LB=~/nvme2/lawnberrypiserver. Build:
+#   conda create -p $LB/env python=3.11
+#   $LB/env/bin/python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu126
+#   $LB/env/bin/python -m pip install -r workshop/requirements.txt
+# cu128+ wheels drop sm_70/sm_60, so the V100/P100 cannot use them.
+# transformers 5.x returns corrupted MM Grounding DINO boxes; 4.57.1 verified.
+transformers==4.57.1
+pillow
+accelerate
+imagehash
+ultralytics
+onnx
+onnxslim
