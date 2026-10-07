@@ -23,17 +23,33 @@ PARTS = [
     ("arm_layer_right", "hitch_arm_layer", {"arm_part": "right"}),
     ("arm_head_left", "hitch_arm_layer", {"arm_part": "head_left"}),
     ("arm_head_right", "hitch_arm_layer", {"arm_part": "head_right"}),
-    *[(f"arm_brace_bar_{side}_{index}", "arm_support",
-       {"arm_brace_part": f"bar_{index}", "arm_brace_side": side})
-      for side in ("left", "right") for index in range(3)],
+    *[
+        (
+            f"arm_brace_bar_{side}_{index}",
+            "arm_support",
+            {"arm_brace_part": f"bar_{index}", "arm_brace_side": side},
+        )
+        for side in ("left", "right")
+        for index in range(3)
+    ],
     ("lapbar_clamp_anchor", "lapbar_four_bolt_clamp", {"clamp_part": "anchor"}),
     ("lapbar_clamp_cap", "lapbar_four_bolt_clamp", {"clamp_part": "cap"}),
-    *[(f"lapbar_clamp_gauge_{index}", "lapbar_four_bolt_clamp",
-       {"clamp_part": "gauge", "clamp_gauge_index": index}) for index in range(3)],
-    *[(f"pushrod_{piece}", "pushrod", {"rod_part": piece})
-      for piece in ("servo_end", "middle", "sleeve", "inner")],
-    *[(f"pushrod_gauge_{index}", "pushrod",
-       {"rod_part": "gauge", "rod_gauge_index": index}) for index in range(3)],
+    *[
+        (
+            f"lapbar_clamp_gauge_{index}",
+            "lapbar_four_bolt_clamp",
+            {"clamp_part": "gauge", "clamp_gauge_index": index},
+        )
+        for index in range(3)
+    ],
+    *[
+        (f"pushrod_{piece}", "pushrod", {"rod_part": piece})
+        for piece in ("servo_end", "middle", "sleeve", "inner")
+    ],
+    *[
+        (f"pushrod_gauge_{index}", "pushrod", {"rod_part": "gauge", "rod_gauge_index": index})
+        for index in range(3)
+    ],
     ("throttle_servo_mount", "throttle_servo_mount", {}),
     ("estop_bracket", "estop_bracket", {}),
     ("estop_contact_cover", "estop_contact_cover", {}),
@@ -269,6 +285,7 @@ def main() -> None:
                 raise ValueError(f"Clearance interference in {name}: {text}")
             print(f"PASS clearance {name}", flush=True)
             return name
+
         # Check each actual pad independently; one contacting bar must not mask
         # another station's gap.
         def contact(item: tuple[str, int]) -> str:
