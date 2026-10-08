@@ -36,7 +36,7 @@ but mower clearance and load capacity remain unverified.
 | Hitch sandwich + arm layer | The enclosure flange is **211 × 170 mm**; an 8 mm center layer continues to the modeled hitch hole and has 42 mm side ears (STL envelope **295 × 285 × 8 mm**). Hole Ø20.8 and auxiliary M6 centres ±40 mm mirror the unverified enclosure tongue. The **160 × 120 × 8 mm** mower-plate envelope is schematic; measure it. |
 | Splayed servo arm | **MEASURED** station: servo face **209.55 mm** left/right of the ball-hole centre, **457.2 mm** from its plate-top datum, splayed **12.58°** from vertical. The axis extrapolates to x=±110, while the solid 60 × 70 × 50 mm root seats on the center layer **top** at z=0 and y=123. Four M6 per root enter upward into side-access steel nuts; the hollow 50 × 70 mm column has a through-channel and 6 mm walls/web. Lower arm joint at local t=355 mm; printed head retains a four-M6 flanged/spigoted lap and lateral servo face. Neither fit nor strength on the real mower is established. |
 | Arm sway bars | Three handed first-article braces per side land at z=110/190/250 mm. Each left/right half-jaw occupies its own side of the tower; the pair forms a rear-open U with a 0.4 mm centre gap. Fit from **+Y toward the box**, never from -Y or over a flange. Two top-loaded M4 nuts per half retain short screws bearing **outside** the USB-cable tube. Two M5 bores meet each arm pad's side-entry nuts, with 0.2 mm face clearance. These are **not steering-load parts**; test slip, creep, nut pullout and pad damage unpowered. |
-| Lap-bar connector | Fully printed two-piece split clamp, four M5 bolts per side. Paired clamp yoke ears capture one 32 × 20 × 8 mm rod eye in double shear with an M6 through-pin. Default tube OD **25.4 mm is coupon-only**; clamp preload, coating, slip and print strength need physical testing. |
+| Lap-bar connector | Fully printed two-piece split clamp with an **interchangeable split sleeve that sets the bar size**: the body, bolts, yoke and pin serve the whole family and only the sleeve is reprinted — the three gauge sizes *are* the fitted sleeves. The clamp bore is fixed (`clamp_body_bore_mm`, Ø36.4) and every sleeve is made to that one OD, so changing `clamp_tube_od_mm` for a different bar never touches the body; a bar too near the bore trips the sleeve-wall assert instead of silently shipping a thin sleeve. Paired clamp yoke ears capture one 32 × 20 × 8 mm rod eye in double shear with an M6 through-pin. Default tube OD **25.4 mm is coupon-only**; the sleeve steps cover ±0.1 mm diametral about it. Clamp preload, coating, slip and print strength need physical testing. |
 | Pushrods | Toro 77502 **estimate**: 936.9 mm pin-to-pin, 934 mm fore-aft span, lap-bar pin 74.2 mm outboard of the crank (4.54° built skew — it fell from 103 mm/6.3° when the crank moved out to the drawing's 61.4 mm datum). 40 mm square tube, 5 mm walls, in three bolted pieces plus a 29.1 mm solid inner bar; three lock settings at 15 mm (±15 mm trim). Both ends are 32 × 20 × 8 mm eyes on Ø6.6 bores. The servo crank points up at neutral; its inner face lands on the kit disc at the drawing's **61.4 mm** overall axial envelope, and `rod_servo_sweep` proves the eye and rod transition clear the case and disc over ±35°. See [`TORO_77502_LINKAGE.md`](TORO_77502_LINKAGE.md). |
 | E-stop rail U-bolts | Selected BOM 40 mm inside + 8 mm leg = 48 mm centre pitch, printed Ø9. Used only by the E-stop fixture; the 76.2 × 38.1 mm rail remains unverified. |
 | E-stop HB2-ES545 | Listing drawing: Ø22 panel opening, Ø40 mushroom, 42 mm rear projection, 30 × 29 mm contact envelope. Print bore Ø22.5; 3 mm panel is a design choice, not a vendor maximum thickness. No guessed anti-rotation notch. |
@@ -86,8 +86,9 @@ CAD files. Never print an assembly view as one fused part.
 | `arm_head_left`, `arm_head_right` | 1 each | Heads carrying the **lateral** RDS51150 holder face (4-M2.5 on 24 mm, coaxial with the output) on a rib; four-M6 flanged joint. Four **Ø4.8 driver tunnels** run through that rib so the M2.5 holder screws can be reached from the arm's inboard side — without them the plate bores were open but unreachable. Print mating-face down and bridge those tunnels; do not fill them. |
 | `arm_brace_bar_left_0`–`_2`, `arm_brace_bar_right_0`–`_2` | 1 each | Six handed half-jaw braces at z=110/190/250. Print the labelled left/right variants; do not substitute two identical copies. Fit each pair from +Y after tower assembly. Each half has two top-loaded M4 nuts, outside-bearing screws and two M5 bores for its arm pad. Prints flat; sway only, not a qualified steering load path. |
 | `arm_layer_gauge` | 1 first | Coupon for the enclosure tongue's ball-hole/auxiliary-hole pattern. It is not a Toro hitch gauge. |
-| `lapbar_clamp_anchor`, `lapbar_clamp_cap` | 1 each per side | Fully printed two-piece clamp with paired yoke ears; four M5 through-bolts per side. The clamp pin passes through both ears and the single rod eye in double shear. Default Ø25.4 tube is sample-only. |
-| `lapbar_clamp_gauge_0`–`_2` | 1 each | Three diametral fit coupons; select from the measured tube OD and fit the actual print/material first. |
+| `lapbar_clamp_anchor`, `lapbar_clamp_cap` | 1 each per side | The size-independent half: its Ø36.4 bore takes any sleeve, so print it once per side whatever the bar measures. Paired yoke ears; four M5 through-bolts per side. The clamp pin passes through both ears and the single rod eye in double shear. |
+| `lapbar_clamp_insert_0`–`_2` | 2 per side of the chosen size | Split sleeve that sets the bar size. Index 0/1/2 is tight/nominal/loose — the same three fits the coupons sample. One printed half serves both clamp halves (turn it 180° about the bar axis), so four per mower. End flanges trap it against the clamp's end faces; they are retention, not structure. Print the index that matched the bar on the coupon. |
+| `lapbar_clamp_gauge_0`–`_2` | 1 each | The sleeves minus the split, flanges and print pose: same bore, same OD. Check the measured bar here, then fit the sleeve of that index. |
 | `pushrod_servo_end`, `pushrod_middle`, `pushrod_sleeve`, `pushrod_inner` | 1 each per side (2 sets) | One 936.9 mm rod per side; the same set serves both sides, turned 180° about its own axis on the left. Two M6 bolts per spigot splice, two M6 lock bolts, one M6 crank pin through the metal servo arm and one M6 pin through the clamp yoke. The servo end has a 5 mm vent; keep it clear. Generated from the estimate: measure first. |
 | `pushrod_gauge_0`–`_2` | 1 each | Sliding-fit coupons (tight/nominal/loose) for the 29.1 mm inner bar in the 40 mm sleeve. |
 | `throttle_servo_mount` | 0 or 1 | Optional stationary-side fixture; four M6 slots at nominal 76 × 40 pitch with ±4 mm X travel. Installer-selected support, not a Toro panel pattern. |
@@ -212,9 +213,11 @@ hitch plate/chassis. No attachment strength or steering load rating is asserted 
    surrounding features and the bars.
 2. Fit both coupons to the actual hardware; change `hitch_hole_d`, hitch-plate parameters,
    tongue reach or arm offset as needed. Rebuild and verify the revised plate/arm clearance.
-3. Measure each lap-bar OD; adjust `clamp_tube_od_mm`, then choose among the three clamp coupons.
-   The clamp halves use four M5 bolts per bar around the tube; nothing here is intended to drill
-   the OEM bar. Test clamp slip and polymer creep without powering the mower.
+3. Measure each lap-bar OD; set `clamp_tube_od_mm`, check the bar on the coupons
+   (`lapbar_clamp_gauge_0`–`_2`), then print the sleeve of the index that fitted. Only the sleeve
+   changes with the bar: the clamp body, bolts, yoke and pin are printed once per side. The clamp
+   halves use four M5 bolts per bar around the sleeve; nothing here is intended to drill the OEM
+   bar. Test clamp slip and polymer creep without powering the mower.
 4. Measure the lap-bar clamp point, crank radius and lever travel as listed in
    `TORO_77502_LINKAGE.md`. Set `lapbar_pin_fwd_mm`, `lapbar_pin_x_mm`, `lapbar_pin_dz_mm`
    and `servo_crank_*`, rebuild, and print rods only when the rod asserts and fit checks pass.
@@ -322,8 +325,9 @@ The layer panel prints flat. The lower arms print **lying flat** along bed X;
 the heads print **mating-face down**, and the handed half-jaw sway bars print **lying flat**
 with the bar along bed Y. Use the exported left/right variants without extra mirroring. Inspect all nut slots
 in the slicer. Rod pieces print lying flat with the rod axis along bed X, so lock and splice
-bolts are vertical and both pin bores are horizontal. Clamp halves and fit coupons print
-flat; the build refuses parts that are not bed-zero or exceed 420 × 420 × 500 mm.
+bolts are vertical and both pin bores are horizontal. Clamp halves, sleeves and fit coupons print
+flat; each sleeve prints on its split face with the flanges up and needs no support.
+The build refuses parts that are not bed-zero or exceed 420 × 420 × 500 mm.
 For the half-jaw braces, "lying flat" means the web plane is **parallel** to the bed,
 not that the whole web touches it. The jaw sets bed-zero while the web and end land
 are raised. Add slicer supports beneath those raised sections and the jaw return;

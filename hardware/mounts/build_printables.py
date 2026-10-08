@@ -43,6 +43,14 @@ PARTS = [
     ("lapbar_clamp_cap", "lapbar_four_bolt_clamp", {"clamp_part": "cap"}),
     *[
         (
+            f"lapbar_clamp_insert_{index}",
+            "lapbar_four_bolt_clamp",
+            {"clamp_part": "insert", "clamp_insert_index": index},
+        )
+        for index in range(3)
+    ],
+    *[
+        (
             f"lapbar_clamp_gauge_{index}",
             "lapbar_four_bolt_clamp",
             {"clamp_part": "gauge", "clamp_gauge_index": index},
@@ -128,6 +136,7 @@ CHECKS = [
     "arm_layer_box_fasteners",
     "arm_layer_tray_clearance",
     "clamp_tube_fit",
+    "clamp_insert_clear",
     "clamp_pin_bore",
     "rod_lock_bores",
     "rod_end_bores",
@@ -159,6 +168,7 @@ CHECKS = [
 CONTACT_CHECKS = [
     *(("arm_brace_bar_contact", index) for index in range(3)),
     *(("arm_root_seat_contact", index) for index in range(2)),
+    *(("clamp_insert_grip", index) for index in range(3)),
 ]
 
 

@@ -274,10 +274,31 @@ else if(check == "clamp_pin_bore") intersection() {
     translate([0,clamp_pin_local()[1],-clamp_half_height_mm()-1])
         cylinder(d=6.0,h=2*clamp_half_height_mm()+2);
 }
+// The sleeve must not touch the clamp body it is fitted into: body bore minus sleeve OD is
+// the working clearance, and it is what lets the clamp close the sleeve onto the bar. This
+// replaced a Ø25 rod probe through the body - the bar no longer touches the body at all.
 else if(check == "clamp_tube_fit") intersection() {
-    clamp_assembly();
-    translate([-clamp_length_mm()/2-1,0,0]) rotate([0,90,0])
-        cylinder(d=25.0,h=clamp_length_mm()+2);
+    union() {
+        translate([0,0,-clamp_half_height_mm()]) clamp_anchor_print();
+        clamp_cap_print();
+    }
+    // Nudged off the split plane: the sleeve's flat faces are coplanar with the body halves'
+    // mating faces, which alone reads as an intersection.
+    translate([0,0,-0.05]) clamp_inserts_assembly();
+}
+// The MEASURED bar must pass the tightest sleeve (index 0) with the printed diametral
+// clearance, so the clamp closes the sleeve onto the bar instead of seizing on it.
+else if(check == "clamp_insert_clear") intersection() {
+    clamp_inserts_assembly(0);
+    translate([-100,0,0]) rotate([0,90,0])
+        cylinder(d=clamp_tube_od_mm,h=clamp_length_mm()+200);
+}
+// Each sleeve must close on a bar one step oversize: contact, not a rattle. Indexed 0..2 by
+// contact_station, like the brace-pad and root-seat contact checks.
+else if(check == "clamp_insert_grip") intersection() {
+    clamp_inserts_assembly(contact_station);
+    translate([-100,0,0]) rotate([0,90,0])
+        cylinder(d=clamp_insert_bore_mm(contact_station)+0.2,h=clamp_length_mm()+200);
 }
 // Sandwich-layer interface: independent hitch, auxiliary, gland and box-bolt
 // probes against hardcoded design coordinates in the current first article.

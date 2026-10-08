@@ -120,9 +120,14 @@ the printable layer without moving the measured servo station.
 
 ![four-bolt steering-bar clamp](view_lapbar_connector.png)
 
-**Parts:** `lapbar_clamp_anchor` + `lapbar_clamp_cap` for each side, four M5 bolts with broad washers
-and locking nuts per clamp, and one measured-OD coupon set (`lapbar_clamp_gauge_0`–`_2`). The 25.4 mm
-default tube OD is sample-only. Set `clamp_tube_od_mm` and use the coupon before printing either half.
+**Parts:** `lapbar_clamp_anchor` + `lapbar_clamp_cap` for each side (Ø36.4 bore, independent of the bar),
+the sleeve set for the measured bar (`lapbar_clamp_insert_0`–`_2`; two per side of the chosen size, because
+one printed half serves both clamp halves), four M5 bolts with broad washers and locking nuts per clamp,
+and the coupon set (`lapbar_clamp_gauge_0`–`_2`). The 25.4 mm default tube OD is sample-only: set
+`clamp_tube_od_mm`, check the bar on the coupon, then print the sleeve of the matching index — the clamp
+halves themselves do not change with the bar, so a wrong guess costs one small sleeve, not the clamp.
+Slide each half-sleeve into its clamp half before closing the clamp on the bar; the sleeve flanges must
+seat against the clamp's end faces.
 Each half carries one thick printed yoke ear. Together the ears straddle the rod's single 8 mm-thick
 eye lug across a 9 mm gap; a removable M6 ×55 bolt passes through ear-eye-ear in double shear. The
 42 mm yoke span/reach clears the 32 ×20 mm eye through its modeled planar sweep. The rod stays

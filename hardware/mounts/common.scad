@@ -31,8 +31,33 @@ clamp_yoke_span_mm = 42;            // ear width clears the eye through its plan
 clamp_yoke_reach_mm = 42;           // total outboard yoke extension from the clamp body
 clamp_yoke_root_overlap_mm = 4;     // fuse each printed ear into its half beyond the bar opening
 clamp_yoke_sweep_clearance_mm = 1;
-clamp_gauge_wall_mm = 5;
-clamp_r_mm = (clamp_tube_od_mm + clamp_tube_clearance_mm) / 2;
+// ---- One clamp body, interchangeable split sleeves -------------------------------------
+// The bore is FIXED at clamp_body_bore_mm and every sleeve is turned to that one OD, so the
+// body, bolts, yoke and pin are printed once per side and never depend on the bar. The bar size
+// is set by fitting a sleeve: the three gauge bores (tight/nominal/loose about the measured OD)
+// ARE the installed sleeves, so the coupon that checked the bar is the coupon that gets fitted.
+// Sleeve wall absorbs the difference, so a different bar - even one far from 25.4 mm - costs one
+// small reprint, and the wall assert refuses a bar so close to the bore that the sleeve would be
+// too thin to clamp.
+clamp_sleeve_step_mm = 0.2;         // bore step between sleeves (matches the coupon family)
+clamp_insert_clearance_mm = 0.3;    // sleeve OD to clamp bore, per side
+clamp_insert_flange_t_mm = 2.5;     // end flange thickness; bears on the clamp end faces
+clamp_insert_flange_grip_mm = 2.2;  // flange radial grip beyond the sleeve OD
+clamp_insert_protrusion_mm = 3;     // sleeve tube projects past the body's end faces
+clamp_insert_flange_gap_mm = 0.1;   // flange to body end face: retention with just fit clearance
+// The clamp bore is FIXED and every sleeve is made to that one outside diameter, so the body,
+// bolts, yoke and pin never depend on the bar: change clamp_tube_od_mm for a different bar and
+// only the sleeve is reprinted, with the wall absorbing the difference. Raise the bore only if
+// the wall assert fires - a bar too near the bore leaves a sleeve too thin to clamp.
+clamp_body_bore_mm = 36.4;
+clamp_insert_od_mm = clamp_body_bore_mm - 2*clamp_insert_clearance_mm;
+function clamp_insert_bore_mm(index) =
+    clamp_tube_od_mm + clamp_tube_clearance_mm + (index-1)*clamp_sleeve_step_mm;
+function clamp_insert_wall_at_mm(index) = (clamp_insert_od_mm-clamp_insert_bore_mm(index))/2;
+function clamp_insert_flange_od_mm(index) =
+    clamp_insert_od_mm + 2*clamp_insert_flange_grip_mm;
+function clamp_insert_reach_mm() = clamp_insert_flange_od_mm(0)/2;
+clamp_r_mm = clamp_body_bore_mm / 2;
 clamp_half_h_mm = clamp_r_mm + clamp_shell_mm;
 clamp_bolt_y_mm = clamp_r_mm + 7;
 clamp_w_mm = 2 * (clamp_bolt_y_mm + clamp_shell_mm);
