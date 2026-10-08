@@ -56,7 +56,6 @@ function clamp_insert_bore_mm(index) =
 function clamp_insert_wall_at_mm(index) = (clamp_insert_od_mm-clamp_insert_bore_mm(index))/2;
 function clamp_insert_flange_od_mm(index) =
     clamp_insert_od_mm + 2*clamp_insert_flange_grip_mm;
-function clamp_insert_reach_mm() = clamp_insert_flange_od_mm(0)/2;
 clamp_r_mm = clamp_body_bore_mm / 2;
 clamp_half_h_mm = clamp_r_mm + clamp_shell_mm;
 clamp_bolt_y_mm = clamp_r_mm + 7;
