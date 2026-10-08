@@ -335,6 +335,19 @@ openscad -o /tmp/arm-head.stl -D 'arm_part="head_left"' hardware/mounts/hitch_ar
 openscad -o /tmp/sway-left.stl -D 'arm_brace_part="bar_1"' -D 'arm_brace_side="left"' hardware/mounts/arm_support.scad
 ```
 
+Every part is published twice, from the same mesh: `<part>.stl` and `3mf/<part>.3mf` (the 3MF is
+repackaged from the just-published STL, so the two always agree; it is shifted into the positive
+octant and is byte-stable across runs). Feed a slicer either file.
+
+Slicer projects you save into this directory (`*.3mf` at the top level) are **audited, never
+rewritten** — they carry your print settings. Each build compares each project's embedded mesh
+against the published part of the same name and reports `current`, `stale`, `no_source` or
+`unreadable`, printing a `WARN` line and recording the verdict in `validation.json` under
+`print_projects`. Re-slice from `3mf/<part>.3mf` whenever one is not `current`: a project can
+silently hold a superseded part, which is how the old 939.7 mm rod survived in one of them.
+OpenSCAD's STL export is not byte-reproducible between runs, so compare the recorded **dimensions**
+rather than STL hashes; the 3MFs are stable.
+
 `validation.json` records source/STL hashes, dimensions, watertight mesh topology,
 and named fit probes. The build checks the **real** tower base plus segment flange,
 continuous front insertion, left/right jaw separation, each of the three bar-to-pad contacts,

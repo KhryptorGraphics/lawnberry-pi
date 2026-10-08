@@ -3,6 +3,11 @@
 Requires OpenSCAD 2021.01+ and xvfb-run for PNG previews; Python standard library only.
 Run from any directory: python hardware/mounts/build_printables.py
 Outputs are published only after all mesh/clearance checks pass. No strength/IP claim.
+
+Each published STL also gets a `3mf/<part>.3mf` repackaging of that same mesh, so a slicer
+can be fed either file. Hand-made slicer projects left in this directory are only AUDITED
+against the published meshes - never rewritten, because they also carry the operator's
+print settings - and any mismatch is reported as a warning.
 """
 
 from __future__ import annotations
@@ -11,9 +16,11 @@ import concurrent.futures
 import hashlib
 import json
 import math
+import re
 import struct
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -234,6 +241,133 @@ def mesh_report(path: Path) -> dict:
     }
 
 
+def read_stl_triangles(path: Path) -> list[tuple]:
+    """The binary STL's triangles as corner triples, in file order."""
+    data = path.read_bytes()
+    if len(data) < 84:
+        raise ValueError(f"Missing binary STL: {path}")
+    count = struct.unpack_from("<I", data, 80)[0]
+    if len(data) != 84 + count * 50 or count == 0:
+        raise ValueError(f"Malformed or empty binary STL: {path}")
+    return [
+        tuple(
+            tuple(round(value, 5) for value in struct.unpack_from("<12fH", data, 84 + index * 50)[
+                start : start + 3
+            ])
+            for start in (3, 6, 9)
+        )
+        for index in range(count)
+    ]
+
+
+def write_3mf(source: Path, target: Path) -> None:
+    """Repackage a published STL as a 3MF so a slicer opens exactly the shipped mesh.
+
+    3MF addresses the positive octant, so the mesh is shifted by its own negative minimum in
+    X and Y; the parts are already bed-zero in Z. Triangle winding and vertex order are kept,
+    which makes the output reproducible.
+    """
+    triangles = read_stl_triangles(source)
+    low = [min(corner[axis] for face in triangles for corner in face) for axis in range(3)]
+    shift = [-value if value < 0 else 0.0 for value in low]
+    index: dict[tuple[float, float, float], int] = {}
+    points: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, int, int]] = []
+    for face in triangles:
+        corners = []
+        for axis in range(3):
+            corner = tuple(round(face[axis][i] + shift[i], 5) for i in range(3))
+            if corner not in index:
+                index[corner] = len(points)
+                points.append(corner)
+            corners.append(index[corner])
+        faces.append(tuple(corners))
+    name = re.sub(r"[^A-Za-z0-9_.-]", "_", source.stem)
+    vertices = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in points)
+    mesh_faces = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    def member(filename: str) -> zipfile.ZipInfo:
+        # A fixed timestamp keeps the package byte-identical across runs, unlike the STL
+        # export, so validation.json's hash of it is meaningful.
+        info = zipfile.ZipInfo(filename, date_time=(1980, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        return info
+
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as package:
+        package.writestr(
+            member("[Content_Types].xml"),
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package'
+            '.relationships+xml"/>'
+            '<Default Extension="model" ContentType="application/vnd.ms-package'
+            '.3dmanufacturing-3dmodel+xml"/>'
+            "</Types>",
+        )
+        package.writestr(
+            member("_rels/.rels"),
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas'
+            '.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
+            "</Relationships>",
+        )
+        package.writestr(
+            member("3D/3dmodel.model"),
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com'
+            '/3dmanufacturing/core/2015/02">'
+            f'<metadata name="Title">{name}</metadata>'
+            '<resources>'
+            f'<object id="1" type="model" name="{name}"><mesh><vertices>{vertices}</vertices>'
+            f"<triangles>{mesh_faces}</triangles></mesh></object>"
+            "</resources>"
+            '<build><item objectid="1"/></build>'
+            "</model>",
+        )
+
+
+def mesh_extent_3mf(path: Path) -> list[float] | None:
+    """The per-axis extent of a 3MF's mesh, or None when it holds no vertices."""
+    points = []
+    with zipfile.ZipFile(path) as package:
+        for member in package.namelist():
+            if not member.lower().endswith(".model"):
+                continue
+            text = package.read(member).decode("utf8", "ignore")
+            points.extend(
+                (float(match.group(1)), float(match.group(2)), float(match.group(3)))
+                for match in re.finditer(
+                    r'<vertex\s+x="([-\d.eE+]+)"\s+y="([-\d.eE+]+)"\s+z="([-\d.eE+]+)"', text
+                )
+            )
+    if not points:
+        return None
+    return [
+        round(max(point[axis] for point in points) - min(point[axis] for point in points), 3)
+        for axis in range(3)
+    ]
+
+
+def audit_print_projects(published: dict[str, list[float]]) -> list[dict]:
+    """Compare slicer projects in this directory with the published meshes, read-only."""
+    audit = []
+    for project in sorted(ROOT.glob("*.3mf")):
+        extent = mesh_extent_3mf(project)
+        current = published.get(project.stem)
+        if extent is None:
+            status, detail = "unreadable", "no mesh vertices found"
+        elif current is None:
+            status, detail = "no_source", "no part of this name is generated by this script"
+        elif [round(value, 3) for value in current] == extent:
+            status, detail = "current", "matches the published STL"
+        else:
+            status, detail = "stale", f"project {extent} vs published {current} mm"
+        audit.append({"file": project.name, "status": status, "detail": detail})
+    return audit
+
+
 def defines(parameters: dict) -> list[str]:
     return [
         arg for name, value in parameters.items() for arg in ("-D", f"{name}={json.dumps(value)}")
@@ -371,6 +505,24 @@ def main() -> None:
                 (staging / file).replace(ROOT / file)
         for name, _, _, _ in VIEWS:
             (staging / f"view_{name}.png").replace(ROOT / f"view_{name}.png")
+        print_files = {}
+        for name in sorted(reports):
+            target = ROOT / "3mf" / f"{name}.3mf"
+            write_3mf(ROOT / f"{name}.stl", target)
+            print_files[name] = {
+                "path": f"3mf/{name}.3mf",
+                "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+            }
+        projects = audit_print_projects(
+            {name: report["size_mm"] for name, report in reports.items()}
+        )
+        for project in projects:
+            if project["status"] != "current":
+                print(
+                    f"WARN print project {project['file']}: "
+                    f"{project['status']} - {project['detail']}",
+                    flush=True,
+                )
         manifest = {
             "tool": run(["openscad", "--version"]).strip(),
             "status": "mesh_and_named_geometry_checks_passed_not_physical_qualification",
@@ -379,13 +531,17 @@ def main() -> None:
                 for path in sorted(ROOT.glob("*.scad"))
             },
             "parts": reports,
+            "print_files": print_files,
+            "print_projects": projects,
             "empty_interference_checks": cleared,
             "nonempty_contact_checks": contacted,
         }
         (ROOT / "validation.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        stale = sum(1 for project in projects if project["status"] != "current")
         print(
-            f"Published {len(reports)} STL/PNG pairs, {len(VIEWS)} views; "
-            f"{len(cleared)} clearances and {len(contacted)} contacts passed."
+            f"Published {len(reports)} STL/PNG pairs, {len(print_files)} 3MFs, "
+            f"{len(VIEWS)} views; {len(cleared)} clearances and {len(contacted)} contacts "
+            f"passed." + (f" {stale} print project(s) need attention." if stale else "")
         )
 
 
