@@ -1,5 +1,5 @@
 // Adjustable throttle-servo mounting fixture, not a Toro panel bolt pattern.
-// RDS51150 stationary SIDE: 24 x 24 mm M2.5; metal horn/linkage required.
+// Photo-derived SIX-hole stationary rear bracket; steel through-fasteners required.
 // ASA; print base down. Verify reaction load, panel stiffness and all travel.
 // A powered control mount must be metal or independently load-qualified.
 include <common.scad>
@@ -20,9 +20,12 @@ module throttle_servo_mount() {
         }
         for (x = [-38, 38], y = [-20, 20])
             translate([x, y, -1]) slot(m6_clear, 8, throttle_base_t + 2);
-        for (x = [-12, 12], z = [-12, 12])
-            translate([x, -1, throttle_pattern_z + z]) rotate([-90, 0, 0])
-                cylinder(d = servo_side_hole_clear_d, h = throttle_face_t + 2);
+        // Shared rear axes Y/Z map to fixture X/Z; all six slots are through-Y.
+        // Back face Y=0 is free for OD6 steel washers, AF5 nuts and an OD8 tool.
+        translate([0,-1,throttle_pattern_z]) rotate([0,0,90]) {
+            servo_rear_hole_cut(throttle_face_t+2);
+            servo_rear_opening_cut(throttle_face_t+2);
+        }
     }
 }
 throttle_servo_mount();

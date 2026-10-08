@@ -10,7 +10,7 @@ Tip: Use your editor’s outline and the section links below to jump to an area 
 - Frontend services and composables
 - Frontend views and router
 - Operations and maintenance scripts
-- Tools and misc.
+## Hardware CAD (OpenSCAD mounts)
 
 ## Backend services (FastAPI/domain services)
 
@@ -115,18 +115,20 @@ Many Bash and Python scripts automate setup, backups, diagnostics, and validatio
 |---|---|---|---|
 | `backend/src/tools/log_bundle_generator.py` | Build downloadable log bundles (bytes payload, filename, size). | Ops | `generate_log_bundle(time_range_minutes: int | None = None) -> tuple[str, bytes, int, list[str]]`. |
 
-## Workshop pipeline (offline, x86 server)
+## Hardware CAD (OpenSCAD mounts)
 
 | Path | Purpose | Subsystem | Callable interfaces |
 |---|---|---|---|
-| `workshop/classes.py` | Detector class set in priority order (YOLO index order is append-only), open-vocabulary prompts, per-tier recall gates. | Workshop/datasets | `DetClass(name, tier, prompt)`; constants `CLASSES`, `NAMES`, `HARD_STOP`, `RECALL_GATE`. |
-| `workshop/autolabel.py` | W2 auto-labeling: perceptual-hash frame dedup, MM Grounding DINO large proposals, YOLO labels and a review queue. | Workshop/datasets | `dedup(frames, min_hamming)`, `to_yolo(box, w, h)`, `prompt_lookup()`, `main()` (CLI `python -m workshop.autolabel`). |
-| `workshop/review.py` | W2 release gate: refuses unreviewed boxes, too few spot checks, or a high spot-check error rate. | Workshop/datasets | `release_check(ds, min_spot_fraction=0.05, max_spot_error_rate=0.02) -> list[str]`; CLI `python -m workshop.review DIR`. |
-| `workshop/idpass.py` | W4 instance-ID pass: sparse emissive palette, doubling-safe object ids, tolerant decode, 2x-brightness fold, small-stray (edge blend) tolerance, tight visible boxes. | Workshop/synthetic data | `id_to_rgb(id)`, `id_to_emissive(id)`, `decode(img)`, `fold_doubled(ids, assigned)`, `boxes(ids, assigned, min_pixels=20, max_stray_pixels=200)`, `yolo_line(cls, x0, y0, x1, y1, w, h)`; `OBJECT_IDS`; `IdPassError`. |
-| `workshop/isaac_sdg.py` | W4 synthetic data generator in Isaac Sim: randomised sun/sky/ground/camera, file assets plus procedural hose/sprinkler geometry (`PROCEDURAL`), beauty pass, ID-pass labels, manifest. Paths under `/data` and `/workspace` pass through. | Workshop/synthetic data | CLI: `--assets --out --frames --seed --width --height --accum --max-objects --cam-height --save-id`. |
-| `workshop/build_assets_json.py` | Merge converted Objaverse USDs into the SDG asset config with container (`/data`) paths; writes untracked `sdg_assets.generated.json`. | Workshop/synthetic data | `container_path(path, data_root)`, `build(base, manifest, manifest_dir, data_root)`; CLI `--base --manifest --data-root --out`. |
-| `workshop/train_detector.py` | W5 YOLO26s training on real + SDG data (deterministic md5 split, SDG never in val), per-class recall vs gates, ONNX opset 17 export, run manifest. | Workshop/models | `stage_dataset(out, sources, link)`, `write_yaml(out)`; CLI `--real --sdg --tag --epochs --imgsz --batch --device --seed --model --out-root --link --smoke-sdg-val`. |
-| `workshop/sdg_assets.json` | Class → Omniverse asset paths used by the generator; empty lists are coverage gaps. | Workshop/synthetic data | Data file. |
+| `hardware/mounts/assemblies.scad` | Inspection/install views: steering arms, arm layer, servo adapter, lapbar connector, rod adjustment, enclosure mounted, tower, estop, camera stack, camera exploded, sensor, overview. | CAD/visualization | Modules: `steering_assembly()`, `ref_servo_pair()`, `ref_servo_at(side,face_angle_deg)`, `ref_servo_moving(side,face_angle_deg,alpha)`, `camera_station_exploded(kind="pi")`, `camera_stack_close()`, `enclosure_mounted()`, `estop_station()`, `assembly` variable selects scene. |
+| `hardware/mounts/servo_pushrod_adapter.scad` | Printed adapter from moving eight-hole crossplate to rod eye; 8 M2.5 slots, 12 mm double-shear M6 clevis. | CAD/actuation | Modules: `servo_pushrod_adapter(crank_r)`, `servo_pushrod_adapter_at(side,face_angle_deg,crank_r)`, `servo_adapter_print(left,crank_r)`, `servo_adapter_fit_gauge()`, `servo_adapter_mount_slots(h)`. Build target: `adapter_part` = right | left | gauge | assembly. |
+| `hardware/mounts/camera_mount.scad` | Bottom-loaded opaque camera housings with integral closing face, groove cassette, front-fitted lens-only inserts, TPU/foam gaskets. Pi and stereo variants. | CAD/cameras | Modules: `camera_shell(kind)`, `camera_bottom_tray(kind)`, `camera_carrier_assembly(kind,y_shift)`, `camera_lens_inserts_assembly(kind)`, `camera_seals_assembly(kind)`, `camera_lens_insert(kind,index,bore,dx,dz)`, `camera_board_retainer(kind)`, `camera_lens_rim_gasket(kind,index,bore)`, `camera_*_print()`, `camera_*_gauge()`, `camera_*_tile_fit_kit()`, `camera_*_groove_pad_kit()`. Build target: `camera_part` = pi_housing | pi_bottom | pi_carrier | pi_retainer | pi_lens_insert | pi_face_gasket | pi_floor_gasket | pi_insert_gasket | pi_rim_gasket | pi_lens_gauge | pi_tile_fit_kit | pi_groove_pad_kit | stereo_... | foot. |
+| `hardware/mounts/camera_stack.scad` | Two-station mast stack: Pi lower, 304.8 mm extension, stereo upper, closed cap. | CAD/cameras | Modules: `camera_station_assembly(kind)`, `camera_stack_assembly()`, `camera_station_structure(kind)`, `camera_reference_board(kind)`, `camera_reference_lenses(kind)`, `camera_reference_y_shift_mm(kind)`, `camera_reference_projection_mm(kind)`. |
+| `hardware/mounts/common.scad` | Shared servo helper functions: rear bracket six-hole points/travel, full-X slot cutters (`servo_rear_hole_cut(h)`, `servo_rear_opening_cut(h)`), rear opening Ø13.5, tool/bore/washer/nut capacities, clamp/rod eye dims. | CAD/helpers | Functions: `servo_rear_hole_points_mm()`, `servo_rear_hole_travel_mm(index)`, `servo_rear_hole_cut(h)`, `servo_rear_opening_cut(h)`. |
+| `hardware/mounts/enclosure_common.scad` | Common dimensions; servo adapter pin geometry, moving crossplate hole points/travel, face angles, crank pin functions, adapter pose, body envelope, moving bracket. | CAD/dimensions | Functions: `servo_crank_pin_at(side,face_angle_deg,crank_r)`, `servo_crank_pin(side,crank_r)`, `servo_adapter_pin_local(crank_r)`, `servo_adapter_outer_x_mm()`, `servo_moving_hole_points_mm()`, `servo_moving_hole_travel_mm()`. Modules: `servo_adapter_pose(side,face_angle_deg)`, `servo_body_envelope(side,disc_d)`, `servo_moving_bracket(side,face_angle_deg)`. |
+| `hardware/mounts/hitch_arm_layer.scad` | Sandwich layer, lower arms, heads with six-hole rear-bracket land and through-rib slots, sway braces. | CAD/arms | Modules: `arm_layer_center()`, `arm_layer_left()`, `arm_layer_right()`, `arm_head_left()`, `arm_head_right()`, `arm_layer_gauge()`, `arm_assembly_side(side)`. Build target: `arm_part` = center | left | right | head_left | head_right | gauge. |
+| `hardware/mounts/actuation_fit_gauge.scad` | Fit coupons: gauge 1 = E-stop rail/U-bolt; gauge 2 = RDS51150 stationary rear bracket six slots + Ø13.5 opening. | CAD/fixtures | Module: `actuation_fit_gauge()`. Build target: `gauge` = 1 | 2. |
+| `hardware/mounts/throttle_servo_mount.scad` | Adjustable throttle-servo fixture with six-slot rear bracket and Ø13.5 opening; four M6 base slots. | CAD/fixtures | Module: `throttle_servo_mount()`. |
+
 
 ## Notes and scope
 

@@ -127,38 +127,40 @@ arm_joint_flange = 88;
 arm_joint_bolt = 26;                   // half pitch of the four M6 joint bolts
 arm_joint_spigot = 30;
 arm_joint_spigot_h = 5;
-// Servo face is a LATERAL plate: the output shaft runs across the machine, so the
-// horn sweeps the YZ plane and the rod pushes the drive handle fore-and-aft.
-// Vendor ANNIMOS B0C69W2QP7 dimensioned drawing (RDS51150): case 65 x 30 x 48 with the
-// output shaft along the 48 mm dimension. The mounting flange is the 65 x 30 face
-// perpendicular to the shaft; it carries 4-M2.5 on 24 x 24 and is the printed head's
-// mate. The kit's round disc sits on the output spline; case + disc is the drawing's
-// 61.4 mm overall axial envelope, and the metal crank's inner face lands on the disc.
-servo_case_l = 65;                     // case length, along Y (across the arm)
-servo_case_w = 30;                     // case width, along Z (up)
-servo_case_axial = 48;                 // case depth along the output shaft
-servo_axial_env = 61.4;                // drawing: case + disc, overall axial envelope
-servo_disc_t = servo_axial_env-servo_case_axial;   // disc proud of the flange: 13.4
-servo_disc_d = 30;                     // MEASURE: the drawing does not dimension the disc;
-                                       // ~30 mm scaled off its side view (= the case width)
-servo_shaft_offset_l = 0;              // Output position along the case (Y) from the 4-M2.5
-                                       // pattern centre = 0, i.e. the pattern is CONCENTRIC
-                                       // with the output, which is what the mount is drilled
-                                       // for. Established from the user's photos of the metal
-                                       // boss, not the drawing: the plate carries the Ø26.5 mm
-                                       // output opening and its screw holes on one face, the
-                                       // nearest holes only ~23.6 mm out. A 19 mm offset - what
-                                       // a naive read of the dimensioned drawing suggests -
-                                       // would bury a hole inside that opening, so the drawing
-                                       // view was a composite of the two ends. Setting this
-                                       // nonzero moves the shaft, envelope, crank and pin.
-function servo_shaft_y() = assembly_arm_y+servo_shaft_offset_l;
-// The kit crank's pin radius and the disc OD are not measured on the real part, so these take
-// optional overrides: the shipped geometry uses the defaults, and the fit checks sweep the
-// plausible band to prove clearance holds across it rather than only at one assumed value.
-servo_crank_r_band_mm = [40, 70];
+// Rear six-hole bracket face is normal to machine X. The long motor body hangs DOWN;
+// the user's MOVING attachment is the broad eight-hole U crossplate, not the disc.
+// Vendor envelope and photo-derived capacities are first-article inputs, not measured fits.
+servo_case_l = 65;                     // long dimension along Z
+servo_case_w = 30;                     // short dimension along Y
+servo_case_axial = 48;
+servo_axial_env = 61.4;
+servo_bracket_outer_span_mm = 65.5;    // vendor bracket envelope; check purchased assembly
+servo_case_axis_offset_z_mm = 19.5;    // scaled vendor view; shaft is above case midpoint
+servo_disc_t = (servo_axial_env-servo_case_axial)/2;
+servo_disc_d = 30;                     // photo/drawing capacity, not a measured disc diameter
+function servo_shaft_y() = assembly_arm_y;
+servo_face_neutral_deg = 45;           // USER: handles at middle/stop
+servo_face_reverse_deg = 90;           // USER: full reverse
+servo_face_forward_check_deg = 0;      // opposite analysis bound; not confirmed OEM/PWM calibration
+servo_moving_plate_width_mm = 52;      // axial X; bracket drawing plus tape/photo estimate
+servo_moving_plate_length_mm = 30;     // tangential V; first-article envelope
+servo_moving_face_r_mm = 25.4;         // radial position CAPACITY; verify metal crossplate seating
+servo_moving_plate_t_mm = 2;           // hardware clearance capacity; check actual plate
+servo_adapter_pad_w_mm = 64;
+servo_adapter_pad_l_mm = 44;
+servo_adapter_pad_t_mm = 6;
+servo_adapter_ear_t_mm = 6;
+servo_adapter_ear_inner_mm = 40;       // X from moving crossplate centre
+servo_adapter_gap_mm = 12;            // 8 mm rod eye + 2 mm shim/trim space each side
+servo_adapter_pivot_od_mm = 18;
+servo_adapter_bolt_d_mm = 2.5;         // selected through-bolt capacity, not identified metal threads
+servo_adapter_bore_d_mm = 2.9;
+servo_adapter_washer_od_mm = 12;       // broad METAL washers for adjustable prototype passages
+function servo_moving_hole_points_mm() = [for (x=[-21,-9,9,21],v=[-9.5,9.5]) [x,v]];
+function servo_moving_hole_travel_mm() = [4,8]; // total centre travel; photo-fitting, not factory pitch
+servo_crank_r_band_mm = [40,70];
 servo_face_t = 6;
-servo_face_w = 70;                     // along Y, across the arm; covers the 65 mm flange
+servo_face_w = 70;                     // head land; six-hole rear bracket occupies only part of it
 servo_face_h = 60;                     // up
 servo_face_out_x = arm_col_d/2;       // outboard face of the column; the head's reach to
                                       // the servo plate is derived, never assumed
@@ -166,45 +168,64 @@ servo_face_out_x = arm_col_d/2;       // outboard face of the column; the head's
 // ESTIMATES, not measurements. Toro publishes no lever coordinates; these come
 // from the 77502 specification/product images and the measured servo station.
 // See TORO_77502_LINKAGE.md, then measure the lapbar_pin_* and crank values.
-// The crank is the RDS51150SG kit's metal output arm/holder, crank-up at neutral.
-servo_crank_r = 55;          // MEASURE the kit arm's pin radius; rod_servo_sweep proves the
-                             // rod transition clears the case and disc over +/-35 deg
-servo_crank_t = 4;           // metal arm thickness at that pin; MEASURE
-servo_crank_face_x = servo_axial_env;  // crank inner face = disc outer face; the drawing's
-                             // 61.4 mm overall envelope, NOT a 30 mm body plus a 3 mm disc
-servo_crank_washer = 2.5;    // washer stack between arm and rod eye; absorbs trim
-servo_crank_travel_deg = 35; // each way from vertical neutral; swept in fit_checks
+// The printed clevis is clocked +45 degrees to the moving plate tangent. At face45,
+// its pin is directly above the shaft; face90 moves it rear/up, not into a dead centre.
+servo_crank_r = 55;                    // design pin radius; fit/load qualification still required
+function servo_adapter_pin_local(crank_r=servo_crank_r) =
+    [servo_adapter_ear_inner_mm+servo_adapter_gap_mm/2,
+     crank_r/sqrt(2),crank_r/sqrt(2)-servo_moving_face_r_mm];
+function servo_adapter_outer_x_mm() =
+    servo_adapter_ear_inner_mm+servo_adapter_gap_mm+servo_adapter_ear_t_mm;
 lapbar_pin_fwd_mm = 889;     // ESTIMATE 35 in: hitch-hole centre forward to clamp pin
 lapbar_pin_x_mm = 355.6;     // ESTIMATE 14 in: lap-bar clamp pin from mower centreline
 lapbar_pin_dz_mm = 0;        // clamp pin above crank pin at neutral; 0 keeps rod level
-function servo_crank_eye_x() = servo_station_x+servo_crank_face_x+servo_crank_t
-                               +servo_crank_washer+clamp_rod_eye_t_mm/2;
-function servo_crank_pin_at(side, angle, crank_r=servo_crank_r) =
-    [side*servo_crank_eye_x(), servo_shaft_y()+crank_r*sin(angle),
-     arm_tip_z+crank_r*cos(angle)];
-function servo_crank_pin(side, crank_r=servo_crank_r) = servo_crank_pin_at(side, 0, crank_r);
+function servo_crank_eye_x() =
+    servo_station_x+servo_bracket_outer_span_mm/2+servo_adapter_pin_local()[0];
+function servo_crank_pin_at(side, face_angle_deg, crank_r=servo_crank_r) =
+    [side*servo_crank_eye_x(),
+     servo_shaft_y()-crank_r*sin(face_angle_deg-servo_face_neutral_deg),
+     arm_tip_z+crank_r*cos(face_angle_deg-servo_face_neutral_deg)];
+function servo_crank_pin(side, crank_r=servo_crank_r) =
+    servo_crank_pin_at(side,servo_face_neutral_deg,crank_r);
 function lapbar_pin(side) =
     [side*lapbar_pin_x_mm, tongue_bolt_y()+lapbar_pin_fwd_mm,
      arm_tip_z+servo_crank_r+lapbar_pin_dz_mm];
-// Vendor case 65 x 30 x 48 outboard of the mounting flange, then the kit's disc on the
-// output spline, out to the drawing's 61.4 mm overall axial envelope.
-module servo_body_envelope(side, disc_d=servo_disc_d) {
-    translate([side > 0 ? servo_station_x : -servo_station_x-servo_case_axial,
-               servo_shaft_y()-servo_case_l/2, arm_tip_z-servo_case_w/2])
-        cube([servo_case_axial,servo_case_l,servo_case_w]);
-    translate([side > 0 ? servo_station_x+servo_case_axial
-                        : -servo_station_x-servo_case_axial-servo_disc_t,
-               servo_shaft_y(), arm_tip_z])
-        rotate([0,90,0]) cylinder(d=disc_d,h=servo_disc_t);
+// Common frame for BOTH mirrored assemblies: +Y forward, +Z up, rotation about +X.
+// Electrical command direction must be calibrated separately for left/right motors.
+module servo_adapter_pose(side,face_angle_deg=servo_face_neutral_deg) {
+    translate([side*(servo_station_x+servo_bracket_outer_span_mm/2),servo_shaft_y(),arm_tip_z])
+        rotate([face_angle_deg,0,0]) translate([0,0,servo_moving_face_r_mm])
+            if(side<0) mirror([1,0,0]) children(); else children();
 }
-// Metal output arm at a crank angle (0 = up), inner face on the servo disc.
-module servo_crank_arm(side, angle, crank_r=servo_crank_r) {
-    shaft = [0,servo_shaft_y(),arm_tip_z];
-    pin = servo_crank_pin_at(side, angle, crank_r);
-    hull() for(p=[shaft,pin])
-        translate([side > 0 ? servo_station_x+servo_crank_face_x
-                            : -servo_station_x-servo_crank_face_x-servo_crank_t,p[1],p[2]])
-            rotate([0,90,0]) cylinder(d=14,h=servo_crank_t);
+module servo_body_envelope(side,disc_d=servo_disc_d) {
+    axial0 = (servo_bracket_outer_span_mm-servo_case_axial)/2;
+    translate([side>0 ? servo_station_x+axial0 : -servo_station_x-axial0-servo_case_axial,
+               servo_shaft_y()-servo_case_w/2,
+               arm_tip_z-servo_case_axis_offset_z_mm-servo_case_l/2])
+        cube([servo_case_axial,servo_case_w,servo_case_l]);
+    for(sign=[-1,1])
+        translate([side*(servo_station_x+servo_bracket_outer_span_mm/2
+                        +sign*(servo_case_axial+servo_disc_t)/2)-servo_disc_t/2,
+                   servo_shaft_y(),arm_tip_z])
+            rotate([0,90,0]) cylinder(d=disc_d,h=servo_disc_t);
+}
+// The confirmed moving member: eight-hole crossplate and its two bearing legs.
+module servo_moving_bracket(side,face_angle_deg=servo_face_neutral_deg) {
+    servo_adapter_pose(side,face_angle_deg) difference() {
+        union() {
+            translate([-servo_moving_plate_width_mm/2,-servo_moving_plate_length_mm/2,-servo_moving_plate_t_mm])
+                cube([servo_moving_plate_width_mm,servo_moving_plate_length_mm,servo_moving_plate_t_mm]);
+            for(x=[-servo_moving_plate_width_mm/2,servo_moving_plate_width_mm/2-servo_moving_plate_t_mm])
+                translate([x,-servo_moving_plate_length_mm/2,-servo_moving_face_r_mm-15])
+                    cube([servo_moving_plate_t_mm,servo_moving_plate_length_mm,
+                          servo_moving_face_r_mm+15]);
+        }
+        for(p=servo_moving_hole_points_mm())
+            translate([p[0],p[1],-servo_moving_plate_t_mm-1])
+                cylinder(d=servo_adapter_bore_d_mm,h=servo_moving_plate_t_mm+2);
+        translate([-servo_moving_plate_width_mm/2-1,0,-servo_moving_face_r_mm])
+            rotate([0,90,0]) cylinder(d=14.5,h=servo_moving_plate_width_mm+2);
+    }
 }
 // Printed sway bars tie each arm section back to the camera base mount's column.
 // Each bar lies in a vertical plane at the tower column centreline, so it lands square
@@ -242,7 +263,7 @@ function arm_cos() = cos(arm_rake_deg);
 function arm_seat_local_z() = (arm_seat_z-arm_foot_z)/arm_cos();
 function arm_point(t) = [arm_root_x+t*arm_sin(), assembly_arm_y, arm_foot_z+t*arm_cos()];
 module arm_pose() { translate([arm_root_x, assembly_arm_y, arm_foot_z]) rotate([0,arm_rake_deg,0]) children(); }
-module arm_vertical(t) { translate(arm_point(t)) rotate([0,-arm_rake_deg,0]) children(); }
+module arm_vertical(t) { translate(arm_point(t)) children(); }
 // Sloped station on the arm axis that lands at absolute z: the inverse of arm_point's
 // z. arm_support.scad uses it to find each sway pad's mate face.
 function arm_brace_t(z) = (z-arm_foot_z)/arm_cos();
@@ -266,19 +287,26 @@ tower_base_h = 150;                // wall flange height above the tongue top
 tower_base_t = 8;
 tower_base_bolts = [for (x = [-40, 40], z = [40, 90, 140]) [x, z]];   // wall XZ, z from box floor
 tower_wall_bolt_d = m5_clear;
-tower_port_d = 24;                 // passes a USB-A plug; needs a split grommet/sealant, not a gland
+tower_port_w = 30;                 // connector overmold capacity is verified with a swept gauge
+tower_port_h = 50;                 // extra height permits a rigid USB-A plug to turn into the box
 tower_port_z = 110;                // between relay decks 98/138 and the two stack columns at x=0
 tower_foot_bolts = [[-35, box_outer_w / 2 + 25], [35, box_outer_w / 2 + 25]];  // XY through tongue
 tower_y = box_outer_w / 2 + tower_base_t + 15 + tower_od / 2;   // tube centre: clears the lid skirt
 tower_base_top_z = 160;            // absolute z of the base's joint flange top
-tower_cap_t = 30;                  // socket 18 + nut trap + 8 mm roof
-tower_height = 900;                // tongue top (z=0) to camera-foot surface; MEASURE on the mower
+tower_cap_t = 24;                  // 18 mm socket + 6 mm closed roof
+camera_housing_h = 80;
+camera_extension_mm = 304.8;       // user-requested 12-inch clear tower span BETWEEN housings
+tower_height = 900;                // lower Pi camera optical centre; mower sightline still unverified
 tower_seg_max = 400;               // lying flat on a 420 bed, spigot included
 cam_foot_bolt_x = 22;              // camera_mount.scad camera_foot() slot centres
-function tower_seg_span() = tower_height - tower_base_top_z - tower_cap_t;
+function tower_seg_span() = tower_height - tower_base_top_z - camera_housing_h / 2;
 function tower_seg_count() = ceil(tower_seg_span() / tower_seg_max);
 function tower_seg_len() = tower_seg_span() / tower_seg_count();
 function tower_flange_z(i) = tower_base_top_z + i * tower_seg_len();   // joint i, i=0 is base top
+function camera_lower_z() = tower_flange_z(tower_seg_count());
+function camera_upper_z() = camera_lower_z() + camera_housing_h + camera_extension_mm;
+function camera_lens_z(kind) = (kind == "pi" ? camera_lower_z() : camera_upper_z()) + camera_housing_h / 2;
+function tower_upper_cap_z() = camera_upper_z() + camera_housing_h;
 // Sway bars reach the camera base mount, whose column is defined above.
 arm_brace_y = tower_y;                   // camera tower column centreline
 arm_brace_bar_t = 12;

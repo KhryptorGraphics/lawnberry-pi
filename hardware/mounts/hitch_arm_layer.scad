@@ -4,10 +4,10 @@
 // and continues to the hitch tongue. Arms print separately (long axis X); they
 // have a closed rectangular beam section with a central web and a solid bolt-root.
 //
-// Servo interface: RDS51150 stationary-holder SIDE, 4-M2.5 on 24 x 24 mm from the
-// ANNIMOS listing drawing. Confirmed 2026-10-07: the holder's 65 x 30 mounting face
-// carries this pattern and is the printed head's only mate; the further holes in the
-// user's photos are not fastening points. Verify the RDS51150SG revision before use.
+// Servo interface: narrow SIX-hole stationary rear bracket in photo aa8b43.
+// Shared photo-derived slots are a first-article fit capacity, not measured
+// factory centres/threads. Use steel through-bolts, washers and nuts; trial-fit
+// the real bracket before load qualification. Rear opening is a clearance bore.
 // Hitch interface: 20 mm hole/aux M6 centres mirror the *enclosure* tongue, not a
 // verified mower hitch drawing. A single central bolt does not establish a torque
 // path for opposed servos. Use the aux holes only when the actual hitch plate can be
@@ -93,7 +93,7 @@ module arm_foot_top_keep() {
     arm_half_space_below(-arm_rake_deg,arm_seat_z-arm_foot_z+arm_foot_h);
 }
 // Above the head's mating plane, in an upright frame.
-module arm_mate_keep() { arm_half_space_above(-arm_rake_deg,0); }
+module arm_mate_keep() { arm_half_space_above(arm_rake_deg,0); }
 
 // Four vertical M6 enter from UNDER the free side ears (clear of the hitch
 // plate). Each terminates in a steel nut dropped through a side-entry slot
@@ -271,48 +271,43 @@ module arm_head() {
     difference() {
         intersection() {
             union() {
-                rotate([0,-arm_rake_deg,0])
+                rotate([0,arm_rake_deg,0])
                     translate([-arm_joint_flange/2,-arm_joint_flange/2,0])
                         cube([arm_joint_flange,arm_joint_flange,arm_joint_flange_t]);
                 // rib, upright, outboard of the mating plane
                 translate([0,-arm_col_w/2,0])
                     cube([servo_face_dx()-servo_face_t,arm_col_w,arm_head_rise()+servo_face_h/2]);
                 // servo face: normal along the machine's X, so the horn sweeps YZ;
-                // the land covers the holder's whole 65 x 30 flange
+                // land surrounds the narrow rear bracket's six hole stations
                 translate([servo_face_dx()-servo_face_t,-servo_face_w/2,arm_head_rise()-servo_face_h/2])
                     cube([servo_face_t,servo_face_w,servo_face_h]);
             }
             arm_mate_keep();
         }
         for(x=[-arm_joint_bolt,arm_joint_bolt],y=[-arm_joint_bolt,arm_joint_bolt])
-            rotate([0,-arm_rake_deg,0]) translate([x,y,-1]) cylinder(d=m6_clear,h=arm_joint_flange_t+2);
+            rotate([0,arm_rake_deg,0]) translate([x,y,-1]) cylinder(d=m6_clear,h=arm_joint_flange_t+2);
         // spigot pocket
-        rotate([0,-arm_rake_deg,0]) translate([-arm_joint_spigot/2,-arm_joint_spigot/2,-1])
-            cube([arm_joint_spigot+0.4,arm_joint_spigot+0.4,arm_joint_spigot_h+0.2]);
+        rotate([0,arm_rake_deg,0]) translate([-arm_joint_spigot/2-0.2,-arm_joint_spigot/2-0.2,-1])
+            cube([arm_joint_spigot+0.4,arm_joint_spigot+0.4,arm_joint_spigot_h+1.2]);
         arm_servo_holes();
-        arm_servo_access_bores();
     }
 }
 function servo_face_dx() = servo_station_x-arm_joint_x;   // head's outboard reach
 function arm_head_rise() = arm_tip_z-arm_joint_z;        // head's rise, upright
-// M2.5 socket head across-flats is 4.5 mm; the screws come in from the arm's inboard side.
-function servo_access_clear() = 4.8;
+// Flat inboard X=0 face is exposed, not a nut pocket inside the rib.
+// Washer occupies X=-1..0; steel nut X=-3.5..-1; slim socket approaches from -X.
+// Capacities: washer OD6/t1, nut AF5/h2.5, tool OD8 (actual hardware must fit).
+function servo_access_clear() = servo_mount_tool_d_mm;
 module arm_servo_holes() {
-    for(y=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2],
-        z=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2])
-        translate([servo_face_dx()-servo_face_t-1,y,arm_head_rise()+z])
-            rotate([0,90,0]) cylinder(d=servo_side_hole_clear_d,h=servo_face_t+2);
-}
-// The holder screws enter from the arm's INBOARD side, so the rib that braces the plate
-// has to carry a driver-and-socket-head tunnel down to each bore. The plate bores alone
-// were open while the material behind them was solid: nothing could reach the holder.
-// Print note: these tunnels are horizontal in the print pose; bridge them, do not fill.
-module arm_servo_access_bores() {
-    for(y=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2],
-        z=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2])
-        translate([-1,y,arm_head_rise()+z])
-            rotate([0,90,0])
-                cylinder(d=servo_access_clear(),h=servo_face_dx()-servo_face_t+1);
+    // BOTH small slots and opening pass through the entire rib AND 6 mm land.
+    // Rounded slot 3.7 x 3.7, cutter-centre travel +/-0.4 Y/Z (bolt +/-0.6).
+    // Worst lower-row bore-to-slot web ~2.20 mm; OD6 washer clearance >=0.36 mm.
+    // Full-length bolts must span servo_face_dx(), bracket, washer and steel nut.
+    // Do not enlarge blindly: photo uncertainty is wider than this safe capacity.
+    translate([-1,0,arm_head_rise()]) {
+        servo_rear_hole_cut(servo_face_dx()+2);
+        servo_rear_opening_cut(servo_face_dx()+2);
+    }
 }
 // Print transforms. The lower arm's rotate([90,0,90]) sends local (x,y,z) -> bed
 // (z,x,y), so the arm axis lies along bed X and the hollow section lies flat on the
@@ -321,20 +316,18 @@ module arm_servo_access_bores() {
 // the lower arm, the tilted joint flange on the head.
 function arm_lower_min_x() = arm_pad_x_at(arm_brace_pad_h/2);
 function arm_head_min_x() =
-    -(arm_joint_flange/2*arm_cos()+arm_joint_flange_t*arm_sin());
-function arm_head_min_z() = -(arm_joint_flange/2*arm_sin());
+    min(-arm_joint_flange/2,-(arm_head_rise()+servo_face_h/2)*arm_sin());
 module arm_lower_print() {
     translate([0,-arm_lower_min_x(),arm_joint_flange/2]) rotate([90,0,90]) arm_lower_local();
 }
 module arm_head_print() {
-    translate([-arm_head_min_x(),arm_joint_flange/2,-arm_head_min_z()]) arm_head();
+    translate([-arm_head_min_x(),arm_joint_flange/2,0]) rotate([0,-arm_rake_deg,0]) arm_head();
 }
-// Print width of the head in X, from the tilted joint flange's projection: its lower
-// corner sits T*sin(rake) inboard of its upper one.
-function arm_head_print_w() = arm_joint_flange*arm_cos()+arm_joint_flange_t*arm_sin();
+// Both copies print with the same flat joint mating face, without mirroring the source datum.
+function arm_head_print_w() = arm_joint_flange/2-arm_head_min_x();
 
 module arm_lower_assembly() { arm_pose() arm_lower_local(); }
-module arm_head_assembly() { arm_pose() translate([0,0,arm_joint_t]) arm_head(); }
+module arm_head_assembly() { arm_vertical(arm_joint_t) arm_head(); }
 module arm_assembly_side(side) {
     if (side < 0) { arm_lower_assembly(); arm_head_assembly(); }
     else mirror([1,0,0]) { arm_lower_assembly(); arm_head_assembly(); }
@@ -350,7 +343,7 @@ module arm_head_right() { translate([arm_head_print_w(),0,0]) mirror([1,0,0]) ar
 
 module arm_layer_gauge() {
     difference() {
-        translate([-50,-18,0]) arm_rounded_plate(100,36,4,4);
+        arm_rounded_plate(100,36,4,4);
         for(x=[-tongue_aux_bolt_x,0,tongue_aux_bolt_x])
             translate([x,0,-1]) cylinder(d=x==0 ? hitch_bore_d : aux_bore_d,h=6);
     }

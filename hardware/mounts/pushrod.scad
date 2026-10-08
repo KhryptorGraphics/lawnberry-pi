@@ -128,8 +128,8 @@ assert(rod_index >= 0 && rod_index <= rod_last_setting(),
        "rod_index must select a configured lock setting");
 assert(rod_lateral_offset >= 0,
        "The lap-bar clamp pin must be outboard of (or level with) the servo crank pin");
-assert(rod_trim_shift <= servo_crank_washer-0.5,
-       "Trim moves the servo eye more than the arm washer stack absorbs; reduce the step");
+assert(rod_trim_shift+0.5 <= (servo_adapter_gap_mm-rod_eye_t)/2,
+       "Trim moves the servo eye beyond the double-shear adapter's shim clearance");
 assert(rod_lock_pitch % rod_index_step == 0 && rod_lock_pitch/rod_index_step
        >= rod_index_count, "Lock holes for different settings would merge");
 assert(rod_lock_pitch-rod_bolt_bore >= 8 && rod_index_step-rod_bolt_bore >= 8,

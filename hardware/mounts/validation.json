@@ -3,25 +3,27 @@
   "status": "mesh_and_named_geometry_checks_passed_not_physical_qualification",
   "sources_sha256": {
     "accessory_mounts.scad": "9b52e1be10a2cb767b416a8a5cc2771ab0ff360e96b25bb4dd567f40c3777e82",
-    "actuation_fit_gauge.scad": "832631f8cfc0bd3f3d13a645d1b70a19fc1a65a78764513d347f442e2f3825dc",
+    "actuation_fit_gauge.scad": "92bc4676d959a4348102dacb891bbb466eca26c433d998a885335ace0a829eb0",
     "arm_support.scad": "e6b92555d41b3dc0704dc06995f2697ee5a70f7fa9ad665ca23cedd3849a4c3f",
-    "assemblies.scad": "538347756c56b26b15214d75622555d97775c529b221e57bdc9ae98b11eecdb9",
-    "camera_mount.scad": "33acf1d5a5d88e1e658b770c2611b94ee8661bd13f3739f4ef8ed0cfd8216f25",
-    "camera_tower.scad": "9e2893e7b6748c62390ea35891f3e45f50a97e996bf9c0418814d004e2b6a1c6",
-    "common.scad": "8322684862fdb7ecdb2edcd01fb0c358780a3d06e46e11c6dd82ff8db609e677",
+    "assemblies.scad": "5c1b9e6d5b95ac4b8cd5380fdb54f334fbf464232d11c231084aa90d31aaa60f",
+    "camera_mount.scad": "25bc5a57aa4ef9984a498e995b4932dceef7673deccb9deeebcbdf785cde93fe",
+    "camera_stack.scad": "22b95de314e4f9ca7700aabf42d0df4f18247ced61b145137aa6d37b035979f1",
+    "camera_tower.scad": "120ff620e5732a45b4f03737139c54646749ecf7f095d53c70f5f62cd6fa74d1",
+    "common.scad": "2a0f359d5644435f41328f5b137b85b175e604646dc85bec6dcc45a2b0322648",
     "electronics_tray.scad": "8a1ecfcb7f552e04fc6ba2c59568b4a6f760871db5ff2ecc35375bc5561a6a91",
     "enclosure_board_sled.scad": "8b4ee58012aa40ff814333cd34d17bb00b563911c62fa37943217f3d45724782",
-    "enclosure_body.scad": "83101b8712272bb105895c5d8f32f4e1c1c80c9e09f7fa4f9ee51cb576701121",
-    "enclosure_common.scad": "b7907087f8518ca6bb0f0dbb7e5cde99cfb54de915783f3aee7cba6bed768e17",
+    "enclosure_body.scad": "46e43183eed45114fbe0300311b85611d8dc232990a74224596cb08d39b01be9",
+    "enclosure_common.scad": "85016109e48f5f660e95dc9e39334e20227734598e64f345fa0840ac1e3a007f",
     "enclosure_lid.scad": "e2ca7ceb5c6a629e1df82487d790f162fc8593b0cc679da1f55be32eb5766790",
     "estop_bracket.scad": "ee007ceb2bf31e109cc799e1b025250d833401b048209d2e2d1f259f8ae0b7b2",
     "estop_contact_cover.scad": "1524aa425ecbe415b1f7f2b09144cb3fdf0c8e4519e523a2a258c5a40438c8f3",
-    "fit_checks.scad": "ecd8f9e5364ef55c712db55678ffdc8ccd0cc30c379266ce2f4d99cb67b5bd44",
-    "hitch_arm_layer.scad": "1f1b48d9ddadbf3fc61942ca6d098c6b1b4936bc172e3d34c97fc8b95cc93a57",
+    "fit_checks.scad": "a10d24800cf3dcc4fe11ae84e1eed98b96efaddb661b5a4eca043948a63e06da",
+    "hitch_arm_layer.scad": "20b3247669f095e9346de6bcd74de36d2fb1e0c7d2dcb70729aef2decdaa6557",
     "lapbar_four_bolt_clamp.scad": "15aa537465ca80aa638de890f8c17ac1f04fed0494de64ae01a949660ac8bed8",
-    "pushrod.scad": "8e655904c3e7abcb676ddab11e1710ba5526cde8ee9c81997b0501717d59a9b5",
+    "pushrod.scad": "56417f873c82e302a9b715e2e372c6cc43b53f683309c15855cea9d8d4e0ea7e",
     "sensor_carrier.scad": "7ca3da27ecd6e52e6e4166445839d0bf4abc174977433ddaea9bf77993fe4f22",
-    "throttle_servo_mount.scad": "c2b4666848308ddc14136e9fe55a9cdeb10a065b435098627d7e48a9c26156fc"
+    "servo_pushrod_adapter.scad": "386f7a3066fc2bfeee71e267e49c9e8093739ddbaeb17d36b3d79e7567705505",
+    "throttle_servo_mount.scad": "845323450be95a5295516dcd7c301dc282ef37b328d174f4fda1a6018253686d"
   },
   "parts": {
     "arm_layer_center": {
@@ -47,7 +49,7 @@
         8.0
       ],
       "volume_mm3": 490977.64,
-      "stl_sha256": "77ea3fa3647d930bc99f69f4c71876c1cc4ab024d5ba09637842c578e22a2979",
+      "stl_sha256": "50d5cebe7457dbc7cfae670d24fff7aa59c2901942f4f49e6cdbd68653722904",
       "mesh_sha256": "1504b81b5cc85bedd4f97fce8fe1185be4281c23c2ddb3225910123b53dd9024",
       "source": "hitch_arm_layer.scad",
       "parameters": {
@@ -77,7 +79,7 @@
         88.0
       ],
       "volume_mm3": 890762.133,
-      "stl_sha256": "80abea74dede4f67e745d64903a0732c00c1ed53040fb7c30a9833708a428abc",
+      "stl_sha256": "688c9d4621aaeaf85ecb91e0ab55e29110e16e94d9e0101b7eda9e865b273007",
       "mesh_sha256": "0a357cde98ea2b78954d1768ad26156578e059975139a07ab85dff7b02e0cf34",
       "source": "hitch_arm_layer.scad",
       "parameters": {
@@ -107,7 +109,7 @@
         88.0
       ],
       "volume_mm3": 890762.144,
-      "stl_sha256": "97b5ffebd46c692bfc9f15c5efaf46f0318b507011129e1baa27e59768e3202b",
+      "stl_sha256": "d262f9956c604f4b3ab807460ee6c45326f9fbe1d8808e8d7d71ea914460de63",
       "mesh_sha256": "16d85e7dd25334056c872638b9ea04e1b0fe507b79e011e358f130dcdba2198c",
       "source": "hitch_arm_layer.scad",
       "parameters": {
@@ -115,63 +117,93 @@
       }
     },
     "arm_head_left": {
-      "triangles": 3724,
+      "triangles": 3576,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
-          5.089143542136298e-07,
+          9.894302621660245e-08,
           0.0,
-          7.801272658980452e-07
+          -3.1016186841092974e-10
         ],
         [
-          88.5014877319336,
           88.0,
-          189.3284149169922
+          88.0,
+          180.28057861328125
         ]
       ],
       "size_mm": [
-        88.501,
         88.0,
-        189.328
+        88.0,
+        180.281
       ],
-      "volume_mm3": 299820.779,
-      "stl_sha256": "d11f9b911f706bb615dbac91ee6aa87d8eb87728e21626712c09c66378d92ee2",
-      "mesh_sha256": "cc3f7a1996ddc36d15a01467053ed71ce846b26d29408cdff7457a6ea4ade1f0",
+      "volume_mm3": 299588.986,
+      "stl_sha256": "1fea41383422078d11948744bc524702fd16884145ae01291fec13d02da5f86f",
+      "mesh_sha256": "a245684664e20e3a609180d433d260807ddc5590e48a140154f1fd69031c9218",
       "source": "hitch_arm_layer.scad",
       "parameters": {
         "arm_part": "head_left"
       }
     },
     "arm_head_right": {
-      "triangles": 3724,
+      "triangles": 3576,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
-          4.4783237740375625e-07,
+          4.035748872865952e-07,
           0.0,
-          7.801272658980452e-07
+          -3.1016186841092974e-10
         ],
         [
-          88.5014877319336,
           88.0,
-          189.3284149169922
+          88.0,
+          180.28057861328125
         ]
       ],
       "size_mm": [
-        88.501,
         88.0,
-        189.328
+        88.0,
+        180.281
       ],
-      "volume_mm3": 299820.784,
-      "stl_sha256": "e8bf855b46a99d34563ba840ba659b3e78c7bea20615eb23028f931888c08835",
-      "mesh_sha256": "1bee3561238d3cf8cddb63548f96962fd2d9785286e7820d7f7d21dd63bb3bab",
+      "volume_mm3": 299588.988,
+      "stl_sha256": "5c8f29f4f4dd80447bdfa795f30ebfd8ea6ece74f901a707ca3332f874447fc5",
+      "mesh_sha256": "dd8a389731cdf988eb091af379a613450c20e2e3f25bf67d8ad7d66d9c8360f5",
       "source": "hitch_arm_layer.scad",
       "parameters": {
         "arm_part": "head_right"
+      }
+    },
+    "arm_layer_gauge": {
+      "triangles": 1048,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -50.0,
+          -18.0,
+          0.0
+        ],
+        [
+          50.0,
+          18.0,
+          4.0
+        ]
+      ],
+      "size_mm": [
+        100.0,
+        36.0,
+        4.0
+      ],
+      "volume_mm3": 12730.797,
+      "stl_sha256": "0d3dc9d9f919a454305045d987056180464ed73835c4fbe19c75945cbea4b8a1",
+      "mesh_sha256": "799e13a5b9ad3337651d4c42d84f7c3646dc2c39e06991a1ef262d2c0d2fa4ad",
+      "source": "hitch_arm_layer.scad",
+      "parameters": {
+        "arm_part": "gauge"
       }
     },
     "arm_brace_bar_left_0": {
@@ -197,7 +229,7 @@
         60.0
       ],
       "volume_mm3": 41018.514,
-      "stl_sha256": "d54263bb4b00ad6ec52217ccdb3352c3d399c4b545b957c82c41cf9026d931a2",
+      "stl_sha256": "c7a696c6b2a77dec48e08d5cbe4e678abdfde548f9b6f857675318668d527350",
       "mesh_sha256": "530ab8898f6b8c09d89c0a9f05e6f143600f098db87610b95ab3d969fb735fc2",
       "source": "arm_support.scad",
       "parameters": {
@@ -228,7 +260,7 @@
         60.0
       ],
       "volume_mm3": 48300.205,
-      "stl_sha256": "d3be4a5d99d1a0cf90b12ba5dfe684f1c7f2879464eeea83c7ff790e9b9f306f",
+      "stl_sha256": "1af9b78bffeffa28bee2b25999dcbacb374c2b109599e67aff131521a6bb93f0",
       "mesh_sha256": "5cfa1decb7635b89f791e9613b08a20230e37da74138e5fda5c1de719f1daa82",
       "source": "arm_support.scad",
       "parameters": {
@@ -259,7 +291,7 @@
         60.0
       ],
       "volume_mm3": 53761.469,
-      "stl_sha256": "aa4fe2495738fccc9ba41db0483e06c2f877fcb58729c2bcbb6dc194e337792a",
+      "stl_sha256": "4d75c5cdd59bc9abb1dee3f78d0cc81d17dc84e3c95d14fb024b7642c372ed7d",
       "mesh_sha256": "cced3d0f72d138fa35a0dc9a96b81e0af499821c7f258639475c59a612a98a73",
       "source": "arm_support.scad",
       "parameters": {
@@ -290,7 +322,7 @@
         60.0
       ],
       "volume_mm3": 41018.513,
-      "stl_sha256": "5f94f850789f7401c5f821f29532623993ee65ee73bf4d45a3b9598c4bfec341",
+      "stl_sha256": "c528b7a8320175c970309766f26fd0fad6a2132b2bf723c827f2d54c44610517",
       "mesh_sha256": "b7e12e55ed82bae5c2b461d7dfba5158403b6bb77fd1d9a41e833d6b9a88332b",
       "source": "arm_support.scad",
       "parameters": {
@@ -321,7 +353,7 @@
         60.0
       ],
       "volume_mm3": 48300.201,
-      "stl_sha256": "12252883f2603e2fa0df0d3d1590cc849f0bf4290b76854446cedca4fe8c4564",
+      "stl_sha256": "c7b8ee63e0f7cc3aa50d1025c05a2a8915ec7f36280ab80fe7c59828cbf77b0b",
       "mesh_sha256": "dd3611127ee1827fc81f65e88f1e13a66e195b85c5eee32bd733dd7960bf90e5",
       "source": "arm_support.scad",
       "parameters": {
@@ -352,7 +384,7 @@
         60.0
       ],
       "volume_mm3": 53761.473,
-      "stl_sha256": "8651bf2c468f4e0ab045c1ebe251fb6c08943d5d1fc750bd690bcacd4168c075",
+      "stl_sha256": "bbab4ac72f9139fe1ac689a010b3c0672b3ddde295abf34ece50ad7acbb43324",
       "mesh_sha256": "34a53203f24a1646e48cc60c6762097ce6d04507bdc274f750cd7c7a0ec89f45",
       "source": "arm_support.scad",
       "parameters": {
@@ -383,7 +415,7 @@
         28.2
       ],
       "volume_mm3": 110949.27,
-      "stl_sha256": "c7711f66427ea930e70adf5a544cb702c00735c51f8435f156b641d0c8d52af2",
+      "stl_sha256": "6170a4e731d2f1eea363831b1f32275cb29ba50a9ef9c950a8ed371649dd8b61",
       "mesh_sha256": "fbcfe9936b157d13a54a5b4faea4599524f921dbe56f98170c4f437fdc6fdcf3",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
@@ -413,7 +445,7 @@
         28.2
       ],
       "volume_mm3": 111611.892,
-      "stl_sha256": "fd4b79b0296cad575da7ace2d68d827c5934847e2b5cf3ab420ad014489b2b50",
+      "stl_sha256": "f2b977fed1f98adef455bda81ec54cafdad7baf94636baf9b5b2aaa943dbd6a7",
       "mesh_sha256": "dbb10bacd73406d4ae7b79ad5daf703b3d0a23ec28583c9c3f854578dd632ae6",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
@@ -582,84 +614,84 @@
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -16.26637840270996,
+          -16.24610137939453,
           -20.0,
           0.0
         ],
         [
-          301.98468017578125,
+          301.8553771972656,
           20.0,
           40.0
         ]
       ],
       "size_mm": [
-        318.251,
+        318.101,
         40.0,
         40.0
       ],
-      "volume_mm3": 240795.112,
-      "stl_sha256": "e0902cc176efc38194bd1a0c70c058642ced492020c591a59f2324178a40e7b6",
-      "mesh_sha256": "2519a19de570e31a46534c9f558f480bbaf062b33bccb1c21054f2b0778b8d82",
+      "volume_mm3": 240697.941,
+      "stl_sha256": "f7f685280baa69734d975daa1d3edc0f2eab2211672e8b9b314bd652cb6c9efe",
+      "mesh_sha256": "7441d8e6c093b309c142588470340aa237ad5e9fe0e65aaaed9394eb741120bc",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "servo_end"
       }
     },
     "pushrod_middle_a": {
-      "triangles": 7964,
+      "triangles": 7956,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -8.15056580449891e-07,
+          -6.689349447697168e-07,
           -20.0,
           0.0
         ],
         [
-          317.98468017578125,
+          317.8553771972656,
           20.0,
           40.0
         ]
       ],
       "size_mm": [
-        317.985,
+        317.855,
         40.0,
         40.0
       ],
-      "volume_mm3": 248114.771,
-      "stl_sha256": "46f23c7b1baf1dc5da990a61787ec5de9f055aff41b56582f2408ac814bcd79d",
-      "mesh_sha256": "43fc0674f480aef25afe56bd1cb414390fa87e3ffc2a697ace724176dd0a00ef",
+      "volume_mm3": 248016.501,
+      "stl_sha256": "ce3553c3f8fdbfa09907a4ab5cda36241cdfe662494f45daf840e991fc157ba3",
+      "mesh_sha256": "ea31b6804a703c0d652fc07db302f4573877c8008d4034f59b5bfb8ee38025f4",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "middle_a"
       }
     },
     "pushrod_middle_b": {
-      "triangles": 6012,
+      "triangles": 6004,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -6.764388444935321e-07,
+          -3.841955162897648e-07,
           -20.0,
           0.0
         ],
         [
-          212.98468017578125,
+          212.85537719726562,
           20.0,
           40.0
         ]
       ],
       "size_mm": [
-        212.985,
+        212.855,
         40.0,
         40.0
       ],
-      "volume_mm3": 163700.832,
-      "stl_sha256": "02e0c653918d055e608fb60f5ec9e3bb1e0a9f43cbd634173a571329b8c83f00",
-      "mesh_sha256": "45a5cee75269fe3a4e39c3796513cb203354c0adf541827c202269c0db654099",
+      "volume_mm3": 163602.565,
+      "stl_sha256": "f9da2faf734e941aa00cc5ef08ee5dd75d8e01b4f0ab077872b3b5545f44ff46",
+      "mesh_sha256": "9b31b07cc9f1e2da0df9908e0f05496405a32865b563801de468a4eb12a50962",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "middle_b"
@@ -672,24 +704,24 @@
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -5.378211085371731e-07,
+          -9.945608780981274e-08,
           -20.0,
           0.0
         ],
         [
-          167.98468017578125,
+          167.85537719726562,
           20.0,
           40.0
         ]
       ],
       "size_mm": [
-        167.985,
+        167.855,
         40.0,
         40.0
       ],
-      "volume_mm3": 116222.996,
-      "stl_sha256": "16ff125801180ed87c8300c0708b0db4060d1e61ec130de5435296a89c0e048f",
-      "mesh_sha256": "c19191d455ff6981a84703d551e420745c6f57e6ef7724cc36d3b77dd03bce49",
+      "volume_mm3": 116132.484,
+      "stl_sha256": "2a080b794ec755a360a1ff26da6a97a0d75298ad73470147bb3473849ca3ad0c",
+      "mesh_sha256": "f428e1e1261e53192d0ca20c9f169bcb55553fac5bd556bbdce4bea07fa62a4c",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "sleeve"
@@ -707,19 +739,19 @@
           7.629394644936838e-07
         ],
         [
-          396.2663879394531,
-          17.986553192138672,
+          396.24609375,
+          17.674625396728516,
           29.099998474121094
         ]
       ],
       "size_mm": [
-        396.266,
-        32.537,
+        396.246,
+        32.225,
         29.1
       ],
-      "volume_mm3": 294233.747,
-      "stl_sha256": "9ccf5239180cdbb3dbf84378d0d79365fb9c98b61f905070f0523203ec98d797",
-      "mesh_sha256": "ed1a35e14c2dbb944819921e40d61da04f595288e080fbdd92e0c73b6123fab4",
+      "volume_mm3": 294227.087,
+      "stl_sha256": "69622971e3074950535cfe59393fc60c1bbfcbbe9b0c58930ef304d02d1685f5",
+      "mesh_sha256": "9d40be79b15d68fd870e1cb3d2e6a048805852b2a7fc48eae5141d0f759447b2",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "inner"
@@ -819,7 +851,7 @@
       }
     },
     "throttle_servo_mount": {
-      "triangles": 2412,
+      "triangles": 3288,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
@@ -840,9 +872,9 @@
         72.0,
         68.0
       ],
-      "volume_mm3": 82414.54,
-      "stl_sha256": "10d5b8c22d63b37166bcee5156d12c56fcc6f1cebd5d0f56d547000894a2b9a0",
-      "mesh_sha256": "64dd9fa47642479253efa5a564f5dffff238df497f093417a848573dccd81124",
+      "volume_mm3": 81287.872,
+      "stl_sha256": "0e7d0353a5cbf2bdd6e1f9be2a37d1a3dac5cfeebc902b7825bafd588cca3638",
+      "mesh_sha256": "9a66c78b2ae77aa33265a8c7144ede637670841ec66a9861c483ea223779afdf",
       "source": "throttle_servo_mount.scad",
       "parameters": {}
     },
@@ -869,7 +901,7 @@
         94.0
       ],
       "volume_mm3": 137956.192,
-      "stl_sha256": "d46802e9c9c8bd3570ee31e481f27998522dd862ec7d232b751ba5f25e3a471b",
+      "stl_sha256": "8396c94db7cdb3e9eac68291cb36fe33918f246202aaf5f882b4a18636882188",
       "mesh_sha256": "783b827d5b4f113c128e313c295a0a2765198d8d51f3cbdc48cf5b6621080f8b",
       "source": "estop_bracket.scad",
       "parameters": {}
@@ -897,13 +929,13 @@
         51.0
       ],
       "volume_mm3": 42600.296,
-      "stl_sha256": "f059c263a95d0d1a25e2e38d8f3ec98dce79d1abce93a6cb5420e1e66446471f",
+      "stl_sha256": "491342f949df7d6b11e8ba93d191059cf7cd699d062f29486199b87d70cca384",
       "mesh_sha256": "379802fad872825883053e751e2759315df7ffcf806fd5f968d99cf3be781017",
       "source": "estop_contact_cover.scad",
       "parameters": {}
     },
     "enclosure_body": {
-      "triangles": 11168,
+      "triangles": 10928,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
@@ -924,9 +956,9 @@
         285.0,
         184.5
       ],
-      "volume_mm3": 914969.669,
-      "stl_sha256": "cd1dd3e23cd904d950561ec0494a24678a723146bb40302d997819e8ae61eb34",
-      "mesh_sha256": "d5b9d288a17be68602393fa35b8e8f2ce93544e9c289e7a0d69d417fd97206bc",
+      "volume_mm3": 910776.321,
+      "stl_sha256": "590d793459e2dc6e1e10ba9e7b5aa91b8449f95e4b47a5878553bf8bbfcaac29",
+      "mesh_sha256": "e05a7c2fd26f79e233e862d9535236b42a707a1d2db88e8849ae2d56c273cdec",
       "source": "enclosure_body.scad",
       "parameters": {}
     },
@@ -953,7 +985,7 @@
         3.0
       ],
       "volume_mm3": 9693.253,
-      "stl_sha256": "d296c24750179543628731a5e372ee72fefc50e123fb5bec4cc350536969a9af",
+      "stl_sha256": "65b82b3f9a770d3a3b831699cbde0c9a8a86b493cc2b94ab66fdc59133b66218",
       "mesh_sha256": "e63eab249e5d1421ba58a9105d2bfef2ae6f467a4b3be39532bebc998eaf738c",
       "source": "enclosure_body.scad",
       "parameters": {
@@ -961,7 +993,7 @@
       }
     },
     "camera_tower_base": {
-      "triangles": 5072,
+      "triangles": 4848,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
@@ -982,9 +1014,9 @@
         159.0,
         83.0
       ],
-      "volume_mm3": 357846.591,
-      "stl_sha256": "0cc474960a4e1b41c19ce46dfba046659b4f4d9089e8a95a1c6372b5bdfb29c7",
-      "mesh_sha256": "1ef2b90edc39c2201e2be2cc73fcd9b550672dd03323c5a59aaa5ae6f75a3dab",
+      "volume_mm3": 346728.381,
+      "stl_sha256": "c0365efadf7e411b903b1c329dbdfa65a7d556079ac86816a42bd33d5c56149d",
+      "mesh_sha256": "9224c4c1da4219a1e142aebc9aff00eab7bacaf6b6313b78990e1a4a73406f4c",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "base"
@@ -1002,26 +1034,56 @@
           0.0
         ],
         [
-          370.0,
+          365.0,
           35.0,
           70.0
         ]
       ],
       "size_mm": [
-        370.0,
+        365.0,
         70.0,
         70.0
       ],
-      "volume_mm3": 355525.988,
-      "stl_sha256": "af0eee183a439f2952f3f48e6b79968ce3673d9e4096e9cdcd79980a652ebae2",
-      "mesh_sha256": "54f5fa0e9b5819d7cccd819f39943760cd0ab76ac4d8f6636e81893ac1b5fc0b",
+      "volume_mm3": 351025.988,
+      "stl_sha256": "4e1891b1df30bbebb4fdf013de3fe054573ede868b5bf8ce6f3cf8752fb6e935",
+      "mesh_sha256": "c501a6e90e25731d572737ec2c119c72add94dac0ee9492a94bfc58cf332d13d",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "segment"
       }
     },
+    "camera_tower_extension": {
+      "triangles": 2176,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          -35.0,
+          0.0
+        ],
+        [
+          319.79998779296875,
+          35.0,
+          70.0
+        ]
+      ],
+      "size_mm": [
+        319.8,
+        70.0,
+        70.0
+      ],
+      "volume_mm3": 310981.128,
+      "stl_sha256": "38ebd0aec86b0e24a50f664cd1387f39774e90153425f92ac4d04a0b7ce40db0",
+      "mesh_sha256": "499f1a08d50771c0357152f114e396bae36523a8f4553399d887ed30fa86b257",
+      "source": "camera_tower.scad",
+      "parameters": {
+        "tower_part": "extension"
+      }
+    },
     "camera_tower_cap": {
-      "triangles": 2168,
+      "triangles": 1068,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
@@ -1034,24 +1096,24 @@
         [
           35.0,
           35.0,
-          30.0
+          24.0
         ]
       ],
       "size_mm": [
         70.0,
         70.0,
-        30.0
+        24.0
       ],
-      "volume_mm3": 112508.696,
-      "stl_sha256": "41224837b2a420eedb713366bb87ab09400f8bcce394ca2b4925765bed8c7ec1",
-      "mesh_sha256": "68eb5dd202a11e97736bc1bc429d2392373030ba9e5d7ac95e471b4162520c2d",
+      "volume_mm3": 87275.637,
+      "stl_sha256": "171f99157831d6a6f75f0f5ed18d94aa58bbe7a4ddea2fe388ba3ada04c559e9",
+      "mesh_sha256": "502a107297c9a080d2210e3e4ff26098972f3a856677059c820001e2dc591039",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "cap"
       }
     },
     "camera_tower_backing": {
-      "triangles": 2088,
+      "triangles": 1848,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
@@ -1072,9 +1134,9 @@
         130.0,
         3.0
       ],
-      "volume_mm3": 41024.796,
-      "stl_sha256": "dae964b60596bdb604646d19fc90ceab82bbec654cc3a903c900efcc17c6d908",
-      "mesh_sha256": "942cdabfedad4b95cc5f1dba6ac0e8fca6dc7c095c7ca752b8a8a307fe0e482b",
+      "volume_mm3": 37879.785,
+      "stl_sha256": "1db65ec8693a11cca2dcecd1eed81cb783a6c8f97cf257d29231aa80fe658397",
+      "mesh_sha256": "71044a9c5d6f744fda17a14b1cb169e93ab0880a6fe3ac006c362ed4faa748d4",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "backing"
@@ -1103,7 +1165,7 @@
         12.0
       ],
       "volume_mm3": 215777.944,
-      "stl_sha256": "3ef9182f498be63a056343f102298f659f123eb59abf9ab64b1c8c230d56e4f7",
+      "stl_sha256": "5712270f791def8211a2ebd2e0d8605fa766a0d4ae6cb0d067758c643888c63d",
       "mesh_sha256": "c35ed0d0aff899648a7bc7d526da3d227e4d56161b3097fc5965e9a967c551cc",
       "source": "enclosure_lid.scad",
       "parameters": {}
@@ -1131,7 +1193,7 @@
         11.5
       ],
       "volume_mm3": 66144.702,
-      "stl_sha256": "e95d3c64c6ffa8b5bb7e57fb182980b105ed7af94a03934138119a387ae307db",
+      "stl_sha256": "7e4e1c96b454fcaec326f428a1c9a8072757424b614db80d71ebabb2e6e98d5c",
       "mesh_sha256": "505d0e229e1893f3067dab0efd9bc64802970615d0ce9b114161d2a0a4c05bb1",
       "source": "electronics_tray.scad",
       "parameters": {}
@@ -1159,7 +1221,7 @@
         3.0
       ],
       "volume_mm3": 16749.803,
-      "stl_sha256": "653c6729744c546dcae44edbbf824693dff1462e3d5b96631b6b484fd0dd18da",
+      "stl_sha256": "66a7013249c186a23d7d12cfcfabffc65c89ac93dfb08436bd42d9d1e5ce3796",
       "mesh_sha256": "2cc41aaf405de47e83d05592d4279b9152111de8849f887fa8a50f402af62704",
       "source": "enclosure_board_sled.scad",
       "parameters": {
@@ -1189,41 +1251,821 @@
         3.0
       ],
       "volume_mm3": 21249.803,
-      "stl_sha256": "e38c383f80c06410923ec16840a436dcb96e3677e06647d87a9f634c35204c32",
+      "stl_sha256": "45950f9bb2bfdd7019c3996130c595dab0ce3778430a8e2912dbd56c9e295f71",
       "mesh_sha256": "b81e5a037e38bbf0fc10d963afbfeb9a71b128a67c45bb47de0b8898122988b2",
       "source": "enclosure_board_sled.scad",
       "parameters": {
         "sled_type": "utility"
       }
     },
-    "camera_carrier": {
-      "triangles": 2840,
+    "camera_pi_housing": {
+      "triangles": 5556,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -18.0,
-          -33.0,
+          -56.0,
+          0.0,
           0.0
         ],
         [
-          18.0,
-          17.0,
+          56.0,
+          95.0,
+          140.0
+        ]
+      ],
+      "size_mm": [
+        112.0,
+        95.0,
+        140.0
+      ],
+      "volume_mm3": 244800.184,
+      "stl_sha256": "8d1bb9707bb2af490cecbd76bf08ac72fa10d518d9397a20388524b48ef5371f",
+      "mesh_sha256": "a3100a478df313e683bf9ec1d995afa7c208d5b73731ac81d5526774389a859e",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_housing"
+      }
+    },
+    "camera_pi_bottom": {
+      "triangles": 2224,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -57.0,
+          -108.0,
+          0.0
+        ],
+        [
+          57.0,
+          -36.0,
+          81.0
+        ]
+      ],
+      "size_mm": [
+        114.0,
+        72.0,
+        81.0
+      ],
+      "volume_mm3": 47910.106,
+      "stl_sha256": "ae31fa43b81bfc26f0ee14c63df53d2a000b6a380b2eb777d47b7f0afa2615e4",
+      "mesh_sha256": "5a0edf8db7f380ddc2db3f15e59e07df51bde94ef3dfdd6988fdce5eb1d71f3f",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_bottom"
+      }
+    },
+    "camera_pi_carrier": {
+      "triangles": 1316,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -23.0,
+          -57.5,
+          3.814697322468419e-07
+        ],
+        [
+          23.0,
+          0.0,
+          44.400001525878906
+        ]
+      ],
+      "size_mm": [
+        46.0,
+        57.5,
+        44.4
+      ],
+      "volume_mm3": 12267.204,
+      "stl_sha256": "efc781894e0d3930cce18772811fd347ba6adc35e7127c449278789f99349c96",
+      "mesh_sha256": "cbc7ed31fe19936d90617cfc16ab4ba0e54c45d50219a9dd3022c9ab93a68b04",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_carrier"
+      }
+    },
+    "camera_pi_retainer": {
+      "triangles": 572,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          9.61199951171875,
+          22.5,
+          0.0
+        ],
+        [
+          14.61199951171875,
+          57.5,
           16.0
         ]
       ],
       "size_mm": [
-        36.0,
-        50.0,
+        5.0,
+        35.0,
         16.0
       ],
-      "volume_mm3": 4807.516,
-      "stl_sha256": "571537a76e20dcf5d27c31acfe250931b416b8bf3ae14c830e4718f9fa0fd92b",
-      "mesh_sha256": "bb0247612976bb13344b9abd38a91ad8a6e998bd2f155c904b0633728814c6c8",
+      "volume_mm3": 786.459,
+      "stl_sha256": "cc2817810c1f5c34da7bdc9dcaed4d5879c37783aab890391d0a36caae03de7b",
+      "mesh_sha256": "eb0774d239e8f181dd96d648485c38666b58024483077d1b5d47adc3dd4bec72",
       "source": "camera_mount.scad",
       "parameters": {
-        "camera_part": "carrier"
+        "camera_part": "pi_retainer"
+      }
+    },
+    "camera_pi_lens_insert": {
+      "triangles": 1312,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -26.0,
+          -77.0,
+          0.0
+        ],
+        [
+          26.0,
+          -3.0,
+          1.6000003814697266
+        ]
+      ],
+      "size_mm": [
+        52.0,
+        74.0,
+        1.6
+      ],
+      "volume_mm3": 5789.626,
+      "stl_sha256": "bc4decd7387571c43d58014891645bc4aeedf9bc6994dd6e1446da71a9809877",
+      "mesh_sha256": "386fc1f2b3688bf03f36736b8ee9e0e2a9c64c385040f78e1a637d4d13d8ec64",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_lens_insert"
+      }
+    },
+    "camera_pi_face_gasket": {
+      "triangles": 44,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -45.0,
+          -77.0,
+          3.814697322468419e-07
+        ],
+        [
+          45.0,
+          0.0,
+          0.4000000059604645
+        ]
+      ],
+      "size_mm": [
+        90.0,
+        77.0,
+        0.4
+      ],
+      "volume_mm3": 1379.999,
+      "stl_sha256": "a12425eefc4391f330e5ec5a45b3fed72ab7e04a7e268083f0fe58e88ebf8a6e",
+      "mesh_sha256": "b134de91be5c08e0560c13777703f3bdb3a2ea4c4e2352431e412c210d7c782e",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_face_gasket"
+      }
+    },
+    "camera_pi_floor_gasket": {
+      "triangles": 44,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -45.0,
+          -105.0,
+          7.629394644936838e-07
+        ],
+        [
+          45.0,
+          -36.0,
+          0.800000011920929
+        ]
+      ],
+      "size_mm": [
+        90.0,
+        69.0,
+        0.8
+      ],
+      "volume_mm3": 724.799,
+      "stl_sha256": "2d9fc5a20b16a0442cdd6a90f4ab911104f46be0d4b1ae16be24f1509075b095",
+      "mesh_sha256": "761d521a6e05de55e831a543ef661d4c91b9dac50573d3def92c597594d262c8",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_floor_gasket"
+      }
+    },
+    "camera_pi_insert_gasket": {
+      "triangles": 552,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -26.0,
+          -77.0,
+          3.814697322468419e-07
+        ],
+        [
+          26.0,
+          -3.0,
+          0.4000000059604645
+        ]
+      ],
+      "size_mm": [
+        52.0,
+        74.0,
+        0.4
+      ],
+      "volume_mm3": 827.948,
+      "stl_sha256": "da3866b478cf866798344cf20ad91245a9df23dae17582abecdb09d8db7e02b3",
+      "mesh_sha256": "8933baec960a4f958fec0a0ca16f8de4f80f905ccf707cb1042fbdf0932a6a89",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_insert_gasket"
+      }
+    },
+    "camera_pi_rim_gasket": {
+      "triangles": 512,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -4.649999618530273,
+          -44.650001525878906,
+          7.629394644936838e-07
+        ],
+        [
+          4.649999618530273,
+          -35.349998474121094,
+          0.30000001192092896
+        ]
+      ],
+      "size_mm": [
+        9.3,
+        9.3,
+        0.3
+      ],
+      "volume_mm3": 7.464,
+      "stl_sha256": "6568aaa199242866ffe7f5583ae69620c8fa30ad40234bf091437f6c0070d79c",
+      "mesh_sha256": "6f597dc9bfbafd00d9cd3d08d42f1db7dc61b89ab98fcb888a2e7a5a2bb225ff",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_rim_gasket"
+      }
+    },
+    "camera_pi_lens_gauge": {
+      "triangles": 7032,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          224.0,
+          30.0,
+          2.3999996185302734
+        ]
+      ],
+      "size_mm": [
+        224.0,
+        30.0,
+        2.4
+      ],
+      "volume_mm3": 12476.843,
+      "stl_sha256": "2709909ae87f47a0fb66415bb901a3b1030b73a1198d891988d5fc768edbb095",
+      "mesh_sha256": "87d87ca649aa1abba12fa0a790db330f606806ff6b3dd1893dbd35a784f07490",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_lens_gauge"
+      }
+    },
+    "camera_pi_tile_fit_kit": {
+      "triangles": 87036,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -26.0,
+          -77.0,
+          0.0
+        ],
+        [
+          374.0,
+          317.0,
+          1.6000003814697266
+        ]
+      ],
+      "size_mm": [
+        400.0,
+        394.0,
+        1.6
+      ],
+      "volume_mm3": 207985.187,
+      "stl_sha256": "b41741c78b7d951ccacc6248da4852bb66956cee0f55040e03d984f282101663",
+      "mesh_sha256": "8348915cf42a0c75ac78827905b801bd88b5470027166953caeca83403a32b43",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_tile_fit_kit"
+      }
+    },
+    "camera_pi_groove_pad_kit": {
+      "triangles": 316,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -5.0,
+          -3.0,
+          0.0
+        ],
+        [
+          187.39999389648438,
+          30.799999237060547,
+          2.3999996185302734
+        ]
+      ],
+      "size_mm": [
+        192.4,
+        33.8,
+        2.4
+      ],
+      "volume_mm3": 469.175,
+      "stl_sha256": "627178a0d7f69c4e07ae344cc151cd44e4785880bfbc8fdf69212c1158b09469",
+      "mesh_sha256": "3207c7694a38e7d47307fdeb93a9bc9c853475fd1de80d5bcf8fd652ee503221",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "pi_groove_pad_kit"
+      }
+    },
+    "camera_stereo_housing": {
+      "triangles": 5572,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -101.0,
+          0.0,
+          0.0
+        ],
+        [
+          101.0,
+          95.0,
+          140.0
+        ]
+      ],
+      "size_mm": [
+        202.0,
+        95.0,
+        140.0
+      ],
+      "volume_mm3": 314524.173,
+      "stl_sha256": "1a8ed2bd6e66de8ee52cef84bd2cbf2f198ea2331c59642a2cd18027616e3204",
+      "mesh_sha256": "36528fa90e7e686cd5e1bbfc05d39eb546b71263bfd9c964e12c9abab57b3385",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_housing"
+      }
+    },
+    "camera_stereo_bottom": {
+      "triangles": 2764,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -102.0,
+          -108.0,
+          0.0
+        ],
+        [
+          102.0,
+          -36.0,
+          81.0
+        ]
+      ],
+      "size_mm": [
+        204.0,
+        72.0,
+        81.0
+      ],
+      "volume_mm3": 91308.16,
+      "stl_sha256": "db1c63e84dde7db55ff84c1266efa784fb269ddd052d0c9a1f39bdd063e8e0e6",
+      "mesh_sha256": "150faa061842416e9ec08a3772b62ea54085fce8ba44cb5d2b1340d86f8acd25",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_bottom"
+      }
+    },
+    "camera_stereo_carrier": {
+      "triangles": 1356,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -73.0,
+          -53.25,
+          1.9073486612342094e-07
+        ],
+        [
+          73.0,
+          0.0,
+          45.20000076293945
+        ]
+      ],
+      "size_mm": [
+        146.0,
+        53.25,
+        45.2
+      ],
+      "volume_mm3": 29575.072,
+      "stl_sha256": "ceb162f8c2e0cf4712929b6bb321b9d8a08306d2eae21d8bd70df2ea690937aa",
+      "mesh_sha256": "5badc00a29f33a08977c4f5a612a99fed6b23b316ad14590848dd1ae38f20c6c",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_carrier"
+      }
+    },
+    "camera_stereo_retainer": {
+      "triangles": 548,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          40.150001525878906,
+          26.75,
+          -1.9073486612342094e-07
+        ],
+        [
+          45.150001525878906,
+          53.25,
+          6.800000190734863
+        ]
+      ],
+      "size_mm": [
+        5.0,
+        26.5,
+        6.8
+      ],
+      "volume_mm3": 293.877,
+      "stl_sha256": "7dab19bea17868e3cdee69986973f6d2fcab0ca9a865449bba231860da83e039",
+      "mesh_sha256": "6081829e414de770f7ac38b892f6eb1458eaab36d4391b9184df7c5384ecc28d",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_retainer"
+      }
+    },
+    "camera_stereo_lens_insert_left": {
+      "triangles": 1280,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -48.0,
+          -77.0,
+          3.814697322468419e-07
+        ],
+        [
+          -2.0,
+          -3.0,
+          2.000000476837158
+        ]
+      ],
+      "size_mm": [
+        46.0,
+        74.0,
+        2.0
+      ],
+      "volume_mm3": 6212.699,
+      "stl_sha256": "6a38afe0ecff4d2e9f59b7ebbe98cdd82906a84858241bd6a9c63268a809afcb",
+      "mesh_sha256": "8123a7a485acec09419090a97f37eceb23829c381696447821a1d39e2c4e6c67",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_lens_insert_left"
+      }
+    },
+    "camera_stereo_lens_insert_right": {
+      "triangles": 1280,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          2.0,
+          -77.0,
+          3.814697322468419e-07
+        ],
+        [
+          48.0,
+          -3.0,
+          2.000000476837158
+        ]
+      ],
+      "size_mm": [
+        46.0,
+        74.0,
+        2.0
+      ],
+      "volume_mm3": 6212.699,
+      "stl_sha256": "98840eb5900a9bdc08e437b3539517e120e3ab2ca738458a91a83bfa9c75a3d8",
+      "mesh_sha256": "565d687b68b1b677a69253462b29828023187c01b26e7ac2a09e4507582ac386",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_lens_insert_right"
+      }
+    },
+    "camera_stereo_face_gasket": {
+      "triangles": 60,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -90.0,
+          -77.0,
+          3.814697322468419e-07
+        ],
+        [
+          90.0,
+          0.0,
+          0.4000000059604645
+        ]
+      ],
+      "size_mm": [
+        180.0,
+        77.0,
+        0.4
+      ],
+      "volume_mm3": 2859.197,
+      "stl_sha256": "6c25ecfb3846669dfb391ff603861fb8b194a5c835c15ff6ce9ed5257a702644",
+      "mesh_sha256": "0449fd9aac083dfe4dc41c2ee0dc497b51c30dd46f0e66960fcf0ca833e36684",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_face_gasket"
+      }
+    },
+    "camera_stereo_floor_gasket": {
+      "triangles": 44,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -90.0,
+          -105.0,
+          7.629394644936838e-07
+        ],
+        [
+          90.0,
+          -36.0,
+          0.800000011920929
+        ]
+      ],
+      "size_mm": [
+        180.0,
+        69.0,
+        0.8
+      ],
+      "volume_mm3": 1196.799,
+      "stl_sha256": "74a9556ae8a019a5042a3934258b0d5e16b1d3ad72167cec2f386691b8a14ade",
+      "mesh_sha256": "becbdd43ac01d699d3b1dc8197fa3c1f219e3c00e2f2d2f15a01d948ce32ed44",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_floor_gasket"
+      }
+    },
+    "camera_stereo_insert_gasket_left": {
+      "triangles": 552,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -48.0,
+          -77.0,
+          3.814697322468419e-07
+        ],
+        [
+          -2.0,
+          -3.0,
+          0.4000000059604645
+        ]
+      ],
+      "size_mm": [
+        46.0,
+        74.0,
+        0.4
+      ],
+      "volume_mm3": 880.747,
+      "stl_sha256": "6df35e0a85caf0b838c43fb87c5bf4b4d21393536ed282f8f711e54626e132e6",
+      "mesh_sha256": "6783048e0e7aed0c8d90bda10d80591acd8f75624b265fc5a984727b0d224dc9",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_insert_gasket_left"
+      }
+    },
+    "camera_stereo_insert_gasket_right": {
+      "triangles": 552,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          2.0,
+          -77.0,
+          3.814697322468419e-07
+        ],
+        [
+          48.0,
+          -3.0,
+          0.4000000059604645
+        ]
+      ],
+      "size_mm": [
+        46.0,
+        74.0,
+        0.4
+      ],
+      "volume_mm3": 880.747,
+      "stl_sha256": "550ed6de403af70c802b77bff403b77358790a9fce51224a2c0a9063c7584d3b",
+      "mesh_sha256": "93f579a2d176908a6f04e090f005e6977f4476d2f77830c497d7a315eeff66d2",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_insert_gasket_right"
+      }
+    },
+    "camera_stereo_rim_gasket_left": {
+      "triangles": 512,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -33.5,
+          -48.5,
+          3.814697322468419e-07
+        ],
+        [
+          -16.5,
+          -31.5,
+          0.8000005483627319
+        ]
+      ],
+      "size_mm": [
+        17.0,
+        17.0,
+        0.8
+      ],
+      "volume_mm3": 68.653,
+      "stl_sha256": "603b7ac2096dc2ea6fe8b0f761272edba47e0b25d7f96cb8d2c5ab75fb008190",
+      "mesh_sha256": "0ac7a5c973932eeba1e78b75d77083283cdabb23d1facf63fc6f37892fe2bc22",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_rim_gasket_left"
+      }
+    },
+    "camera_stereo_rim_gasket_right": {
+      "triangles": 512,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          16.5,
+          -48.5,
+          3.814697322468419e-07
+        ],
+        [
+          33.5,
+          -31.5,
+          0.8000005483627319
+        ]
+      ],
+      "size_mm": [
+        17.0,
+        17.0,
+        0.8
+      ],
+      "volume_mm3": 68.653,
+      "stl_sha256": "f80c36c938c049d32adf2e8d913c661e26b2a8eaad8b9bc384ec006287078ba6",
+      "mesh_sha256": "0f2d9873bbe7504c75ebdca6c9511777c5d82368182eb7aa90933ffabe9302ec",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_rim_gasket_right"
+      }
+    },
+    "camera_stereo_lens_gauge": {
+      "triangles": 7720,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          196.0,
+          30.0,
+          2.3999996185302734
+        ]
+      ],
+      "size_mm": [
+        196.0,
+        30.0,
+        2.4
+      ],
+      "volume_mm3": 9443.685,
+      "stl_sha256": "5cb729c37261fda5a6073daba0332780e7dfdade256e44146b5f6cc439944a9d",
+      "mesh_sha256": "604e18474d78e1f971ec39157db855e25098aebe3086ac3554f3cf65e4b4e763",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_lens_gauge"
+      }
+    },
+    "camera_stereo_tile_fit_kit": {
+      "triangles": 56396,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -23.0,
+          3.0,
+          0.0
+        ],
+        [
+          371.0,
+          237.0,
+          2.000000476837158
+        ]
+      ],
+      "size_mm": [
+        394.0,
+        234.0,
+        2.0
+      ],
+      "volume_mm3": 135247.905,
+      "stl_sha256": "3aebcd09c894cdd1927b7d772f4704780dc4e48c2f7ccfb3da60e3cfc61c96e7",
+      "mesh_sha256": "fe477f6b35bfd93691310700f1c18fc9846be30c9477f7813ade623261ce710b",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_tile_fit_kit"
+      }
+    },
+    "camera_stereo_groove_pad_kit": {
+      "triangles": 396,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -5.0,
+          -3.0,
+          0.0
+        ],
+        [
+          249.1999969482422,
+          30.799999237060547,
+          2.3999996185302734
+        ]
+      ],
+      "size_mm": [
+        254.2,
+        33.8,
+        2.4
+      ],
+      "volume_mm3": 992.567,
+      "stl_sha256": "970d5f7825cb88ffb46753f5af1153a3e654c37c3ddbd7586ce57f5d9d1d9096",
+      "mesh_sha256": "54077dd2138cf71d0d03ded7938955e44f48307dfde3bcb05b1de5637606f55a",
+      "source": "camera_mount.scad",
+      "parameters": {
+        "camera_part": "stereo_groove_pad_kit"
       }
     },
     "camera_foot": {
@@ -1249,41 +2091,161 @@
         24.0
       ],
       "volume_mm3": 11197.635,
-      "stl_sha256": "435769d50bb3ff89ad01ceeceec1ea809e3dc06b0caf0502ebbe1ad9575bc070",
+      "stl_sha256": "96a7a08150a745ee04f9e787f814650947685440a8ad54867bfd66305ec823df",
       "mesh_sha256": "8067258f90093599e453624d2eb889ff7ca51f2216528b050fcc3f998b5b79b5",
       "source": "camera_mount.scad",
       "parameters": {
         "camera_part": "foot"
       }
     },
-    "stereo_camera_bracket": {
-      "triangles": 1828,
+    "servo_adapter_right": {
+      "triangles": 3768,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -43.0,
-          -76.0,
+          -32.0,
+          -22.0,
           0.0
         ],
         [
-          43.0,
-          33.400001525878906,
-          58.0
+          58.0,
+          47.890872955322266,
+          22.49087142944336
         ]
       ],
       "size_mm": [
-        86.0,
-        109.4,
-        58.0
+        90.0,
+        69.891,
+        22.491
       ],
-      "volume_mm3": 64530.979,
-      "stl_sha256": "087fa919dce949b6d07f89024f37ed06199c32505592ecc544ab7e43c310b77c",
-      "mesh_sha256": "aa17d085c184a2bda36fc0c1370cd4146e01273fdd27ef697bb5bc05f4a96b5c",
-      "source": "camera_mount.scad",
+      "volume_mm3": 25272.132,
+      "stl_sha256": "0ca872adb4b7ed343107b6648f1909b03b8be43d416159bffe3c207a4bf359d7",
+      "mesh_sha256": "17328c0862185aab64ca54ba52543f1e9cb15ead429443667b2334755695b5ee",
+      "source": "servo_pushrod_adapter.scad",
       "parameters": {
-        "camera_part": "stereo"
+        "adapter_part": "right"
+      }
+    },
+    "servo_adapter_left": {
+      "triangles": 3768,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -58.0,
+          -22.0,
+          0.0
+        ],
+        [
+          32.0,
+          47.890872955322266,
+          22.49087142944336
+        ]
+      ],
+      "size_mm": [
+        90.0,
+        69.891,
+        22.491
+      ],
+      "volume_mm3": 25272.132,
+      "stl_sha256": "8f88db5e55cbb4242b343de4a8e922ceba3f1b9c1bdd9f38c3b623cf8f16e62e",
+      "mesh_sha256": "a6e197b0fc14cfbba99ca656bf51e951425f8ad492815188e4995ccc35bb5e8d",
+      "source": "servo_pushrod_adapter.scad",
+      "parameters": {
+        "adapter_part": "left"
+      }
+    },
+    "servo_adapter_gauge": {
+      "triangles": 2220,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -32.0,
+          -22.0,
+          0.0
+        ],
+        [
+          32.0,
+          22.0,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        64.0,
+        44.0,
+        3.0
+      ],
+      "volume_mm3": 6686.53,
+      "stl_sha256": "aefa562b6dcafdbb72ffa080d7d2667f454b12b05b45bfe9559951992be6ba81",
+      "mesh_sha256": "2d24c2026f3294eb0f3beee162f4e0b04dcf5514d3eb202af4e7037628ec2597",
+      "source": "servo_pushrod_adapter.scad",
+      "parameters": {
+        "adapter_part": "gauge"
+      }
+    },
+    "fit_gauge_1": {
+      "triangles": 1328,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -55.0,
+          -35.0,
+          0.0
+        ],
+        [
+          55.0,
+          35.0,
+          4.0
+        ]
+      ],
+      "size_mm": [
+        110.0,
+        70.0,
+        4.0
+      ],
+      "volume_mm3": 17716.213,
+      "stl_sha256": "13165a9959a0a65183e607bb6100e7807c4035dd79dca805c63ef4cc473218e0",
+      "mesh_sha256": "2ade2ffb17680f72e1f3a0c6af1d1eada4308a10d1233c6e1121ca460035fdd3",
+      "source": "actuation_fit_gauge.scad",
+      "parameters": {
+        "gauge": 1
+      }
+    },
+    "fit_gauge_2": {
+      "triangles": 2184,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -30.0,
+          -19.0,
+          0.0
+        ],
+        [
+          30.0,
+          19.0,
+          3.0
+        ]
+      ],
+      "size_mm": [
+        60.0,
+        38.0,
+        3.0
+      ],
+      "volume_mm3": 6174.217,
+      "stl_sha256": "1915115b0b93cd21b5a1fa53b96c03a5b7ff4e139b651c8cff1b3f7e12f7761a",
+      "mesh_sha256": "d05f302d205014f5aba705a7441a405ac623a258cf4bffe2801310fa1e19b380",
+      "source": "actuation_fit_gauge.scad",
+      "parameters": {
+        "gauge": 2
       }
     },
     "sensor_carrier": {
@@ -1309,7 +2271,7 @@
         16.0
       ],
       "volume_mm3": 10500.039,
-      "stl_sha256": "63bf144fd194fa2029611dbd3b718baabb3422f6bb41ac7d4bcfd291755d7dae",
+      "stl_sha256": "63d55b4b5d9169bcc3d5f0218fe96afd582e0308430cf13322c22f4bdba95747",
       "mesh_sha256": "86ee75bcfe154ed5045170e0aefaddd4d6807176637d0730c6d911b5125c81fa",
       "source": "sensor_carrier.scad",
       "parameters": {}
@@ -1337,7 +2299,7 @@
         9.0
       ],
       "volume_mm3": 4667.347,
-      "stl_sha256": "8f66c1da40940afac4089a9f416d9094dbe4384906b9e06241557837f0ad5743",
+      "stl_sha256": "1793e9a4f87cde97c3ea1cc731bc1819d4a0af79aa86aa0bb2e2d536dc864f2a",
       "mesh_sha256": "027d02aeb340cd22ed712ebac22a581f1ba2e86f9743a3eaf6ec95059fe71d08",
       "source": "accessory_mounts.scad",
       "parameters": {
@@ -1367,7 +2329,7 @@
         9.0
       ],
       "volume_mm3": 22824.852,
-      "stl_sha256": "145e74e923b0ab7872a749a9580183a0652942251dc2b87d81c7d0f38dffdc58",
+      "stl_sha256": "98eb9ab838f4705c4685bdf930256c91010b24e6247fe7835d621cb7e0ba1520",
       "mesh_sha256": "fd9e7321e4adf83ef1e8d694f84f966b144853503d96c4a38175331e90353def",
       "source": "accessory_mounts.scad",
       "parameters": {
@@ -1397,7 +2359,7 @@
         4.0
       ],
       "volume_mm3": 54906.08,
-      "stl_sha256": "f5f54ba40c27f0c5bb9a59d7fef3bf120eedc25c7e8204ffb92bbfc5cec977ca",
+      "stl_sha256": "1d97ffa9827b84f107504757ea4757e88edf0d0c0afad44e1f05794ebbf57be9",
       "mesh_sha256": "1b14a95010cf3839b1864944a6f9fb27815c2f3c0ad90172b7cfbe015cb06809",
       "source": "accessory_mounts.scad",
       "parameters": {
@@ -1408,115 +2370,235 @@
   "print_files": {
     "antenna_deck": {
       "path": "3mf/antenna_deck.3mf",
-      "sha256": "e6662200dc94b9b56a06ff3402c6ca87108586e10920ad2a4d2ecc942b56d8ce"
+      "sha256": "9e831b521f5e28fe3a255f00d68796a8a6dd5dceb148cf7b905a6bcee99b1547"
     },
     "arm_brace_bar_left_0": {
       "path": "3mf/arm_brace_bar_left_0.3mf",
-      "sha256": "8d7d4405d5d9f51c0ffe1452e51dc22fd805ef0dc5fc472c6fc5c29772d6157b"
+      "sha256": "b7ce29a2dbc1ca89f24757ba2b83fb513940ab8c859b50055a793e9638ab5ad3"
     },
     "arm_brace_bar_left_1": {
       "path": "3mf/arm_brace_bar_left_1.3mf",
-      "sha256": "0c2b7620ee8f27dc786c88cca416459bb308924bb33a4c14275faf7cb228a664"
+      "sha256": "f2cde8d59771aa1235c690d01c3074c2613dd8d5c4673984bf363f80a18a7f73"
     },
     "arm_brace_bar_left_2": {
       "path": "3mf/arm_brace_bar_left_2.3mf",
-      "sha256": "e92063c3a5f02cacb0462c03f4144de406ff2f6f917fb9ceab7bafb07a5efd25"
+      "sha256": "7e4a05b3206a72142fad2ea2289d2a22266b643bedd7e6ea9eb2caa9c57d00f7"
     },
     "arm_brace_bar_right_0": {
       "path": "3mf/arm_brace_bar_right_0.3mf",
-      "sha256": "88c51ea00d8f95825b9eb33ce01693d68cc53873ab24fba8255ce29a103f8756"
+      "sha256": "f947e7e7cfbbf8d74906ff709e5282960756c19e9b11cf7946826011ae8a32d2"
     },
     "arm_brace_bar_right_1": {
       "path": "3mf/arm_brace_bar_right_1.3mf",
-      "sha256": "8f72a94fc695bde07145739a21f273afe99107f0394696bbe811a9414e091584"
+      "sha256": "b112678dac8861c285f51a7659dc8ce84cec81aaa3a351215021b276156b12a7"
     },
     "arm_brace_bar_right_2": {
       "path": "3mf/arm_brace_bar_right_2.3mf",
-      "sha256": "b3175afc6dbcff166e90eaf8d6946da34ed57d55302d5e2755a7bc63de2b8681"
+      "sha256": "b36eff4b885fbf8c968ec0a3169aff0174c51d39c97e8b23c89de6fb25a99208"
     },
     "arm_head_left": {
       "path": "3mf/arm_head_left.3mf",
-      "sha256": "7449fedab9c37ae95d39b13b959d97544d6ecbd592ff705216d7d9205eb622a3"
+      "sha256": "325b5a1b5758ab96fb2f47f0381694c823ff5d4003f56ec6563ef42445c418fc"
     },
     "arm_head_right": {
       "path": "3mf/arm_head_right.3mf",
-      "sha256": "c5c539bc740b4ebbe75773b22bbb67def68b91d3f7cccb5dfa10ffb3243c216f"
+      "sha256": "50dcf35b0449065bb0a4136dbd240782470e98cd003212641998c74262f77e06"
     },
     "arm_layer_center": {
       "path": "3mf/arm_layer_center.3mf",
-      "sha256": "2bc0afd8e7a37e92359008f096dbd622d448dae3642c5b9b53223571495d9f2f"
+      "sha256": "9330660c8aadf11d61c81b9d91e38eeb05b4b8e7acfb5b5f875ffc64fe218c21"
+    },
+    "arm_layer_gauge": {
+      "path": "3mf/arm_layer_gauge.3mf",
+      "sha256": "7b33ddfc557ce2878010b6c46289f7ddfd48cc80fdf68d6080838ee5c012de54"
     },
     "arm_layer_left": {
       "path": "3mf/arm_layer_left.3mf",
-      "sha256": "d2afddc8b6ac0586f97c428d569034357a1fe9eef0a2910da1b1a000e4c8e477"
+      "sha256": "e6aafb20507675ebed11b95afb8c6463a39e7ccd6c10f2a7e9208cfd9a800ed5"
     },
     "arm_layer_right": {
       "path": "3mf/arm_layer_right.3mf",
-      "sha256": "41cf139508ca230b97747c9ce64b374134700f8d7b06e3e909c666e77390aae9"
-    },
-    "camera_carrier": {
-      "path": "3mf/camera_carrier.3mf",
-      "sha256": "a5edee62ee0894529847b231bfe3c8d448a3635566e81b7deb8651df2d8d3457"
+      "sha256": "2bd06c2366867034dd5505be48c012fdd5e64fba8b865c3d63f5e0d8cffb7b0e"
     },
     "camera_foot": {
       "path": "3mf/camera_foot.3mf",
-      "sha256": "4f7db5e8c6fa7c556879a195a6d13d63fbe67cc3f7777c80de41d0838d2b1403"
+      "sha256": "8b1294f1c8a098ac0a2b19aa48ace1d524216aa2fea539fdee051d422a743334"
+    },
+    "camera_pi_bottom": {
+      "path": "3mf/camera_pi_bottom.3mf",
+      "sha256": "cce5c182caf5551067b9c9532cc32399d6b11858e78e4bb77f85dfdc5236e968"
+    },
+    "camera_pi_carrier": {
+      "path": "3mf/camera_pi_carrier.3mf",
+      "sha256": "708bea698bd2ce092993a84e45fbd0fa5afbbafdcf94610d17fe4ecf555df1de"
+    },
+    "camera_pi_face_gasket": {
+      "path": "3mf/camera_pi_face_gasket.3mf",
+      "sha256": "47ddd0dbefcd03efd6fd11ccbf223ef2dceec0ea8ca979d536eb76889233cd88"
+    },
+    "camera_pi_floor_gasket": {
+      "path": "3mf/camera_pi_floor_gasket.3mf",
+      "sha256": "86435d5f8b9d49bcd34bab826a011ec36e8f29851f4ced77ff93f65b6019ec5c"
+    },
+    "camera_pi_groove_pad_kit": {
+      "path": "3mf/camera_pi_groove_pad_kit.3mf",
+      "sha256": "ebeee179d843cc3e113339b295ed15bc2775c8a2cca79186fa5b55497fb21868"
+    },
+    "camera_pi_housing": {
+      "path": "3mf/camera_pi_housing.3mf",
+      "sha256": "baace71dc1e2f52cca068dd990eee013eda4615a9d060766f4c76ddc7b3487d2"
+    },
+    "camera_pi_insert_gasket": {
+      "path": "3mf/camera_pi_insert_gasket.3mf",
+      "sha256": "19dfb4942a347b7d628d44b3616b4487605773cbf3ce68414098e7d87e197029"
+    },
+    "camera_pi_lens_gauge": {
+      "path": "3mf/camera_pi_lens_gauge.3mf",
+      "sha256": "365d382163931da2f727f36a12a5b4eb7da70cee5b9d13c764e6493051bfc40b"
+    },
+    "camera_pi_lens_insert": {
+      "path": "3mf/camera_pi_lens_insert.3mf",
+      "sha256": "9acff71aa041787cfc67ac6392d89e7b6b38a9dae324284f8ddc4624fd545ce0"
+    },
+    "camera_pi_retainer": {
+      "path": "3mf/camera_pi_retainer.3mf",
+      "sha256": "f83c2a5174ff206f47a4e39f7088fa5933ba9c6f3e7f81790cf619f23aca3f9d"
+    },
+    "camera_pi_rim_gasket": {
+      "path": "3mf/camera_pi_rim_gasket.3mf",
+      "sha256": "f5762733b6b88293f4581c9771703811203cb7b2e91a703f9f64323dd05bb605"
+    },
+    "camera_pi_tile_fit_kit": {
+      "path": "3mf/camera_pi_tile_fit_kit.3mf",
+      "sha256": "282dc9f95d3ff12756a500f93bab0f1582fc0731f3de15dbfa26eddeff119ce1"
+    },
+    "camera_stereo_bottom": {
+      "path": "3mf/camera_stereo_bottom.3mf",
+      "sha256": "d9012de0c8ade6a7d17835afb72ac1fa725b912a44db0b6261fca6cb2f63f848"
+    },
+    "camera_stereo_carrier": {
+      "path": "3mf/camera_stereo_carrier.3mf",
+      "sha256": "adf932310ff0c66c66f70414c7f86e2d19880088c92a2df09eb0bfddf089991a"
+    },
+    "camera_stereo_face_gasket": {
+      "path": "3mf/camera_stereo_face_gasket.3mf",
+      "sha256": "c7bcd8527bd0c0ecffe73adb81d48c31580f542d6591d7366c9d805f84f576fe"
+    },
+    "camera_stereo_floor_gasket": {
+      "path": "3mf/camera_stereo_floor_gasket.3mf",
+      "sha256": "55c41b6241a2af8bc5d970e302a3af49a32b1cf1d80ed1e1d8a66013fc8f0665"
+    },
+    "camera_stereo_groove_pad_kit": {
+      "path": "3mf/camera_stereo_groove_pad_kit.3mf",
+      "sha256": "16a12cad48b2aeaae139af668c9d0554708cd1ee8395ba3ade49f87e1b1b02d9"
+    },
+    "camera_stereo_housing": {
+      "path": "3mf/camera_stereo_housing.3mf",
+      "sha256": "186faf57564167e94e67c821eded67d5180dabace38962386bfc8fe3aa2fa19e"
+    },
+    "camera_stereo_insert_gasket_left": {
+      "path": "3mf/camera_stereo_insert_gasket_left.3mf",
+      "sha256": "b01c3554f4d009790762fca0f28ee2394628670a7c9409203b251136d37c21ae"
+    },
+    "camera_stereo_insert_gasket_right": {
+      "path": "3mf/camera_stereo_insert_gasket_right.3mf",
+      "sha256": "d828e0073b2bedf9fd5ce54a820e2c571fc2e1b33169341ff07e628e64f709af"
+    },
+    "camera_stereo_lens_gauge": {
+      "path": "3mf/camera_stereo_lens_gauge.3mf",
+      "sha256": "ea1042c0726400d5d44ee685ab5017b1b73a97f1877a0de853f51aec62853a28"
+    },
+    "camera_stereo_lens_insert_left": {
+      "path": "3mf/camera_stereo_lens_insert_left.3mf",
+      "sha256": "e6834b776f1c2758b4d64932c8478846b7e0b24d619c5420c9534244c8736365"
+    },
+    "camera_stereo_lens_insert_right": {
+      "path": "3mf/camera_stereo_lens_insert_right.3mf",
+      "sha256": "e4b549f087b42f4c8d12b8b3d6d3e84da4466aa6acdc0614cb96b54b26ae2f81"
+    },
+    "camera_stereo_retainer": {
+      "path": "3mf/camera_stereo_retainer.3mf",
+      "sha256": "6db4e755235e5e37f7d87b4e94bcc620b4cea5550ef0bbed9e42675b99f53894"
+    },
+    "camera_stereo_rim_gasket_left": {
+      "path": "3mf/camera_stereo_rim_gasket_left.3mf",
+      "sha256": "0981067bce6c69481be02dc4b115b98cdddc88e4f3e42f0072e71ac78f929350"
+    },
+    "camera_stereo_rim_gasket_right": {
+      "path": "3mf/camera_stereo_rim_gasket_right.3mf",
+      "sha256": "e2f8afcb38cf16a3f1f2f8caa3906f24ac43112107708a9a7c04de6738c67614"
+    },
+    "camera_stereo_tile_fit_kit": {
+      "path": "3mf/camera_stereo_tile_fit_kit.3mf",
+      "sha256": "4d756fc9ca95044a3824b55aec73711a984a2d6a9944c9d56841eabe23df3964"
     },
     "camera_tower_backing": {
       "path": "3mf/camera_tower_backing.3mf",
-      "sha256": "139d512bfd373f21e09ba93830865ba75cef1a13f5937a0695fd7686a5be720d"
+      "sha256": "d0344bd807a9bf315d04df04ea6948e4cbe525b1f3192d98f315555f8a1c5eb6"
     },
     "camera_tower_base": {
       "path": "3mf/camera_tower_base.3mf",
-      "sha256": "520035be9513ddc65d5051482c796533bb49f14a433f0fcc1600bdfd7bb4231b"
+      "sha256": "8b7c2db88bcf055cdd6c414aac57e12f23aedb9b26f028a7f4ed1c4c97758f20"
     },
     "camera_tower_cap": {
       "path": "3mf/camera_tower_cap.3mf",
-      "sha256": "c3a6ae6ccb1590a887d30b2a68af0e5f292aafbc18600a413f659956b3f52b8b"
+      "sha256": "32490f571ee3f0ac875eecd32a72fada51c3985424e244ee469b2836f0be15a2"
+    },
+    "camera_tower_extension": {
+      "path": "3mf/camera_tower_extension.3mf",
+      "sha256": "749f26a5eb1b4846b77e11fc9e3ff94651860ca0f57281e6988a5866693aa9eb"
     },
     "camera_tower_segment": {
       "path": "3mf/camera_tower_segment.3mf",
-      "sha256": "956cd883793a626b9150635dd75013ec636129688309b793030254b8dc1f60a0"
+      "sha256": "78b031a3e25c3502e4069f8beab68c21aaca94c30baa3f91602237244e1ced39"
     },
     "electronics_tray": {
       "path": "3mf/electronics_tray.3mf",
-      "sha256": "fa26b09bbc1f58b77db4ca10365890abb8352f758666d21620c22c34ad371a61"
+      "sha256": "658cf76859aeed8bc1849772cf4a493272ea8b04e34cebf8e30fa1460453283d"
     },
     "enclosure_body": {
       "path": "3mf/enclosure_body.3mf",
-      "sha256": "810336a469fef992771613e2721bee0740f66745ac564d6b6301ca17a20dba30"
+      "sha256": "7c5004fa353329e6af6e79943541c3d4a16c8af8ee7423da83b5e4f25f86dd9a"
     },
     "enclosure_lid": {
       "path": "3mf/enclosure_lid.3mf",
-      "sha256": "460ef59c00062f6004cd944aa871051e9145ccf082fb6ea7ce6e3c8b74938059"
+      "sha256": "b601b8385fa7e07479f24d91aeb72b51c2074016d0efbd9f4606e5d95bde7af1"
     },
     "equipment_saddle": {
       "path": "3mf/equipment_saddle.3mf",
-      "sha256": "31c0bb8075211520fb5c031bc9aecc92ef7c421afdb407180078b27cddbba15e"
+      "sha256": "796d0c53d367d0039a8656477ded369f9cf25a1bbad973ead6038a8697277055"
     },
     "estop_bracket": {
       "path": "3mf/estop_bracket.3mf",
-      "sha256": "94d9d9769e4577ebd14faff363e4d4a5b0d5e6805e84e235587d62face6202c7"
+      "sha256": "6782d09dd464b3865dc10fddacc40e140087ab907257e5d29acbe661458660a4"
     },
     "estop_contact_cover": {
       "path": "3mf/estop_contact_cover.3mf",
-      "sha256": "f889372a934f68bcea95991bf2ed2a46cd0e42c2883af4ee326e76c649a70e43"
+      "sha256": "b9b1bec6ae4509f078d89cb1a1869b937a5be33ec4100b5890e61cdc445d6fcd"
+    },
+    "fit_gauge_1": {
+      "path": "3mf/fit_gauge_1.3mf",
+      "sha256": "fe71f2557c214758d14c979d9964a2bf147f392a8ecb68cfa6ead4feefc815f2"
+    },
+    "fit_gauge_2": {
+      "path": "3mf/fit_gauge_2.3mf",
+      "sha256": "d2699061ecb44f2790ebba04aa2c4a5f33af19e9e6bd5d06a0790ad076b7d64c"
     },
     "harness_saddle": {
       "path": "3mf/harness_saddle.3mf",
-      "sha256": "09204117de751d3cd57ce97d0214a9180f782af5c94789d1566a8d7405abba02"
+      "sha256": "873dd36c9d725a24fd4ba59b83cdb54f66a52c1b36b0b59d967e8da5ec74ff5f"
     },
     "hitch_gauge": {
       "path": "3mf/hitch_gauge.3mf",
-      "sha256": "c751d9bdc0a0a02aac5c62183f24ea02c26ebbca9ba912567c3b1dcaec7ad64a"
+      "sha256": "15f94fded410f0450ca48df7a31846787633e6331e42c11b2d1c868c9dec80d5"
     },
     "lapbar_clamp_anchor": {
       "path": "3mf/lapbar_clamp_anchor.3mf",
-      "sha256": "3e2d32135d8d1d0eebab809081a77b0d479308d777003eef76679ed544da1b58"
+      "sha256": "f1300682430457c8ce4f48b11c05d9636e182138778563ac6fa6d08b122f8011"
     },
     "lapbar_clamp_cap": {
       "path": "3mf/lapbar_clamp_cap.3mf",
-      "sha256": "1a1d2914b7b1d49de8f8f4a95c7251e5d8b7283f06af4f7d0326e1e49eedfb20"
+      "sha256": "c72388456028418e3e207634da4c6d0fdb49c1274d49256651e709035172d5d2"
     },
     "lapbar_clamp_insert_0": {
       "path": "3mf/lapbar_clamp_insert_0.3mf",
@@ -1552,43 +2634,51 @@
     },
     "pushrod_inner": {
       "path": "3mf/pushrod_inner.3mf",
-      "sha256": "be8b0ad7950139cef7c53b94767d8e8bbfa2e301edd60826c75fa1fe7742be79"
+      "sha256": "872b669cc0a42509d90d41484ef3540cfd30fcce97025eee51a81d0c39217036"
     },
     "pushrod_middle_a": {
       "path": "3mf/pushrod_middle_a.3mf",
-      "sha256": "09208240a562fcdedc90336e5d2f327a5ac71cbb3814260c4a8440c23b8f0b8e"
+      "sha256": "eb709557b425ccfedc2dc0c500e2865a064dd3485cd77dd838ae3a812d24b7b7"
     },
     "pushrod_middle_b": {
       "path": "3mf/pushrod_middle_b.3mf",
-      "sha256": "466243c4287b3b27f8cb9587c9b3b863537225e3f0e97645279e09d3bae5d79a"
+      "sha256": "6b4230767fc0f265f1fe500f0bdad929086f5abf99473fa5c764578b291d875f"
     },
     "pushrod_servo_end": {
       "path": "3mf/pushrod_servo_end.3mf",
-      "sha256": "275d3b1a4b504884cec0a97433293961e586ba024c7c3598b40e139660e25427"
+      "sha256": "2fb17a0a53648ff726a16d60509244f1c548400a8242676736e8082b9f5dcda1"
     },
     "pushrod_sleeve": {
       "path": "3mf/pushrod_sleeve.3mf",
-      "sha256": "8979524017d97b7a8105e81aa2198e041eaf440f4919d9692c0f76eb8af57d8f"
+      "sha256": "55d82b358926548e80791d137cac32fa1fe114df5667b8602bd00d1f875fc0f4"
     },
     "relay_board_sled": {
       "path": "3mf/relay_board_sled.3mf",
-      "sha256": "6c9a6d44ed8937e4236369fbd8ba1e3a56a2f4b7eb37fc178557f26da331a4e5"
+      "sha256": "98fb14a2055c68e7687004dcceb3c69dc890349141034d336f22a3d8e9c53ece"
     },
     "sensor_carrier": {
       "path": "3mf/sensor_carrier.3mf",
-      "sha256": "bdca2ff484e90590714a4a647df4361ff64eb685067c3efb72da85f743de901b"
+      "sha256": "c42307e494ccf5992ed6f1cfcaa98213a8b142c62513fae6faca5a7de250ff7e"
     },
-    "stereo_camera_bracket": {
-      "path": "3mf/stereo_camera_bracket.3mf",
-      "sha256": "265de96485655e8bcfd9769dc8faa8ab80ac0921ab72ad419f450679ad90bddc"
+    "servo_adapter_gauge": {
+      "path": "3mf/servo_adapter_gauge.3mf",
+      "sha256": "1330037314696041709991c5ef7bbde323567bff11b8c6e1ec844a76260ad242"
+    },
+    "servo_adapter_left": {
+      "path": "3mf/servo_adapter_left.3mf",
+      "sha256": "15b7fc001c7a4c9bb1c51ccb660e47d895f3cdfcbbac986e8137bdd1dd275c6c"
+    },
+    "servo_adapter_right": {
+      "path": "3mf/servo_adapter_right.3mf",
+      "sha256": "5375c41bdae94d6a03da67e529102ba352fd3ad08c9fc77c1c445de1b1391dba"
     },
     "throttle_servo_mount": {
       "path": "3mf/throttle_servo_mount.3mf",
-      "sha256": "ea52e653bcaf7fd5ab44f496188096a4b653b1b33aeb9b17aa52c8b2f7f59357"
+      "sha256": "19b8f0659942a1f7ca474941421967aeace9d8721e5f8cf14295d506d37c1103"
     },
     "utility_board_sled": {
       "path": "3mf/utility_board_sled.3mf",
-      "sha256": "9f96f26a0fc680a409a8776e724a68dea2d519a3db14b2af30ef82fb16f7901b"
+      "sha256": "d5fdc3009a5250388de13e2abeb7492ffa2e5d89dc8d59035b9417f46df3ed38"
     }
   },
   "print_projects": [],
@@ -1606,8 +2696,9 @@
     "frame_bores",
     "frame_nut_access",
     "arm_layer_hitch_bore",
-    "arm_servo_pattern",
-    "arm_servo_access",
+    "arm_layer_gauge_bores",
+    "arm_servo_passages",
+    "arm_servo_hardware_access",
     "arm_layer_aux_bores",
     "arm_tower_clearance",
     "arm_joint_bores",
@@ -1637,7 +2728,6 @@
     "tongue_aux_bores",
     "tower_wall_bores",
     "tower_brace_bores",
-    "stereo_bracket_clear",
     "tower_foot_bores",
     "tower_port",
     "tower_body_clearance",
@@ -1649,9 +2739,28 @@
     "estop_cover",
     "estop_contacts",
     "estop_bore",
-    "camera_bores",
-    "camera_pitch",
-    "sensor_pitch"
+    "camera_bottom_clearance",
+    "camera_bottom_service",
+    "camera_carrier_fixings",
+    "camera_carrier_travel",
+    "camera_cassette_insertion",
+    "camera_pcb_groove_capacity",
+    "camera_bottom_fixings",
+    "camera_flange_bores",
+    "camera_flange_access",
+    "camera_stack_joints",
+    "camera_usb_housing_bends",
+    "camera_usb_base_bend",
+    "camera_fov",
+    "camera_material_gauges",
+    "sensor_pitch",
+    "arm_servo_registration",
+    "arm_head_joint_clearance",
+    "arm_head_joint_seating_material",
+    "servo_adapter_bolt_passages",
+    "servo_adapter_hardware_access",
+    "servo_adapter_sweep_clearance",
+    "servo_adapter_eye_fit"
   ],
   "nonempty_contact_checks": [
     "arm_brace_bar_contact_0",
@@ -1659,10 +2768,77 @@
     "arm_brace_bar_contact_2",
     "arm_root_seat_contact_0",
     "arm_root_seat_contact_1",
+    "arm_head_joint_seat_contact_0",
+    "arm_head_joint_seat_contact_1",
+    "arm_head_joint_seat_contact_2",
+    "arm_head_joint_seat_contact_3",
+    "arm_head_joint_seat_contact_4",
+    "arm_head_joint_seat_contact_5",
+    "arm_head_joint_seat_contact_6",
+    "arm_head_joint_seat_contact_7",
     "clamp_insert_grip_0",
     "clamp_insert_grip_1",
     "clamp_insert_grip_2",
     "clamp_insert_grip_3",
-    "clamp_insert_grip_4"
+    "clamp_insert_grip_4",
+    "camera_bottom_nut_land_contact_0",
+    "camera_bottom_nut_land_contact_1",
+    "camera_bottom_nut_land_contact_2",
+    "camera_bottom_nut_land_contact_3",
+    "camera_bottom_nut_land_contact_4",
+    "camera_bottom_nut_land_contact_5",
+    "camera_bottom_nut_land_contact_6",
+    "camera_bottom_nut_land_contact_7",
+    "camera_carrier_nut_land_contact_0",
+    "camera_carrier_nut_land_contact_1",
+    "camera_carrier_nut_land_contact_2",
+    "camera_carrier_nut_land_contact_3",
+    "camera_flange_land_contact_0",
+    "camera_flange_land_contact_1",
+    "camera_flange_land_contact_2",
+    "camera_flange_land_contact_3",
+    "camera_flange_land_contact_4",
+    "camera_flange_land_contact_5",
+    "camera_flange_land_contact_6",
+    "camera_flange_land_contact_7",
+    "camera_flange_land_contact_8",
+    "camera_flange_land_contact_9",
+    "camera_flange_land_contact_10",
+    "camera_flange_land_contact_11",
+    "camera_flange_land_contact_12",
+    "camera_flange_land_contact_13",
+    "camera_flange_land_contact_14",
+    "camera_flange_land_contact_15",
+    "camera_floor_gasket_contact_0",
+    "camera_floor_gasket_contact_1",
+    "camera_floor_gasket_contact_2",
+    "camera_floor_gasket_contact_3",
+    "camera_face_gasket_contact_0",
+    "camera_face_gasket_contact_1",
+    "camera_face_gasket_contact_2",
+    "camera_face_gasket_contact_3",
+    "camera_insert_gasket_contact_0",
+    "camera_insert_gasket_contact_1",
+    "camera_insert_gasket_contact_2",
+    "camera_insert_gasket_contact_3",
+    "camera_insert_gasket_contact_4",
+    "camera_insert_gasket_contact_5",
+    "camera_rim_gasket_contact_0",
+    "camera_rim_gasket_contact_1",
+    "camera_rim_gasket_contact_2",
+    "arm_servo_washer_land_contact_0",
+    "arm_servo_washer_land_contact_1",
+    "arm_servo_washer_land_contact_2",
+    "arm_servo_washer_land_contact_3",
+    "arm_servo_washer_land_contact_4",
+    "arm_servo_washer_land_contact_5",
+    "arm_servo_washer_land_contact_6",
+    "arm_servo_washer_land_contact_7",
+    "arm_servo_washer_land_contact_8",
+    "arm_servo_washer_land_contact_9",
+    "arm_servo_washer_land_contact_10",
+    "arm_servo_washer_land_contact_11",
+    "servo_adapter_seat_contact_0",
+    "servo_adapter_seat_contact_1"
   ]
 }

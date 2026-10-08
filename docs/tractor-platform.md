@@ -8,14 +8,14 @@ levers independently commands its own side's ground speed and direction, and
 the mower's own hydrostatic transaxles turn that into motion (push a lever
 forward to drive that side forward, pull it back to reverse it, center it to
 stop that side). The engine and both hydrostatic transaxles are kept stock;
-two high-torque servos physically push/pull the existing lap-bar levers.
 The current mechanical BOM in `hardware.md` selects ANNIMOS/DSSERVO RDS51150SG
-12 V units; the printable stationary-side interface follows the listing's
-RDS51150 drawing and still requires a purchased-revision fit check.
+12 V units; the printable stationary-side interface uses a **photo-derived six-hole
+rear bracket** (photo aa8b43) with **six M2.5 through-bolts** and OD6 washers/AF5
+nuts on the inboard face, not the listing's 24 × 24 mm drawing pattern. The moving
+member is the **broad eight-hole U crossplate** (photo 60883207) with a printed
+adapter in double shear on an M6 pin at 55 mm radius; face 45° = neutral, face 90°
+= full reverse. This still requires a purchased-revision fit check.
 The older ASMC-04B **24 V** power design in other platform documents is not
-applicable to these servos: do not connect them to 24 V. This CAD redesign
-does not validate or migrate the electrical power system, calibration or
-500 ms physical-settle requirement. PWM control remains via the PCA9685.
 The platform exposes the five discrete actuators below.
 
 ## Actuators

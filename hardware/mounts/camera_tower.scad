@@ -1,7 +1,6 @@
-// Hollow camera tower: stands on the enclosure's hitch tongue, bolts to its +Y
-// wall, and lifts camera_mount.scad's camera_foot above the seat back. The bore
-// routes a USB camera cable down the column and through a wall port into the
-// box, between the two electronics stacks. ASA.
+// Hollow ASA camera mast with bottom-loading enclosed cameras.
+// Pi Camera 2 is lower; a 304.8 mm tube ABOVE its housing carries the stereo housing.
+// camera_stack.scad adds the housings/trays/cameras to this structural column.
 //
 // PARTS (select with -D tower_part=...):
 //   base      L-foot on the tongue + wall flange + first 160 mm of column with the
@@ -12,26 +11,17 @@
 //   segment   Flanged column length; N identical pieces (tower_seg_count()).
 //             Prints LYING FLAT along the bed on one tube face. Bottom flange is
 //             plain; top flange carries the spigot into the next piece.
-//   cap       Closes the column, seats the camera foot (2x M4 at +-22 with
-//             side-entry nut traps), lets the cable out sideways toward the box
-//             below a solid roof so rain cannot run straight down the bore.
+//   extension  304.8 mm flange-to-flange tube BETWEEN the two camera housings.
+//   cap        Closed roof over the upper housing's rear cable spine.
 //   backing   Drilling template for a metal strip INSIDE the box behind the wall
 //             flange: spreads the six M5 loads over the 4 mm ASA wall.
 //
-// LOAD (0.96 kg column + 0.3 kg camera/foot/cap, 6x dynamic, lateral):
-//   base moment  ~46 N*m  -> 50x50x5 tube 3.7 MPa: FOS 11 in-plane, 2.9 across
-//                layers. THAT is why every piece prints with its axis horizontal.
-//   wall bolts   ~150 N each (6x M5 on 80x100) -> ~2.8 MPa washer bearing on ASA
-//   joint bolts  ~200 N each (4x M4 on 56 pitch at 0.5 m)
-// The joint spigot (0.4 mm/side clearance) is alignment only; the flange bolts
-// carry the moment. No fatigue data for FDM ASA exists here: cycle it, inspect
-// flange roots and the wall after the first season, and brace the column to
-// the box lid flange if it hums at engine speed.
-//
-// tower_height (tongue top to camera surface) is a PLACEHOLDER 900 mm: measure
-// from the hitch plate to the required line of sight over the seat back first.
+// The taller two-camera stack has NOT been load/vibration qualified. Previous
+// single-camera mass/moment/FOS estimates do not apply. Print tube axes horizontal,
+// use metal washers, inspect joints, and bench-test the mast before mower use.
+// tower_height specifies the lower Pi lens centre, not the cap or the upper lens.
 include <enclosure_common.scad>
-tower_part = "base";               // base | segment | cap | backing
+tower_part = "base";               // base | segment | extension | cap | backing
 
 tower_bore = tower_od - 2 * tower_wall;
 spigot_od = tower_bore - 2 * tower_spigot_clear;
@@ -75,7 +65,7 @@ module tower_joint_flange() {
 // Spigot with a 2 mm collar below z=0 spanning the full tube OD: the collar is
 // what fuses the spigot to the flange it stands on (a 39.2 mm square inside a
 // 40 mm bore would otherwise touch nothing). Bore narrows to the spigot's
-// inner size (32 mm) for those 2 mm -- still passes a USB-A plug.
+// inner size (32.2 mm) for those 2 mm; checked against the connector envelope.
 module tower_spigot() {
     inner = spigot_od - 2 * spigot_wall;
     difference() {
@@ -100,6 +90,10 @@ module tower_base_assembly() {
             for (x = [-1, 1])
                 translate([x * (tower_od / 2 - 4) - 4, wall_y + tower_base_t - 0.1, foot_top_z - 0.1])
                     cube([8, web_len + 0.2, column_top - foot_top_z]);
+            // Closed connector duct between box wall and tube; the upper relief lets a rigid
+            // plug turn ABOVE the brace bolts rather than colliding with their cross-shafts.
+            translate([-18,wall_y+tower_base_t-0.1,tower_port_z-tower_port_h/2-3])
+                cube([36,tower_y-18-(wall_y+tower_base_t)+0.1,77]);
             translate([0, tower_y, column_top - 0.1]) tower_joint_flange_solid(tower_flange_t + 0.1);
             translate([0, tower_y, tower_base_top_z]) tower_spigot();
         }
@@ -113,10 +107,17 @@ module tower_base_assembly() {
             translate([x * tower_flange_bolt, tower_y + y * tower_flange_bolt, column_top - 1])
                 cylinder(d = m4_clear, h = tower_flange_t + 2);
         // cable port: column bore -> webs gap -> wall flange (box wall is cut in enclosure_body.scad)
-        translate([0, wall_y - 1, tower_port_z]) rotate([-90, 0, 0])
-            cylinder(d = tower_port_d, h = tower_y - wall_y + 2);
+        translate([-tower_port_w/2,wall_y-1,tower_port_z-tower_port_h/2])
+            cube([tower_port_w,tower_y-wall_y+2,tower_port_h]);
+        translate([-tower_port_w/2,wall_y+tower_base_t,tower_port_z-tower_port_h/2])
+            cube([tower_port_w,tower_y-wall_y-tower_base_t+2,
+                  column_top+1.7-(tower_port_z-tower_port_h/2)]);
         // sump drain out the +Y face, 4 mm above the bore floor
         translate([0, tower_y, foot_top_z + 0.9 + 4]) rotate([-90, 0, 0]) cylinder(d = 5, h = tower_od);
+        // Weep vent for the former open web gap now covered by the connector duct.
+        // Open this otherwise sealed print cavity; it is separate from the cable passage.
+        translate([0,wall_y+tower_base_t+web_len/2,foot_top_z+4])
+            rotate([0,90,0]) cylinder(d=5,h=tower_od/2+2);
         for (p = tower_base_bolts) translate([p[0], wall_y - 1, p[1]]) rotate([-90, 0, 0])
             cylinder(d = tower_wall_bolt_d, h = tower_base_t + 2);
         for (p = tower_foot_bolts) translate([p[0], p[1], tongue_t - 1]) cylinder(d = tower_wall_bolt_d, h = tower_base_t + 2);
@@ -152,6 +153,17 @@ module tower_segment_print() {
     translate([0, 0, tower_flange / 2]) rotate([0, 90, 0]) tower_segment();
 }
 
+// Separate extension: no redundant brace holes in the exposed upper mast.
+module tower_camera_extension() {
+    tower_joint_flange();
+    tower_tube(camera_extension_mm);
+    translate([0,0,camera_extension_mm-tower_flange_t]) tower_joint_flange();
+    translate([0,0,camera_extension_mm]) tower_spigot();
+}
+module tower_camera_extension_print() {
+    translate([0,0,tower_flange/2]) rotate([0,90,0]) tower_camera_extension();
+}
+
 // ---- cap, local: flange underside at z=0 ----
 module tower_cap() {
     cav_h = tower_spigot_len + 3;
@@ -159,16 +171,9 @@ module tower_cap() {
         translate([-tower_flange / 2, -tower_flange / 2, 0]) cube([tower_flange, tower_flange, tower_cap_t]);
         // socket for the top spigot, with headroom
         translate([-tower_bore / 2, -tower_bore / 2, -1]) cube([tower_bore, tower_bore, cav_h + 1]);
-        // cable exit toward the box (-Y), from the socket out through the side, under the roof
-        translate([-9, -tower_flange / 2 - 1, cav_h - 11]) cube([18, tower_flange / 2 - tower_bore / 2 + 2, 10]);
         for (x = [-1, 1], y = [-1, 1])
-            translate([x * tower_flange_bolt, y * tower_flange_bolt, -1]) cylinder(d = m4_clear, h = tower_cap_t + 2);
-        // camera_foot bolts through the roof, nuts slid in from the +-X faces
-        for (x = [-1, 1]) {
-            translate([x * cam_foot_bolt_x, 0, cav_h]) cylinder(d = m4_clear, h = tower_cap_t);
-            translate([x > 0 ? cam_foot_bolt_x - nut_af / 2 : -tower_flange / 2 - 1, -nut_af / 2, cav_h + 2])
-                cube([tower_flange / 2 - cam_foot_bolt_x + nut_af / 2 + 1, nut_af, nut_t]);
-        }
+            translate([x * tower_flange_bolt, y * tower_flange_bolt, -1])
+                cylinder(d = m4_clear, h = tower_cap_t + 2);
     }
 }
 
@@ -177,24 +182,28 @@ module tower_backing() {
     difference() {
         plate(tower_base_w, 130, 3, 6);
         for (p = tower_base_bolts) translate([p[0], p[1] - 90, -1]) cylinder(d = tower_wall_bolt_d, h = 5);
-        translate([0, tower_port_z - 90, -1]) cylinder(d = tower_port_d, h = 5);
+        translate([-tower_port_w/2,tower_port_z-90-tower_port_h/2,-1])
+            cube([tower_port_w,tower_port_h,5]);
     }
 }
 
-// ---- assembly helper (box frame): base, N segments, cap ----
+// ---- structural column; camera_stack.scad inserts the two housings in the gaps ----
 module camera_tower_assembly() {
     tower_base_assembly();
     for (i = [0 : tower_seg_count() - 1])
         translate([0, tower_y, tower_flange_z(i)]) tower_segment();
-    translate([0, tower_y, tower_flange_z(tower_seg_count())]) tower_cap();
+    translate([0,tower_y,camera_lower_z()+camera_housing_h]) tower_camera_extension();
+    translate([0,tower_y,tower_upper_cap_z()]) tower_cap();
 }
-function tower_cap_top_z() = tower_flange_z(tower_seg_count()) + tower_cap_t;
-assert(tower_cap_t >= tower_spigot_len + 3 + 2 + nut_t + 6, "Cap roof too thin for the nut traps");
+function tower_cap_top_z() = tower_upper_cap_z() + tower_cap_t;
+assert(tower_cap_t >= tower_spigot_len + 3 + 6, "Closed cap roof must be at least 6 mm thick");
+assert(camera_extension_mm + tower_spigot_len <= 420, "Camera extension exceeds the printer bed");
 
 echo(str("camera_tower: segments=", tower_seg_count(), " x ", tower_seg_len(), " mm; cap top z=", tower_cap_top_z()));
 
 if (tower_part == "base") tower_base_print();
 else if (tower_part == "segment") tower_segment_print();
+else if (tower_part == "extension") tower_camera_extension_print();
 else if (tower_part == "cap") tower_cap();
 else if (tower_part == "backing") tower_backing();
-else assert(false, "tower_part must be base, segment, cap or backing");
+else assert(false, "tower_part must be base, segment, extension, cap or backing");

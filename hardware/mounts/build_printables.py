@@ -33,6 +33,7 @@ PARTS = [
     ("arm_layer_right", "hitch_arm_layer", {"arm_part": "right"}),
     ("arm_head_left", "hitch_arm_layer", {"arm_part": "head_left"}),
     ("arm_head_right", "hitch_arm_layer", {"arm_part": "head_right"}),
+    ("arm_layer_gauge", "hitch_arm_layer", {"arm_part": "gauge"}),
     *[
         (
             f"arm_brace_bar_{side}_{index}",
@@ -67,15 +68,52 @@ PARTS = [
     ("hitch_gauge", "enclosure_body", {"body_part": "hitch_gauge"}),
     ("camera_tower_base", "camera_tower", {"tower_part": "base"}),
     ("camera_tower_segment", "camera_tower", {"tower_part": "segment"}),
+    ("camera_tower_extension", "camera_tower", {"tower_part": "extension"}),
     ("camera_tower_cap", "camera_tower", {"tower_part": "cap"}),
     ("camera_tower_backing", "camera_tower", {"tower_part": "backing"}),
     ("enclosure_lid", "enclosure_lid", {}),
     ("electronics_tray", "electronics_tray", {}),
     ("relay_board_sled", "enclosure_board_sled", {"sled_type": "relay"}),
     ("utility_board_sled", "enclosure_board_sled", {"sled_type": "utility"}),
-    ("camera_carrier", "camera_mount", {"camera_part": "carrier"}),
-    ("camera_foot", "camera_mount", {"camera_part": "foot"}),
-    ("stereo_camera_bracket", "camera_mount", {"camera_part": "stereo"}),
+    *[
+        (f"camera_{dispatch}", "camera_mount", {"camera_part": dispatch})
+        for dispatch in (
+            "pi_housing",
+            "pi_bottom",
+            "pi_carrier",
+            "pi_retainer",
+            "pi_lens_insert",
+            "pi_face_gasket",
+            "pi_floor_gasket",
+            "pi_insert_gasket",
+            "pi_rim_gasket",
+            "pi_lens_gauge",
+            "pi_tile_fit_kit",
+            "pi_groove_pad_kit",
+            "stereo_housing",
+            "stereo_bottom",
+            "stereo_carrier",
+            "stereo_retainer",
+            "stereo_lens_insert_left",
+            "stereo_lens_insert_right",
+            "stereo_face_gasket",
+            "stereo_floor_gasket",
+            "stereo_insert_gasket_left",
+            "stereo_insert_gasket_right",
+            "stereo_rim_gasket_left",
+            "stereo_rim_gasket_right",
+            "stereo_lens_gauge",
+            "stereo_tile_fit_kit",
+            "stereo_groove_pad_kit",
+            "foot",
+        )
+    ],
+    *[
+        (f"servo_adapter_{piece}", "servo_pushrod_adapter", {"adapter_part": piece})
+        for piece in ("right", "left", "gauge")
+    ],
+    ("fit_gauge_1", "actuation_fit_gauge", {"gauge": 1}),
+    ("fit_gauge_2", "actuation_fit_gauge", {"gauge": 2}),
     ("sensor_carrier", "sensor_carrier", {}),
     ("harness_saddle", "accessory_mounts", {"accessory_part": "harness_saddle"}),
     ("equipment_saddle", "accessory_mounts", {"accessory_part": "equipment_saddle"}),
@@ -98,8 +136,11 @@ VIEWS = [
     ("tower_full", "tower", "0,0,0,70,0,150,0", True),
     ("enclosure_cutaway", "enclosure", "0,0,0,60,0,30,0", True),
     ("estop_exploded", "estop", "0,0,0,60,0,-40,0", True),
-    ("camera_tilt", "camera", "0,0,0,60,0,-35,0", True),
+    ("camera_stack", "camera_stack", "0,0,0,70,0,-35,0", True),
+    ("camera_pi_exploded", "camera_pi_exploded", "0,0,0,65,0,-35,0", True),
+    ("camera_stereo_exploded", "camera_stereo_exploded", "0,0,0,65,0,-35,0", True),
     ("sensor_tilt", "sensor", "0,0,0,60,0,-35,0", True),
+    ("servo_adapter", "servo_adapter", "0,0,0,70,0,35,0", True),
 ]
 CHECKS = [
     "body_lid",
@@ -115,8 +156,9 @@ CHECKS = [
     "frame_bores",
     "frame_nut_access",
     "arm_layer_hitch_bore",
-    "arm_servo_pattern",
-    "arm_servo_access",
+    "arm_layer_gauge_bores",
+    "arm_servo_passages",
+    "arm_servo_hardware_access",
     "arm_layer_aux_bores",
     "arm_tower_clearance",
     "arm_joint_bores",
@@ -146,7 +188,6 @@ CHECKS = [
     "tongue_aux_bores",
     "tower_wall_bores",
     "tower_brace_bores",
-    "stereo_bracket_clear",
     "tower_foot_bores",
     "tower_port",
     "tower_body_clearance",
@@ -158,9 +199,28 @@ CHECKS = [
     "estop_cover",
     "estop_contacts",
     "estop_bore",
-    "camera_bores",
-    "camera_pitch",
+    "camera_bottom_clearance",
+    "camera_bottom_service",
+    "camera_carrier_fixings",
+    "camera_carrier_travel",
+    "camera_cassette_insertion",
+    "camera_pcb_groove_capacity",
+    "camera_bottom_fixings",
+    "camera_flange_bores",
+    "camera_flange_access",
+    "camera_stack_joints",
+    "camera_usb_housing_bends",
+    "camera_usb_base_bend",
+    "camera_fov",
+    "camera_material_gauges",
     "sensor_pitch",
+    "arm_servo_registration",
+    "arm_head_joint_clearance",
+    "arm_head_joint_seating_material",
+    "servo_adapter_bolt_passages",
+    "servo_adapter_hardware_access",
+    "servo_adapter_sweep_clearance",
+    "servo_adapter_eye_fit",
 ]
 
 # Contact checks are inverse clearances and MUST succeed for every station
@@ -168,7 +228,17 @@ CHECKS = [
 CONTACT_CHECKS = [
     *(("arm_brace_bar_contact", index) for index in range(3)),
     *(("arm_root_seat_contact", index) for index in range(2)),
+    *(("arm_head_joint_seat_contact", index) for index in range(8)),
     *(("clamp_insert_grip", index) for index in range(CLAMP_INSERT_COUNT)),
+    *(("camera_bottom_nut_land_contact", index) for index in range(8)),
+    *(("camera_carrier_nut_land_contact", index) for index in range(4)),
+    *(("camera_flange_land_contact", index) for index in range(16)),
+    *(("camera_floor_gasket_contact", index) for index in range(4)),
+    *(("camera_face_gasket_contact", index) for index in range(4)),
+    *(("camera_insert_gasket_contact", index) for index in range(6)),
+    *(("camera_rim_gasket_contact", index) for index in range(3)),
+    *(("arm_servo_washer_land_contact", index) for index in range(12)),
+    *(("servo_adapter_seat_contact", index) for index in range(2)),
 ]
 
 
@@ -254,10 +324,8 @@ def mesh_report(path: Path) -> dict:
         "bounds_mm": [low, high],
         "size_mm": [round(value, 3) for value in size],
         "volume_mm3": round(volume, 3),
-        # stl_sha256 is the published file's bytes: observed to differ between runs for
-        # identical geometry (OpenSCAD's export is not reliably byte-stable), so it cannot
-        # fingerprint a shape. mesh_sha256 is order-independent: it stays put across runs
-        # and changes only when the part really changes.
+        # Raw STL bytes can vary between equivalent exports. This canonical
+        # digest ignores triangle/vertex ordering, not changes in triangulation.
         "stl_sha256": hashlib.sha256(data).hexdigest(),
         "mesh_sha256": canonical_mesh_digest(path),
     }
@@ -283,11 +351,11 @@ def read_stl_triangles(path: Path) -> list[tuple]:
 
 
 def canonical_mesh_digest(path: Path) -> str:
-    """An order-independent digest of a part's triangles, so it survives re-tessellation.
+    """Digest rounded triangles independent of vertex/triangle ordering.
 
-    OpenSCAD's binary STL bytes differ between runs for identical geometry, so the file hash
-    cannot answer "did this part's shape change?". Sorting the corner lists and the triangle
-    list removes both windings' order and vertex order from the result.
+    Re-tessellating the same surface can change this hash; it is not a
+    geometric-equivalence proof. A raw STL hash can also vary for identical
+    triangles because the export's byte stream is not reliably stable.
     """
     faces = sorted(
         tuple(sorted(face)) for face in read_stl_triangles(path)

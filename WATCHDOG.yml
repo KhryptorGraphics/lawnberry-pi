@@ -1,0 +1,6 @@
+advisors:
+  - name: default
+  - name: Advisor 2
+    model: nvidia/moonshotai/kimi-k3:max
+  - name: Advisor 3
+    model: openai-codex/gpt-6-luna:max

@@ -13,6 +13,12 @@ temporal history from the preceding beauty frame (observed residue of about
 4/255), so IDs use a sparse palette, levels {0, 85, 170, 255} per channel
 (63 IDs per frame). Decoding accepts a pixel only within ``TOLERANCE`` of a
 palette colour; anything else is background.
+
+On the RTX 3080 Ti, doubling and 1-px edge blends are measured, but comparison
+against native Replicator boxes also found cross-object ID assignments that
+this decoder cannot detect. Use native labels for 3080 Ti training; use this
+ID pass on the V100, where native annotator kernels are unavailable, and for
+diagnostics.
 """
 
 from __future__ import annotations
@@ -49,47 +55,43 @@ OBJECT_IDS: tuple[int, ...] = tuple(
 )
 
 
-def _component_masks(mask: np.ndarray) -> list[np.ndarray]:
-    """8-connected components of a boolean mask as separate boolean masks."""
+def _large_component_indices(mask: np.ndarray, min_pixels: int) -> list[np.ndarray]:
+    """Return flat pixel indices for 8-connected components above the size gate."""
     h, w = mask.shape
     seen = np.zeros_like(mask)
-    comps = []
-    for y0, x0 in zip(*np.nonzero(mask), strict=True):
+    active = np.flatnonzero(mask)
+    components = []
+    for seed in active:
+        y0, x0 = divmod(int(seed), w)
         if seen[y0, x0]:
             continue
-        comp = np.zeros_like(mask)
-        stack = [(int(y0), int(x0))]
+        seen[y0, x0] = True
+        stack = [int(seed)]
+        pixels = []
         while stack:
-            y, x = stack.pop()
-            if y < 0 or y >= h or x < 0 or x >= w or not mask[y, x] or seen[y, x]:
-                continue
-            seen[y, x] = comp[y, x] = True
-            stack.extend(
-                (
-                    (y - 1, x - 1),
-                    (y - 1, x),
-                    (y - 1, x + 1),
-                    (y, x - 1),
-                    (y, x + 1),
-                    (y + 1, x - 1),
-                    (y + 1, x),
-                    (y + 1, x + 1),
-                )
-            )
-        comps.append(comp)
-    return comps
+            flat = stack.pop()
+            y, x = divmod(flat, w)
+            pixels.append(flat)
+            for ny in range(max(0, y - 1), min(h, y + 2)):
+                for nx in range(max(0, x - 1), min(w, x + 2)):
+                    if mask[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        stack.append(ny * w + nx)
+        if len(pixels) > min_pixels:
+            components.append(np.asarray(pixels, dtype=np.intp))
+    return components
 
 
 def fold_doubled(
     ids: np.ndarray, assigned: dict[int, int], min_fold_pixels: int = 200
 ) -> np.ndarray:
-    """Map 2x-brightness surfaces back to their assigned source id (returns a copy).
+    """Map large 2x-brightness surfaces to their assigned source id (returns a copy).
 
-    Folds a component of an unassigned level-2 id only when its source (every
-    level-2 channel halved to level 1) is assigned AND the component is larger
-    than ``min_fold_pixels``: real doubled surfaces measured 100k+ px, while
-    1-px edge blends (<= 65 px) can also contain a 170 channel and must not be
-    attributed to an unrelated object (they stay strays = background).
+    Folds a connected component of an unassigned level-2 id only when its source
+    (every level-2 channel halved to level 1) is assigned AND the component is
+    larger than ``min_fold_pixels``. Real doubled surfaces measured 100k+ px;
+    1-px edge blends (<= 65 px) can contain a 170 channel and must not be
+    attributed to an unrelated object (they remain strays = background).
     """
     out = ids.copy()
     for iid in np.unique(ids):
@@ -105,9 +107,8 @@ def fold_doubled(
         mask = ids == iid
         if mask.sum() <= min_fold_pixels:
             continue
-        for comp in _component_masks(mask):
-            if comp.sum() > min_fold_pixels:
-                out[comp] = src
+        for indices in _large_component_indices(mask, min_fold_pixels):
+            out.flat[indices] = src
     return out
 
 
@@ -178,6 +179,23 @@ class IdPassError(RuntimeError):
     """Decoded ids do not match the ids that were assigned (ID pass not exact)."""
 
 
+def exposure_problem(img: np.ndarray, black_below: float = 3.0, blown_above: float = 250.0):
+    """``"black"`` / ``"blown"`` if a beauty frame is unusable, else ``None``.
+
+    Measured on the 3080 Ti with seed 1. About 3% of frames come out black (mean < 3) because
+    the camera spawns inside or under an object. Extra render steps never recover them.
+    Genuinely dim frames, such as shade under an oak, start at a mean of 4.2. A run on a
+    GPU shared with another job came out flat white (mean 255) after frame 0. Contrast is
+    not gated: an empty lawn is legitimately flat (std 1.6).
+    """
+    mean = float(img[..., :3].mean())
+    if mean < black_below:
+        return "black"
+    if mean > blown_above:
+        return "blown"
+    return None
+
+
 def boxes(
     ids: np.ndarray,
     assigned: dict[int, int],
@@ -221,6 +239,49 @@ def boxes(
         x0, y0, x1, y1 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
         out.append((assigned[iid], x0, y0, x1, y1, len(xs)))
     return out
+
+
+def native_boxes(
+    tight: np.ndarray,
+    tight_paths: list[str],
+    seg: np.ndarray,
+    seg_paths: dict,
+    spawned: dict[str, int],
+    min_pixels: int = 20,
+) -> list[tuple[int, int, int, int, int, int]]:
+    """Replicator ``bounding_box_2d_tight`` + ``instance_id_segmentation`` -> :func:`boxes` tuples.
+
+    ``tight`` is the box annotator's structured array (``x_min``..``y_max``, visible pixels,
+    inclusive, measured equal to the segmentation extent) and ``tight_paths`` its
+    ``info["primPaths"]``; ``seg`` is the HxW id image and ``seg_paths`` its
+    ``info["idToLabels"]`` (id -> mesh prim path). ``spawned`` maps each labelled prim path to
+    its class. Boxes and pixels under a spawned path are merged into it (meshes, or an asset's
+    own sub-labels); instances with fewer than ``min_pixels`` visible pixels are dropped, as in
+    :func:`boxes`.
+    """
+
+    def owner(path: str) -> str | None:
+        return next((r for r in spawned if path == r or path.startswith(r + "/")), None)
+
+    pixels: dict[str, int] = {}
+    paths = {int(k): v for k, v in seg_paths.items()}
+    for iid, n in zip(*np.unique(seg, return_counts=True), strict=True):
+        root = owner(paths.get(int(iid), ""))
+        if root:
+            pixels[root] = pixels.get(root, 0) + int(n)
+    merged: dict[str, tuple[int, int, int, int]] = {}
+    for rec, path in zip(tight, tight_paths, strict=True):
+        root = owner(path)
+        if root is None:
+            continue
+        b = tuple(int(rec[k]) for k in ("x_min", "y_min", "x_max", "y_max"))
+        m = merged.get(root, b)
+        merged[root] = (min(m[0], b[0]), min(m[1], b[1]), max(m[2], b[2]), max(m[3], b[3]))
+    return [
+        (spawned[r], *b, pixels.get(r, 0))
+        for r, b in merged.items()
+        if pixels.get(r, 0) >= min_pixels
+    ]
 
 
 def yolo_line(cls: int, x0: int, y0: int, x1: int, y1: int, w: int, h: int) -> str:

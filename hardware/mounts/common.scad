@@ -61,11 +61,35 @@ clamp_l_mm = 2 * (clamp_bolt_x_mm + 7);
 function clamp_rod_eye_sweep_radius_mm() =
     sqrt(pow(clamp_rod_eye_length_mm/2, 2) + pow(clamp_rod_eye_width_mm/2, 2));
 
-// Exact listing's RDS51150 stationary-holder SIDE drawing, not bottom holes.
-// RDS51150 vs purchased RDS51150SG revision must be confirmed with the coupon.
-servo_side_hole_pitch = 24;
-servo_side_hole_clear_d = 2.9;       // M2.5 with 0.4 mm diametral allowance
-servo_side_tool_bore_d = 6;
+// Photo aa8b43: narrow stationary SIX-hole rear bracket, origin at rear opening.
+// Y spans the bracket; Z is up. Photo-derived centres, NOT factory tolerances or
+// measured threads. Selected M2.5 through-bolts require real steel nuts/washers.
+servo_mount_bolt_d_mm = 2.5;
+servo_mount_clear_d_mm = 2.9;
+servo_mount_washer_od_mm = 6;        // selected M2.5 washer capacity; check actual hardware
+servo_mount_washer_t_mm = 1;
+servo_mount_nut_af_mm = 5;
+servo_mount_nut_h_mm = 2.5;
+servo_mount_tool_d_mm = 8;           // selected slim socket envelope, check actual tool
+servo_rear_clearance_d_mm = 13.5;    // capacity for photo opening estimate 12 +/- 1.5
+function servo_rear_hole_points_mm() =
+    [[-10,18.5],[10,18.5],[-8,8],[8,8],[-8,-7.5],[8,-7.5]];
+// Cutter-centre travel +/-0.4 in each axis; M2.5 shank centres can reach +/-0.6
+// with diametral clearance. Preserves bore-side web; not full photo uncertainty.
+function servo_rear_hole_travel_mm(index) = [0.8,0.8];
+// Full-X rounded rectangular slots; h is the complete required passage length.
+module servo_rear_hole_cut(h) {
+    for(i=[0:len(servo_rear_hole_points_mm())-1]) {
+        p = servo_rear_hole_points_mm()[i];
+        travel = servo_rear_hole_travel_mm(i);
+        hull() for(y=[-travel[0]/2,travel[0]/2],z=[-travel[1]/2,travel[1]/2])
+            translate([0,p[0]+y,p[1]+z]) rotate([0,90,0])
+                cylinder(d=servo_mount_clear_d_mm,h=h);
+    }
+}
+module servo_rear_opening_cut(h) {
+    rotate([0,90,0]) cylinder(d=servo_rear_clearance_d_mm,h=h);
+}
 m3_clear = 3.4;
 m4_clear = 4.5;
 m5_clear = 5.5;

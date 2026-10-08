@@ -18,10 +18,9 @@
 // the hardware's rating and, if the plate may be drilled, use the two optional
 // M6 anti-twist holes flanking it. Recheck after the first season.
 //
-// TOWER: six M5 holes and a 24 mm cable port in the +Y wall take camera_tower.scad's
-// base; two M5 holes in the tongue take its foot. Port is between the stacks.
-// Seal every wall/floor penetration outside; USB plugs cannot pass a gland insert,
-// so the port needs a split grommet or sealant, fitted after the cable.
+// TOWER: six M5 holes and a 30 x 50 mm connector passage in the +Y wall take
+// camera_tower.scad's base; two M5 holes in the tongue take its foot.
+// Fit a split gasket/seal AFTER threading cables; do not obstruct the sump drain.
 include <enclosure_common.scad>
 body_part = "body";                // body | hitch_gauge
 
@@ -76,7 +75,8 @@ module enclosure_body() {
         // Tower base bolts and cable port through the +Y wall
         for(p=tower_base_bolts) translate([p[0],box_inner_w/2-1,p[1]])
             rotate([-90,0,0]) cylinder(d=tower_wall_bolt_d,h=box_wall+2);
-        translate([0,box_inner_w/2-1,tower_port_z]) rotate([-90,0,0]) cylinder(d=tower_port_d,h=box_wall+2);
+        translate([-tower_port_w/2,box_inner_w/2-1,tower_port_z-tower_port_h/2])
+            cube([tower_port_w,box_wall+2,tower_port_h]);
     }
 }
 

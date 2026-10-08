@@ -36,14 +36,15 @@ Regenerate all views and parts with `python3 hardware/mounts/build_printables.py
 | `hitch_gauge` | Actual mower hitch bolt/hole | Mates without force; set enclosure `hitch_hole_d` from measurement |
 | `arm_layer_gauge` | Enclosure tongue centre/auxiliary-hole pattern | All three holes align with the enclosure only; does not validate mower-plate anti-rotation |
 | `fit_gauge_1` | E-stop rail and square U-bolt | Actual rail and bolt match the assumed window/pitch |
-| `fit_gauge_2` | RDS51150SG stationary-holder side | Four M2.5 screws pass its 24 × 24 mm pattern |
+| `fit_gauge_2` | RDS51150SG stationary-holder side | Six M2.5 screws pass its photo-derived slots and Ø13.5 opening |
 | `lapbar_clamp_insert_0`–`_4` | Actual steering-bar tube | Sleeve set spanning 20 / 22.2 / 25.4 / 28.6 / 30 mm bar OD. The sleeve that slips over the bar is the one to fit; the clamp halves do not change with the bar |
 | `pushrod_gauge_0`–`_2` | 40 mm sleeve and 29.1 mm inner bar | Inner bar slides without binding at the chosen fit |
 
 Measure the real hitch plate edges and edit `hitch_plate_width_mm`, depth and thickness in
 `enclosure_common.scad` before printing the layer. Arm roots start 2 mm outboard of the schematic
 plate edge; a wider plate may exceed the side-ear bolt land and intentionally fail the layer assert.
-Measure each lap-bar clamp point and crank before changing `lapbar_pin_*`/`servo_crank_*`; never print
+Measure each lap-bar clamp point and crank before changing `lapbar_pin_*`/`servo_crank_r`; never print
+rods from the default estimate without that check.
 rods from the default estimate without that check.
 
 ---
@@ -97,6 +98,8 @@ the printable layer without moving the measured servo station.
    the layer **top**. Insert four M6 bolts per arm upward from beneath the side ears
    into those nuts; inspect all eight accessible seats and confirm no part enters
    the mower plate. Fit both heads, seating each spigot with four M6 flange bolts.
+   Verify that both flange faces seat fully with the spigots located; do not use bolt
+   preload to pull a floating head into place or crush a shallow/obstructed pocket.
 4. Assemble the camera tower first. Insert each pad's two M5 nuts from its +Y edge.
    Drop two M4 nuts into each half-jaw's top slots; use the labelled left/right
    STLs and offer both halves from **+Y** at z=110/190/250. Never slide over a flange.
@@ -104,17 +107,26 @@ the printable layer without moving the measured servo station.
    side-loaded pad nuts, then tighten the M4 screws only until the jaw is secure
    against the tube. Do not drill or enter the USB cable bore; hand-cycle and
    bench-load for slip and creep before any powered test.
-5. Fit four M2.5 screws to each actual stationary servo holder. Keep the
-   lateral output axis and full horn sweep unobstructed. The screws enter from the **arm's
-   inboard side**: down the lower arm's channel, through a Ø4.8 driver tunnel in the head's rib,
-   then the Ø2.9 bores in the 6 mm servo plate. Confirm the holder's four holes are concentric
-   with its output before bolting: the mount is drilled with the pattern coaxial with the shaft
-   (`servo_shaft_offset_l = 0`), and a holder whose screw pattern is off-axis needs either a new
-   land or a measured offset — never a forced fit.
-6. **Torque restraint remains a stop-work gate.** Auxiliary layer holes at x=±40
+5. **Stationary rear bracket:** each arm head's lateral land has six photo-derived
+   Ø2.9 slots (cutter-centre ±0.4 mm Y/Z) and a Ø13.5 rear opening, running through the
+   whole rib. Insert six M2.5 steel through-bolts from the **outboard (bracket) side**;
+   put an OD6 × 1 washer and AF5 × 2.5 nut on the exposed flat **inboard X=0 face** and
+   turn them with a slim (≤Ø8) socket from −X. No nut pocket inside the rib. Prove the
+   pattern with `fit_gauge_2` on the purchased servo before printing heads.
+6. **Moving crossplate adapter:** `servo_adapter_right`/`_left` bolts to the broad eight-hole
+   U crossplate (the moving member, not the disc) with eight M2.5 through-bolts and broad
+   12 mm **metal** washers/nuts; the slotted passages allow the adapter to centre on the
+   photo-fitted pattern. Check the plate with `servo_adapter_gauge` first. The adapter's
+   12 mm clevis ears carry the 8 mm rod eye on an M6 pin in **double shear**; never thread
+   a printed ear. Face angle **45° = neutral** (levers centred), **90° = full reverse**.
+   Clocking witness: the pad has a centre line and a 45° tangent mark. With the rod pin
+   removed and levers hand-set to neutral, rotate the output until the crossplate face is
+   at 45°, bolt the adapter so the witness line points straight up and the pin bore sits
+   plumb above the shaft, mark the spline/plate together, hand-move to full reverse and
+   confirm the face reaches 90° without contact. Electrical command direction is calibrated
+   separately per motor; these angles are **not PWM values**.
+7. **Torque restraint remains a stop-work gate.** Auxiliary layer holes at x=±40
    are only candidate locations; the actual hitch plate has not been shown to
-   match. One hitch bolt is not a positive anti-rotation path. Do not power the
-   steering until an independently qualified restraint is fitted to the chassis.
 
 ## 3. Four-bolt lap-bar connectors
 
@@ -142,39 +154,41 @@ slip and inspect for whitening/cracks before any powered test.
 
 ![rod at shortest and longest lock settings](view_rod_adjustment.png)
 
-**Parts per side:** `pushrod_servo_end`, `pushrod_middle`, `pushrod_sleeve` and `pushrod_inner`
+**Parts per side:** `pushrod_servo_end`, `pushrod_middle_a`, `pushrod_middle_b`, `pushrod_sleeve` and `pushrod_inner`
 (print two sets; the left rod is the same set turned 180° about its own axis). Hardware per rod:
-four M6 ×55 splice bolts, two M6 ×55 lock bolts, one M6 ×55 clamp-yoke pin, and one M6 ×25 crank
-pin, each with washers and a locking nut. Verify actual stacks before ordering.
+four M6 ×55 splice bolts, two M6 ×55 lock bolts, one M6 ×55 clamp-yoke pin, and one M6 ×35–40
+adapter clevis pin (spans the 6 + 12 + 6 mm ear-gap-ear grip plus washers and a lock nut; verify
+actual stack), each with washers and a locking nut. Verify actual stacks before ordering.
 The 40 mm square tube has 5 mm walls; the 29.1 mm inner bar slides with 0.45 mm clearance per side.
 
-The default **936.9 mm** pin length is the Toro TimeCutter MAX 50 in MyRIDE estimate in
-`TORO_77502_LINKAGE.md`, not a measurement. The three lock settings give 921.9/936.9/951.9 mm.
-The rod length is set on the bench by choosing a joint position; set the clamp-pin and crank values in `enclosure_common.scad` only if the estimated band turns out to be wrong.
+The default **936.4 mm** pin length is the Toro TimeCutter MAX 50 in MyRIDE estimate in
+`TORO_77502_LINKAGE.md`, not a measurement. The three lock settings give 921.4/936.4/951.4 mm.
+The rod length is set on the bench by choosing a joint position; set the clamp-pin and crank
+values in `enclosure_common.scad` only if the estimated band turns out to be wrong.
 
 1. Select the loose/nominal/tight square-fit coupon. Join the four outer pieces spigot-first with
    two M6 bolts per splice. Both lock bolts must pass through the sleeve and the matching inner-bar
    holes at one setting. Friction alone is not the lock.
-2. Fit the servo crank **up** at neutral, square to a level rod. Put the servo-end eye **outboard**
-   of the metal arm with the 2.5 mm washer stack. Fit the inner eye between the clamp's paired yoke
-   ears (9 mm gap). Both bores are Ø6.6 mm. Changing one lock step moves the servo eye 1.6 mm
-   along its pin; correct it with washers.
-3. Both pin axes must stay parallel to the mower's left-right axis. The rod's 4.54° skew carries the
+2. Fit the servo crank **up** at neutral, square to a level rod. The servo-end eye sits in the
+   printed adapter's 12 mm clevis gap (2 mm shim/trim space each side of the 8 mm eye) on the
+   M6 pin in double shear. Fit the inner eye between the clamp's paired yoke ears (9 mm gap).
+   Both bores are Ø6.6 mm. Changing one lock step moves the servo eye about 1.1 mm along its pin;
+   correct it with shims inside the clevis gap.
+3. Both pin axes must stay parallel to the mower's left-right axis. The rod's 4.12° skew carries the
    lap bar's extra outboard offset; it does not permit out-of-plane articulation. Do not bend the
    clamp, force a tilted pin, or use loose pins to hide a mismatch.
-4. With servos unpowered, hand-cycle neutral, full forward, full reverse and outboard PARK. Remove a
-   pin to verify manual release. Any binding, slip, interference or failure to self-centre is a
-   stop-work condition; do not compensate with force.
+4. With servos unpowered, hand-cycle the 45° neutral face, the 90° full-reverse face and outboard
+   PARK. Remove a pin to verify manual release. Any binding, slip, interference or failure to
+   self-centre is a stop-work condition; do not compensate with force.
 5. While someone rides normally, check that the MyRIDE platform does not move the clamp pins
    fore-and-aft relative to the hitch plate. Such motion becomes an unintended lever command.
 6. Route both rods clear of the engine, muffler, belts and seat platform. ASA must stay well away
    from exhaust heat.
 
-The 12 V stall rating is 165 kg·cm (about 16.2 N·m): roughly 295 N at the 55 mm crank. That is a
-hazard/load estimate, **not** a permitted operating force and not proof for any printed part or
-mower mounting. No material fatigue/creep, impact, root-bolt, clamp-slip or hitch-plate
-qualification is claimed.
-
+The 12 V stall rating is 165 kg·cm (about 16.2 N·m): roughly 295 N at the 55 mm adapter pin
+radius. That is a hazard/load estimate, **not** a permitted operating force and not proof for any
+printed part or mower mounting. No material fatigue/creep, impact, root-bolt, clamp-slip or
+hitch-plate qualification is claimed.
 ## 5. E-stop
 
 ![E-stop on the rail](view_estop_station.png)
@@ -230,74 +244,142 @@ move together.
 ## 7. Camera tower
 
 ![tower base on the tongue: wall flange, foot, drain, joint flange with the first segment offered up](view_tower_base.png)
-![full tower: base, two segments, cap and camera foot](view_tower_full.png)
+![full tower: lower Pi enclosure, extension, upper stereo enclosure and terminal cap](view_tower_full.png)
+![close camera stack: Pi below the 12-inch extension and stereo above it](view_camera_stack.png)
 
-**Parts** (`camera_tower.scad`): `camera_tower_base`, `camera_tower_segment` × N (N and length derive
-from `tower_height`; default 900 mm → 2 × 355 mm), `camera_tower_cap`, `camera_tower_backing`
-(drilling template for a ≥2 mm metal strip inside the wall); 6 × M5 ×20 + nuts (wall), two M5 foot
-bolts through foot, tongue and 8 mm sandwich layer (measure actual grip length; old 30 mm is no longer
-a valid default), 4 × M4 ×16 + nuts per joint, 2 × M4 ×20 for the camera foot; `camera_foot` +
-`camera_carrier`; a **USB** camera cable long enough for `tower_height` plus the run inside the box.
+### Parts and height
 
-**Height first.** `tower_height` (tongue top to camera-foot surface) is a **900 mm placeholder**.
-The dual-lens machine-vision camera goes on `stereo_camera_bracket`, clamped around the column
-**304.8 mm (12 in) below** the cap's Pi Camera station so both optical axes stay parallel. It is now
-an **enclosure** rather than a bare plate: roof with a hood and drip lip, side and floor walls, and a
-glazed front whose pane sits on a rebate shoulder held by four M3 screws, with the cable out through
-the floor so water cannot run down it inside. Nothing is claimed rain-tight or fog-free - the pane
-joint wants sealant, and a sealed ASA box condenses, so desiccant or a vented plug is your call. The
-glass aperture and the bulkhead window follow `stereo_baseline_mm` (MEASURE), and the aperture size
-is asserted against the lens FOV: too deep an enclosure vignettes its own image. Its two
-M4 bolts cross the column, so drill at the bracket's own holes and bolt through - the column has no
-hole at an arbitrary height. Check the baseline against the aperture before fitting. Sit
-on the mower, measure from the hitch plate top to where the lens must be to see over the seat back,
-add the camera foot's own height, set it in `enclosure_common.scad`, rebuild. Segment count and length
-update themselves; the assert refuses anything that will not lie on a 420 bed.
+Print one `camera_tower_base`, N `camera_tower_segment` parts, one `camera_tower_backing` drilling
+template, one `camera_tower_extension` and one `camera_tower_cap`. Print one each of
+`camera_pi_housing`, `camera_pi_bottom`, `camera_pi_carrier`, `camera_pi_retainer`,
+`camera_stereo_housing`, `camera_stereo_bottom`, `camera_stereo_carrier`,
+`camera_stereo_retainer`. Also print lens inserts and gaskets per station: `camera_pi_lens_insert`,
+`camera_pi_face_gasket`, `camera_pi_floor_gasket`, `camera_pi_insert_gasket`,
+`camera_pi_rim_gasket`, plus `camera_stereo_lens_insert_left`, `camera_stereo_lens_insert_right`,
+`camera_stereo_face_gasket`, `camera_stereo_floor_gasket`, `camera_stereo_insert_gasket_left`,
+`camera_stereo_insert_gasket_right`, `camera_stereo_rim_gasket_left`, `camera_stereo_rim_gasket_right`.
+The old exposed camera carrier, stereo clamp bracket, **four `camera_stereo_clip` parts, and
+nonprinted panes are not part of this stack**.
 
-**Print orientation is structural.** The column's bending stress at the base is 3.7 MPa: FOS 11 along
-the filament, **2.9 across layers**. Every column piece prints with its axis horizontal:
+Supply a measured ≥2 mm metal backing strip, six M5 wall bolts/nuts, two M5 foot bolts through
+foot/tongue/8 mm sandwich layer, and four M4 bolts/nuts at each flange joint. Select bolt lengths
+from actual grip and nut engagement. Each camera needs four M3 tray screws/nuts, two M3 cassette
+bolts, and two M2 retainer through-bolts/nuts; each lens insert needs two M3 bolts with **20 mm OD**
+metal plus compliant sealing washers. Neither camera uses a tilt foot.
 
-- `camera_tower_base`: the STL is already flange-down (wall plate on the bed, column lying, ~75 mm
-  tall). Supports under the column and under its joint flange.
-- `camera_tower_segment`: the STL is already lying flat on one tube face, 370 mm along the bed.
-  No supports needed; the bore bridges 40 mm.
-- `camera_tower_cap`, `camera_tower_backing`: flat, as exported.
+**No nonprinted panes are supplied or used.** The closing face is opaque and integral to the tray.
+Each lens looks through its own round flared aperture in a printed insert. Measure the actual SVPRO
+PCB, lens projection and component clearances before fitting; **no stereo baseline is assumed**.
 
-Never stand a segment up to print it "cleaner" — that swaps the strong axis for the weak one.
+Set `tower_height` in `enclosure_common.scad` to the required **lower Pi lens-centre datum**
+(default 900 mm), based on your seated sightline. Segment count and length derive from that datum.
+The order is lower mast → **80 mm Pi housing → 304.8 mm extension → 80 mm stereo housing → closed
+terminal cap**. Optical centres are **384.8 mm apart**, not 304.8 mm. Both face −Y.
 
-**Install:**
+### Print and structural limits
 
-1. With the box open: backing strip inside against the +Y wall, base flange outside, 6 × M5 through
-   both; 2 × M5 down through the base foot into the tongue. Sealant around the cable port on the outside.
-2. Feed the USB cable: plug end up through the base's column (in through the wall port), then through
-   each segment and the cap **before** the camera foot is fitted — a USB plug will not pass a gland
-   insert, which is why the port is a plain 24 mm hole to be sealed with a split grommet or sealant
-   after the cable is in.
-3. Drop the first segment's bottom flange over the base's spigot (0.4 mm clearance each side — it
-   should slide, not need force); 4 × M4 through the flanges. Repeat for each segment.
-4. Cap onto the last spigot, 4 × M4. Slide two M4 nuts into the cap's side slots, bolt the camera foot
-   down through the roof; cable exits the cap's side slot toward the box, under the roof.
-5. Camera carrier on the foot's pivot; set tilt; lock.
-6. Any water that gets into the bore runs down to the base sump and out its small drain above the
-   foot, below the wall port. Keep that drain clear.
-7. If the column hums at engine speed, brace the first joint flange to the box lid flange with a strap
-   or rod through the flange bolt holes. No FDM fatigue data exists for this; inspect the flange roots
-   and the wall after the first season.
+Print the base flange-down with support beneath the horizontal column/joint as needed. Print mast
+segments and the extension lying on a tube face, not standing upright. Use the exported cap/backing
+orientations. Inspect bridge quality, nut-pocket access, spigot fits and unobstructed cable paths.
+Housing/tray/carrier exports use their dedicated print orientations; do not print assembly scenes.
+
+The previous **3.7 MPa / FOS 11 / cross-layer FOS 2.9** estimates do **not** apply to the added
+height and mass. No stress, fatigue or vibration margin is qualified for this tower. Physically
+validate mounting strength and engine-speed vibration before operation, and inspect joints regularly.
+
+### Install the mast and cable route
+
+1. With the box open, put the metal backing strip inside the +Y wall and the base flange outside.
+   Fit six M5 wall bolts and two M5 foot bolts through the tongue and sandwich layer.
+2. Thread the stereo USB-A connector through the mast/base/box **before fitting camera
+   cassettes, lens inserts or deck payloads**; the connector route is not through installed PCBs.
+   Route the Pi CSI cable before loading its cassette as well. The mast has a **32.2 mm square minimum throat**;
+   each housing rear port and the base/box entry are **30 × 50 mm**. The design uses a
+   **24 × 14 × 45 mm connector gauge** and an elevated 90° base bend through the closed duct's
+   flared relief, above the M4 brace shafts at z=110 mm. This bend includes installed brace bolts
+   in the geometric gate, which passed in the full CAD build. Check the real plug and respect cable
+   bend radii: capacity for this gauge does not guarantee every USB overmould fits.
+3. Seat each lower segment's socket over the preceding spigot without force and bolt each flange
+   joint with four M4 bolts/nuts. Install the **lower Pi shell first**, then the **304.8 mm extension**,
+   then the **upper stereo shell**, then the closed cap. Fasten every flange joint. The cap has
+   neither a camera-foot fixing nor a side cable slit.
+4. Thread each camera cable through its rear housing port into the mast before inserting its
+   carrier. Leave controlled service slack without fouling the optical bay or blocking the bore.
+   Route the flexible base cable into the box near **z=122 mm within the closed duct**, and restrain
+   it clear of bolt shafts. Keep the upper-column cable centred between the y=±14 mm brace bolts.
+   This initial threading order does not change bottom-tray servicing with the mast installed.
+5. After connector threading, seal **every mast flange joint** with a removable gasket or compatible
+   sealant; a closed roof and seated spigots do not seal the flange water path. The extension is
+   **304.8 mm printed flange-to-flange**; compressed gasket thickness adds to actual stack height.
+   Seal the rectangular box entry using a split gasket or compatible sealant. Keep the base sump
+   drain and separate lower web-pocket weep vent clear; do not seal water into the column.
+
+Camera Module 2 is **CSI, not USB**. Pi 5 needs a compatible **22-to-15-pin camera cable/extension**.
+A passive approximately 1 m CSI run is not proven reliable: demonstrate installed signal integrity
+or use a suitable active CSI extender with verified compatibility, power and environmental protection.
+The stereo camera uses USB. Geometric clearance is not electrical qualification.
+
+### Load and service each camera from below
+
+![Pi shell remains stationary while the bottom tray, cassette, retainer, inserts and gaskets drop down](view_camera_pi_exploded.png)
+![stereo shell remains stationary while the bottom tray, cassette, retainer, inserts and gaskets drop down](view_camera_stereo_exploded.png)
+
+1. **Bench load the cassette.** Slide the PCB from +X into the cassette's shallow top/bottom edge
+   grooves toward the fixed left stop; never bend a populated board over a lip. The grooves hold a
+   **3.2 mm maximum PCB + pad stack** with **0.8 mm edge engagement**; fill the gap for the real
+   board from the groove-pad kit (0.4–2.4 mm) or thin insulating compliant tape, then screw on the
+   removable right-edge retainer with two M2 through-bolts and nuts. Pi contact spans x −13.6…3 mm;
+   the middle of its CSI edge stays open behind a rear-bridged retainer with 12 mm chosen connector
+   clearance. Stereo's 24 mm upper-centre gap clears its 9 mm USB-C connector. Confirm on the
+   actual board that those narrow lands are free of components.
+2. Bolt the cassette to the tray through its two fore/aft M3 slots. The slots give **Pi −11.8…+10 mm**
+   and **stereo −8…+10 mm** board travel, so the board front can sit at y −107.8…−86 (Pi) or
+   −104…−86 (stereo). Set it from the actual lens projection; the 2.2–24 mm (Pi) and 7–25 mm (stereo)
+   projection ranges are **capacities**, not measurements.
+3. Lay the floor gasket in the tray recess and lift the tray + cassette straight **up (+Z)** through
+   the shell's bottom-open broad PCB/lens key and narrow upper-nut keys. Retain it with the four
+   original M3 bottom fixings into side-access steel nuts.
+4. **Fit the lens inserts from the front**, along +Y, each over its face gasket and insert gasket,
+   with its rim gasket on the lens's non-optical rim. Never sweep a closed round hole vertically
+   across a protruding lens, and never press on the glass. Two M3 bolts per insert, each with a
+   **20 mm OD** metal plus compliant sealing washer. Inserts may stay fitted for later bottom
+   servicing, because the camera, closing face and inserts travel together.
+
+**Choosing a bore and centre.** Offer the real lens to `camera_<kind>_lens_gauge` and choose the smallest
+loose bore (prototype default Pi Ø8, stereo Ø14). Set `camera_insert_bore_mm`, then try the opaque
+tiles in `camera_<kind>_tile_fit_kit` with the lens behind them, using the actual camera as the
+jig. Enter the winning coarse offset (`camera_insert_offset_x_mm`/`_z_mm` for Pi;
+`camera_stereo_lens_offsets_mm = [[left_dx,left_dz],[right_dx,right_dz]]` for stereo) and rebuild;
+fine slot travel closes the 2 mm gaps between tiles. An assert refuses any bore/offset whose aperture,
+front flare and full fine travel would leave the opaque port window (centre capacity =
+window edge + bore/2 + thickness × tan(FOV/2) + 0.5 mm). For the defaults that is Pi x −15.2…15.2,
+z 26.8…53.2 mm and stereo x ±(15.3…33.7), z 33.3…46.7 mm: **capacities, not a measured stereo
+baseline or lens position**.
+
+For service, release cable strain, remove the four bottom M3 fixings and lower the whole service set
+straight down **without removing the mast or shell**. Gaskets are TPU solids or foam cutting templates
+and need compliant stock, preload or adhesive as appropriate.
+
+The roof/hood and seals do not establish an IP rating, rain-tightness or fog resistance. Keep
+sealant removable at service joints and qualify ingress, condensation, vibration and optical performance
+physically. The 110° (Pi) and 85° (stereo) per-lens cones are design capacities for the insert flare,
+not camera calibration.
 
 ## 8. Camera, sensors, antenna
 
-![camera tilt mount](view_camera_tilt.png)
+For the enclosed cameras, use the bottom-loading steps and exploded views in §7.
 ![sensor carrier on tilt foot](view_sensor_tilt.png)
 
 | Part | Where | Notes |
 |---|---|---|
-| `camera_foot` + `camera_carrier` | On the camera tower cap (step 7), looking forward over the seat back and slightly down | Two M4 × 20 through the cap roof into its side nut traps; M4 × 30 pivot with nyloc; set tilt, then lock. Route the USB cable down the tower bore. If a front-low view is also wanted, a second foot on a flat bracket at the front works the same way. |
-| `sensor_carrier` (+ another `camera_foot`) | ToF: front corners, aimed forward, apertures unobstructed. BME280: shaded, ventilated, away from exhaust. IMU: rigid on the chassis near the middle of the machine, away from servos and high-current wiring. INA3221: inside the enclosure on a utility sled | Blank carrier: drill for the real board, board on insulating spacers, then fix the carrier |
+| `camera_pi_housing` / `camera_stereo_housing` | Pi at the lower station; stereo above the 12-inch extension | Bottom-loaded tray/cassette/retainer/inserts, gaskets, service screws (§7). CSI for Pi; USB for stereo. |
+| `sensor_carrier` (+ `camera_foot` if tilt is appropriate) | ToF: front corners, aimed forward, apertures unobstructed. BME280: shaded, ventilated, away from exhaust. IMU: rigid on the chassis near the middle of the machine, away from servos and high-current wiring. INA3221: inside the enclosure on a utility sled | Blank carrier: drill for the real board, board on insulating spacers, then fix the carrier |
 | `antenna_deck` | Highest practical point with a clear sky view — behind/above the seat or on a mast | Strap the antenna through the edge slots; add a ≥100 mm metal ground plane under a patch antenna. Keep the RTK antenna away from the engine ignition lead |
 
 ## 9. Cables
 
-- Every cable into the enclosure goes through a gland, from below, with a drip loop.
+- Frame cables enter through glands from below with drip loops. The mast route instead uses the
+  rectangular port sealed with a split gasket after threading (§7); keep its sump drain clear.
 - `harness_saddle` every ~300 mm along the frame and at every change of direction; M4 into the frame,
   cable tie through the tunnel. No cable within reach of a tyre, belt, lever swing, or the muffler.
 - `equipment_saddle` for the Bosch relay bodies and inline fuse holders: two ties per unit, mounted
@@ -312,7 +394,7 @@ Work through `docs/tractor-acceptance-criteria.md`. The items this package touch
 - Lever return-to-neutral with the linkage fitted, unpowered (item 10). Gate for everything else.
 - OEM interlocks untouched: seat switch, PARK crank interlock, PTO (items in § Safety interlocks).
 - E-stop reachable from the ground; cuts servo power and PTO.
-- Servo travel calibrated so the horn never drives the lever past its mechanical stops.
+- Servo travel calibrated so the adapter/moving plate never drives the lever past its mechanical stops.
 
 Nothing in this folder certifies strength, weather sealing, or safety. It gets the parts in the right
 place so those tests can be run.

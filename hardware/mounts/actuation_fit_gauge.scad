@@ -1,8 +1,8 @@
-// Fit coupons for the retained E-stop frame interface and servo side pattern.
+// Fit coupons for the retained E-stop frame interface and six-hole rear bracket.
 // Steering clamps now use lapbar_four_bolt_clamp.scad's measured-OD gauge;
 // the previous round-U-bolt/V-seat gauges no longer apply to steering.
 // gauge 1: selected rail cross-section and square-U-bolt pitch for E-stop only.
-// gauge 2: RDS51150 fixed-holder SIDE 24x24 M2.5 pattern.
+// gauge 2: photo-derived stationary rear bracket slots + rear-opening capacity.
 include <common.scad>
 gauge = 1;
 
@@ -14,9 +14,12 @@ module actuation_fit_gauge() {
             translate([x, y, -1]) cylinder(d = frame_ubolt_leg_hole_d, h = 6);
     }
     else if (gauge == 2) difference() {
-        plate(38, 38, 3, 3);
-        for (x = [-12, 12], y = [-12, 12])
-            translate([x, y, -1]) cylinder(d = servo_side_hole_clear_d, h = 5);
+        plate(60, 38, 3, 3);
+        // Rotate shared full-X cutters to bed-normal; coupon axes are -Z,Y.
+        translate([0,0,-1]) rotate([0,-90,0]) {
+            servo_rear_hole_cut(5);
+            servo_rear_opening_cut(5);
+        }
     }
     else assert(false, "gauge must be 1 or 2");
 }

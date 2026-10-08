@@ -9,9 +9,20 @@ from workshop.idpass import (
     IdPassError,
     boxes,
     decode,
+    exposure_problem,
     id_to_rgb,
     yolo_line,
 )
+
+
+def test_exposure_gate_flags_black_and_blown_frames_only():
+    def frame(v):
+        return np.full((8, 8, 3), v, np.uint8)
+
+    assert exposure_problem(frame(0)) == "black"
+    assert exposure_problem(frame(255)) == "blown"
+    assert exposure_problem(frame(5)) is None  # dim shade is real data
+    assert exposure_problem(frame(190)) is None  # flat empty lawn is real data
 
 
 def test_every_id_round_trips_within_tolerance():
@@ -90,15 +101,32 @@ def test_doubled_region_folds_into_source_box():
     assert got == [(7, 10, 5, 29, 19, 300)]
 
 
-def test_small_level2_blend_is_not_folded_into_unrelated_object():
-    """Spot-check bug: a 1-px blend containing a 170 channel was folded into
-    whichever object its halved colour matched, stretching that box."""
+def test_small_level2_blend_is_not_folded_beside_large_doubled_surface():
+    """A large foldable surface must not make a distant 10-pixel blend fold too."""
     img = np.zeros((40, 60, 3), np.uint8)
-    img[5:10, 5:10] = id_to_rgb(1)  # object A, top-left
-    img[30:32, 50:55] = (0, 0, 170)  # 10-px blend far away (halves to id 1)
+    img[5:10, 5:10] = id_to_rgb(1)  # object A
+    img[10:30, 10:30] = (0, 0, 170)  # large doubled surface folds into object A
+    img[30:32, 50:55] = (0, 0, 170)  # separate 10-pixel blend stays background
     got = boxes(decode(img), {1: 7, 63: -1}, min_pixels=1)
-    assert got == [(7, 5, 5, 9, 9, 25)]
+    assert got == [(7, 5, 5, 29, 29, 425)]
 
 
 def test_yolo_line_uses_inclusive_pixel_bounds():
     assert yolo_line(4, 0, 0, 9, 4, 20, 10) == "4 0.250000 0.250000 0.500000 0.500000"
+
+
+def test_native_boxes_merge_sub_instances_and_drop_tiny():
+    """Replicator annotator output -> boxes: sub-labelled parts of one spawned asset merge,
+    ground/unlabelled ids are ignored, and < min_pixels instances are dropped."""
+    from workshop.idpass import native_boxes
+
+    dt = [(k, "<i4") for k in ("semanticId", "x_min", "y_min", "x_max", "y_max")]
+    tight = np.array([(0, 10, 5, 29, 19), (1, 25, 15, 34, 24), (2, 50, 0, 50, 0)], dt)
+    paths = ["/W/obj_00", "/W/obj_00/asset/wheel", "/W/obj_01"]
+    seg = np.zeros((40, 60), np.uint32)
+    seg[5:20, 10:30] = 2  # obj_00 body
+    seg[15:25, 25:35] = 3  # its sub-labelled wheel
+    seg[0, 50] = 4  # obj_01: 1 visible pixel
+    ids = {"0": "BACKGROUND", "2": "/W/obj_00", "3": "/W/obj_00/asset/wheel", "4": "/W/obj_01"}
+    got = native_boxes(tight, paths, seg, ids, {"/W/obj_00": 7, "/W/obj_01": 0})
+    assert got == [(7, 10, 5, 34, 24, int((seg == 2).sum() + (seg == 3).sum()))]
