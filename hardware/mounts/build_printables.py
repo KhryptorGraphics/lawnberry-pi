@@ -24,6 +24,9 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+# Sleeve set size: the bar sizes the clamp takes. MUST match clamp_bar_od_mm in common.scad;
+# an out-of-range index fails loudly there rather than silently building a wrong part.
+CLAMP_INSERT_COUNT = 5
 PARTS = [
     ("arm_layer_center", "hitch_arm_layer", {"arm_part": "center"}),
     ("arm_layer_left", "hitch_arm_layer", {"arm_part": "left"}),
@@ -47,15 +50,7 @@ PARTS = [
             "lapbar_four_bolt_clamp",
             {"clamp_part": "insert", "clamp_insert_index": index},
         )
-        for index in range(3)
-    ],
-    *[
-        (
-            f"lapbar_clamp_gauge_{index}",
-            "lapbar_four_bolt_clamp",
-            {"clamp_part": "gauge", "clamp_gauge_index": index},
-        )
-        for index in range(3)
+        for index in range(CLAMP_INSERT_COUNT)
     ],
     *[
         (f"pushrod_{piece}", "pushrod", {"rod_part": piece})
@@ -144,6 +139,7 @@ CHECKS = [
     "rod_clamp_interface",
     "rod_clamp_sweep",
     "rod_servo_sweep",
+    "rod_servo_sweep_band",
     "tongue_bore",
     "tongue_aux_bores",
     "tower_wall_bores",
@@ -168,13 +164,19 @@ CHECKS = [
 CONTACT_CHECKS = [
     *(("arm_brace_bar_contact", index) for index in range(3)),
     *(("arm_root_seat_contact", index) for index in range(2)),
-    *(("clamp_insert_grip", index) for index in range(3)),
+    *(("clamp_insert_grip", index) for index in range(CLAMP_INSERT_COUNT)),
 ]
+
+
+# Per-command cap for every openscad invocation. 240 s was tuned when the check set was smaller;
+# the heavier probes (arm_brace_insertion's Minkowski sweep, rod_servo_sweep_band) run concurrently
+# on a 4-core Pi and their wall time inflates with contention, so a tight cap fails a good build.
+COMMAND_TIMEOUT_S = 600
 
 
 def run(command: list[str], *, empty: bool = False) -> str:
     result = subprocess.run(
-        command, cwd=ROOT, capture_output=True, text=True, timeout=240, check=False
+        command, cwd=ROOT, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_S, check=False
     )
     text = result.stdout + result.stderr
     if empty and result.returncode == 1 and "Current top level object is empty" in text:
@@ -248,7 +250,12 @@ def mesh_report(path: Path) -> dict:
         "bounds_mm": [low, high],
         "size_mm": [round(value, 3) for value in size],
         "volume_mm3": round(volume, 3),
-        "sha256": hashlib.sha256(data).hexdigest(),
+        # stl_sha256 is the published file's bytes: observed to differ between runs for
+        # identical geometry (OpenSCAD's export is not reliably byte-stable), so it cannot
+        # fingerprint a shape. mesh_sha256 is order-independent: it stays put across runs
+        # and changes only when the part really changes.
+        "stl_sha256": hashlib.sha256(data).hexdigest(),
+        "mesh_sha256": canonical_mesh_digest(path),
     }
 
 
@@ -269,6 +276,22 @@ def read_stl_triangles(path: Path) -> list[tuple]:
         )
         for index in range(count)
     ]
+
+
+def canonical_mesh_digest(path: Path) -> str:
+    """An order-independent digest of a part's triangles, so it survives re-tessellation.
+
+    OpenSCAD's binary STL bytes differ between runs for identical geometry, so the file hash
+    cannot answer "did this part's shape change?". Sorting the corner lists and the triangle
+    list removes both windings' order and vertex order from the result.
+    """
+    faces = sorted(
+        tuple(sorted(face)) for face in read_stl_triangles(path)
+    )
+    payload = ";".join(
+        ",".join(f"{x:.4f},{y:.4f},{z:.4f}" for x, y, z in face) for face in faces
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def write_3mf(source: Path, target: Path) -> None:

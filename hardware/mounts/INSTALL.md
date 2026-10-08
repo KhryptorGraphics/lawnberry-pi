@@ -37,7 +37,7 @@ Regenerate all views and parts with `python3 hardware/mounts/build_printables.py
 | `arm_layer_gauge` | Enclosure tongue centre/auxiliary-hole pattern | All three holes align with the enclosure only; does not validate mower-plate anti-rotation |
 | `fit_gauge_1` | E-stop rail and square U-bolt | Actual rail and bolt match the assumed window/pitch |
 | `fit_gauge_2` | RDS51150SG stationary-holder side | Four M2.5 screws pass its 24 × 24 mm pattern |
-| `lapbar_clamp_gauge_0`–`_2` | Actual steering-bar tube | Choose the coupon that slips over the measured OD without excessive looseness |
+| `lapbar_clamp_insert_0`–`_4` | Actual steering-bar tube | Sleeve set spanning 20 / 22.2 / 25.4 / 28.6 / 30 mm bar OD. The sleeve that slips over the bar is the one to fit; the clamp halves do not change with the bar |
 | `pushrod_gauge_0`–`_2` | 40 mm sleeve and 29.1 mm inner bar | Inner bar slides without binding at the chosen fit |
 
 Measure the real hitch plate edges and edit `hitch_plate_width_mm`, depth and thickness in
@@ -121,13 +121,11 @@ the printable layer without moving the measured servo station.
 ![four-bolt steering-bar clamp](view_lapbar_connector.png)
 
 **Parts:** `lapbar_clamp_anchor` + `lapbar_clamp_cap` for each side (Ø36.4 bore, independent of the bar),
-the sleeve set for the measured bar (`lapbar_clamp_insert_0`–`_2`; two per side of the chosen size, because
-one printed half serves both clamp halves), four M5 bolts with broad washers and locking nuts per clamp,
-and the coupon set (`lapbar_clamp_gauge_0`–`_2`). The 25.4 mm default tube OD is sample-only: set
-`clamp_tube_od_mm`, check the bar on the coupon, then print the sleeve of the matching index — the clamp
-halves themselves do not change with the bar, so a wrong guess costs one small sleeve, not the clamp.
-Slide each half-sleeve into its clamp half before closing the clamp on the bar; the sleeve flanges must
-seat against the clamp's end faces.
+the sleeve set (`lapbar_clamp_insert_0`–`_4`, spanning 20–30 mm bar OD), and four M5 bolts with broad
+washers and locking nuts per clamp. **No calipers needed**: try the sleeves on the bar, keep the size that
+slips on, and print two more per side of that size — the clamp halves themselves are printed once and never
+change with the bar. Slide each half-sleeve into its clamp half before closing the clamp on the bar; the
+sleeve flanges must seat against the clamp's end faces.
 Each half carries one thick printed yoke ear. Together the ears straddle the rod's single 8 mm-thick
 eye lug across a 9 mm gap; a removable M6 ×55 bolt passes through ear-eye-ear in double shear. The
 42 mm yoke span/reach clears the 32 ×20 mm eye through its modeled planar sweep. The rod stays

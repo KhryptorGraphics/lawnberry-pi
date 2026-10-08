@@ -253,3 +253,59 @@ Verified facts that change earlier assumptions:
 
 Not done: the 60 s Pi capture session (indoors, no RTK; backend-restart
 hazard above), real IMU support, DFC compile (wheel needs a Hailo login).
+
+## 2026-10-08 — Servo envelope, mount reachability and a size-independent clamp
+
+The printable mounts workstream continued: the RDS51150 servo interface, the pushrod
+datum it feeds, the arm-head holder fastening, and the lap-bar clamp. It corrects
+several numbers the 2026-10-06 entry recorded.
+
+Verified facts that change earlier assumptions:
+
+- **The 61.4 mm on the vendor drawing is the servo's overall axial envelope, not a
+  disc diameter.** The case is 65 × 30 × 48 with the output shaft along the 48 mm
+  dimension; the kit's disc adds 13.4 mm. The model had the shaft along the 30 mm
+  dimension and a Ø61.4 × 3 mm "disc", putting the crank's inner face at 33 mm instead
+  of the drawing's 61.4. Correcting it moved the crank pin 28.4 mm outboard, so the
+  rods re-derived: **936.9 mm** pin-to-pin (was 940), lap-bar pin 74.2 mm outboard of
+  the crank (was 103), built skew 4.54° (was 6.3°). Earlier commits and docs still
+  quote 940 mm.
+- **The holder's 4-M2.5 pattern is concentric with the output**, so the arm head's
+  four bores line up with the holder's pattern *and* the rotation axis at once. The
+  ~19 mm offset the dimensioned drawing appears to show is a composite of the two case
+  ends: that offset would bury a hole inside the Ø26.5 mm output opening carried by the
+  same face. Established from photos of the real boss, calibrated twice (case 65 mm =
+  498 px; tape 1/8 in ticks), not from the drawing.
+- **The holder could not be bolted on.** Its four M2.5 screws must come from the arm's
+  inboard side — the holder covers the outboard face — but the rib bracing the servo
+  plate was solid behind the bores. Each head now has a Ø4.8 driver tunnel per bore and
+  loses 1148 mm³; nothing else in the set moved.
+- **`arm_servo_pattern` was passing vacuously** — the trap its own comment claimed was
+  closed. It framed only the head with `arm_vertical()` and placed its rays in bare
+  absolute coordinates ~190 mm away, so it intersected nothing; enlarging the ray to
+  Ø14 still returned empty, which is how it was caught. Both children are framed now and
+  the new `arm_servo_access` check proves the two-stage screw path. A spot-check of
+  `arm_brace_bolt_bores` with a Ø20 ray finds material, so that pose-frame class is not
+  affected.
+- **The clamp is size-independent AND measurement-free**: a fixed Ø36.4 bore with a set of
+  split sleeves spanning 20 / 22.2 / 25.4 / 28.6 / 30 mm bar OD, so one body, bolt set,
+  yoke and pin serve every bar and the size is chosen by *trying the sleeves on the bar* —
+  each sleeve's bore is its own slip fit, so the sleeve is its own coupon and the separate
+  gauge parts are retired. Proved by rendering: the anchor measures 110949.3 mm³ at both a
+  Ø25.4 and a Ø22.2 bar, and the five sleeves are single solids whose volumes fall
+  19658 → 8504 mm³ as the bore grows.
+- **The kit crank's pin radius and the disc's OD no longer need measuring for clearance.**
+  `rod_servo_sweep_band` sweeps 40–70 mm pin radius × Ø26–34 disc × the full ±35° travel on
+  both sides and passes. What a different radius still implies is *length* — up to 30 mm of
+  pin travel — which the rod's trim does not separately cover, so the rod's length stays
+  estimate-driven until its adjustment range is widened (multi-position spigot splices).
+- **OpenSCAD's STL export is not reliably byte-stable**, so `validation.json`'s per-part
+  bytes hash cannot fingerprint a shape. Parts now also carry `mesh_sha256`, an
+  order-independent digest that is stable across runs and moves only on a real change.
+- Slicer projects are audited, never rewritten; the three stale ones — one still holding
+  the pre-fix rod — were removed at the user's instruction, and the audit now reports none.
+
+Not done: the rod's adjustment range — the one measurement still on the critical path, above —
+and the clamp point along the lever, which is a constrained choice rather than a reading. No part
+is load-, creep- or powered-steering qualified; the printed linkage remains first-article fit
+prototypes.

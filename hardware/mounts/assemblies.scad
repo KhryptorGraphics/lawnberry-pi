@@ -62,7 +62,7 @@ module ref_servo_at(side) {
 module ref_lapbar(side) {
     c = lapbar_bar_centre(side);
     color(c_hold) translate([c[0],c[1],c[2]-lapbar_pivot_drop])
-        cylinder(d=clamp_tube_diameter_mm(),h=lapbar_pivot_drop+lapbar_top_rise);
+        cylinder(d=clamp_display_bar_mm(),h=lapbar_pivot_drop+lapbar_top_rise);
     color(c_frame) translate([c[0]-45,c[1],c[2]-lapbar_pivot_drop])
         rotate([0,90,0]) cylinder(d=12,h=90);
 }

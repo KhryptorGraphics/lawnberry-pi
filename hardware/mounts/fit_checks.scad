@@ -23,8 +23,8 @@ contact_station = 0;
 fit_lapbar_on_bar = [[0,0,1,0],[0,-1,0,0],[1,0,0,0],[0,0,0,1]];
 function fit_bar_centre(side) = lapbar_pin(side)+[0,clamp_pin_local()[1],0];
 // The servo end of the rod, cropped near the servo, carried round by the crank.
-module fit_rod_servo_end(side, angle) {
-    translate(servo_crank_pin_at(side,angle)-servo_crank_pin(side)) intersection() {
+module fit_rod_servo_end(side, angle, crank_r=servo_crank_r) {
+    translate(servo_crank_pin_at(side,angle,crank_r)-servo_crank_pin(side,crank_r)) intersection() {
         rod_between_points(servo_crank_pin(side),lapbar_pin(side),rod_nominal_setting());
         translate(servo_crank_pin(side)+[0,60,0]) cube([200,260,200],center=true);
     }
@@ -286,15 +286,16 @@ else if(check == "clamp_tube_fit") intersection() {
     // mating faces, which alone reads as an intersection.
     translate([0,0,-0.05]) clamp_inserts_assembly();
 }
-// The MEASURED bar must pass the tightest sleeve (index 0) with the printed diametral
-// clearance, so the clamp closes the sleeve onto the bar instead of seizing on it.
-else if(check == "clamp_insert_clear") intersection() {
-    clamp_inserts_assembly(0);
+// Each sleeve's own bar must pass it with the printed diametral clearance, so the clamp closes
+// the sleeve onto the bar instead of seizing on it. Pairwise, sleeve i against bar i: a union of
+// every bar against every sleeve would always fail, since the set spans different sizes.
+else if(check == "clamp_insert_clear") union() for(i=[0:clamp_insert_count()-1]) intersection() {
+    clamp_inserts_assembly(i);
     translate([-100,0,0]) rotate([0,90,0])
-        cylinder(d=clamp_tube_od_mm,h=clamp_length_mm()+200);
+        cylinder(d=clamp_insert_bar_mm(i),h=clamp_length_mm()+200);
 }
-// Each sleeve must close on a bar one step oversize: contact, not a rattle. Indexed 0..2 by
-// contact_station, like the brace-pad and root-seat contact checks.
+// Each sleeve must close on a bar a fraction oversize: contact, not a rattle. Indexed over the
+// sleeve set by contact_station, like the brace-pad and root-seat contact checks.
 else if(check == "clamp_insert_grip") intersection() {
     clamp_inserts_assembly(contact_station);
     translate([-100,0,0]) rotate([0,90,0])
@@ -415,6 +416,19 @@ else if(check == "rod_servo_sweep") {
         intersection() {
             fit_rod_servo_end(side,angle);
             union() { servo_body_envelope(side); servo_crank_arm(side,angle); }
+        }
+}
+// The kit crank's pin radius and the disc's OD are not measured on the real part, so this proves
+// the rod's servo-end transition clears the WHOLE plausible band, not just the assumed 55 mm and
+// Ø30: 40..70 mm pin radius, Ø26..34 disc, full travel, both sides. It says nothing about the
+// rod LENGTH that a different radius implies - that is trim, and the docs state its limit.
+else if(check == "rod_servo_sweep_band") {
+    for(side=[-1,1], crank_r=[servo_crank_r_band_mm[0]:15:servo_crank_r_band_mm[1]],
+        disc_d=[26,30,34],
+        angle=[-servo_crank_travel_deg:servo_crank_travel_deg/5:servo_crank_travel_deg])
+        intersection() {
+            fit_rod_servo_end(side,angle,crank_r);
+            union() { servo_body_envelope(side,disc_d); servo_crank_arm(side,angle,crank_r); }
         }
 }
 // Exclude the intended coplanar mounting contact, as with the tray/lid checks.

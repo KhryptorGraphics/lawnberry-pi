@@ -1,6 +1,6 @@
 // FIRST-ARTICLE FIT / LOAD-TEST ONLY. Not powered-operation certified.
-// Measure the actual lever tube OD with calipers; the default is only a sample
-// coupon size. Printed-plastic clamp creep, fatigue, and torque capacity are unknown.
+// The bar size is set by choosing a sleeve from the set in common.scad (clamp_bar_od_mm), so no
+// caliper reading is needed; printed-plastic clamp creep, fatigue, and torque capacity are unknown.
 // Hand-cycle the linkage and inspect for slip, whitening, cracking, and loss of clamp
 // after every test. Do not infer a safe bolt torque from this model; use no steel
 // backing plate, but do not rely on that as evidence of operating safety.
@@ -11,7 +11,7 @@
 //
 // Use from another file with: use <lapbar_four_bolt_clamp.scad>;
 // Callable modules: clamp_anchor(), clamp_cap(), clamp_insert(), clamp_inserts_assembly(),
-// clamp_gauge(), clamp_assembly(). The clamp bore is fixed; the sleeve sets the bar size.
+// clamp_assembly(). The clamp bore is fixed; a sleeve from clamp_bar_od_mm sets the bar size.
 
 include <common.scad>
 clamp_part = "anchor";                 // anchor | cap | insert | gauge
@@ -19,7 +19,9 @@ clamp_insert_index = 1;                // sleeve size: 0 tight, 1 nominal, 2 loo
 // Public assembly-space pin centre, before any per-bar clocking transform.
 // lapbar_on_bar in assemblies.scad maps local +Z (this pin axis) to global +Y.
 function clamp_pin_local() = [0, clamp_w_mm/2 + clamp_yoke_reach_mm/2, 0];
-function clamp_tube_diameter_mm() = clamp_tube_od_mm;
+// The bar the assembly views draw. The real bar is chosen by fitting a sleeve from the set, so
+// there is no single nominal diameter any more; the middle entry stands in for the illustration.
+function clamp_display_bar_mm() = clamp_insert_bar_mm(floor((clamp_insert_count()-1)/2));
 function clamp_half_height_mm() = clamp_half_h_mm;
 function clamp_width_mm() = clamp_w_mm;
 function clamp_length_mm() = clamp_l_mm;
@@ -29,7 +31,7 @@ function clamp_bolt_y_mm_value() = clamp_bolt_y_mm;
 // Axis-X cylindrical groove is cut from one half of each print blank. Both mating
 // faces remain flat and the groove leaves 4.25 mm nominal web to M5 hole edges.
 module clamp_anchor() {
-    assert(clamp_tube_od_mm > 0, "Measure tube OD and set clamp_tube_od_mm > 0");
+    assert(clamp_insert_count() >= 1, "clamp_bar_od_mm needs at least one bar size");
     assert(clamp_bolt_y_mm - clamp_r_mm - clamp_bolt_clear_mm / 2 >= 4,
            "Increase transverse bolt offset for at least 4 mm groove-to-hole web");
     assert(clamp_rod_gap_mm >= clamp_rod_eye_t_mm+0.5,
@@ -77,7 +79,7 @@ module clamp_anchor_print() {
 }
 
 module clamp_cap() {
-    assert(clamp_tube_od_mm > 0, "Measure tube OD and set clamp_tube_od_mm > 0");
+    assert(clamp_insert_count() >= 1, "clamp_bar_od_mm needs at least one bar size");
     assert(clamp_bolt_y_mm - clamp_r_mm - clamp_bolt_clear_mm / 2 >= 4,
            "Increase transverse bolt offset for at least 4 mm groove-to-hole web");
     assert(clamp_rod_gap_mm >= clamp_rod_eye_t_mm+0.5
@@ -129,13 +131,14 @@ module clamp_assembly(index=clamp_insert_index) {
     clamp_inserts_assembly(index);
 }
 
-// ---- Interchangeable split sleeve: one clamp body, several measured bar sizes -----------
-// The clamp bore fits the LARGEST sleeve, so the body, bolts, yoke and pin are printed once
-// per side whatever the bar measures. The bar size is set by fitting a sleeve: index 0/1/2 is
-// the same tight/nominal/loose pair the gauge coupons sample, so the coupon that checked the
-// bar is the coupon that gets fitted. ONE printed half serves both clamp halves - turn it
-// 180 deg about the bar axis and its flanges land on the opposite end faces - so print two per
-// side (four per mower) of the chosen size. Flanges bear on the clamp's end faces to stop the
+// ---- Interchangeable split sleeve: one clamp body, a set of bar sizes ------------------
+// The clamp bore fits the LARGEST sleeve, so the body, bolts, yoke and pin are printed once per
+// side whatever the bar measures. The bar size is set by fitting a sleeve: the set spans the
+// plausible lever range, and each sleeve's bore is a slip fit over its own bar OD, so trying one
+// on the bar is the whole fit check - no calipers needed. ONE printed half serves both clamp
+// halves - turn it 180 deg about the bar axis and its flanges land on the opposite end faces -
+// so print two per
+// side of the chosen size. Flanges bear on the clamp's end faces to stop the
 // sleeve walking along the bar; they are not structural.
 module clamp_insert_half(index=clamp_insert_index) {
     bore = clamp_insert_bore_mm(index);
@@ -147,7 +150,8 @@ module clamp_insert_half(index=clamp_insert_index) {
     // in 3D on a longer tube is the only arrangement that is both clean and outside the body.
     tube_len = clamp_l_mm+2*clamp_insert_protrusion_mm;
     flange_in = clamp_l_mm/2+clamp_insert_flange_gap_mm;
-    assert(index >= 0 && index <= 2, "clamp_insert_index must be 0, 1 or 2");
+    assert(index >= 0 && index < clamp_insert_count(),
+           "clamp_insert_index out of range; see clamp_bar_od_mm");
     assert(clamp_insert_wall_at_mm(index) >= 2.5,
            "Sleeve wall under 2.5 mm for this bar: raise clamp_body_bore_mm");
     assert(flange_od/2+clamp_bolt_clear_mm/2+1 <= clamp_bolt_y_mm,
@@ -184,21 +188,10 @@ module clamp_inserts_assembly(index=clamp_insert_index) {
     rotate([180,0,0]) clamp_insert_half(index);
 }
 
-// One-piece fit coupon: a flat annular sample for checking the measured bore size.
-// Single-solid gauge coupon. Index 0/1/2 samples tight/nominal/loose diametral fit.
-// The bore comes from the same function as the sleeve, and both walls are 5 mm, so this
-// coupon is the sleeve with the split, flanges and print pose removed: check the bar on the
-// coupon, then fit the sleeve of that index.
-module clamp_gauge(index=clamp_gauge_index) {
-    assert(index>=0 && index<=2, "clamp_gauge_index must be 0, 1 or 2");
-    difference() {
-        cylinder(d=clamp_insert_od_mm,h=3);
-        translate([0,0,-0.1]) cylinder(d=clamp_insert_bore_mm(index),h=3.2);
-    }
-}
+// The old one-piece gauge coupon is gone: the sleeve's bore is the same slip fit over its own bar
+// OD, so the sleeve IS the coupon, and one print both checks the bar and does the job.
 
 if (clamp_part == "anchor") clamp_anchor();
 else if (clamp_part == "cap") clamp_cap();
 else if (clamp_part == "insert") clamp_insert(clamp_insert_index);
-else if (clamp_part == "gauge") clamp_gauge(clamp_gauge_index);
-else assert(false, "clamp_part must be anchor, cap, insert or gauge");
+else assert(false, "clamp_part must be anchor, cap or insert");

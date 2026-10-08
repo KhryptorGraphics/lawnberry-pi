@@ -153,6 +153,10 @@ servo_shaft_offset_l = 0;              // Output position along the case (Y) fro
                                        // view was a composite of the two ends. Setting this
                                        // nonzero moves the shaft, envelope, crank and pin.
 function servo_shaft_y() = assembly_arm_y+servo_shaft_offset_l;
+// The kit crank's pin radius and the disc OD are not measured on the real part, so these take
+// optional overrides: the shipped geometry uses the defaults, and the fit checks sweep the
+// plausible band to prove clearance holds across it rather than only at one assumed value.
+servo_crank_r_band_mm = [40, 70];
 servo_face_t = 6;
 servo_face_w = 70;                     // along Y, across the arm; covers the 65 mm flange
 servo_face_h = 60;                     // up
@@ -175,28 +179,28 @@ lapbar_pin_x_mm = 355.6;     // ESTIMATE 14 in: lap-bar clamp pin from mower cen
 lapbar_pin_dz_mm = 0;        // clamp pin above crank pin at neutral; 0 keeps rod level
 function servo_crank_eye_x() = servo_station_x+servo_crank_face_x+servo_crank_t
                                +servo_crank_washer+clamp_rod_eye_t_mm/2;
-function servo_crank_pin_at(side, angle) =
-    [side*servo_crank_eye_x(), servo_shaft_y()+servo_crank_r*sin(angle),
-     arm_tip_z+servo_crank_r*cos(angle)];
-function servo_crank_pin(side) = servo_crank_pin_at(side, 0);
+function servo_crank_pin_at(side, angle, crank_r=servo_crank_r) =
+    [side*servo_crank_eye_x(), servo_shaft_y()+crank_r*sin(angle),
+     arm_tip_z+crank_r*cos(angle)];
+function servo_crank_pin(side, crank_r=servo_crank_r) = servo_crank_pin_at(side, 0, crank_r);
 function lapbar_pin(side) =
     [side*lapbar_pin_x_mm, tongue_bolt_y()+lapbar_pin_fwd_mm,
      arm_tip_z+servo_crank_r+lapbar_pin_dz_mm];
 // Vendor case 65 x 30 x 48 outboard of the mounting flange, then the kit's disc on the
 // output spline, out to the drawing's 61.4 mm overall axial envelope.
-module servo_body_envelope(side) {
+module servo_body_envelope(side, disc_d=servo_disc_d) {
     translate([side > 0 ? servo_station_x : -servo_station_x-servo_case_axial,
                servo_shaft_y()-servo_case_l/2, arm_tip_z-servo_case_w/2])
         cube([servo_case_axial,servo_case_l,servo_case_w]);
     translate([side > 0 ? servo_station_x+servo_case_axial
                         : -servo_station_x-servo_case_axial-servo_disc_t,
                servo_shaft_y(), arm_tip_z])
-        rotate([0,90,0]) cylinder(d=servo_disc_d,h=servo_disc_t);
+        rotate([0,90,0]) cylinder(d=disc_d,h=servo_disc_t);
 }
 // Metal output arm at a crank angle (0 = up), inner face on the servo disc.
-module servo_crank_arm(side, angle) {
+module servo_crank_arm(side, angle, crank_r=servo_crank_r) {
     shaft = [0,servo_shaft_y(),arm_tip_z];
-    pin = servo_crank_pin_at(side, angle);
+    pin = servo_crank_pin_at(side, angle, crank_r);
     hull() for(p=[shaft,pin])
         translate([side > 0 ? servo_station_x+servo_crank_face_x
                             : -servo_station_x-servo_crank_face_x-servo_crank_t,p[1],p[2]])
