@@ -239,7 +239,12 @@ bolts through foot, tongue and 8 mm sandwich layer (measure actual grip length; 
 a valid default), 4 × M4 ×16 + nuts per joint, 2 × M4 ×20 for the camera foot; `camera_foot` +
 `camera_carrier`; a **USB** camera cable long enough for `tower_height` plus the run inside the box.
 
-**Height first.** `tower_height` (tongue top to camera-foot surface) is a **900 mm placeholder**. Sit
+**Height first.** `tower_height` (tongue top to camera-foot surface) is a **900 mm placeholder**.
+The dual-lens machine-vision camera goes on `stereo_camera_bracket`, clamped around the column
+**304.8 mm (12 in) below** the cap's Pi Camera station so both optical axes stay parallel: one wide
+lens window and two slotted body holes, so it tolerates a camera it was not measured against. Its two
+M4 bolts cross the column, so drill at the bracket's own holes and bolt through - the column has no
+hole at an arbitrary height. Check the baseline against the window before fitting. Sit
 on the mower, measure from the hitch plate top to where the lens must be to see over the seat back,
 add the camera foot's own height, set it in `enclosure_common.scad`, rebuild. Segment count and length
 update themselves; the assert refuses anything that will not lie on a 420 bed.

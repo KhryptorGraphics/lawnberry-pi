@@ -465,6 +465,21 @@ else if(check == "tower_brace_bores") union() {
                 cylinder(d = m4_clear - 0.6, h = tower_od + 4);
     }
 }
+// The stereo bracket wraps the column, so its collar must CLEAR the column and its own bolt holes
+// must be open end to end. Empty here means both. The column is NOT drilled by this design: the bolt
+// pair crosses it, so those holes are the drill guide for whichever height the bracket is set to.
+else if(check == "stereo_bracket_clear") union() {
+    intersection() {
+        translate([0, tower_y, tower_cap_top_z()-stereo_drop_mm_val()]) stereo_camera_bracket();
+        translate([0, tower_y, tower_cap_top_z()-stereo_drop_mm_val()]) tower_tube(80);
+    }
+    intersection() {
+        translate([0, tower_y, tower_cap_top_z()-stereo_drop_mm_val()]) stereo_camera_bracket();
+        for (y = [-stereo_bolt_y_val(), stereo_bolt_y_val()])
+            translate([0, tower_y+y, tower_cap_top_z()-stereo_drop_mm_val()]) rotate([0, 90, 0])
+                cylinder(d = m4_clear-0.6, h = 120);
+    }
+}
 // Exclude the intended coplanar mounting contact, as with the tray/lid checks.
 else if(check == "estop_cover") intersection() { estop_bracket(); translate([0,0.02,0]) estop_cover_placed(); }
 else if(check == "estop_contacts") intersection() {

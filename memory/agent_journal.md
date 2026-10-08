@@ -309,6 +309,20 @@ Verified facts that change earlier assumptions:
   are now per joint (`rod_splice_offsets_at`), splice probing moved to `rod_splice_bores` (extremes of
   each row), and the servo-end stub shortened 90 → 70 mm to suit the shorter first piece — which
   `rod_servo_sweep` and `rod_servo_sweep_band` still pass.
+- **A dual-lens machine-vision camera now has its own station on the column**, 304.8 mm (12 in) below
+  the cap's Pi Camera Module v2.1, so both axes stay parallel. `stereo_camera_bracket` is a collar
+  around the column with a web and a front plate facing the same way as the cap's carrier: one 34 × 22
+  lens window (baseline-tolerant) and two 12 mm body slots at 24 mm pitch (PCB-pattern-tolerant), since
+  the SVPRO camera's own dimensions are still unverified and the design refuses to invent them. Its
+  bolt pair crosses the column, so the bracket's holes are the drill guide at whatever height you set;
+  the column's brace bores are the only pre-drilled alternative. Errors caught while building it: the
+  tower's bore constant lives in the tower file and not the shared one, and an inner cut larger than the
+  collar removed the web's inner half, leaving two bodies - the mesh check refuses that.
+  The first version of its fit check also PASSED VACUOUSLY: it called a placement helper that used
+  `tower_cap_top_z()`, which lives in the tower file, so the bracket was translated to an undefined z
+  and the probe intersected empty space. Caught by the build (the part itself still rendered, since it
+  never calls that helper) and then by a deliberately fat probe, which is the only way to tell an
+  empty check from a vacuous one: the fat probe now finds real material at the collar wall.
 - **The camera column is drilled through at the sway-bar stations.** The bars' collars clamp around
   the column, but their M4 clearance holes only pierced the collar's own wall, so the screws gripped
   nothing: the column itself had no holes. `tower_brace_bores()` now cuts through the COMPLETE square
