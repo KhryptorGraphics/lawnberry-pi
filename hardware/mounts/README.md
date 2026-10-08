@@ -32,7 +32,7 @@ but mower clearance and load capacity remain unverified.
 
 | Interface | Basis and current treatment |
 |---|---|
-| RDS51150 stationary-holder **side** | Confirmed 2026-10-07: the holder's **65 × 30 mm** mounting flange — the case face square to the output shaft — carries four M2.5 holes on **24 × 24 mm** centres, and only those four fasten; print bores Ø2.9. **The pattern is not concentric with the output**: on the dimensioned drawing the disc sits **~19 mm off the pattern's centre** along the case length (the holder view suggests more), so `servo_shaft_offset_l` — 0 in CAD — must be measured with the part in hand and its sign set to the servo's orientation before any rod is printed. Replaces the unsupported 50 × 20 M5 pattern. Drawing says RDS51150; verify the purchased RDS51150SG revision with the coupon. |
+| RDS51150 stationary-holder **side** | Confirmed 2026-10-07: the holder's **65 × 30 mm** mounting flange carries four M2.5 holes on **24 × 24 mm** centres, and only those four fasten; print bores Ø2.9. The pattern is **concentric with the output** (`servo_shaft_offset_l = 0`), which is exactly what the arm head is drilled for: the user's photos of the metal boss show one face carrying the **Ø26.5 mm** output opening *and* the screw holes together, the nearest holes ~**23.6 mm** out — a 19 mm offset, as the dimensioned drawing's composite view implies, would bury a hole inside that opening. Replaces the unsupported 50 × 20 M5 pattern. Drawing says RDS51150; verify the purchased RDS51150SG revision with the coupon. |
 | Hitch sandwich + arm layer | The enclosure flange is **211 × 170 mm**; an 8 mm center layer continues to the modeled hitch hole and has 42 mm side ears (STL envelope **295 × 285 × 8 mm**). Hole Ø20.8 and auxiliary M6 centres ±40 mm mirror the unverified enclosure tongue. The **160 × 120 × 8 mm** mower-plate envelope is schematic; measure it. |
 | Splayed servo arm | **MEASURED** station: servo face **209.55 mm** left/right of the ball-hole centre, **457.2 mm** from its plate-top datum, splayed **12.58°** from vertical. The axis extrapolates to x=±110, while the solid 60 × 70 × 50 mm root seats on the center layer **top** at z=0 and y=123. Four M6 per root enter upward into side-access steel nuts; the hollow 50 × 70 mm column has a through-channel and 6 mm walls/web. Lower arm joint at local t=355 mm; printed head retains a four-M6 flanged/spigoted lap and lateral servo face. Neither fit nor strength on the real mower is established. |
 | Arm sway bars | Three handed first-article braces per side land at z=110/190/250 mm. Each left/right half-jaw occupies its own side of the tower; the pair forms a rear-open U with a 0.4 mm centre gap. Fit from **+Y toward the box**, never from -Y or over a flange. Two top-loaded M4 nuts per half retain short screws bearing **outside** the USB-cable tube. Two M5 bores meet each arm pad's side-entry nuts, with 0.2 mm face clearance. These are **not steering-load parts**; test slip, creep, nut pullout and pad damage unpowered. |
@@ -83,7 +83,7 @@ CAD files. Never print an assembly view as one fused part.
 |---|---:|---|
 | `arm_layer_center` | 1 | Sandwich panel matching the box flange and tongue, with hitch/auxiliary holes, four M4 tray holes, three provisional gland passages, camera-tower foot holes and side-arm bolt ears. Measure the actual hitch plate; current dimensions are schematic. |
 | `arm_layer_left`, `arm_layer_right` | 1 each | 50 × 70 mm hollow columns with three inboard pads, a 60 × 70 mm solid root with four side-loaded M6 steel nuts, and a flanged/spigoted head joint at local t=355 mm. Print lying flat; inspect nut access. |
-| `arm_head_left`, `arm_head_right` | 1 each | Heads carrying the **lateral** RDS51150 holder face (4-M2.5 on 24 mm) on a rib; four-M6 flanged joint. Print mating-face down. |
+| `arm_head_left`, `arm_head_right` | 1 each | Heads carrying the **lateral** RDS51150 holder face (4-M2.5 on 24 mm, coaxial with the output) on a rib; four-M6 flanged joint. Four **Ø4.8 driver tunnels** run through that rib so the M2.5 holder screws can be reached from the arm's inboard side — without them the plate bores were open but unreachable. Print mating-face down and bridge those tunnels; do not fill them. |
 | `arm_brace_bar_left_0`–`_2`, `arm_brace_bar_right_0`–`_2` | 1 each | Six handed half-jaw braces at z=110/190/250. Print the labelled left/right variants; do not substitute two identical copies. Fit each pair from +Y after tower assembly. Each half has two top-loaded M4 nuts, outside-bearing screws and two M5 bores for its arm pad. Prints flat; sway only, not a qualified steering load path. |
 | `arm_layer_gauge` | 1 first | Coupon for the enclosure tongue's ball-hole/auxiliary-hole pattern. It is not a Toro hitch gauge. |
 | `lapbar_clamp_anchor`, `lapbar_clamp_cap` | 1 each per side | Fully printed two-piece clamp with paired yoke ears; four M5 through-bolts per side. The clamp pin passes through both ears and the single rod eye in double shear. Default Ø25.4 tube is sample-only. |
@@ -270,6 +270,14 @@ the tie points.
   55 mm lets the rod transition hit the case and disc at ±35°; `rod_servo_sweep` is the
   check that decides, not a fixed minimum.
   Keep the crank sweep clear of the camera tower column and its sway-bar collars.
+- **Mounting orientation (decided here):** the holder's 65 × 30 flange sits flat on the head's
+  lateral land with its hole pattern **coaxial with the output**, and its M2.5 screws go in from
+  the arm's **inboard** side — down the lower arm's channel, through the Ø4.8 driver tunnels in the
+  head's rib, then the Ø2.9 bores in the 6 mm land into the holder. Once the holder is on, nothing
+  is reachable from outboard, which is why the tunnels exist. Fit the servo with its **connector
+  end inboard** (toward the tower) so the lead runs back to the box rather than out across the
+  lap-bar sweep. The linkage does not constrain this: both fore/aft orientations put the level rod
+  ~40 mm above the case, which `rod_servo_sweep` re-checks on every rebuild.
 - Each tubular steering bar receives a two-piece printed clamp with **four M5 through-bolts per
   side** and broad washers. The OEM bar is not drilled. Tube OD, coating, clamp slip and long-term
   ASA creep are not known from CAD; fit the OD coupon, tighten only to a tested method and bench-load

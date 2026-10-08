@@ -112,6 +112,7 @@ CHECKS = [
     "frame_nut_access",
     "arm_layer_hitch_bore",
     "arm_servo_pattern",
+    "arm_servo_access",
     "arm_layer_aux_bores",
     "arm_tower_clearance",
     "arm_joint_bores",

@@ -141,12 +141,17 @@ servo_axial_env = 61.4;                // drawing: case + disc, overall axial en
 servo_disc_t = servo_axial_env-servo_case_axial;   // disc proud of the flange: 13.4
 servo_disc_d = 30;                     // MEASURE: the drawing does not dimension the disc;
                                        // ~30 mm scaled off its side view (= the case width)
-servo_shaft_offset_l = 0;              // MEASURE before printing: the output's position along
-                                       // the case (Y) from the 4-M2.5 pattern centre. The
-                                       // dimensioned drawing puts the disc ~19 mm off that
-                                       // centre, so 0 is a placeholder, NOT the drawing's
-                                       // value; the sign is the servo's orientation. Setting
-                                       // it moves the shaft, envelope, crank and pin together.
+servo_shaft_offset_l = 0;              // Output position along the case (Y) from the 4-M2.5
+                                       // pattern centre = 0, i.e. the pattern is CONCENTRIC
+                                       // with the output, which is what the mount is drilled
+                                       // for. Established from the user's photos of the metal
+                                       // boss, not the drawing: the plate carries the Ø26.5 mm
+                                       // output opening and its screw holes on one face, the
+                                       // nearest holes only ~23.6 mm out. A 19 mm offset - what
+                                       // a naive read of the dimensioned drawing suggests -
+                                       // would bury a hole inside that opening, so the drawing
+                                       // view was a composite of the two ends. Setting this
+                                       // nonzero moves the shaft, envelope, crank and pin.
 function servo_shaft_y() = assembly_arm_y+servo_shaft_offset_l;
 servo_face_t = 6;
 servo_face_w = 70;                     // along Y, across the arm; covers the 65 mm flange

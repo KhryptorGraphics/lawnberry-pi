@@ -135,16 +135,44 @@ else if(check == "arm_root_seat_contact") intersection() {
 // 6 mm servo plate. It is cut to the nominal bore diameter, so it stays empty only if
 // the four M2.5 bores are actually open and in the right place. Probed in the head's
 // ASSEMBLY frame (arm_vertical at the joint), not the print pose, which carries a bed
-// lift that would shift the rays off the bores; reaching further inboard than the
-// plate would also run into the solid rib. The old probe missed the head entirely and
-// passed vacuously.
+// lift that would shift the rays off the bores.
+// The probe must be framed exactly like the part. Earlier this probe was written in bare
+// absolute coordinates while only the head carried arm_vertical, so it sat ~190 mm away
+// and intersected nothing - a vacuous pass, the very trap the previous comment claimed
+// to have closed. Widening the probe to Ø14 still returned empty, which is how it was
+// caught. Both children below are framed; keep them that way.
 else if(check == "arm_servo_pattern") intersection() {
     arm_vertical(arm_joint_t) arm_head();
-    union() for(y=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2],
-                 z=[arm_head_rise()-servo_side_hole_pitch/2,
-                    arm_head_rise()+servo_side_hole_pitch/2])
-        translate([servo_face_dx()-servo_face_t,y,z]) rotate([0,90,0])
-            cylinder(d=servo_side_hole_clear_d,h=servo_face_t);
+    arm_vertical(arm_joint_t) {
+        union() for(y=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2],
+                     z=[arm_head_rise()-servo_side_hole_pitch/2,
+                        arm_head_rise()+servo_side_hole_pitch/2])
+            translate([servo_face_dx()-servo_face_t,y,z]) rotate([0,90,0])
+                cylinder(d=servo_side_hole_clear_d,h=servo_face_t);
+    }
+}
+// The four M2.5 holder screws enter from the arm's INBOARD side: free air, through the
+// head's rib, then the 6 mm servo plate, into the metal holder. A screw is only usable if
+// that whole line is open. Open plate bores alone are not enough: the rib that braces the
+// plate sealed them from behind, so the holder bolted to nothing a driver could reach.
+else if(check == "arm_servo_access") intersection() {
+    arm_vertical(arm_joint_t) arm_head();
+    arm_vertical(arm_joint_t) {
+        union() {
+            // Screw shank, from open air inboard right out through the 6 mm plate.
+            for(y=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2],
+                z=[arm_head_rise()-servo_side_hole_pitch/2,
+                   arm_head_rise()+servo_side_hole_pitch/2])
+                translate([-2,y,z]) rotate([0,90,0])
+                    cylinder(d=servo_side_hole_clear_d,h=servo_face_dx()+1);
+            // Socket head and driver, up to - but not through - the plate it bears on.
+            for(y=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2],
+                z=[arm_head_rise()-servo_side_hole_pitch/2,
+                   arm_head_rise()+servo_side_hole_pitch/2])
+                translate([-2,y,z]) rotate([0,90,0])
+                    cylinder(d=servo_access_clear(),h=servo_face_dx()-servo_face_t+0.5);
+        }
+    }
 }
 // Four M6 pass upward through the layer and root into side-access
 // captured nuts, not into inaccessible roofed material above the nuts.

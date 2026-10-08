@@ -290,15 +290,29 @@ module arm_head() {
         rotate([0,-arm_rake_deg,0]) translate([-arm_joint_spigot/2,-arm_joint_spigot/2,-1])
             cube([arm_joint_spigot+0.4,arm_joint_spigot+0.4,arm_joint_spigot_h+0.2]);
         arm_servo_holes();
+        arm_servo_access_bores();
     }
 }
 function servo_face_dx() = servo_station_x-arm_joint_x;   // head's outboard reach
 function arm_head_rise() = arm_tip_z-arm_joint_z;        // head's rise, upright
+// M2.5 socket head across-flats is 4.5 mm; the screws come in from the arm's inboard side.
+function servo_access_clear() = 4.8;
 module arm_servo_holes() {
     for(y=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2],
         z=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2])
         translate([servo_face_dx()-servo_face_t-1,y,arm_head_rise()+z])
             rotate([0,90,0]) cylinder(d=servo_side_hole_clear_d,h=servo_face_t+2);
+}
+// The holder screws enter from the arm's INBOARD side, so the rib that braces the plate
+// has to carry a driver-and-socket-head tunnel down to each bore. The plate bores alone
+// were open while the material behind them was solid: nothing could reach the holder.
+// Print note: these tunnels are horizontal in the print pose; bridge them, do not fill.
+module arm_servo_access_bores() {
+    for(y=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2],
+        z=[-servo_side_hole_pitch/2,servo_side_hole_pitch/2])
+        translate([-1,y,arm_head_rise()+z])
+            rotate([0,90,0])
+                cylinder(d=servo_access_clear(),h=servo_face_dx()-servo_face_t+1);
 }
 // Print transforms. The lower arm's rotate([90,0,90]) sends local (x,y,z) -> bed
 // (z,x,y), so the arm axis lies along bed X and the hollow section lies flat on the
