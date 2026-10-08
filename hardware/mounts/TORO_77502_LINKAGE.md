@@ -48,6 +48,20 @@ re-enter the measured values and rebuild.
   the moving platform while the servo sits on the frame, so fore-aft platform travel becomes a direct
   lever command. The same pages give 19 in seat, 20 × 10 in rear tyres, 5 gal fuel, a tubular frame and
   18,445 ft/min blade tip speed — each matching the datums used here.
+- **Documents, verified reachable 2026-10-08.** The unit's own **operator's manual, with the
+  illustrated parts lists**, is form **3477-630**: <https://www.toro.com/getpub/282292>, 44 pp,
+  covering 77502 from serial 419002102, with Frame, Motion Control and Seat Pan exploded views
+  (p5, p23, p37). The mechanics' guide is Toro's **TimeCutter Service Manual, form 3433-938 Rev A**
+  (215 pp, 2020 CV generation), reachable as
+  <https://images.webfronts.com/cache/frwfhnmtikys.pdf> — vendor-hosted, so treat that URL as
+  perishable. Its **Steering Control Box** removal, disassembly and installation (p100, p105, p106,
+  p110) is the lever mechanism this linkage drives; chassis/frame views are p55–60, the neutral
+  adjustment p165, and torque tables span 79 pages. Those torques are for the **machine's steel
+  fasteners** — not a licence for the printed parts, which carry no qualified torque. Toro indexes
+  its own service manuals at
+  <https://www.toro.com/en-ca/customer-support/commercial-education/service-manuals> (served as
+  `media.toro.com/servicemanuals/<id>sl.pdf`); a third-party mirror of the operator's manual is
+  manualspro.net/313111. Documents are linked, never committed: they are Toro's copyright.
 - **Servo:** the supplied photo matches the listing used in `hardware.md`,
   [ANNIMOS B0C69W2QP7](https://www.amazon.com/dp/B0C69W2QP7): RDS51150SG, 18-tooth spline,
   165 kg·cm at 12 V, two U-shaped aluminium holders and two aluminium discs. The listing's
