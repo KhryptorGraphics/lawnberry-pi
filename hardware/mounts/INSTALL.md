@@ -241,10 +241,15 @@ a valid default), 4 × M4 ×16 + nuts per joint, 2 × M4 ×20 for the camera foo
 
 **Height first.** `tower_height` (tongue top to camera-foot surface) is a **900 mm placeholder**.
 The dual-lens machine-vision camera goes on `stereo_camera_bracket`, clamped around the column
-**304.8 mm (12 in) below** the cap's Pi Camera station so both optical axes stay parallel: one wide
-lens window and two slotted body holes, so it tolerates a camera it was not measured against. Its two
+**304.8 mm (12 in) below** the cap's Pi Camera station so both optical axes stay parallel. It is now
+an **enclosure** rather than a bare plate: roof with a hood and drip lip, side and floor walls, and a
+glazed front whose pane sits on a rebate shoulder held by four M3 screws, with the cable out through
+the floor so water cannot run down it inside. Nothing is claimed rain-tight or fog-free - the pane
+joint wants sealant, and a sealed ASA box condenses, so desiccant or a vented plug is your call. The
+glass aperture and the bulkhead window follow `stereo_baseline_mm` (MEASURE), and the aperture size
+is asserted against the lens FOV: too deep an enclosure vignettes its own image. Its two
 M4 bolts cross the column, so drill at the bracket's own holes and bolt through - the column has no
-hole at an arbitrary height. Check the baseline against the window before fitting. Sit
+hole at an arbitrary height. Check the baseline against the aperture before fitting. Sit
 on the mower, measure from the hitch plate top to where the lens must be to see over the seat back,
 add the camera foot's own height, set it in `enclosure_common.scad`, rebuild. Segment count and length
 update themselves; the assert refuses anything that will not lie on a 420 bed.

@@ -70,13 +70,51 @@ stereo_collar_t = 10;
 stereo_collar_clearance = 0.4;
 stereo_bolt_y = 18;                 // collar bolt pair, fore-aft
 stereo_reach_mm = 34;               // column face to camera plate
-stereo_plate_w = 46;
+// The stereo baseline sets the enclosure's width, the bulkhead window and the glass aperture: the
+// camera is not measured, so it is a parameter with a generous default rather than an invented
+// dimension. A wider baseline also RELAXES the FOV constraint, since the aperture grows with it.
+stereo_baseline_mm = 60;            // MEASURE: lens axis to lens axis
+stereo_housing_w = stereo_baseline_mm+26;
+stereo_plate_w = stereo_housing_w;  // the enclosure's width, set by the baseline
 stereo_plate_h = 58;
 stereo_plate_t = 4;
-stereo_window_w = 34;
+stereo_window_w = stereo_baseline_mm+14;   // both barrels pass through the bulkhead
 stereo_window_h = 22;
 stereo_slot_pitch_y = 24;
 stereo_slot_len = 12;
+// ---- weather enclosure: the front plate becomes a glazed box -----------------------------------
+// Enclosure is the point: rain off the roof, spray away from the glass, cable out the floor so water
+// cannot run down it into the box. It is NOT claimed rain-tight - the pane sits in a rebate held by
+// four screws and the joint needs sealant - and it is NOT claimed fog-free: a sealed ASA box
+// condenses, so a desiccant or a vented plug is the operator's call. stereo_fov_deg is the listing's
+// figure, not a datasheet value, and the HOOD IS SIZED AGAINST IT: a hood longer than the window
+// half-width over tan(fov/2) clips the view, which the fit check proves on a real cone.
+stereo_fov_deg = 85;                // MEASURE: listing figure; the glaze geometry depends on it
+stereo_box_depth = 24;              // MEASURE: bulkhead to glass; MUST clear the lens barrels
+stereo_lens_proud_mm = 12;          // MEASURE: how far the M12 barrels stand off the camera face
+stereo_box_wall = 3;
+stereo_front_t = 4;
+stereo_pane_t = 3;
+stereo_pane_rebate = 2;             // pane seat depth in the front wall
+stereo_hood_mm = 14;
+stereo_drip_lip = 4;
+stereo_cable_port_d = 10;
+stereo_glaze_aperture_w = stereo_baseline_mm+14;
+stereo_glaze_aperture_h = 28;
+stereo_glaze_rebate_w = stereo_glaze_aperture_w+8;
+stereo_glaze_rebate_h = stereo_glaze_aperture_h+8;
+stereo_glaze_screw_y = stereo_glaze_rebate_w/2+4;   // pane retaining screws, outside the rebate
+stereo_glaze_screw_z = stereo_glaze_rebate_h/2+3;
+// The glass aperture sets the field of view: half-width over lens-to-glass distance must still cover
+// halF the lens FOV, or the enclosure itself vignettes the image. This is the constraint that bounds
+// how deep the enclosure can be, and it is the reason the box is shallow.
+assert(atan((stereo_glaze_aperture_w/2)/(stereo_box_depth-stereo_lens_proud_mm))
+       >= stereo_fov_deg/2,
+       "Aperture clips the lens FOV: widen stereo_glaze_aperture_w or shorten stereo_box_depth");
+assert(stereo_hood_mm <= (stereo_glaze_aperture_w/2)/tan(stereo_fov_deg/2),
+       "Hood reaches into the lens FOV; shorten stereo_hood_mm");
+assert(stereo_box_depth > stereo_lens_proud_mm+stereo_front_t,
+       "Enclosure too shallow to clear the lens barrels behind the glass");
 
 module stereo_camera_bracket() {
     wall = 8;                                 // collar wall thickness
@@ -93,6 +131,27 @@ module stereo_camera_bracket() {
                 cube([stereo_plate_w,stereo_reach_mm-id2+2,t]);
             translate([-stereo_plate_w/2,-stereo_reach_mm-stereo_plate_t,-stereo_plate_h/2])
                 cube([stereo_plate_w,stereo_plate_t,stereo_plate_h]);
+            // ---- enclosed front: walls, floor, and a roof that overhangs as a hood ----
+            for (x = [-stereo_plate_w/2, stereo_plate_w/2-stereo_box_wall])
+                translate([x,-stereo_reach_mm-stereo_plate_t-stereo_box_depth,
+                           -stereo_plate_h/2+stereo_box_wall])
+                    cube([stereo_box_wall,stereo_box_depth,stereo_plate_h-2*stereo_box_wall]);
+            translate([-stereo_plate_w/2,-stereo_reach_mm-stereo_plate_t-stereo_box_depth,
+                       -stereo_plate_h/2])
+                cube([stereo_plate_w,stereo_box_depth,stereo_box_wall]);
+            translate([-stereo_plate_w/2,
+                       -stereo_reach_mm-stereo_plate_t-stereo_box_depth-stereo_hood_mm,
+                       stereo_plate_h/2-stereo_box_wall])
+                cube([stereo_plate_w,stereo_box_depth+stereo_hood_mm,stereo_box_wall]);
+            // drip lip on the hood's front edge: water leaves the roof away from the glass
+            translate([-stereo_plate_w/2,
+                       -stereo_reach_mm-stereo_plate_t-stereo_box_depth-stereo_hood_mm,
+                       stereo_plate_h/2-stereo_box_wall-stereo_drip_lip])
+                cube([stereo_plate_w,stereo_box_wall,stereo_drip_lip]);
+            // glazed front wall
+            translate([-stereo_plate_w/2,-stereo_reach_mm-stereo_plate_t-stereo_box_depth,
+                       -stereo_plate_h/2])
+                cube([stereo_plate_w,stereo_front_t,stereo_plate_h]);
             // diagonal brace: collar's lower front wall down to the plate's lower half
             hull() {
                 translate([-stereo_plate_w/2+2,-id2+2,-t/2]) cube([stereo_plate_t,stereo_plate_t,t]);
@@ -107,6 +166,24 @@ module stereo_camera_bracket() {
             translate([-od2-1,y,0]) rotate([0,90,0]) cylinder(d = m4_clear, h = 2*od2+2);
             translate([od2-stereo_plate_t+1,y,0]) rotate([0,90,0]) cylinder(d = af/cos(30), h = 3, $fn = 6);
         }
+        // glaze: the pane sits on a rebate shoulder inside the front wall, held by four screws.
+        // The rebate opening is the pane's outer size; the smaller aperture behind it is what the
+        // lens sees through, and its width is what the FOV assert is about.
+        translate([-stereo_glaze_rebate_w/2,
+                   -stereo_reach_mm-stereo_plate_t-stereo_box_depth-1,
+                   -stereo_glaze_rebate_h/2])
+            cube([stereo_glaze_rebate_w,stereo_pane_rebate+1,stereo_glaze_rebate_h]);
+        translate([-stereo_glaze_aperture_w/2,
+                   -stereo_reach_mm-stereo_plate_t-stereo_box_depth-1,
+                   -stereo_glaze_aperture_h/2])
+            cube([stereo_glaze_aperture_w,stereo_front_t+2,stereo_glaze_aperture_h]);
+        for (y = [-stereo_glaze_screw_y, stereo_glaze_screw_y],
+             z = [-stereo_glaze_screw_z, stereo_glaze_screw_z])
+            translate([y,-stereo_reach_mm-stereo_plate_t-stereo_box_depth-1,z])
+                rotate([-90,0,0]) cylinder(d = m3_clear, h = stereo_front_t+2);
+        // cable out of the floor, so water cannot run down it into the enclosure
+        translate([0,-stereo_reach_mm-stereo_plate_t-stereo_box_depth/2,-stereo_plate_h/2-1])
+            cylinder(d = stereo_cable_port_d, h = stereo_box_wall+2);
         // one aperture for both M12 barrels
         translate([-stereo_window_w/2,-stereo_reach_mm-stereo_plate_t-1,-stereo_window_h/2])
             cube([stereo_window_w,stereo_plate_t+2,stereo_window_h]);

@@ -323,6 +323,16 @@ Verified facts that change earlier assumptions:
   and the probe intersected empty space. Caught by the build (the part itself still rendered, since it
   never calls that helper) and then by a deliberately fat probe, which is the only way to tell an
   empty check from a vacuous one: the fat probe now finds real material at the collar wall.
+- **The stereo camera mount is now an enclosure**, which closes the gap `camera_mount.scad` itself
+  admitted ("No optical hood/window"). The bare plate became a box: roof with a hood and a drip lip,
+  side and floor walls, a glazed front whose pane sits on a rebate shoulder held by four M3 screws, and
+  the cable out through the floor so water cannot run down it inside. Two things are deliberately NOT
+  claimed: rain-tightness (the pane joint wants sealant) and fog-freeness (a sealed ASA box condenses -
+  desiccant or a vented plug is the operator's call). The binding constraint turned out to be optical,
+  not structural: the glass aperture must still cover half the lens FOV at the lens-to-glass distance,
+  so the FOV sets how deep the enclosure may be - an 85 deg lens behind a 40 mm aperture tolerates only
+  ~22 mm of depth. Both that and the hood's reach are asserted. `stereo_baseline_mm`, still unmeasured,
+  drives the housing width, the bulkhead window and the aperture instead of being guessed.
 - **The camera column is drilled through at the sway-bar stations.** The bars' collars clamp around
   the column, but their M4 clearance holes only pierced the collar's own wall, so the screws gripped
   nothing: the column itself had no holes. `tower_brace_bores()` now cuts through the COMPLETE square
