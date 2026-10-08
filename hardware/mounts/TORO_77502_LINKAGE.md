@@ -40,6 +40,14 @@ re-enter the measured values and rebuild.
   ahead of the seat and roughly above the front half of the 20 in rear tyres. The fore-aft
   estimate combines the hitch bracket's rearmost position, the Kawasaki engine bay behind the
   seat, and the seat depth. The 3/4 photographs alone cannot resolve better than about ±4 in.
+- **Toro 2026 brochure:** the
+  [zero-turn mowers product brochure](https://cdn2.toro.com/en/-/media/Files/Toro/Homeowner/zero-turn-mowers/2026/Toro-2026-Zero-Turn-Mowers-Product-Brochure.ashx)
+  lists **77502** in its TimeCutter accessory table, and confirms from Toro's own text that the seat is
+  isolated from the machine: *"Patented MyRIDE Suspension System isolates you from the mower frame"*.
+  That is the relative-motion hazard below, stated by the manufacturer: the lever clamp is mounted on
+  the moving platform while the servo sits on the frame, so fore-aft platform travel becomes a direct
+  lever command. The same pages give 19 in seat, 20 × 10 in rear tyres, 5 gal fuel, a tubular frame and
+  18,445 ft/min blade tip speed — each matching the datums used here.
 - **Servo:** the supplied photo matches the listing used in `hardware.md`,
   [ANNIMOS B0C69W2QP7](https://www.amazon.com/dp/B0C69W2QP7): RDS51150SG, 18-tooth spline,
   165 kg·cm at 12 V, two U-shaped aluminium holders and two aluminium discs. The listing's
