@@ -105,7 +105,10 @@ the printable layer without moving the measured servo station.
    against the tube. Do not drill or enter the USB cable bore; hand-cycle and
    bench-load for slip and creep before any powered test.
 5. Fit four M2.5 screws to each actual stationary servo holder. Keep the
-   lateral output axis and full horn sweep unobstructed.
+   lateral output axis and full horn sweep unobstructed. Also check **how far the output sits
+   off the four-hole pattern's centre along the case**: the drawing puts it ~19 mm off, so set
+   `servo_shaft_offset_l` (0 in CAD) with the sign of the servo's orientation, rebuild, and
+   only then print rods — the crank pin follows that offset.
 6. **Torque restraint remains a stop-work gate.** Auxiliary layer holes at x=±40
    are only candidate locations; the actual hitch plate has not been shown to
    match. One hitch bolt is not a positive anti-rotation path. Do not power the

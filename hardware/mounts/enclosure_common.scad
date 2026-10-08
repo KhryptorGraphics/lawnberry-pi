@@ -141,8 +141,12 @@ servo_axial_env = 61.4;                // drawing: case + disc, overall axial en
 servo_disc_t = servo_axial_env-servo_case_axial;   // disc proud of the flange: 13.4
 servo_disc_d = 30;                     // MEASURE: the drawing does not dimension the disc;
                                        // ~30 mm scaled off its side view (= the case width)
-servo_shaft_offset_l = 0;              // MEASURE: output position along the case from the
-                                       // flange centre; the drawing draws it off-centre
+servo_shaft_offset_l = 0;              // MEASURE before printing: the output's position along
+                                       // the case (Y) from the 4-M2.5 pattern centre. The
+                                       // dimensioned drawing puts the disc ~19 mm off that
+                                       // centre, so 0 is a placeholder, NOT the drawing's
+                                       // value; the sign is the servo's orientation. Setting
+                                       // it moves the shaft, envelope, crank and pin together.
 function servo_shaft_y() = assembly_arm_y+servo_shaft_offset_l;
 servo_face_t = 6;
 servo_face_w = 70;                     // along Y, across the arm; covers the 65 mm flange

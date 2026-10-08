@@ -12,7 +12,7 @@
     "electronics_tray.scad": "8a1ecfcb7f552e04fc6ba2c59568b4a6f760871db5ff2ecc35375bc5561a6a91",
     "enclosure_board_sled.scad": "8b4ee58012aa40ff814333cd34d17bb00b563911c62fa37943217f3d45724782",
     "enclosure_body.scad": "83101b8712272bb105895c5d8f32f4e1c1c80c9e09f7fa4f9ee51cb576701121",
-    "enclosure_common.scad": "aef7eb1b32605335543d3d6e5c207056ebd23ea9b6d69a18da0179ab460e8bdb",
+    "enclosure_common.scad": "548224e821b8073f4e7ad0220b3f67f0d35a7c9592d673a52cf0cdb3d3d61efe",
     "enclosure_lid.scad": "e2ca7ceb5c6a629e1df82487d790f162fc8593b0cc679da1f55be32eb5766790",
     "estop_bracket.scad": "ee007ceb2bf31e109cc799e1b025250d833401b048209d2e2d1f259f8ae0b7b2",
     "estop_contact_cover.scad": "1524aa425ecbe415b1f7f2b09144cb3fdf0c8e4519e523a2a258c5a40438c8f3",
@@ -47,7 +47,7 @@
         8.0
       ],
       "volume_mm3": 490977.64,
-      "sha256": "10c2f6f1567f0645a57774932db62c9c8baecd63926c95065e2ba8b59322a901",
+      "sha256": "a4b4e3956bd24221867aa9492572af81428dc3cf28dbe7937a124fbaacc7ae0f",
       "source": "hitch_arm_layer.scad",
       "parameters": {
         "arm_part": "center"
@@ -76,7 +76,7 @@
         88.0
       ],
       "volume_mm3": 890762.133,
-      "sha256": "f10d0c6ff5588e0ef78b1debeb10717b6c2bdd8b106dcb4ceefb6652c788ea94",
+      "sha256": "781c597ba3b856bd3955cc3943f0a3853f386a1d076146d09fb9fe663cf3bd15",
       "source": "hitch_arm_layer.scad",
       "parameters": {
         "arm_part": "left"
@@ -105,7 +105,7 @@
         88.0
       ],
       "volume_mm3": 890762.144,
-      "sha256": "d2401f0e2d788a711f8d9fdc09583b2b384095a84a1c0619b1a0048113e3ed73",
+      "sha256": "d2dce5fb5bfaa45fb46c413b545ef1dbd04a6f0b402e8d95e58948d66ae36474",
       "source": "hitch_arm_layer.scad",
       "parameters": {
         "arm_part": "right"
@@ -134,7 +134,7 @@
         189.328
       ],
       "volume_mm3": 300968.931,
-      "sha256": "69d1bd66a236e8ffd872b740d8d6e0c75e70c38508d3762e60116f9018c7b53a",
+      "sha256": "c2906572911e328751278bca6e0675aed7d338e9643fef5daabb61cc6bc20b68",
       "source": "hitch_arm_layer.scad",
       "parameters": {
         "arm_part": "head_left"
@@ -192,7 +192,7 @@
         60.0
       ],
       "volume_mm3": 41018.514,
-      "sha256": "a28f912fa899437807d6bf10271b0f2813400048938e3d785e1092037aaeb687",
+      "sha256": "75d6b6b58d4272d2d2f7c278e9cb83ff83189b49bcf0ee1dd42698f8a2bf12a6",
       "source": "arm_support.scad",
       "parameters": {
         "arm_brace_part": "bar_0",
@@ -222,7 +222,7 @@
         60.0
       ],
       "volume_mm3": 48300.205,
-      "sha256": "8a4d090ab5c1d996e4e57f3f0a07015a0fe8f5548dcb17e1e74c8adc99bcee10",
+      "sha256": "50a6fc4404403a5c57951ac17fcbf2ca8ce925749da2de7c9e2cfbb45f8425b4",
       "source": "arm_support.scad",
       "parameters": {
         "arm_brace_part": "bar_1",
@@ -252,7 +252,7 @@
         60.0
       ],
       "volume_mm3": 53761.469,
-      "sha256": "e801a80b01a64c4e0e0499081a4b4f5489137763cf6f47568f7fffa870656b21",
+      "sha256": "856f4e7e15e96653672e9a0ce3ca61da084a31401820d6303efd99e90dc63192",
       "source": "arm_support.scad",
       "parameters": {
         "arm_brace_part": "bar_2",
@@ -282,7 +282,7 @@
         60.0
       ],
       "volume_mm3": 41018.513,
-      "sha256": "abfe71ac99ae8fe82efb4bdbbcb2d2d52b4d92895ba46190a4e333c15f4e0070",
+      "sha256": "01f8782ae8fa6ab828a81056c894fd914367d70f03c8a76908760d31959d8b8b",
       "source": "arm_support.scad",
       "parameters": {
         "arm_brace_part": "bar_0",
@@ -312,7 +312,7 @@
         60.0
       ],
       "volume_mm3": 48300.201,
-      "sha256": "f3bd52a5308eca98407c4385ff646da7ec0bf0386f385e533c761d94cf646bc4",
+      "sha256": "869c6b3a602dd47152714bca02bdfb05756e298fa8d798c7ae703d997458ce7a",
       "source": "arm_support.scad",
       "parameters": {
         "arm_brace_part": "bar_1",
@@ -342,7 +342,7 @@
         60.0
       ],
       "volume_mm3": 53761.473,
-      "sha256": "09d3cad85d3af72810cd73758a4a6fbc58314a36145d8c13ab5fbeed54cd4b35",
+      "sha256": "bf45775a95cb586e60a5aea4885940040cb7c07d90dbcbaff76cc6abbbd1fad1",
       "source": "arm_support.scad",
       "parameters": {
         "arm_brace_part": "bar_2",
@@ -372,7 +372,7 @@
         22.9
       ],
       "volume_mm3": 84415.9,
-      "sha256": "4526aab84e8e7cf10e042fcb0964550ae98536ee482badaaac1465743577efd1",
+      "sha256": "2c1a7c8927b3bc1335b9592cb5336c3e28f8ce42deab9e75fe72db8e7835f034",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
         "clamp_part": "anchor"
@@ -401,7 +401,7 @@
         22.9
       ],
       "volume_mm3": 85078.52,
-      "sha256": "5c95b5986975819ba0937a33109fbdefc621762ebb957cf51ecd0c94091e8142",
+      "sha256": "e5c9e00b71fbe90b62237b621f2f8c73e14cfbb7dede8eedeeb5eb1be89393ce",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
         "clamp_part": "cap"
@@ -430,7 +430,7 @@
         3.0
       ],
       "volume_mm3": 1439.676,
-      "sha256": "5bd7747e9b1d5004da503e11f1081145814f69151d928baf3c2817d5443104e9",
+      "sha256": "625f0f1e1ed47c7240c4cee394fbaaf69253aa784b2b86256293bb1aed2be534",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
         "clamp_part": "gauge",
@@ -460,7 +460,7 @@
         3.0
       ],
       "volume_mm3": 1449.085,
-      "sha256": "4af7f70ba8d3a18452675699924ec7a2b39ac8a00a0d84a75cd3e11ddefe8fb5",
+      "sha256": "dc1af183267f6e61f0b6c51d2258e43bf416efd6ca06ed6fed0db326aa93ccab",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
         "clamp_part": "gauge",
@@ -490,7 +490,7 @@
         3.0
       ],
       "volume_mm3": 1458.495,
-      "sha256": "163495f80dfb2cd4c15561fdfef9408e764ad2589e34848d8e311712085bae38",
+      "sha256": "29a80b925e26e9157f952992a809d5f321899570dc2ebd8759f257f13eafe8ae",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
         "clamp_part": "gauge",
@@ -520,7 +520,7 @@
         40.0
       ],
       "volume_mm3": 202894.606,
-      "sha256": "a73fa79293be8913594e0d92c5e49180e9c347f7494e4e9fbcaf819ecd70ff12",
+      "sha256": "01722a8e032abce3d1a0aa33d2c9cbf9a50448d43512a725178925e2e5c738f2",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "servo_end"
@@ -549,7 +549,7 @@
         40.0
       ],
       "volume_mm3": 211388.471,
-      "sha256": "affe6718d95e61363f84cb80e2e20ccba592adc82a87e463b89c8c736343b728",
+      "sha256": "31d1a62e0a299d88792df3a599c92f51bf737650aca8ba39785d639d50fc5e7c",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "middle"
@@ -578,7 +578,7 @@
         40.0
       ],
       "volume_mm3": 155419.429,
-      "sha256": "fafdbbc9c277818956a4c26f9a50b7440ecbc05af5f492f59a16d74f1d6f0669",
+      "sha256": "07f5d151507ef97d5fdcb3cdc172d2386754583c44fddf72870c8fbc36d68b82",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "sleeve"
@@ -607,7 +607,7 @@
         29.1
       ],
       "volume_mm3": 294233.747,
-      "sha256": "eb3fbe317752de2bdaad14c80c9088eb56d4f4f5bad6a7b8f5f57c847383019f",
+      "sha256": "273e02bd8e65187889e51d281e202113ae0b997590110d9df14474f9ea885762",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "inner"
@@ -726,7 +726,7 @@
         68.0
       ],
       "volume_mm3": 82414.54,
-      "sha256": "23079cca674d0e5de380dc1180f6b6a75bc7147e540f7774de816edf09689d67",
+      "sha256": "5b2be4011b02e262aa6e1a0068c3c6167d889352defa2abc8863c6efeecb8615",
       "source": "throttle_servo_mount.scad",
       "parameters": {}
     },
@@ -753,7 +753,7 @@
         94.0
       ],
       "volume_mm3": 137956.192,
-      "sha256": "c33e66d76f55679390f6b05473e3ebaa9f0032b455465290906718fbfda9618a",
+      "sha256": "d021cbf635a609d5a9b3db2544e0da754e4355af0c6fec8e0b6dde9eab4230fb",
       "source": "estop_bracket.scad",
       "parameters": {}
     },
@@ -780,7 +780,7 @@
         51.0
       ],
       "volume_mm3": 42600.296,
-      "sha256": "6a6a9aab13dd1f11c4da39db4963a64299cc420a9466a3e78b81336fad343f44",
+      "sha256": "c2bb925fffcb61bbc4cb0f9286a7188d373c53740601fcc5c811bda4a9ea6c16",
       "source": "estop_contact_cover.scad",
       "parameters": {}
     },
@@ -807,7 +807,7 @@
         184.5
       ],
       "volume_mm3": 914969.669,
-      "sha256": "6835b2922e16b4c1c724721f9d68da1e3f87275117ba50b6903ba86cf8776225",
+      "sha256": "650ca7b11e76c5f3ad6449767117e76e3f6b5228f66e70f79a1e7988634af707",
       "source": "enclosure_body.scad",
       "parameters": {}
     },
@@ -834,7 +834,7 @@
         3.0
       ],
       "volume_mm3": 9693.253,
-      "sha256": "3dd1c15f47719d33f1b1b56cd0945c5b97e3fd4989c1c8c7c77b601d96ae0532",
+      "sha256": "e45fa7bb8f16c00738e9430eb79ef1c75982a03a9fa70de981fd9c4272b72302",
       "source": "enclosure_body.scad",
       "parameters": {
         "body_part": "hitch_gauge"
@@ -863,7 +863,7 @@
         83.0
       ],
       "volume_mm3": 358164.166,
-      "sha256": "01270bc758a58da14298ecc7a9d8775de12ec1497234d17ceaea77e488040ff9",
+      "sha256": "770a38c89ed08566a4c04188c966a173fc142b373c44c0563a14084627e2fffc",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "base"
@@ -892,7 +892,7 @@
         70.0
       ],
       "volume_mm3": 356161.139,
-      "sha256": "85b637f6c642224acdc72721fd6707e1fdcdb613361119c446ee8f1e59cc202c",
+      "sha256": "39101a26d525a4788eb309281542c3fb9d00881c43faee819b9cd7fbd942ba59",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "segment"
@@ -950,7 +950,7 @@
         3.0
       ],
       "volume_mm3": 41024.796,
-      "sha256": "636d8644ebb41f360f2e39ec3ae13bb8f6954a499c7bf896d75a0d5c9ba7cc27",
+      "sha256": "3f1cffbc45180b1886753cbdaeb9b14d7f8d9a2e702d65023fccb7ab478cbd22",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "backing"
@@ -979,7 +979,7 @@
         12.0
       ],
       "volume_mm3": 215777.944,
-      "sha256": "e85b1db5a838c83b95c8a8b90db5c7c950bb75aee9f6c852530e7564310ac6c1",
+      "sha256": "8d5685d6f5133f8c2a32d6ce436adf4b08785b15c4c1cb4260df663919f32db0",
       "source": "enclosure_lid.scad",
       "parameters": {}
     },
@@ -1006,7 +1006,7 @@
         11.5
       ],
       "volume_mm3": 66144.702,
-      "sha256": "5c1c815f86bd65b61140d2fb779c029105eaae11db546cf7828a7098af75837f",
+      "sha256": "a238affa8570496666bd5652212571d819042fba9d16a4464338d43c470eeebb",
       "source": "electronics_tray.scad",
       "parameters": {}
     },
@@ -1033,7 +1033,7 @@
         3.0
       ],
       "volume_mm3": 16749.803,
-      "sha256": "28352d2d85f2087a2b8d5646c7bab222f0d2f5cbf1ab8fb98f70f486166fc92d",
+      "sha256": "aff42c7548b9cb307bf9f250e78c5deedbd7a428ffa7ef86f5a5fa9bd8812b4e",
       "source": "enclosure_board_sled.scad",
       "parameters": {
         "sled_type": "relay"
@@ -1062,7 +1062,7 @@
         3.0
       ],
       "volume_mm3": 21249.803,
-      "sha256": "109568c3953806d820dd3686b1c70acea008292c6204271280fd9023dfb251cb",
+      "sha256": "23e3e7c2bb2f643f94dac7deb2ae7eefa4dc09f72ba717131fe37b0a9cb9ad4f",
       "source": "enclosure_board_sled.scad",
       "parameters": {
         "sled_type": "utility"
@@ -1091,7 +1091,7 @@
         16.0
       ],
       "volume_mm3": 4807.516,
-      "sha256": "9cc30a98ae72e2d4345aa758d081de2ff11a2571db295cd894f0962420ebc8d8",
+      "sha256": "e6d8bd45f2243ee09ede11a48003fc6b8156e37847deaa9b44b8cfa7faa22609",
       "source": "camera_mount.scad",
       "parameters": {
         "camera_part": "carrier"
@@ -1120,7 +1120,7 @@
         24.0
       ],
       "volume_mm3": 11197.635,
-      "sha256": "7fe5baa83ea19a88939d38959178986f7023e9051731bc068fefd04535eb3060",
+      "sha256": "c57f521a55be18b067022df5ae0a276d6c3ef18e3b473c83ca00f91cbb98dcca",
       "source": "camera_mount.scad",
       "parameters": {
         "camera_part": "foot"
@@ -1149,7 +1149,7 @@
         16.0
       ],
       "volume_mm3": 10500.039,
-      "sha256": "5a9043844aed6b348a3dd3c9c6a38f9f8e42142d13f379e4ab7b85addbddd043",
+      "sha256": "ef24d0e3c3576c5bf1c1eec1b5415f35460a4278f8af2d8ebe6db7413db1b5d2",
       "source": "sensor_carrier.scad",
       "parameters": {}
     },
@@ -1176,7 +1176,7 @@
         9.0
       ],
       "volume_mm3": 4667.347,
-      "sha256": "a2bfa48d333632ce8387c3ecfc2ff4627e6b9dc9ac2ae1a779dc3595e0b0bc20",
+      "sha256": "7d29847a0743549f4d35824a1851beb2ab12946628e6406796b45426ec8675bf",
       "source": "accessory_mounts.scad",
       "parameters": {
         "accessory_part": "harness_saddle"
@@ -1205,7 +1205,7 @@
         9.0
       ],
       "volume_mm3": 22824.852,
-      "sha256": "5154e11395fee59617f142757c556cbbc210545c5417ff4a65d3612803927db0",
+      "sha256": "4f27dae22e3b9486bfd4e36eb8f2048e99c0bad902b501da001b5eeaedc5689a",
       "source": "accessory_mounts.scad",
       "parameters": {
         "accessory_part": "equipment_saddle"
