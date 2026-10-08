@@ -7,7 +7,7 @@
     "arm_support.scad": "e6b92555d41b3dc0704dc06995f2697ee5a70f7fa9ad665ca23cedd3849a4c3f",
     "assemblies.scad": "538347756c56b26b15214d75622555d97775c529b221e57bdc9ae98b11eecdb9",
     "camera_mount.scad": "157539e04b021fe955508bbe1e3b11ac34a8515069dbd05b3948d82fcffdff16",
-    "camera_tower.scad": "76a7b1d3b4c865fbc7607571d377e84551f43ac39ad51790d00eeb083ec86941",
+    "camera_tower.scad": "9e2893e7b6748c62390ea35891f3e45f50a97e996bf9c0418814d004e2b6a1c6",
     "common.scad": "8322684862fdb7ecdb2edcd01fb0c358780a3d06e46e11c6dd82ff8db609e677",
     "electronics_tray.scad": "8a1ecfcb7f552e04fc6ba2c59568b4a6f760871db5ff2ecc35375bc5561a6a91",
     "enclosure_board_sled.scad": "8b4ee58012aa40ff814333cd34d17bb00b563911c62fa37943217f3d45724782",
@@ -16,10 +16,10 @@
     "enclosure_lid.scad": "e2ca7ceb5c6a629e1df82487d790f162fc8593b0cc679da1f55be32eb5766790",
     "estop_bracket.scad": "ee007ceb2bf31e109cc799e1b025250d833401b048209d2e2d1f259f8ae0b7b2",
     "estop_contact_cover.scad": "1524aa425ecbe415b1f7f2b09144cb3fdf0c8e4519e523a2a258c5a40438c8f3",
-    "fit_checks.scad": "d06f30e0b25faf07f6b16e3abcd8db1c74b08d54f0ac0f0d6340902b4d329205",
+    "fit_checks.scad": "f067e98aa8af3ee80a22ac56aca8c5635ad86d22291b70d4bc30381e3e40b343",
     "hitch_arm_layer.scad": "1f1b48d9ddadbf3fc61942ca6d098c6b1b4936bc172e3d34c97fc8b95cc93a57",
     "lapbar_four_bolt_clamp.scad": "15aa537465ca80aa638de890f8c17ac1f04fed0494de64ae01a949660ac8bed8",
-    "pushrod.scad": "ece1988088b2c9abbc322c285743516c45ac6770d35f55fcf24f62c06993e767",
+    "pushrod.scad": "8e655904c3e7abcb676ddab11e1710ba5526cde8ee9c81997b0501717d59a9b5",
     "sensor_carrier.scad": "7ca3da27ecd6e52e6e4166445839d0bf4abc174977433ddaea9bf77993fe4f22",
     "throttle_servo_mount.scad": "c2b4666848308ddc14136e9fe55a9cdeb10a065b435098627d7e48a9c26156fc"
   },
@@ -47,7 +47,7 @@
         8.0
       ],
       "volume_mm3": 490977.64,
-      "stl_sha256": "2c4d11b6d9dd2cc7ea57b4f3fcc3352f8009d6a2d9015f92cbbad303c21180db",
+      "stl_sha256": "301d9a0a927381ee517127366de72894f20cd0af1f622e0c6db4f020837489d4",
       "mesh_sha256": "1504b81b5cc85bedd4f97fce8fe1185be4281c23c2ddb3225910123b53dd9024",
       "source": "hitch_arm_layer.scad",
       "parameters": {
@@ -77,7 +77,7 @@
         88.0
       ],
       "volume_mm3": 890762.133,
-      "stl_sha256": "6a557a42b5c495796be6ffb9967478348832dd3149be81808498db3aac4b2c69",
+      "stl_sha256": "fe57f7b37c0b7d39f428db6f3a801fbb54648e265029b62fdf79f67f58084879",
       "mesh_sha256": "0a357cde98ea2b78954d1768ad26156578e059975139a07ab85dff7b02e0cf34",
       "source": "hitch_arm_layer.scad",
       "parameters": {
@@ -107,7 +107,7 @@
         88.0
       ],
       "volume_mm3": 890762.144,
-      "stl_sha256": "062f5ae01b7e31f353c8405f061575f20b1efd9757f513faa3288ce464f9795b",
+      "stl_sha256": "19c589a8cce82dec011a07d91b522efb4025638546fc116a0df456904851bca9",
       "mesh_sha256": "16d85e7dd25334056c872638b9ea04e1b0fe507b79e011e358f130dcdba2198c",
       "source": "hitch_arm_layer.scad",
       "parameters": {
@@ -167,7 +167,7 @@
         189.328
       ],
       "volume_mm3": 299820.784,
-      "stl_sha256": "1b6c5bf2061db959cf964d68969b6bf406e46ca1d5ac378b87229a18d4fdb9e3",
+      "stl_sha256": "0c1caab4fa59e6ee45242095318142fb99aa87865ce1c48b0867e056fd0d7622",
       "mesh_sha256": "1bee3561238d3cf8cddb63548f96962fd2d9785286e7820d7f7d21dd63bb3bab",
       "source": "hitch_arm_layer.scad",
       "parameters": {
@@ -197,7 +197,7 @@
         60.0
       ],
       "volume_mm3": 41018.514,
-      "stl_sha256": "1f2205b44cbd941fca6d5c5db91a84db4536cd386ad09b1b5f3072f9394f10bd",
+      "stl_sha256": "07ce091ec0cba8403155aff3e5fa08d8ea64729de8ae69927bd1425cfb28466d",
       "mesh_sha256": "530ab8898f6b8c09d89c0a9f05e6f143600f098db87610b95ab3d969fb735fc2",
       "source": "arm_support.scad",
       "parameters": {
@@ -228,7 +228,7 @@
         60.0
       ],
       "volume_mm3": 48300.205,
-      "stl_sha256": "9a0c3b99a3f98eb8f3fc4db4e9b1f536e3c9b261fd22f951157e0e8df452a157",
+      "stl_sha256": "130869584a547681f1bf53672dfa26e79c5d7d83a207f7f01d1e5c7304e43213",
       "mesh_sha256": "5cfa1decb7635b89f791e9613b08a20230e37da74138e5fda5c1de719f1daa82",
       "source": "arm_support.scad",
       "parameters": {
@@ -259,7 +259,7 @@
         60.0
       ],
       "volume_mm3": 53761.469,
-      "stl_sha256": "3dd8076805aa8c43e3311ab521cf3da45547f59bd67c2b0589fbdd523f95732e",
+      "stl_sha256": "ea95add85a9fa2d0eaceff29ca9f8d10ac86f9360f0d72aaca15d89f00a81c87",
       "mesh_sha256": "cced3d0f72d138fa35a0dc9a96b81e0af499821c7f258639475c59a612a98a73",
       "source": "arm_support.scad",
       "parameters": {
@@ -321,7 +321,7 @@
         60.0
       ],
       "volume_mm3": 48300.201,
-      "stl_sha256": "57ea94581d1e7c7fefc35a31820a8b396d29b8d551916db54784bf244e70b15c",
+      "stl_sha256": "e7fe76af0e30fb32bf964e5cb3aa93e7d018e03ad5437ad2500cf95c8ce90673",
       "mesh_sha256": "dd3611127ee1827fc81f65e88f1e13a66e195b85c5eee32bd733dd7960bf90e5",
       "source": "arm_support.scad",
       "parameters": {
@@ -352,7 +352,7 @@
         60.0
       ],
       "volume_mm3": 53761.473,
-      "stl_sha256": "75798516156e09ad7f09e918f695e1f7c72d67a3feb6b47c6fb674e3afe41ede",
+      "stl_sha256": "ba92109f1dcde026e25d0333ea89cba155ede7c88fe93c540f761613548f5176",
       "mesh_sha256": "34a53203f24a1646e48cc60c6762097ce6d04507bdc274f750cd7c7a0ec89f45",
       "source": "arm_support.scad",
       "parameters": {
@@ -383,7 +383,7 @@
         28.2
       ],
       "volume_mm3": 110949.27,
-      "stl_sha256": "550aece0e2acb53a8932b2b4bd001f7e0a73776e25093dcb8d5d9dc4bc056e3a",
+      "stl_sha256": "ccd57d1aa13fedf89982a3a2f2d4ee294cf38313638775ff8bc630c500df26dc",
       "mesh_sha256": "fbcfe9936b157d13a54a5b4faea4599524f921dbe56f98170c4f437fdc6fdcf3",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
@@ -413,7 +413,7 @@
         28.2
       ],
       "volume_mm3": 111611.892,
-      "stl_sha256": "3d3c643ccc80ef871efc3d09db151de3831002e0b8a7760b6b27d2c573fc65cd",
+      "stl_sha256": "61ddffabf37bb4fdae76fd7e729ece0c6210ef411c4f4913300da67dc14edd21",
       "mesh_sha256": "dbb10bacd73406d4ae7b79ad5daf703b3d0a23ec28583c9c3f854578dd632ae6",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
@@ -536,7 +536,7 @@
         20.1
       ],
       "volume_mm3": 10330.16,
-      "stl_sha256": "5d2a9b823786a6b9267ab8c271fc8d72da7a4942870b8f8250aa27d63ff0056c",
+      "stl_sha256": "cded8884df14dd4c833141bc459ea86dae72c36b0561ae2ef929697031c3faa8",
       "mesh_sha256": "6fcc132b4ddda35bcc69b93e8c3365fdae27181826e5e70c4f5e657775efa340",
       "source": "lapbar_four_bolt_clamp.scad",
       "parameters": {
@@ -576,7 +576,7 @@
       }
     },
     "pushrod_servo_end": {
-      "triangles": 1408,
+      "triangles": 3360,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
@@ -587,52 +587,82 @@
           0.0
         ],
         [
-          257.9795837402344,
+          301.98468017578125,
           20.0,
           40.0
         ]
       ],
       "size_mm": [
-        274.246,
+        318.251,
         40.0,
         40.0
       ],
-      "volume_mm3": 202894.606,
-      "stl_sha256": "9228f7f3e674c6eb67f5e387e214bfe2ab13143c8f019b3852af5054c60e0965",
-      "mesh_sha256": "20d62c2d4468d968cf9f4d07088f015fab4dc0728171d04fd4c898e00acfe370",
+      "volume_mm3": 240795.112,
+      "stl_sha256": "e000188abc79d875435cf14fda15d4a097e7277bbc6d701be1dc1cc04730c4f9",
+      "mesh_sha256": "2519a19de570e31a46534c9f558f480bbaf062b33bccb1c21054f2b0778b8d82",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "servo_end"
       }
     },
-    "pushrod_middle": {
-      "triangles": 1604,
+    "pushrod_middle_a": {
+      "triangles": 7964,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -7.688506684644381e-07,
+          -8.15056580449891e-07,
           -20.0,
           0.0
         ],
         [
-          273.9795837402344,
+          317.98468017578125,
           20.0,
           40.0
         ]
       ],
       "size_mm": [
-        273.98,
+        317.985,
         40.0,
         40.0
       ],
-      "volume_mm3": 211388.471,
-      "stl_sha256": "252712017de8ed1a55596d9f89e8d46ce813a8cc96958e401890c9db483a3c82",
-      "mesh_sha256": "5d185b1f1294495c9b2c3a15e54513dd57d207e98a5f387d44339f8b59bc6a0b",
+      "volume_mm3": 248114.771,
+      "stl_sha256": "d365fe2d40cb36e67c78a89aae1a4d2a78a0fd8b19add198784a61c2b7dd3ac3",
+      "mesh_sha256": "43fc0674f480aef25afe56bd1cb414390fa87e3ffc2a697ace724176dd0a00ef",
       "source": "pushrod.scad",
       "parameters": {
-        "rod_part": "middle"
+        "rod_part": "middle_a"
+      }
+    },
+    "pushrod_middle_b": {
+      "triangles": 6012,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -6.764388444935321e-07,
+          -20.0,
+          0.0
+        ],
+        [
+          212.98468017578125,
+          20.0,
+          40.0
+        ]
+      ],
+      "size_mm": [
+        212.985,
+        40.0,
+        40.0
+      ],
+      "volume_mm3": 163700.832,
+      "stl_sha256": "5bfa1bb9e3f7fb0aa93c4243aac22f29871317ea69489fa1db0b814cb7c4d3a0",
+      "mesh_sha256": "45a5cee75269fe3a4e39c3796513cb203354c0adf541827c202269c0db654099",
+      "source": "pushrod.scad",
+      "parameters": {
+        "rod_part": "middle_b"
       }
     },
     "pushrod_sleeve": {
@@ -642,24 +672,24 @@
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -5.840270205226261e-07,
+          -5.378211085371731e-07,
           -20.0,
           0.0
         ],
         [
-          223.97958374023438,
+          167.98468017578125,
           20.0,
           40.0
         ]
       ],
       "size_mm": [
-        223.98,
+        167.985,
         40.0,
         40.0
       ],
-      "volume_mm3": 155419.429,
-      "stl_sha256": "bd1b49e3314b95f1360dd0cd390c292c4d88d574d9217109686a86023ac64097",
-      "mesh_sha256": "337526b549bebd9c6d78bac3e57b73fc83208e327905e3cd4f22a313b0831ac9",
+      "volume_mm3": 116222.996,
+      "stl_sha256": "65a5009d653813cb7262b5170460f5b7aafdca569f53e0e12953bca84076ca40",
+      "mesh_sha256": "c19191d455ff6981a84703d551e420745c6f57e6ef7724cc36d3b77dd03bce49",
       "source": "pushrod.scad",
       "parameters": {
         "rod_part": "sleeve"
@@ -688,7 +718,7 @@
         29.1
       ],
       "volume_mm3": 294233.747,
-      "stl_sha256": "3d0229cdc0e65d867bed931e95addcff8c60ff1558a7f3db220982e019f0a4fd",
+      "stl_sha256": "6af7ea479ecdde89da7b96561487d8cc95a2f1746e7e4a40e847ce0cb8d8f707",
       "mesh_sha256": "ed1a35e14c2dbb944819921e40d61da04f595288e080fbdd92e0c73b6123fab4",
       "source": "pushrod.scad",
       "parameters": {
@@ -811,7 +841,7 @@
         68.0
       ],
       "volume_mm3": 82414.54,
-      "stl_sha256": "612e3abfa84bf41ebec84cd5762387dd6912ed3dc43ce02d045ca600df0410bf",
+      "stl_sha256": "e902dc8825c9e39cc202850b49c8dd96e441dbda69b402c31212d3cbe753de70",
       "mesh_sha256": "64dd9fa47642479253efa5a564f5dffff238df497f093417a848573dccd81124",
       "source": "throttle_servo_mount.scad",
       "parameters": {}
@@ -839,7 +869,7 @@
         94.0
       ],
       "volume_mm3": 137956.192,
-      "stl_sha256": "3ce90476ca8b483347929ff5fa9f6c365fe443145a2678838a0a663f61c868a8",
+      "stl_sha256": "4ba65224b7d5a7ec395b6d3622331198406502b8a07a38affc50526c108a0311",
       "mesh_sha256": "783b827d5b4f113c128e313c295a0a2765198d8d51f3cbdc48cf5b6621080f8b",
       "source": "estop_bracket.scad",
       "parameters": {}
@@ -867,7 +897,7 @@
         51.0
       ],
       "volume_mm3": 42600.296,
-      "stl_sha256": "f3bc257ed4f5484f32adec3f63592bc23a6169345d9fd332f6b94e5ccc3f4e1b",
+      "stl_sha256": "1896b8fc572d8299d8d6922e1eb21842a9033827c527f1579b47f2a1aa0b7ead",
       "mesh_sha256": "379802fad872825883053e751e2759315df7ffcf806fd5f968d99cf3be781017",
       "source": "estop_contact_cover.scad",
       "parameters": {}
@@ -895,7 +925,7 @@
         184.5
       ],
       "volume_mm3": 914969.669,
-      "stl_sha256": "017ba057bdf54e0bda9e2235a64eec1848fbb0f5a99bb74b7b0045c738ab7898",
+      "stl_sha256": "75cd77ef9314f8ad420be95f00291b27f71e398d08e197a67164b6542cf524a5",
       "mesh_sha256": "d5b9d288a17be68602393fa35b8e8f2ce93544e9c289e7a0d69d417fd97206bc",
       "source": "enclosure_body.scad",
       "parameters": {}
@@ -923,7 +953,7 @@
         3.0
       ],
       "volume_mm3": 9693.253,
-      "stl_sha256": "627eb3c5520a4d32c3e616ac8c745963581119c3b2a7cab1f061806490256a54",
+      "stl_sha256": "98380950bf1f3cfc35b60cdf618e0fd40c71b95330e43facc92ce50ec0ca1918",
       "mesh_sha256": "e63eab249e5d1421ba58a9105d2bfef2ae6f467a4b3be39532bebc998eaf738c",
       "source": "enclosure_body.scad",
       "parameters": {
@@ -931,7 +961,7 @@
       }
     },
     "camera_tower_base": {
-      "triangles": 4032,
+      "triangles": 5072,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
@@ -952,16 +982,16 @@
         159.0,
         83.0
       ],
-      "volume_mm3": 358164.166,
-      "stl_sha256": "aa30aacc1767bfbd09f76f4dbaa67b8093e5060d57444f38c25aaf4436805d2f",
-      "mesh_sha256": "68b49e66a4438f06fac65a6a3ff64b244c64a038e68b8bf7e06c6d339d2436b3",
+      "volume_mm3": 357846.591,
+      "stl_sha256": "fdda8b44cd3578c357e97e8ac310ff2e41f6385b92b4d9c305c1737ebfacbd3a",
+      "mesh_sha256": "1ef2b90edc39c2201e2be2cc73fcd9b550672dd03323c5a59aaa5ae6f75a3dab",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "base"
       }
     },
     "camera_tower_segment": {
-      "triangles": 2176,
+      "triangles": 4256,
       "connected_solids": 1,
       "watertight": true,
       "consistent_winding": true,
@@ -982,9 +1012,9 @@
         70.0,
         70.0
       ],
-      "volume_mm3": 356161.139,
-      "stl_sha256": "246f13c80e2c4e44177e9f703096550d8c55d078705a32416dd874e0d32b6b16",
-      "mesh_sha256": "6ce586edc2c5020691b9e262e0a22a9c878e67f5caf1974d429973714f20c0fa",
+      "volume_mm3": 355525.988,
+      "stl_sha256": "c16a8b0c0fa198f55f5e05046159e9ee4f4ca01ed9a7034395cdbf1e8a424726",
+      "mesh_sha256": "54f5fa0e9b5819d7cccd819f39943760cd0ab76ac4d8f6636e81893ac1b5fc0b",
       "source": "camera_tower.scad",
       "parameters": {
         "tower_part": "segment"
@@ -1013,7 +1043,7 @@
         30.0
       ],
       "volume_mm3": 112508.696,
-      "stl_sha256": "d7bfb9651af7fa5d1e8896a4ba4c9e351e422180a90ea8b730514472e8ec6399",
+      "stl_sha256": "c703f8138ceeca4603cbe4ad3eb310ccc5ee92fc6c45787fb2a79e3f8ef10bad",
       "mesh_sha256": "68eb5dd202a11e97736bc1bc429d2392373030ba9e5d7ac95e471b4162520c2d",
       "source": "camera_tower.scad",
       "parameters": {
@@ -1043,7 +1073,7 @@
         3.0
       ],
       "volume_mm3": 41024.796,
-      "stl_sha256": "3c57d9f19d35687199bed6fb87207cbe5e8e55eeccf3f7bbf11400a2f7298972",
+      "stl_sha256": "f72cab2d83527dc3918d45d3c55c2c0d8ee3694ba3db7c38258e480dfb8a0b83",
       "mesh_sha256": "942cdabfedad4b95cc5f1dba6ac0e8fca6dc7c095c7ca752b8a8a307fe0e482b",
       "source": "camera_tower.scad",
       "parameters": {
@@ -1073,7 +1103,7 @@
         12.0
       ],
       "volume_mm3": 215777.944,
-      "stl_sha256": "3fb17f393fe4b8a5c5a84f651e78ae0c19894689ac6361ea51dbacd7f52bf2f7",
+      "stl_sha256": "b3f892a1d2ef978f1e76b7f77f112719fea3a3f22f47bbed5211dbf8a30df133",
       "mesh_sha256": "c35ed0d0aff899648a7bc7d526da3d227e4d56161b3097fc5965e9a967c551cc",
       "source": "enclosure_lid.scad",
       "parameters": {}
@@ -1101,7 +1131,7 @@
         11.5
       ],
       "volume_mm3": 66144.702,
-      "stl_sha256": "7c736ce5959e8e7454732dc71999fcf58789c90b4d59a3cd095ababd21cb832d",
+      "stl_sha256": "2d95cb2c98632d948fbe8dd94341f1da4b0d3795649caf2eb526e9afe610a357",
       "mesh_sha256": "505d0e229e1893f3067dab0efd9bc64802970615d0ce9b114161d2a0a4c05bb1",
       "source": "electronics_tray.scad",
       "parameters": {}
@@ -1129,7 +1159,7 @@
         3.0
       ],
       "volume_mm3": 16749.803,
-      "stl_sha256": "ada67af36a657c0c12f9adab408fb4b39b6d439ef3cdd365d69e05e4d61a6f14",
+      "stl_sha256": "bba0ef94cc68142eb462ab4656e1b7274193bc0b078743e2215c93bbb15e9134",
       "mesh_sha256": "2cc41aaf405de47e83d05592d4279b9152111de8849f887fa8a50f402af62704",
       "source": "enclosure_board_sled.scad",
       "parameters": {
@@ -1159,7 +1189,7 @@
         3.0
       ],
       "volume_mm3": 21249.803,
-      "stl_sha256": "f1b2fc18d4f3a221144e7fcb304a975ff27d459b9a71173637bad124caf015a7",
+      "stl_sha256": "4ed17bf87ce1e243b9a1cbdf8a92ba1ab117d5531cf85ec759895c6434b79b56",
       "mesh_sha256": "b81e5a037e38bbf0fc10d963afbfeb9a71b128a67c45bb47de0b8898122988b2",
       "source": "enclosure_board_sled.scad",
       "parameters": {
@@ -1189,7 +1219,7 @@
         16.0
       ],
       "volume_mm3": 4807.516,
-      "stl_sha256": "618fd520b92ce050643e30d40dca8995e35ebaf77e23a2510a187f6bf203e3b7",
+      "stl_sha256": "93ec2ed00c7c18df5288d6aab25d6e49dc3cd35c0f61f206d4810df8ea5c6c9b",
       "mesh_sha256": "bb0247612976bb13344b9abd38a91ad8a6e998bd2f155c904b0633728814c6c8",
       "source": "camera_mount.scad",
       "parameters": {
@@ -1219,7 +1249,7 @@
         24.0
       ],
       "volume_mm3": 11197.635,
-      "stl_sha256": "48e1098ad916c8796c44124e36018045ffdd9004e00d1b2afd66726036a43fe6",
+      "stl_sha256": "a2a803e6f71607ae1d1a0c6bc80b12939099974891f9a05107c4b8d0fd724b38",
       "mesh_sha256": "8067258f90093599e453624d2eb889ff7ca51f2216528b050fcc3f998b5b79b5",
       "source": "camera_mount.scad",
       "parameters": {
@@ -1277,7 +1307,7 @@
         9.0
       ],
       "volume_mm3": 4667.347,
-      "stl_sha256": "64dce8ffd4f4a1f750d532aac46e4a0cc9a3531ec8ae3fd33bc988bfbbbc1518",
+      "stl_sha256": "60e9fbeab678b6f3e06d73d423c50ec19e1f03e5513ce210488614e719cc1a69",
       "mesh_sha256": "027d02aeb340cd22ed712ebac22a581f1ba2e86f9743a3eaf6ec95059fe71d08",
       "source": "accessory_mounts.scad",
       "parameters": {
@@ -1307,7 +1337,7 @@
         9.0
       ],
       "volume_mm3": 22824.852,
-      "stl_sha256": "f7b2332f2d8109aacf27f356b4c8d9570afc5980dde649fc29b8077df0b95964",
+      "stl_sha256": "030b00301db31f23eff85007cec7a632f8b7bcec1edba6583e5ad01ce0cb07a9",
       "mesh_sha256": "fd9e7321e4adf83ef1e8d694f84f966b144853503d96c4a38175331e90353def",
       "source": "accessory_mounts.scad",
       "parameters": {
@@ -1337,7 +1367,7 @@
         4.0
       ],
       "volume_mm3": 54906.08,
-      "stl_sha256": "f5f54ba40c27f0c5bb9a59d7fef3bf120eedc25c7e8204ffb92bbfc5cec977ca",
+      "stl_sha256": "07649956471f1ae06ac488bee180a43444343ea4f4320484292392e7ac9ef142",
       "mesh_sha256": "1b14a95010cf3839b1864944a6f9fb27815c2f3c0ad90172b7cfbe015cb06809",
       "source": "accessory_mounts.scad",
       "parameters": {
@@ -1348,19 +1378,19 @@
   "print_files": {
     "antenna_deck": {
       "path": "3mf/antenna_deck.3mf",
-      "sha256": "e6662200dc94b9b56a06ff3402c6ca87108586e10920ad2a4d2ecc942b56d8ce"
+      "sha256": "eaf5a5e054fa244db67052f64d634b08041909e039c5a1d171420b6b671ec6ea"
     },
     "arm_brace_bar_left_0": {
       "path": "3mf/arm_brace_bar_left_0.3mf",
-      "sha256": "db6ebc52f041b31a353548f7f8718d62e4c2b9d3fd13c427e895853d53b9d7c1"
+      "sha256": "2f6e23483d5574fb1279e69e573928b3675e70911a281f2aae5e2bb49265c020"
     },
     "arm_brace_bar_left_1": {
       "path": "3mf/arm_brace_bar_left_1.3mf",
-      "sha256": "1caf99f374d1b773cde9521a3b63aa8719216ebf5353e4e69779f0fce83ffcb5"
+      "sha256": "659652899d0d485c7616b4d7add5de793181c6cfa121c4c614521e15a6ac2d7b"
     },
     "arm_brace_bar_left_2": {
       "path": "3mf/arm_brace_bar_left_2.3mf",
-      "sha256": "bec28264e1cb64e9254ed047bd24b59623ebbc7d6bacd6d6d1e15e77e4e6b443"
+      "sha256": "716acf58a588203c8084a58ba3bfd32b590711768fed964978653a4a7f46adab"
     },
     "arm_brace_bar_right_0": {
       "path": "3mf/arm_brace_bar_right_0.3mf",
@@ -1368,11 +1398,11 @@
     },
     "arm_brace_bar_right_1": {
       "path": "3mf/arm_brace_bar_right_1.3mf",
-      "sha256": "14deedb2c1892dbc3b1edf23a664f07488e4912de7505f0f3d16ba8eda7d4779"
+      "sha256": "7da283725d556f45c63942a7d281a6e9cf2681d879080efd3b86cc3568dc94fe"
     },
     "arm_brace_bar_right_2": {
       "path": "3mf/arm_brace_bar_right_2.3mf",
-      "sha256": "feea43db2a25e5331586f63d23e302c2e51f37084533537bdccb80c3a8a56c7e"
+      "sha256": "ec35df84a0ba5b7baa88851328d9c8226ea15e2900830266261aebe1fba11ac6"
     },
     "arm_head_left": {
       "path": "3mf/arm_head_left.3mf",
@@ -1380,83 +1410,83 @@
     },
     "arm_head_right": {
       "path": "3mf/arm_head_right.3mf",
-      "sha256": "3d96c85986fa4893cce69fe83611b46e9bcc833fe7eaccf1709b5ca1f6758f27"
+      "sha256": "36f48bb9afa5a0f9f186ee10b6fc9c72566e41ad2fdeed4c39a396c2af2fae46"
     },
     "arm_layer_center": {
       "path": "3mf/arm_layer_center.3mf",
-      "sha256": "f54f6788d963e24b99b02c3934e458ad0101e7045ab119f0d9ddecc28c696835"
+      "sha256": "28a236cf34241f835e4309058693700fcc8e952607610e68a953e2859b271892"
     },
     "arm_layer_left": {
       "path": "3mf/arm_layer_left.3mf",
-      "sha256": "3a56c35dc7f602b752f3844e83bd9f6810679fb1c039dd81a775e77fda6fcb52"
+      "sha256": "f862fcf5e9555e7df1d71b4b7ac55ad43fbc43c11337bb135622aae343ac0919"
     },
     "arm_layer_right": {
       "path": "3mf/arm_layer_right.3mf",
-      "sha256": "4a35b3df00efa277aa08efa45164da790416998df5d4dd6873dce54c679fec77"
+      "sha256": "5071bee73fa5f34df0c2b8e1490f6817bc2207fa8b94ed412219fd14cf404fcd"
     },
     "camera_carrier": {
       "path": "3mf/camera_carrier.3mf",
-      "sha256": "672ddc893e4dd3c927a14daca3780565c78a7da82b6768ae855925ab484fcdad"
+      "sha256": "97a18227dbcc9acaa95c1c7f40e49ac155341808c381f6277d53e28dea993f85"
     },
     "camera_foot": {
       "path": "3mf/camera_foot.3mf",
-      "sha256": "834cc3f7fc895c1b232d6ec36c829dcd8c97d32bffee57b1d4da8e5e0cef624e"
+      "sha256": "d9224844aecfd8809cc8e9e29597dd366cccafd7c64b40af254f6c224c78a4de"
     },
     "camera_tower_backing": {
       "path": "3mf/camera_tower_backing.3mf",
-      "sha256": "51a05907b8f6b19a952785bbc2775d51c46d02c68198c996207747d511180a7a"
+      "sha256": "639de607c72ef3a907cabcc5399106c7073b987965c7a3e695dfae714d704921"
     },
     "camera_tower_base": {
       "path": "3mf/camera_tower_base.3mf",
-      "sha256": "4d2e38edb7d60ba08ca8b957484804641b31188e8b4d2342435fd34ae50453d9"
+      "sha256": "8dc8ee1205bff3cd8379a86c69d0b596ab0e80f848309a4b4bd32f33b36e7fbb"
     },
     "camera_tower_cap": {
       "path": "3mf/camera_tower_cap.3mf",
-      "sha256": "956436ced4a4e1434e11aaf265dfae6fef4af65d4a6673665102a05ca40ae970"
+      "sha256": "902950c745fb05d2dd39609e0f424a5f1ff8ec935f1edfb933b1af76fb4feae4"
     },
     "camera_tower_segment": {
       "path": "3mf/camera_tower_segment.3mf",
-      "sha256": "57f96a172a62a645cb8343e3989f2006287bd808c814c814d0317d59ca89a6c9"
+      "sha256": "c542a70f246b474631da158e8064aaa7ff2f36452e052ddd246ba24494e807b6"
     },
     "electronics_tray": {
       "path": "3mf/electronics_tray.3mf",
-      "sha256": "317ab30e4c280c367845670c2a5627b2f9968ed95f70b180e54edb5df499ef62"
+      "sha256": "0ae998172448814112d23520448ad9e4c081c1fbd75243c38d94b21a7b8ee895"
     },
     "enclosure_body": {
       "path": "3mf/enclosure_body.3mf",
-      "sha256": "85f1b7722c0911d0e5a90e579a9e5d51f762966219d2771ab297f6f257242856"
+      "sha256": "1bf485ecea1bc021bf77555e4aa3ebc56a5e6fe8dee8e6c76e2e87f26cd945a6"
     },
     "enclosure_lid": {
       "path": "3mf/enclosure_lid.3mf",
-      "sha256": "adcdd3434eb8cf1ce68a41c0708333fa8151d0e4cab2e6ba2bf4e5a78bbcd48d"
+      "sha256": "5e120fb6c68b81b425c596b4b56bcb8a30c019a835dbe9fc3cf7dd08807f8857"
     },
     "equipment_saddle": {
       "path": "3mf/equipment_saddle.3mf",
-      "sha256": "ac4c40533f10019614c925d1ded674c2c0681529547311d3b41713858dccd2db"
+      "sha256": "85876a8ea2383ed9fb14a09e4f909f4356dc92845b3443475673dc7ef8d3cbac"
     },
     "estop_bracket": {
       "path": "3mf/estop_bracket.3mf",
-      "sha256": "760d3250b56ed573bf17e8012f684d7642409ceaff877d831ae5448a04587e3e"
+      "sha256": "7f03879600246dd46455e3b53083f6ea0fe5cdc18ae5ded3cb48d1345e70e92e"
     },
     "estop_contact_cover": {
       "path": "3mf/estop_contact_cover.3mf",
-      "sha256": "63181c69a82b7fa1d09c074583ca4c62cc583a6a0750d4ac82ee18982100fe16"
+      "sha256": "9ed5ad7e4a3c9ef554564b0eb832cc7daa5db6c941fa7d9474390478c2f45b34"
     },
     "harness_saddle": {
       "path": "3mf/harness_saddle.3mf",
-      "sha256": "390e799c9b3c91def9112a19345de0f400e81171a0fed2ed7e8391928e1b2f5f"
+      "sha256": "dcc3bf7c2f3d47b015a8d89f18f95a0bd54ca0be034128a790a45926d9bfed12"
     },
     "hitch_gauge": {
       "path": "3mf/hitch_gauge.3mf",
-      "sha256": "383c4877e1e8659166c7ff65a894501d0df4a9aa3ed6fb3586e47b6d2c1a116a"
+      "sha256": "2f59e8f9acb60981ab6c5d96535315820b9931fd723cc8b5de6eb165b946a797"
     },
     "lapbar_clamp_anchor": {
       "path": "3mf/lapbar_clamp_anchor.3mf",
-      "sha256": "6f4d46ebd48b899310bca209861abb09aaa6c1fcde14dce93bd358e0a22ba7b7"
+      "sha256": "1912e7fa288d033fc41d27ee9c35af29f19f400e7b69e645a100c28a3996149f"
     },
     "lapbar_clamp_cap": {
       "path": "3mf/lapbar_clamp_cap.3mf",
-      "sha256": "271a0bcd48fcb7587426180b2fa5cef7974d250e90de9cd34dd4250f10d34303"
+      "sha256": "30bbf61afd47b23c7655c74ce055290a9c425960034bf0d1c1754a23ad308ce9"
     },
     "lapbar_clamp_insert_0": {
       "path": "3mf/lapbar_clamp_insert_0.3mf",
@@ -1472,7 +1502,7 @@
     },
     "lapbar_clamp_insert_3": {
       "path": "3mf/lapbar_clamp_insert_3.3mf",
-      "sha256": "dfcc2576b90d9321ddc582ef45ce152bda3807498c1ae27dd69bfed2e3db308b"
+      "sha256": "9a77be5ab002235ee436cf135132211b018e4090bbad1bbaa2651efafe80ffc2"
     },
     "lapbar_clamp_insert_4": {
       "path": "3mf/lapbar_clamp_insert_4.3mf",
@@ -1492,23 +1522,27 @@
     },
     "pushrod_inner": {
       "path": "3mf/pushrod_inner.3mf",
-      "sha256": "503f757637a6c6fb6caf34a8241d956d370472319b44724751b84f12afb4c844"
+      "sha256": "270dd9284ad25feec5969e660c5e0be90796300ee952bbe7b1bd85466b4157ed"
     },
-    "pushrod_middle": {
-      "path": "3mf/pushrod_middle.3mf",
-      "sha256": "c36bb8f9f1e339b499e5bdddb0802b4b5a5990c18ad2e5ca3a45661bd7bba6f6"
+    "pushrod_middle_a": {
+      "path": "3mf/pushrod_middle_a.3mf",
+      "sha256": "39d30f38dec88b65e5b9f6a245faf32646d50b1be5caa6ad729059d62c1b63b0"
+    },
+    "pushrod_middle_b": {
+      "path": "3mf/pushrod_middle_b.3mf",
+      "sha256": "7e65e821c129bc9c7df858aba32636267f7b6840601e66ede4b965756cec6c4c"
     },
     "pushrod_servo_end": {
       "path": "3mf/pushrod_servo_end.3mf",
-      "sha256": "c43355e6aff7ca1220d5ec3c0e9dd5e637e93dae4dcc515787c03e0dbda3d8d4"
+      "sha256": "aa460e36d1f426e6387cfdce6d2580a86d6dbfeea9c7acf4ca1e21203f8f0b16"
     },
     "pushrod_sleeve": {
       "path": "3mf/pushrod_sleeve.3mf",
-      "sha256": "3f61238045972de151224a38e22a86c88e2552e4af2b2c15d129877b85592468"
+      "sha256": "9f5793ce0a43ac7e4d23b5ee7d65fbfb2143ffd44ac0fb1362db6276660a7a70"
     },
     "relay_board_sled": {
       "path": "3mf/relay_board_sled.3mf",
-      "sha256": "8ecfc6fd859b15cefc2bb4cdff7c883e1035ed14b885fe2024eb6c0dd952c05a"
+      "sha256": "b69663545453a210be3db540c45fcd9c71a8ef778ed6906b87928351636b9ced"
     },
     "sensor_carrier": {
       "path": "3mf/sensor_carrier.3mf",
@@ -1516,11 +1550,11 @@
     },
     "throttle_servo_mount": {
       "path": "3mf/throttle_servo_mount.3mf",
-      "sha256": "01e5ff149d5002f1bb70ab6a224af464ae9e934ed5295cb75f52f15310aeca0e"
+      "sha256": "c7b80fd93177c8a7fffb6b8323ccdedfaf0d6faebe50baf8c88ebffba4ed782f"
     },
     "utility_board_sled": {
       "path": "3mf/utility_board_sled.3mf",
-      "sha256": "325db641a0b82229a84eb15482cd8e0467acf4942388a13c50f7d0db17b55e9b"
+      "sha256": "5c6526842eb3f1c962c4e2d2c089b4669c29b1723a08adaecf3c56968dbdbae7"
     }
   },
   "print_projects": [],
@@ -1558,6 +1592,7 @@
     "clamp_insert_clear",
     "clamp_pin_bore",
     "rod_lock_bores",
+    "rod_splice_bores",
     "rod_end_bores",
     "rod_lock_bores_max",
     "rod_clamp_interface",
@@ -1567,6 +1602,7 @@
     "tongue_bore",
     "tongue_aux_bores",
     "tower_wall_bores",
+    "tower_brace_bores",
     "tower_foot_bores",
     "tower_port",
     "tower_body_clearance",

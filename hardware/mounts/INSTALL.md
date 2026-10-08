@@ -150,9 +150,9 @@ The 40 mm square tube has 5 mm walls; the 29.1 mm inner bar slides with 0.45 mm 
 
 The default **936.9 mm** pin length is the Toro TimeCutter MAX 50 in MyRIDE estimate in
 `TORO_77502_LINKAGE.md`, not a measurement. The three lock settings give 921.9/936.9/951.9 mm.
-Measure first, set the clamp-pin and crank values in `enclosure_common.scad`, then rebuild.
+The rod length is set on the bench by choosing a joint position; set the clamp-pin and crank values in `enclosure_common.scad` only if the estimated band turns out to be wrong.
 
-1. Select the loose/nominal/tight square-fit coupon. Join the three outer pieces spigot-first with
+1. Select the loose/nominal/tight square-fit coupon. Join the four outer pieces spigot-first with
    two M6 bolts per splice. Both lock bolts must pass through the sleeve and the matching inner-bar
    holes at one setting. Friction alone is not the lock.
 2. Fit the servo crank **up** at neutral, square to a level rod. Put the servo-end eye **outboard**

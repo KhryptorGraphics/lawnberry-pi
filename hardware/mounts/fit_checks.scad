@@ -378,11 +378,7 @@ else if(check == "rod_end_bores") intersection() {
 // shortest and longest settings, and all splice bolts pass tube and spigot.
 else if(check == "rod_lock_bores") intersection() {
     rod_assembly(0);
-    union() {
-        for(s=[0:1]) translate([rod_lock_x(s),0,-25]) cylinder(d=5.8,h=50);
-        for(k=[1:rod_outer_count()-1], b=rod_splice_offsets())
-            translate([rod_outer_boundary(k)+b,0,-25]) cylinder(d=5.8,h=50);
-    }
+    for(s=[0:1]) translate([rod_lock_x(s),0,-25]) cylinder(d=5.8,h=50);
 }
 else if(check == "rod_lock_bores_max") intersection() {
     rod_assembly(rod_last_setting());
@@ -430,6 +426,44 @@ else if(check == "rod_servo_sweep_band") {
             fit_rod_servo_end(side,angle,crank_r);
             union() { servo_body_envelope(side,disc_d); servo_crank_arm(side,angle,crank_r); }
         }
+}
+// Every splice position must be BOLT-ABLE: at each ROW joint, the bolt pair has to pass through both
+// pieces once the joint is shifted to that position. Probed at both extremes rather than every step -
+// the row is one uniform pitch, so a mis-cut row shows at its ends, and all 28 combinations cost
+// minutes of CSG per build for no extra discrimination. The inner-feeding joint is single-position
+// and is covered at j=0, which is also why rod_lock_bores no longer probes splices: it was using one
+// bolt list for every joint, and the two joints now have different offsets.
+else if(check == "rod_splice_bores") {
+    for(k=[0:rod_outer_count()-3],
+        j=[0, rod_splice_positions_count()-1],
+        s=rod_splice_offsets())
+        intersection() {
+            rod_outer_piece(k);
+            translate([j*rod_splice_step_mm(),0,0]) rod_outer_piece(k+1);
+            translate([rod_outer_boundary(k+1)+s+j*rod_splice_step_mm(),0,-60])
+                cylinder(d=rod_bolt_bore_mm(),h=120);
+        }
+}
+// The sway bars' M4 screws must pass through the COMPLETE column, both walls, at every brace
+// station, so a collar pair and the column are one bolted joint rather than a collar gripping
+// nothing. Stations land on the base (station 0) and inside the first segment (the rest).
+else if(check == "tower_brace_bores") union() {
+    // Station 0 is on the base, in absolute coordinates.
+    intersection() {
+        tower_base_assembly();
+        for (z = [for (zz = arm_brace_z) if (zz <= tower_base_top_z) zz],
+             y = [-arm_brace_collar_bolt_y, arm_brace_collar_bolt_y])
+            translate([-tower_od / 2 - 2, tower_y + y, z]) rotate([0, 90, 0])
+                cylinder(d = m4_clear - 0.6, h = tower_od + 4);
+    }
+    // The rest fall inside the first segment, in that segment's local frame.
+    intersection() {
+        tower_segment();
+        for (z = tower_brace_seg_z(),
+             y = [-arm_brace_collar_bolt_y, arm_brace_collar_bolt_y])
+            translate([-tower_od / 2 - 2, y, z]) rotate([0, 90, 0])
+                cylinder(d = m4_clear - 0.6, h = tower_od + 4);
+    }
 }
 // Exclude the intended coplanar mounting contact, as with the tray/lid checks.
 else if(check == "estop_cover") intersection() { estop_bracket(); translate([0,0.02,0]) estop_cover_placed(); }

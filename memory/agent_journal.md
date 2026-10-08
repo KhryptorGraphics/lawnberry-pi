@@ -299,22 +299,31 @@ Verified facts that change earlier assumptions:
   both sides and passes. What a different radius still implies is *length* — up to 30 mm of
   pin travel — which the rod's trim does not separately cover, so the rod's length stays
   estimate-driven until its adjustment range is widened (multi-position spigot splices).
-- **The rod's length adjustment was designed but NOT landed**, and the tree is back on the ±15 mm
-  three-piece rod. The design is worked out and its parts render clean: four outer pieces with two
-  multi-position spigot joints, **210 mm in 15 mm steps**, which is what the fore-aft estimate's ±4 in
-  needs. The joint feeding the inner bar has to stay short and single-position, because its spigot
-  shares the bore the inner bar slides in — which is why a fourth piece is needed rather than a longer
-  overlap, and three assertions (inner-bar clearance, sleeve lock holes, servo-end tube length) forced
-  exactly that shape. It was abandoned at the last check: with the rows cut, `rod_lock_bores` reports
-  interference in the *assembled* rod — a joint row obstructs the lock-bolt path in a way not yet
-  diagnosed. Reverted rather than shipped unverified; design and blocker are the start of the next try.
+- **The rod's length is now set by the parts** — landed, after one failed attempt. Four outer pieces
+  with two multi-position spigot joints give **210 mm of adjustment in 15 mm steps** (against ±15 mm
+  before), covering the fore-aft estimate's ±4 in without a tape. The joint feeding the inner bar stays
+  short and single-position because its spigot shares the bore the inner slides in — hence a fourth
+  piece rather than a longer overlap, and three assertions forced exactly that shape. The first
+  attempt failed on `rod_lock_bores`, and the cause was the CHECK, not the design: it hard-coded one
+  bolt list for every joint, so probing the row offsets at the short joint read material. The offsets
+  are now per joint (`rod_splice_offsets_at`), splice probing moved to `rod_splice_bores` (extremes of
+  each row), and the servo-end stub shortened 90 → 70 mm to suit the shorter first piece — which
+  `rod_servo_sweep` and `rod_servo_sweep_band` still pass.
+- **The camera column is drilled through at the sway-bar stations.** The bars' collars clamp around
+  the column, but their M4 clearance holes only pierced the collar's own wall, so the screws gripped
+  nothing: the column itself had no holes. `tower_brace_bores()` now cuts through the COMPLETE square
+  tube, both walls, at each station — one bolt per station makes collar pair plus column a single
+  bolted joint. Station 0 (z=110) lands on the base, which reaches z=160; the rest fall inside the
+  first segment at local z=30 and 90, and the segment part is shared, so every segment carries the
+  same bores. An assert refuses a station outside the first segment, and `tower_brace_bores` probes
+  the screw line at every station.
 - **OpenSCAD's STL export is not reliably byte-stable**, so `validation.json`'s per-part
   bytes hash cannot fingerprint a shape. Parts now also carry `mesh_sha256`, an
   order-independent digest that is stable across runs and moves only on a real change.
 - Slicer projects are audited, never rewritten; the three stale ones — one still holding
   the pre-fix rod — were removed at the user's instruction, and the audit now reports none.
 
-Not done: the rod's length adjustment (designed and reverted, above), the clamp point along the lever,
-which is a constrained choice rather than a reading, and any check on the sleeve set against a real bar.
-No part is load-, creep- or powered-steering qualified; the printed linkage remains first-article fit
-prototypes.
+Not done: the clamp point along the lever, which is a constrained choice rather than a reading; any
+check on the sleeve set against a real bar; and the tower stations' collar/screw hardware, which the
+column now accommodates but no screw is specified. No part is load-, creep- or powered-steering
+qualified; the printed linkage remains first-article fit prototypes.

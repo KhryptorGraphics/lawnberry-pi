@@ -54,7 +54,7 @@ PARTS = [
     ],
     *[
         (f"pushrod_{piece}", "pushrod", {"rod_part": piece})
-        for piece in ("servo_end", "middle", "sleeve", "inner")
+        for piece in ("servo_end", "middle_a", "middle_b", "sleeve", "inner")
     ],
     *[
         (f"pushrod_gauge_{index}", "pushrod", {"rod_part": "gauge", "rod_gauge_index": index})
@@ -134,6 +134,7 @@ CHECKS = [
     "clamp_insert_clear",
     "clamp_pin_bore",
     "rod_lock_bores",
+    "rod_splice_bores",
     "rod_end_bores",
     "rod_lock_bores_max",
     "rod_clamp_interface",
@@ -143,6 +144,7 @@ CHECKS = [
     "tongue_bore",
     "tongue_aux_bores",
     "tower_wall_bores",
+    "tower_brace_bores",
     "tower_foot_bores",
     "tower_port",
     "tower_body_clearance",

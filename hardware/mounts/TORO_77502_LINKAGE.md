@@ -19,8 +19,9 @@ without lap-bar or hitch coordinates. Measure the lap-bar values below before pr
 | Lateral offset carried by the rod | **74.2 mm** outboard at the lap bar | follows the `lapbar_pin_x_mm` estimate; the clamp point is not measured |
 | Built rod skew | **4.54°** | follows the offset |
 
-The CAD default uses the estimate. The rod trims ±15 mm (three lock settings); beyond that,
-re-enter the measured values and rebuild.
+The CAD default uses the estimate. The rod adjusts **210 mm in 15 mm steps** across its two
+multi-position joints, so the clamp point stays a choice inside the estimated band rather than a
+reading; re-enter measured values only if the band itself turns out to be wrong.
 
 ## Basis
 

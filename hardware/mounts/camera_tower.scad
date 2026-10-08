@@ -41,6 +41,23 @@ foot_top_z = tongue_t + tower_base_t;
 nut_af = 7.2;                      // M4 nut across flats + allowance
 nut_t = 3.4;
 
+// ---- sway-bar brace stations: the bar collars clamp around the column, and their M4 screws must
+// pass through the COMPLETE square tube - both walls - so collar pair and column become one bolted
+// joint. Stations are z = [110, 190, 250]; the base reaches tower_base_top_z, so the stations above
+// it fall inside the FIRST segment, in that segment's local frame. Both must fit there or the shared
+// segment part cannot carry them, hence the assert. Through-holes in the bore are tolerable because
+// the base already drains its sump out the +Y face.
+function tower_brace_seg_z() =
+    [for (z = arm_brace_z) if (z > tower_base_top_z) z - tower_base_top_z];
+assert(len(tower_brace_seg_z()) == 0
+       || max(tower_brace_seg_z()) < tower_seg_len() - tower_flange_t,
+       "A brace station falls outside the first segment; the shared segment cannot carry its bores");
+// zs are in the caller's frame; y0 is the column's y offset there (tower_y absolute, 0 local).
+module tower_brace_bores(zs, y0 = 0) {
+    for (z = zs, y = [-arm_brace_collar_bolt_y, arm_brace_collar_bolt_y])
+        translate([-tower_od / 2 - 1, y0 + y, z]) rotate([0, 90, 0])
+            cylinder(d = m4_clear, h = tower_od + 2);
+}
 module tower_tube(len) {
     difference() {
         translate([-tower_od / 2, -tower_od / 2, 0]) cube([tower_od, tower_od, len]);
@@ -103,6 +120,8 @@ module tower_base_assembly() {
         for (p = tower_base_bolts) translate([p[0], wall_y - 1, p[1]]) rotate([-90, 0, 0])
             cylinder(d = tower_wall_bolt_d, h = tower_base_t + 2);
         for (p = tower_foot_bolts) translate([p[0], p[1], tongue_t - 1]) cylinder(d = tower_wall_bolt_d, h = tower_base_t + 2);
+        // Brace station 0 sits on the base: screws through the complete tube, both walls.
+        tower_brace_bores([for (z = arm_brace_z) if (z <= tower_base_top_z) z], tower_y);
     }
 }
 module tower_joint_flange_solid(t) {
@@ -116,11 +135,15 @@ module tower_base_print() {
 
 // ---- segment, local: bottom flange face at z=0, top spigot tip at len+spigot ----
 module tower_segment(len = tower_seg_len()) {
-    union() {
-        tower_joint_flange();
-        tower_tube(len);
-        translate([0, 0, len - tower_flange_t]) tower_joint_flange();
-        translate([0, 0, len]) tower_spigot();
+    difference() {
+        union() {
+            tower_joint_flange();
+            tower_tube(len);
+            translate([0, 0, len - tower_flange_t]) tower_joint_flange();
+            translate([0, 0, len]) tower_spigot();
+        }
+        // Both column brace stations fall in the first segment, drilled here in local coordinates.
+        tower_brace_bores(tower_brace_seg_z(), 0);
     }
 }
 // Short piece for exploded views only; not a printable part.

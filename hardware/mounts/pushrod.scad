@@ -50,10 +50,34 @@ rod_lock_pitch = 45;                // three steps: inner holes land 15 mm apart
 rod_lock_margin = 18;
 rod_min_overlap = 84;
 rod_inner_reach = 380;              // inner pin to inner tip
-rod_outer_piece_count = 3;
-rod_splice_len = 50;
+rod_outer_piece_count = 4;
+// Each spigot joint is multi-position, which is what removes the last measurement from the build:
+// the rod's length is set by which holes the joint bolts pass through, so it spans the machine's
+// fore-aft uncertainty without anyone reading a tape. Both pieces of a joint carry the SAME hole
+// row at rod_splice_step pitch, so shifting the joint by any whole step keeps both bolts in holes.
+// The bolt pair must be spaced a whole number of steps (30 = 2 steps), which is why the row joints
+// use [15, 45] and not [15, 35]: 20 mm would make every second position unbolt-able.
+// The joint that feeds the inner bar is deliberately NOT one of these: its spigot sits in the same
+// bore the inner bar slides through, so it stays short and single-position. That is why the rod has
+// four outer pieces rather than three - the extra joint is what buys the adjustment range.
+rod_splice_step = 15;
+rod_splice_positions = 7;           // joint offsets, 0..6 steps -> 90 mm per row joint
+rod_splice_bolts = [15, 15+2*rod_splice_step];
+rod_splice_len = 150;               // row joint overlap: deepest hole at 45+90 plus margin
+rod_splice_bolts_short = [15, 35];  // the inner-feeding joint: one position only
+rod_splice_len_short = 45;
 rod_splice_plug = 15;
-rod_splice_bolts = [15, 35];
+function rod_splice_len_at(k) =
+    k == rod_outer_piece_count-2 ? rod_splice_len_short : rod_splice_len;
+// The bolt offsets are per joint too, so a probe can ask the right question of the right joint.
+function rod_splice_offsets_at(k) =
+    k == rod_outer_piece_count-2 ? rod_splice_bolts_short : rod_splice_bolts;
+// What the adjustment buys, stated in millimetres rather than asserted in prose:
+rod_fwd_tolerance_mm = 101.6;       // +/- 4 in on the fore-aft estimate (TORO_77502_LINKAGE.md)
+function rod_splice_range_mm() =
+    (rod_splice_positions-1)*rod_splice_step*(rod_outer_piece_count-1);
+function rod_lock_range_mm() = (rod_index_count-1)*rod_index_step;
+function rod_adjust_range_mm() = rod_splice_range_mm()+rod_lock_range_mm();
 rod_eye_len = clamp_rod_eye_length_mm;
 rod_eye_w = clamp_rod_eye_width_mm;
 rod_eye_t = clamp_rod_eye_t_mm;
@@ -62,7 +86,7 @@ rod_neck_len = 8;
 rod_taper_len = 20;
 rod_fit_len = rod_pin_edge+rod_neck_len+rod_taper_len;
 rod_bridge_len = 20;
-rod_servo_stub = 90;                // narrow bar clears the servo body through crank travel
+rod_servo_stub = 70;                // narrow bar clears the servo body through crank travel
 rod_servo_flare = 20;
 rod_tube_start = rod_servo_stub+rod_servo_flare;
 rod_bed_max = 420;
@@ -84,7 +108,7 @@ function rod_outer_boundary(k) = -rod_pin_edge+k*rod_outer_span/rod_outer_piece_
 function rod_lock_x(station) = rod_outer_end-rod_lock_margin-(1-station)*rod_lock_pitch;
 function rod_inner_tip(index) = rod_pin_length(index)-rod_inner_reach;
 function rod_outer_piece_len(k) = rod_outer_span/rod_outer_piece_count
-                                  +(k < rod_outer_piece_count-1 ? rod_splice_len : 0);
+                         +(k < rod_outer_piece_count-1 ? rod_splice_len_at(k) : 0);
 rod_inner_part_len = rod_pin_edge+rod_inner_reach;
 rod_vent_x = (rod_tube_start+rod_outer_boundary(1)-rod_splice_plug)/2;
 // `use <pushrod.scad>` imports functions, not variables: public values go through these.
@@ -92,10 +116,14 @@ function rod_nominal_setting() = rod_nominal_index;
 function rod_skew() = rod_skew_deg;
 function rod_outer_count() = rod_outer_piece_count;
 function rod_splice_offsets() = rod_splice_bolts;
+function rod_splice_step_mm() = rod_splice_step;
+function rod_splice_positions_count() = rod_splice_positions;
+function rod_splice_len_mm(k) = rod_splice_len_at(k);
+function rod_bolt_bore_mm() = rod_bolt_bore;
 
-assert(rod_part == "servo_end" || rod_part == "middle" || rod_part == "sleeve"
-       || rod_part == "inner" || rod_part == "gauge",
-       "rod_part must be servo_end, middle, sleeve, inner or gauge");
+assert(rod_part == "servo_end" || rod_part == "middle_a" || rod_part == "middle_b"
+       || rod_part == "sleeve" || rod_part == "inner" || rod_part == "gauge",
+       "rod_part must be servo_end, middle_a, middle_b, sleeve, inner or gauge");
 assert(rod_index >= 0 && rod_index <= rod_last_setting(),
        "rod_index must select a configured lock setting");
 assert(rod_lateral_offset >= 0,
@@ -108,12 +136,13 @@ assert(rod_lock_pitch-rod_bolt_bore >= 8 && rod_index_step-rod_bolt_bore >= 8,
        "Leave at least 8 mm of material between adjacent M6 holes");
 assert(rod_min_overlap >= 2*rod_lock_margin+rod_lock_pitch,
        "Minimum overlap must hold both lock bolts with end margins");
-assert(rod_inner_tip(0) > rod_outer_boundary(rod_outer_piece_count-1)+rod_splice_len+2,
+assert(rod_inner_tip(0) > rod_outer_boundary(rod_outer_piece_count-1)
+       +rod_splice_len_at(rod_outer_piece_count-2)+2,
        "At the shortest setting the inner bar reaches the last splice spigot");
 assert(rod_outer_boundary(1)-rod_splice_plug-rod_tube_start >= 40,
        "Servo-end piece is too short for its stub, flare and hollow tube");
 assert(rod_lock_x(0)-rod_bolt_bore > rod_outer_boundary(rod_outer_piece_count-1)
-       +rod_splice_len, "Sleeve lock holes run into its splice spigot");
+       +rod_splice_len_at(rod_outer_piece_count-2), "Sleeve lock holes run into its splice spigot");
 assert(rod_inner_reach-rod_lock_margin >= rod_max_len-rod_lock_x(0),
        "Deepest inner lock hole lacks tip margin");
 assert(rod_min_len-rod_lock_x(1) >= rod_fit_len+rod_bridge_len+rod_bolt_bore,
@@ -121,6 +150,15 @@ assert(rod_min_len-rod_lock_x(1) >= rod_fit_len+rod_bridge_len+rod_bolt_bore,
 assert(max([for(k=[0:rod_outer_piece_count-1]) rod_outer_piece_len(k)])+rod_pin_edge
        <= rod_bed_max && rod_inner_part_len+rod_pin_edge <= rod_bed_max,
        "A printed rod piece exceeds the 420 mm bed; add an outer piece");
+// Splice rows: adjacent holes must keep 8 mm of material, and the deepest hole has to sit inside
+// the overlap with an end margin, or the joint cannot be bolted at its last position.
+assert(rod_splice_step-rod_bolt_bore >= 8, "Splice rows would merge into a slotted hole");
+assert(rod_splice_bolts[1]+(rod_splice_positions-1)*rod_splice_step+8 <= rod_splice_len,
+       "Deepest splice hole runs past the overlap; lengthen rod_splice_len");
+// The point of the joint rows: span the mower's fore-aft uncertainty with printed parts, so the
+// clamp point stays a choice inside the estimated band instead of a tape reading.
+assert(rod_adjust_range_mm() >= 2*rod_fwd_tolerance_mm,
+       "Rod adjustment range is under the estimate's uncertainty; add splice positions");
 assert(rod_eye_t+0.5 <= clamp_rod_gap_mm, "Rod eye exceeds the clamp yoke clearance");
 assert(rod_pin_edge+rod_neck_len >= clamp_rod_eye_sweep_radius_mm()+clamp_yoke_sweep_clearance_mm,
        "Thin eye neck must extend past the clamp yoke sweep before the rod widens");
@@ -186,13 +224,22 @@ module rod_outer_piece(k) {
                 rod_tube(rod_tube_start,x1);
             } else rod_tube(x0,x1);
             if (!last) {
-                // Fused plug inside this piece, then the spigot into the next piece.
+                // Fused plug inside this piece, then the spigot into the next piece. The joint
+                // that feeds the inner bar gets the short spigot (see the parameters above).
                 rod_square(x1-rod_splice_plug,x1,rod_bore_w+0.2);
-                rod_square(x1-1,x1+rod_splice_len,rod_spigot_w);
+                rod_square(x1-1,x1+rod_splice_len_at(k),rod_spigot_w);
             }
         }
-        if (k > 0) rod_vertical_bores([for(s=rod_splice_bolts) x0+s]);
-        if (!last) rod_vertical_bores([for(s=rod_splice_bolts) x1+s]);
+        // Row joints: both sides carry the same pitched row, so any whole-step shift aligns a pair
+        // of holes. The inner-feeding joint keeps a single pair, because its spigot is short.
+        if (k > 0 && k <= rod_outer_piece_count-2)
+            rod_vertical_bores([for(s=rod_splice_bolts, i=[0:rod_splice_positions+1])
+                                x0+s+i*rod_splice_step]);
+        else if (k > 0) rod_vertical_bores([for(s=rod_splice_offsets_at(k)) x0+s]);
+        if (!last && k < rod_outer_piece_count-2)
+            rod_vertical_bores([for(s=rod_splice_bolts, i=[0:rod_splice_positions+1])
+                                x1+s+i*rod_splice_step]);
+        else if (!last) rod_vertical_bores([for(s=rod_splice_offsets_at(k)) x1+s]);
         if (last) rod_vertical_bores([rod_lock_x(0),rod_lock_x(1)]);
         // The servo piece's hollow run is otherwise a sealed print void.
         if (k == 0) rod_vertical_bores([rod_vent_x],5);
@@ -259,9 +306,11 @@ echo(str("pushrod Toro 77502 estimate: planar_span_mm=",rod_planar_span,
 
 // Every piece prints lying flat: rod axis along bed X, bolts vertical.
 if (rod_part == "servo_end") translate([0,0,rod_w/2]) rod_outer_piece(0);
-if (rod_part == "middle")
+if (rod_part == "middle_a")
     translate([-rod_outer_boundary(1),0,rod_w/2]) rod_outer_piece(1);
-if (rod_part == "sleeve")
+if (rod_part == "middle_b")
     translate([-rod_outer_boundary(2),0,rod_w/2]) rod_outer_piece(2);
+if (rod_part == "sleeve")
+    translate([-rod_outer_boundary(3),0,rod_w/2]) rod_outer_piece(3);
 if (rod_part == "inner") translate([rod_inner_reach,0,rod_inner_w/2]) rod_inner();
 if (rod_part == "gauge") rod_gauge();
