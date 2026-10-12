@@ -35,7 +35,7 @@ but mower clearance and load capacity remain unverified.
 | Interface | Basis and current treatment |
 |---|---|
 | RDS51150 stationary rear bracket | **Photo-derived, not a factory drawing** (photo aa8b43). The narrow stationary rear bracket carries **six** holes; centres relative to its rear opening (Y across the bracket, Z up) are (±10, 18.5), (±8, 8) and (±8, −7.5) mm (`servo_rear_hole_points_mm()`). Each prints as a Ø2.9 rounded slot with **±0.4 mm** cutter-centre trim in Y and Z (an M2.5 shank centre can reach about ±0.6 mm), which keeps the web beside the opening but does **not** span the full photo uncertainty. The **Ø13.5** rear opening is a capacity for the photo estimate of 12 ± 1.5 mm. Selected M2.5 steel through-bolts with OD6 × 1 washers and AF5 × 2.5 nuts; nothing threads into the print. Verify the purchased RDS51150SG with `fit_gauge_2` before printing heads. |
-| RDS51150 moving crossplate | The user identified the broad **eight-hole U crossplate** (photo 60883207) as the MOVING member; the adapter does not bolt to the disc. Photo-fitting hole capacity: a 4 × 2 grid at X = ±9 / ±21 mm and tangential ±9.5 mm from the plate centre (`servo_moving_hole_points_mm()`), Ø2.9 slots with **4 mm (X) × 8 mm (tangential)** total centre travel; the 25.4 mm plate-seat radius (`servo_moving_face_r_mm`) is a capacity. None of this is a factory pitch: check it with `servo_adapter_gauge`. Plate face **45° = neutral** (levers centred) and **90° = full reverse**, as the user stated. The 0° face is only an analysis bound, not a confirmed forward stop or PWM calibration. |
+| RDS51150 moving crossplate | The U crossplate is the MOVING member; the adapter does not bolt to the disc. By user direction (2026-10-12) the adapter uses the **same six passages, ±0.4 mm slot trim and Ø13.5 opening as the arm heads** (`servo_rear_hole_points_mm()`). On the plate, bracket Y maps to the tangential direction and bracket Z to the shaft axis, the (±10, 18.5) row outboard toward the clevis (`servo_adapter_hole_points_mm()`); that is the only orientation that fits the 52 × 30 mm photo envelope, so it is an **assumption**: check it with `servo_adapter_gauge`, whose arrow marks the 18.5 row. The 25.4 mm plate-seat radius (`servo_moving_face_r_mm`) is a capacity. Plate face **45° = neutral** (levers centred) and **90° = full reverse**, as the user stated. The 0° face is only an analysis bound, not a confirmed forward stop or PWM calibration. |
 | Hitch sandwich + arm layer | The enclosure flange is **211 × 170 mm**; an 8 mm center layer continues to the modeled hitch hole and has 42 mm side ears (STL envelope **295 × 285 × 8 mm**). Hole Ø20.8 and auxiliary M6 centres ±40 mm mirror the unverified enclosure tongue. The **160 × 120 × 8 mm** mower-plate envelope is schematic; measure it. |
 | Splayed servo arm | **MEASURED** station: servo face **209.55 mm** left/right of the ball-hole centre, **457.2 mm** from its plate-top datum, splayed **12.58°** from vertical. The axis extrapolates to x=±110, while the solid 60 × 70 × 50 mm root seats on the center layer **top** at z=0 and y=123. Four M6 per root enter upward into side-access steel nuts; the hollow 50 × 70 mm column has a through-channel and 6 mm walls/web. Lower arm joint at local t=355 mm; printed head retains a four-M6 flanged/spigoted lap and the lateral six-hole rear-bracket land. Neither fit nor strength on the real mower is established. |
 | Arm sway bars | Three handed first-article braces per side land at z=110/190/250 mm. Each left/right half-jaw occupies its own side of the tower; the pair forms a rear-open U with a 0.4 mm centre gap. Fit from **+Y toward the box**, never from -Y or over a flange. Two top-loaded M4 nuts per half retain short screws bearing **outside** the USB-cable tube. Two M5 bores meet each arm pad's side-entry nuts, with 0.2 mm face clearance. These are **not steering-load parts**; test slip, creep, nut pullout and pad damage unpowered. The column arrives drilled **right through** at each station for the collars' M4 screws — one bolt per station passes both walls, so the collar pair and the column are a single bolted joint; the base carries station 0, the shared segment the rest. |
@@ -94,8 +94,8 @@ CAD files. Never print an assembly view as one fused part.
 | `lapbar_clamp_insert_0`–`_4` | 2 per side of the chosen size | Split sleeve that sets the bar size. The set spans 20 / 22.2 / 25.4 / 28.6 / 30 mm bar OD (`clamp_bar_od_mm`), and each bore is a slip fit over its own bar, so a sleeve doubles as its own coupon: try them on the bar, then print two more per side of whichever fits. One printed half serves both clamp halves (turn it 180° about the bar axis). End flanges trap it against the clamp's end faces; they are retention, not structure. |
 | `pushrod_servo_end`, `pushrod_middle_a`, `pushrod_middle_b`, `pushrod_sleeve`, `pushrod_inner` | 1 each per side (2 sets) | One 936.4 mm nominal rod per side with **210 mm of adjustment**; the same set serves both sides, turned 180° about its own axis on the left. Four joint bolts per row splice and two lock bolts on the inner row. The servo end has a 5 mm vent; keep it clear. |
 | `pushrod_gauge_0`–`_2` | 1 each | Sliding-fit coupons (tight/nominal/loose) for the 29.1 mm inner bar in the 40 mm sleeve. |
-| `servo_adapter_right`, `servo_adapter_left` | 1 each | Printed adapter from the RDS51150 **moving eight-hole crossplate** to the rod eye. Eight M2.5 through-bolts with broad 12 mm **metal** washers and nuts; two ears form a 12 mm clevis carrying the rod eye on an M6 pin in **double shear**. Printed handed; do not mirror one copy in the slicer. Fit/load-test prototype only. |
-| `servo_adapter_gauge` | 1 first | 3 mm coupon with the adapter's eight slotted passages; lay it on each purchased moving crossplate before printing adapters. |
+| `servo_adapter_right`, `servo_adapter_left` | 1 each | Printed adapter from the RDS51150 **moving crossplate** to the rod eye, with the arm heads' **six-hole** M2.5 pattern and Ø13.5 opening. 10 mm pad, two 9 mm full-length ear webs with Ø24 pivot bosses, a clevis floor and an inboard gusset; six M2.5 steel through-bolts, OD6 washers and AF5 nuts on the flat pad top. The 12 mm clevis carries the rod eye on an M6 pin in **double shear**. Printed handed; do not mirror one copy in the slicer. Fit/load-test prototype only. |
+| `servo_adapter_gauge` | 1 first | 3 mm coupon with the adapter's six slotted passages, Ø13.5 opening and orientation arrow; lay it on each purchased moving crossplate before printing adapters. |
 | `throttle_servo_mount` | 0 or 1 | Optional stationary-side fixture; four M6 base slots at nominal 76 × 40 pitch with ±4 mm X travel, and the same six-slot photo-derived rear-bracket pattern and Ø13.5 opening as the arm heads, with OD6 washers/AF5 nuts on its free back face. Installer-selected support, not a Toro panel pattern. |
 | `estop_bracket` | 1 | Ø22 mushroom panel with external gussets and two square U-bolts. |
 | `estop_contact_cover` | 1 | Removable rear guard; four M3 ×12 screws/nuts/washers; downward wire opening and tie slots. Not a sealed switch housing. |
@@ -242,7 +242,7 @@ hitch plate/chassis. No attachment strength or steering load rating is asserted 
    full-reverse face and outboard PARK with pins installed and removed.
 5. Four M6 per root thread into accessible **steel** M6 nuts slid into the
    root side slots, four M6 join each head, six M2.5 through-bolts secure each stationary
-   rear bracket and eight M2.5 through-bolts secure each adapter to its moving crossplate.
+   rear bracket and six M2.5 through-bolts secure each adapter to its moving crossplate.
    Each sway pad takes two side-loaded M5 nuts/bolts and each half-jaw takes two top-loaded
    M4 nuts/short set screws. Verify head and washer land, nut retention and the unpowered
    crossplate/adapter sweep against actual mower hardware.
@@ -358,21 +358,23 @@ See [installation steps and bottom-exploded views](INSTALL.md#7-camera-tower).
   purchased servo before printing heads, and never enlarge slots blindly, because the photo
   uncertainty is wider than the web around the opening allows. Each bolt must span the head's
   22.3 mm reach plus bracket, washer and nut; choose the length from the real stack.
-- **Moving side: eight-hole crossplate adapter.** `servo_adapter_right`/`_left` bolts to the broad
-  eight-hole U crossplate that the user identified as the **moving** member, not to the disc. Use
-  eight M2.5 through-bolts with broad **12 mm metal washers** and nuts; the passages are slots
-  (4 mm × 8 mm total centre travel) so the adapter can be centred on the photo-fitted pattern. Check
-  the plate with `servo_adapter_gauge` first. The adapter's two 6 mm ears form a 12 mm clevis
-  around the 8 mm rod eye (2 mm shim/trim space each side). An **M6 pin passes ear-eye-ear in
-  double shear**; never thread a printed ear.
+- **Moving side: six-hole crossplate adapter.** `servo_adapter_right`/`_left` bolts to the U
+  crossplate that is the **moving** member, not to the disc, using the **same six passages and
+  Ø13.5 opening as the arm heads**. Insert six M2.5 steel through-bolts from inside the U and put an
+  **OD6 × 1 washer and AF5 × 2.5 nut** on the flat 10 mm pad top; a ≤ Ø8 socket reaches every nut.
+  Each bolt spans the plate (2 mm capacity), the 10 mm pad, washer and nut: start at M2.5 × 18 and
+  choose the length from the real stack. The arrow on the pad points to the (±10, 18.5) row and the
+  clevis; if the gauge only fits the real plate turned 90°, stop and re-model rather than drilling.
+  The adapter's two 9 mm ears form a 12 mm clevis around the 8 mm rod eye (2 mm shim/trim space each
+  side). An **M6 pin passes ear-eye-ear in double shear**; never thread a printed ear.
 - **Face angle and clocking.** The crossplate face is at **45° in neutral** (levers centred) and
   **90° at full reverse**. The clevis is clocked +45° to the plate, so at the 45° neutral face the
   M6 pin is **straight above the shaft** at the 55 mm design radius, with a level rod; at 90° it
   swings rearward and down 16 mm, clear of dead centre. The 0° face is only an analysis bound, not a
-  confirmed forward stop. **Clocking witness:** the adapter pad carries a centre line and a 45°
-  tangent mark. With the levers hand-set to neutral and the rod pin removed, rotate the output by hand
-  until the crossplate face is at 45°, then bolt the adapter so the witness line points straight up
-  and the pin bore sits vertically above the shaft. Mark the spline/plate and the adapter together,
+  confirmed forward stop. **Clocking:** the bolt pattern fixes the adapter to the plate, so clocking
+  is set at the spline. With the levers hand-set to neutral and the rod pin removed, rotate the output
+  by hand until the crossplate face is at 45° and the pin bore sits vertically above the shaft, then
+  bolt the adapter. Mark the spline/plate and the adapter together,
   hand-move the lever to full reverse and confirm the face reaches 90° without the adapter, rod or
   pin touching the body or arm. Re-check the marks after every disassembly. Electrical command
   direction is calibrated separately for each motor; these angles are **not PWM values**.
@@ -402,7 +404,7 @@ See [installation steps and bottom-exploded views](INSTALL.md#7-camera-tower).
   servo reaction or a mower tip-over. Inspect for pad separation, nut-pocket tear-out and collar slip
   before and after every test.
 - **Load warning.** The listing's 12 V image gives up to **165 kg·cm stall torque (≈16 N·m)**: about
-  295 N at the 55 mm adapter pin radius, applied to the adapter, its eight M2.5 bolts, the six-bolt rear
+  295 N at the 55 mm adapter pin radius, applied to the adapter, its six M2.5 bolts, the six-bolt rear
   bracket joint and every downstream part. This is a stall-force warning, not a duty load. **No part of
   the servo mounting or adapter is qualified for powered steering**; a valid mesh and a clean hand fit
   prove geometry only.
@@ -483,7 +485,7 @@ remaining enclosure/accessory interfaces. These are geometry checks, not mower f
 load, fatigue, creep, ingress or powered-steering certification.
 
 The current full CAD build published **78 STL/preview pairs, 78 matching 3MFs and 17 views**;
-**78 clearance gates and 77 indexed material/contact gates passed**. This is geometry evidence,
+**78 clearance gates and 89 indexed material/contact gates passed**. This is geometry evidence,
 not confirmation that the purchased servo bracket, lens barrels, PCB component edges, mower
 mounting or outdoor sealing fit physically. Trial-fit the coupons before load testing.
 

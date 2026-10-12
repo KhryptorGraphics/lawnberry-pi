@@ -32,7 +32,7 @@ c_blue   = [0.25, 0.50, 0.80];
 servo_view_face_deg = servo_face_neutral_deg; // physical moving plate; not a PWM command
 servo_ghost_alpha = 0.3;                      // servo_adapter scene: full-reverse pose overlay
 
-// Servo shaft axis is LATERAL (+/-X): the moving eight-hole crossplate and its printed
+// Servo shaft axis is LATERAL (+/-X): the moving six-hole crossplate and its printed
 // adapter sweep the YZ plane and each rod runs FORWARD to its drive lever. Both pin axes
 // are X, so each rod moves in a fore-and-aft plane; the lap bar's extra outboard offset
 // is built into the rod.

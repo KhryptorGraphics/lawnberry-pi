@@ -128,7 +128,8 @@ arm_joint_bolt = 26;                   // half pitch of the four M6 joint bolts
 arm_joint_spigot = 30;
 arm_joint_spigot_h = 5;
 // Rear six-hole bracket face is normal to machine X. The long motor body hangs DOWN;
-// the user's MOVING attachment is the broad eight-hole U crossplate, not the disc.
+// the MOVING attachment is the U crossplate, not the disc; the printed adapter uses the
+// arm heads' six-hole pattern and opening (user direction 2026-10-12).
 // Vendor envelope and photo-derived capacities are first-article inputs, not measured fits.
 servo_case_l = 65;                     // long dimension along Z
 servo_case_w = 30;                     // short dimension along Y
@@ -146,18 +147,19 @@ servo_moving_plate_width_mm = 52;      // axial X; bracket drawing plus tape/pho
 servo_moving_plate_length_mm = 30;     // tangential V; first-article envelope
 servo_moving_face_r_mm = 25.4;         // radial position CAPACITY; verify metal crossplate seating
 servo_moving_plate_t_mm = 2;           // hardware clearance capacity; check actual plate
-servo_adapter_pad_w_mm = 64;
-servo_adapter_pad_l_mm = 44;
-servo_adapter_pad_t_mm = 6;
-servo_adapter_ear_t_mm = 6;
+servo_adapter_pad_w_mm = 64;           // X; the inboard ear grows out of its outboard edge
+servo_adapter_pad_l_mm = 44;           // tangential V
+servo_adapter_pad_t_mm = 10;           // flat washer/nut land over all six passages
+servo_adapter_ear_t_mm = 9;
 servo_adapter_ear_inner_mm = 40;       // X from moving crossplate centre
 servo_adapter_gap_mm = 12;            // 8 mm rod eye + 2 mm shim/trim space each side
-servo_adapter_pivot_od_mm = 18;
-servo_adapter_bolt_d_mm = 2.5;         // selected through-bolt capacity, not identified metal threads
-servo_adapter_bore_d_mm = 2.9;
-servo_adapter_washer_od_mm = 12;       // broad METAL washers for adjustable prototype passages
-function servo_moving_hole_points_mm() = [for (x=[-21,-9,9,21],v=[-9.5,9.5]) [x,v]];
-function servo_moving_hole_travel_mm() = [4,8]; // total centre travel; photo-fitting, not factory pitch
+servo_adapter_pivot_od_mm = 24;
+servo_adapter_floor_v_max_mm = 6;      // clevis floor stops well behind the rod-eye sweep
+// Same six passages, slot trim and Ø13.5 opening as the arm heads (servo_rear_hole_*):
+// bracket Y -> tangential V, bracket Z -> shaft axis +X (the 18.5 row toward the clevis).
+// Assumed orientation: only this one fits the 52 x 30 crossplate envelope. Check it
+// on the real moving plate with servo_adapter_gauge before printing adapters.
+function servo_adapter_hole_points_mm() = [for(p=servo_rear_hole_points_mm()) [p[1],p[0]]];
 servo_crank_r_band_mm = [40,70];
 servo_face_t = 6;
 servo_face_w = 70;                     // head land; six-hole rear bracket occupies only part of it
@@ -209,7 +211,7 @@ module servo_body_envelope(side,disc_d=servo_disc_d) {
                    servo_shaft_y(),arm_tip_z])
             rotate([0,90,0]) cylinder(d=disc_d,h=servo_disc_t);
 }
-// The confirmed moving member: eight-hole crossplate and its two bearing legs.
+// The moving member: U crossplate (six passages + opening, as the adapter) and two bearing legs.
 module servo_moving_bracket(side,face_angle_deg=servo_face_neutral_deg) {
     servo_adapter_pose(side,face_angle_deg) difference() {
         union() {
@@ -220,9 +222,11 @@ module servo_moving_bracket(side,face_angle_deg=servo_face_neutral_deg) {
                     cube([servo_moving_plate_t_mm,servo_moving_plate_length_mm,
                           servo_moving_face_r_mm+15]);
         }
-        for(p=servo_moving_hole_points_mm())
+        for(p=servo_adapter_hole_points_mm())
             translate([p[0],p[1],-servo_moving_plate_t_mm-1])
-                cylinder(d=servo_adapter_bore_d_mm,h=servo_moving_plate_t_mm+2);
+                cylinder(d=servo_mount_clear_d_mm,h=servo_moving_plate_t_mm+2);
+        translate([0,0,-servo_moving_plate_t_mm-1])
+            cylinder(d=servo_rear_clearance_d_mm,h=servo_moving_plate_t_mm+2);
         translate([-servo_moving_plate_width_mm/2-1,0,-servo_moving_face_r_mm])
             rotate([0,90,0]) cylinder(d=14.5,h=servo_moving_plate_width_mm+2);
     }

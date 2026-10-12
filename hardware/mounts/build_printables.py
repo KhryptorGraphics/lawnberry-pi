@@ -239,6 +239,7 @@ CONTACT_CHECKS = [
     *(("camera_rim_gasket_contact", index) for index in range(3)),
     *(("arm_servo_washer_land_contact", index) for index in range(12)),
     *(("servo_adapter_seat_contact", index) for index in range(2)),
+    *(("servo_adapter_washer_land_contact", index) for index in range(12)),
 ]
 
 

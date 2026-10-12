@@ -57,7 +57,8 @@ rods from the default estimate without that check.
 **Parts:** `arm_layer_center` × 1, `arm_layer_left/right` × 1 each, `arm_head_left/right` × 1 each,
 `arm_brace_bar_left_0/1/2` and `arm_brace_bar_right_0/1/2` × 1 each, eight M6 root bolts/nuts and washers,
 eight M6 head-joint bolts/nuts, twelve M5 pad bolts/nuts, twelve short M4 jaw screws/nuts,
-eight M2.5 servo screws/nuts, plus the `hitch_gauge` and `arm_layer_gauge` coupons.
+twelve M2.5 servo screws/nuts per servo (six rear bracket, six adapter), plus the `hitch_gauge` and
+`arm_layer_gauge` coupons.
 
 Each 60 × 70 mm solid root seats on the **top** of its sandwich-layer ear at z=0. Four
 vertical M6 bolts enter from the free underside of the 8 mm ear and terminate in
@@ -113,18 +114,19 @@ the printable layer without moving the measured servo station.
    put an OD6 × 1 washer and AF5 × 2.5 nut on the exposed flat **inboard X=0 face** and
    turn them with a slim (≤Ø8) socket from −X. No nut pocket inside the rib. Prove the
    pattern with `fit_gauge_2` on the purchased servo before printing heads.
-6. **Moving crossplate adapter:** `servo_adapter_right`/`_left` bolts to the broad eight-hole
-   U crossplate (the moving member, not the disc) with eight M2.5 through-bolts and broad
-   12 mm **metal** washers/nuts; the slotted passages allow the adapter to centre on the
-   photo-fitted pattern. Check the plate with `servo_adapter_gauge` first. The adapter's
-   12 mm clevis ears carry the 8 mm rod eye on an M6 pin in **double shear**; never thread
-   a printed ear. Face angle **45° = neutral** (levers centred), **90° = full reverse**.
-   Clocking witness: the pad has a centre line and a 45° tangent mark. With the rod pin
-   removed and levers hand-set to neutral, rotate the output until the crossplate face is
-   at 45°, bolt the adapter so the witness line points straight up and the pin bore sits
-   plumb above the shaft, mark the spline/plate together, hand-move to full reverse and
-   confirm the face reaches 90° without contact. Electrical command direction is calibrated
-   separately per motor; these angles are **not PWM values**.
+6. **Moving crossplate adapter:** `servo_adapter_right`/`_left` bolts to the U crossplate
+   (the moving member, not the disc) through the **same six photo-derived slots and Ø13.5
+   opening as the arm heads**. Insert six M2.5 steel through-bolts from inside the U and put
+   an OD6 × 1 washer and AF5 × 2.5 nut on the flat 10 mm pad top (≤Ø8 socket); start at
+   M2.5 × 18 and size from the real stack. Check the plate with `servo_adapter_gauge` first:
+   its arrow marks the (±10, 18.5) row, which faces the clevis. If it only fits turned 90°,
+   stop and re-model. The adapter's 9 mm ears form a 12 mm clevis carrying the 8 mm rod eye
+   on an M6 pin in **double shear**; never thread a printed ear. Face angle **45° = neutral**
+   (levers centred), **90° = full reverse**. With the rod pin removed and levers hand-set to
+   neutral, rotate the output until the crossplate face is at 45° and the pin bore sits plumb
+   above the shaft, bolt the adapter, mark the spline/plate together, hand-move to full
+   reverse and confirm the face reaches 90° without contact. Electrical command direction is
+   calibrated separately per motor; these angles are **not PWM values**.
 7. **Torque restraint remains a stop-work gate.** Auxiliary layer holes at x=±40
    are only candidate locations; the actual hitch plate has not been shown to
 

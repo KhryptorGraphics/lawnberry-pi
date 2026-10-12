@@ -565,17 +565,31 @@ else if(check == "rod_servo_sweep_band") union()
                       servo_pushrod_adapter_at(side,face,radius); }
         }
 // Moving plate angles are ABSOLUTE: 45 neutral, 90 full reverse.
+// Every M2.5 shank at both trim ends, plus the Ø13.5 opening, passes the full pad.
 else if(check == "servo_adapter_bolt_passages") intersection() {
     servo_pushrod_adapter();
-    for(p=servo_moving_hole_points_mm())
-        translate([p[0],p[1],-1])
-            cylinder(d=servo_adapter_bolt_d_mm,h=servo_adapter_pad_t_mm+2);
+    union() {
+        pts=servo_adapter_hole_points_mm();
+        for(i=[0:len(pts)-1]) {
+            travel=servo_rear_hole_travel_mm(i);
+            hull() for(dx=[-travel[1]/2,travel[1]/2],dv=[-travel[0]/2,travel[0]/2])
+                translate([pts[i][0]+dx,pts[i][1]+dv,-1])
+                    cylinder(d=servo_mount_bolt_d_mm,h=servo_adapter_pad_t_mm+2);
+        }
+        translate([0,0,-1])
+            cylinder(d=servo_rear_clearance_d_mm-0.5,h=servo_adapter_pad_t_mm+2);
+    }
 }
+// A nut driver reaches every nut at both trim ends: nothing above the flat pad land.
 else if(check == "servo_adapter_hardware_access") intersection() {
     servo_pushrod_adapter();
-    for(p=servo_moving_hole_points_mm())
-        translate([p[0],p[1],servo_adapter_pad_t_mm+0.02])
-            cylinder(d=servo_adapter_washer_od_mm,h=12);
+    pts=servo_adapter_hole_points_mm();
+    for(i=[0:len(pts)-1]) {
+        travel=servo_rear_hole_travel_mm(i);
+        hull() for(dx=[-travel[1]/2,travel[1]/2],dv=[-travel[0]/2,travel[0]/2])
+            translate([pts[i][0]+dx,pts[i][1]+dv,servo_adapter_pad_t_mm+0.02])
+                cylinder(d=servo_mount_tool_d_mm,h=60);
+    }
 }
 else if(check == "servo_adapter_sweep_clearance") union()
     for(side=[-1,1],face=fit_servo_faces()) intersection() {
@@ -806,6 +820,14 @@ else if(check == "servo_adapter_seat_contact") intersection() {
     servo_moving_bracket(side,servo_face_neutral_deg);
     servo_adapter_pose(side,servo_face_neutral_deg)
         translate([0,0,-0.2]) servo_pushrod_adapter();
+}
+// Each OD6 washer seats on solid pad material, both handed adapters.
+else if(check == "servo_adapter_washer_land_contact") intersection() {
+    side=contact_station<6 ? 1 : -1;
+    p=servo_adapter_hole_points_mm()[contact_station%6];
+    servo_pushrod_adapter_at(side);
+    servo_adapter_pose(side) translate([p[0],p[1],servo_adapter_pad_t_mm-0.1])
+        fit_ring(servo_mount_washer_od_mm,4.8,0.3);
 }
 else if(check == "sensor_pitch") {
     for(a=[60,90,120]) intersection() { camera_foot(); sensor_carrier_placed(a); }

@@ -12,8 +12,8 @@ The current mechanical BOM in `hardware.md` selects ANNIMOS/DSSERVO RDS51150SG
 12 V units; the printable stationary-side interface uses a **photo-derived six-hole
 rear bracket** (photo aa8b43) with **six M2.5 through-bolts** and OD6 washers/AF5
 nuts on the inboard face, not the listing's 24 × 24 mm drawing pattern. The moving
-member is the **broad eight-hole U crossplate** (photo 60883207) with a printed
-adapter in double shear on an M6 pin at 55 mm radius; face 45° = neutral, face 90°
+member is the U crossplate, carrying a printed adapter with the **same six-hole pattern
+as the arm heads**, in double shear on an M6 pin at 55 mm radius; face 45° = neutral, face 90°
 = full reverse. This still requires a purchased-revision fit check.
 The older ASMC-04B **24 V** power design in other platform documents is not
 The platform exposes the five discrete actuators below.
