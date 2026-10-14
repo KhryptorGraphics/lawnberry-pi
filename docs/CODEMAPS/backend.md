@@ -32,7 +32,7 @@ global rate limit → input_validation → security → api_key_auth → correla
 | robohat_service / motor_service | 733 / – | drivers/motor/robohat_rp2040 (UART) |
 | blade_service | – | drivers/blade/ibt4_gpio |
 | tractor_service | 318 | drivers/actuators/pca9685_driver (+ on_change hook → capture) |
-| camera_stream_service | 1160 | camera + drivers/ai/{hailo_driver,yolo_postprocess} |
+| camera_stream_service | 1250 | camera + drivers/ai/{hailo_driver,yolo26} (detector IPC: status/release/reload) |
 | ai_inference_service | – | drivers/ai/hailo_driver (HailoRT 4.24, hailo8l HEFs) |
 | capture_service + capture_integrity | 470 / 78 | gps/imu/commands/camera JSONL sessions, integrity gate |
 | thor_link_service | 172 | Pi↔Thor UDP protocol (models/thor_link.py); not yet wired into main.py |

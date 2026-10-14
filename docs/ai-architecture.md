@@ -108,7 +108,7 @@ Manages the Hailo 8L AI accelerator:
 ```python
 from backend.src.drivers.ai.hailo_driver import HailoDriver
 
-driver = HailoDriver({"model": "yolov8m"})
+driver = HailoDriver({"hef_path": "data/hailo/detector.hef", "input_format": "uint8"})
 await driver.initialize()
 
 # Check hardware availability
@@ -237,7 +237,10 @@ The Vision-Language-Action model is designed for lawn mowing:
 Models are stored in HEF format for Hailo, under `LAWNBERRY_DATA_DIR`
 (`/apps/lawnberry-pi/data` on the Pi, `./data` otherwise):
 - VLA model: `$LAWNBERRY_DATA_DIR/models/lawnmower_vla.hef`
-- Placeholder models: `$LAWNBERRY_DATA_DIR/hailo/{yolov8m,scdepthv3}.hef`
+- Object detector: `$LAWNBERRY_DATA_DIR/hailo/detector.hef`, a symlink to a
+  YOLO26 HEF with its `lawnberry-detector/1` sidecar (`<target stem>.json`);
+  swap the link and run `scripts/pi_detector_ctl.py reload` (no restart)
+- Depth placeholder: `$LAWNBERRY_DATA_DIR/hailo/scdepthv3.hef`
 
 Override either with an explicit `model_path` / `hef_path` in the service
 config. If no model is present, inference stays disabled and the service logs

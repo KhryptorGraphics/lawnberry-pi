@@ -383,3 +383,26 @@ Verified facts that change earlier assumptions:
   port-forwards (:2222, :1337) work only because of a new DNAT MASQUERADE rule on the AP.
 
 Not exercised: a real guard trip, a real HaLow drop/reconnect, a reboot of either Pi.
+
+## 2026-10-13 — YOLO26 Hailo detector path (code)
+
+The camera's on-board detector now runs YOLO26 HEFs compiled with DFC 3.34 + model zoo v2.19.1.
+The YOLOv8 decoder (`yolo_postprocess.py`) is gone; nothing else used it.
+
+- `drivers/ai/yolo26.py` decodes the six raw `one2one` head tensors (no on-chip NMS): sigmoid,
+  top-k anchors then top-k (anchor, class) pairs, threshold, letterbox inversion. Class names and
+  thresholds come from a `lawnberry-detector/1` JSON sidecar next to the *resolved* HEF, so
+  `data/hailo/detector.hef` is a symlink and a model swap is `ln -sfn` + `pi_detector_ctl.py reload`.
+- `HailoDriver` checks the HEF before opening the VDevice and releases the device on stop or a
+  failed init; `AIInferenceService` passes its explicit VLA path, so with no VLA model it never
+  claims `/dev/hailo0` from the camera. Input can be uint8 (camera/eval) via `format_type`.
+- Camera IPC gained `detector_status`, `release_detector`, `reload_detector`. A failed or released
+  detector stays down until reload (no per-frame retries); undecodable frames skip inference.
+- `limits.yaml` `ultrasonic_enabled: false` is now honored by `SensorManager` — the Pi had been
+  running this as an uncommitted local patch because the HaLow HAT owns GPIO4/9/10/11.
+- Workshop: `export_detector` re-exports `end2end=True` (the earlier smoke ONNX lacked the
+  `one2one` nodes the zoo parser ends at); `hailo_compile.sh` was rewritten for zoo v2.19.1 flags
+  (results land in the cwd; `--classes`/`--performance` do not apply to yolo26);
+  `scripts/eval_detector.py` compares HEF vs ONNX recall per class and applies the W5 gates.
+
+Detections feed nothing yet: hard-stop wiring waits for a real-data model that passes `--gate`.

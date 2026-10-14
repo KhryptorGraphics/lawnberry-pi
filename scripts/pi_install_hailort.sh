@@ -106,6 +106,12 @@ echo "$ident" | grep -q "Firmware Version: $VER" || die "firmware did not switch
 ldd /usr/local/bin/hailortcli | grep -q "libhailort.so.$VER" || die "hailortcli not on $VER lib"
 su_ dmesg | grep -i hailo | tail -10 || true
 
+# Copy pi_install_hailo_python.sh next to this script. A failure here must not
+# leave the services stopped, so it only warns.
+log "install hailo_platform $VER into the app venv"
+bash "$(dirname "$(readlink -f "$0")")/pi_install_hailo_python.sh" "$VER" "$BUILD" \
+  || log "WARNING: hailo_platform install failed; rerun pi_install_hailo_python.sh $VER"
+
 log "restart services"
 su_ systemctl start "${SVC[@]}" || true
 systemctl is-active "${SVC[@]}" || true

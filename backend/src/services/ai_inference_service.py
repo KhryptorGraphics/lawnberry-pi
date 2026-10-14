@@ -151,15 +151,15 @@ class AIInferenceService(HardwareDriver):
         """Initialize the AI inference service."""
         is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
 
-        # Initialize Hailo driver
-        hailo_config = {
-            "model": "yolov8m",  # Placeholder until VLA model available
-        }
-
         # Check if VLA model exists
         model_path = self.config.get("model_path") or self.default_model_path()
         if isinstance(model_path, str):
             model_path = Path(model_path)
+
+        # Always pass the explicit VLA path: with no model deployed the driver sees
+        # a missing HEF and never opens the VDevice, so it cannot take the Hailo
+        # from the camera's object detector.
+        hailo_config = {"hef_path": str(model_path)}
 
         # .exists() raises (rather than returning False) when a path component is
         # an unreachable mount -- treat that as "no model", same as absent.
@@ -173,7 +173,6 @@ class AIInferenceService(HardwareDriver):
             model_present = False
 
         if model_present:
-            hailo_config["hef_path"] = str(model_path)
             self._model_path = model_path
             self._model_loaded = True
         else:

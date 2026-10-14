@@ -53,9 +53,10 @@ are the things that can only be confirmed on-device.
 ## 6. Camera AI (Hailo)
 
 - [ ] `lawnberry-camera.service` owns the camera; backend consumes via IPC (per constitution).
-- [ ] With a real `yolov8m` HEF loaded, frames produce **real** detections
-      (`ai_annotations[*].objects` non-empty, `source: "hardware"`), using the new YOLOv8
-      post-processor. Verify against a known object in view.
+- [ ] With a YOLO26 HEF behind `data/hailo/detector.hef` (plus its sidecar spec),
+      `scripts/pi_detector_ctl.py status` reports `state: active`, `hardware_available: true`,
+      and frames carry `ai_annotations[*].source == "hardware"` with decoded `objects`.
+      Verify against a known object in view.
 - [ ] Inference latency (`processing_time_ms`) is within budget (Hailo 8L ~5–20 ms).
 
 ## 7. ACME / TLS (needs a real domain + DNS)

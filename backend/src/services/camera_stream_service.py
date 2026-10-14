@@ -21,6 +21,15 @@ from pathlib import Path
 from typing import Any
 
 from ..core.observability import observability
+from ..drivers.ai.hailo_driver import HailoDriver
+from ..drivers.ai.yolo26 import (
+    DetectorSpec,
+    Letterbox,
+    decode_yolo26,
+    letterbox,
+    letterbox_params,
+    load_detector_spec,
+)
 from ..models.camera_stream import (
     CameraFrame,
     CameraMode,
@@ -97,10 +106,14 @@ class CameraStreamService:
         self.hardware_available = False
 
         # AI frame analysis: an optional decoupled consumer analyzer plus a
-        # lazily-created on-board Hailo object detector.
+        # lazily-created on-board Hailo object detector (YOLO26 HEF + sidecar spec).
         self._ai_analyzer: Callable[[CameraFrame], Any] | None = None
         self._ai_detector: Any = None
         self._ai_detector_lock = asyncio.Lock()
+        self._ai_spec: DetectorSpec | None = None
+        # unloaded | active | failed | released
+        self._ai_detector_state: str = "unloaded"
+        self._ai_detector_error: str | None = None
 
         # Frame storage
         self.storage_dir = Path("data/camera")
@@ -364,6 +377,18 @@ class CameraStreamService:
         elif command == "stop_streaming":
             await self.stop_streaming()
             return {"status": "success", "message": "Streaming stopped"}
+
+        elif command == "detector_status":
+            return {"status": "success", "data": await self._detector_status()}
+
+        elif command == "release_detector":
+            await self._stop_ai_detector("released")
+            return {"status": "success", "data": await self._detector_status()}
+
+        elif command == "reload_detector":
+            await self._stop_ai_detector("unloaded")
+            await self._ensure_ai_detector()
+            return {"status": "success", "data": await self._detector_status()}
 
         else:
             return {"status": "error", "error": f"Unknown command: {command}"}
@@ -835,44 +860,111 @@ class CameraStreamService:
     def clear_ai_analyzer(self) -> None:
         self._ai_analyzer = None
 
-    async def _ensure_ai_detector(self):
-        """Lazily build and start a shared Hailo object-detection driver."""
-        if self._ai_detector is not None:
-            return self._ai_detector or None
-        async with self._ai_detector_lock:
-            if self._ai_detector is not None:
-                return self._ai_detector or None
-            try:
-                from ..drivers.ai.hailo_driver import HailoDriver
+    @staticmethod
+    def detector_hef_path() -> str:
+        """Active detector HEF (normally the ``detector.hef`` symlink)."""
+        return os.environ.get("LAWNBERRY_DETECTOR_HEF") or str(
+            HailoDriver.default_model_path("detector")
+        )
 
-                driver = HailoDriver({"model": "yolov8m"})
-                await driver.initialize()
+    async def _ensure_ai_detector(self):
+        """Lazily build and start the shared Hailo object-detection driver.
+
+        A failed or released detector stays down until ``reload_detector``.
+        """
+        if self._ai_detector_state in ("failed", "released"):
+            return None
+        if self._ai_detector_state == "active":
+            return self._ai_detector
+        async with self._ai_detector_lock:
+            if self._ai_detector_state != "unloaded":
+                return self._ai_detector if self._ai_detector_state == "active" else None
+            path = self.detector_hef_path()
+            driver = None
+            try:
+                if self.sim_mode:
+                    driver = HailoDriver({"hef_path": path})
+                    await driver.initialize()
+                    self._ai_spec = None
+                else:
+                    spec = load_detector_spec(path)
+                    driver = HailoDriver({"hef_path": path, "input_format": "uint8"})
+                    await driver.initialize()
+                    if not driver.hardware_available:
+                        raise RuntimeError(driver.hardware_error or "Hailo unavailable")
+                    info = driver.get_model_info()
+                    in_shape = tuple(next(iter(info.input_shapes.values())))[-3:]
+                    want = (spec.input_size, spec.input_size, 3)
+                    if in_shape != want:
+                        raise RuntimeError(f"HEF input {in_shape} != spec {want}")
+                    self._ai_spec = spec
                 await driver.start()
                 self._ai_detector = driver
-            except Exception as exc:  # pragma: no cover - hardware/init failure
+                self._ai_detector_state = "active"
+                self._ai_detector_error = None
+                logger.info(
+                    "On-board AI detector active: %s (%s)",
+                    path,
+                    self._ai_spec.tag if self._ai_spec else "simulation",
+                )
+            except Exception as exc:
                 logger.warning("On-board AI detector unavailable: %s", exc)
-                self._ai_detector = False  # sentinel: tried and failed
-        return self._ai_detector or None
+                if driver is not None:
+                    try:
+                        await driver.stop()
+                    except Exception:
+                        pass
+                self._ai_detector = None
+                self._ai_spec = None
+                self._ai_detector_state = "failed"
+                self._ai_detector_error = str(exc)
+        return self._ai_detector if self._ai_detector_state == "active" else None
+
+    async def _stop_ai_detector(self, next_state: str) -> None:
+        """Stop the detector driver (releasing /dev/hailo0) and set ``next_state``."""
+        async with self._ai_detector_lock:
+            driver = self._ai_detector
+            self._ai_detector = None
+            self._ai_spec = None
+            self._ai_detector_state = next_state
+            self._ai_detector_error = None
+            if driver is not None:
+                try:
+                    await driver.stop()
+                except Exception as exc:
+                    logger.warning("Error stopping AI detector: %s", exc)
+
+    async def _detector_status(self) -> dict[str, Any]:
+        driver = self._ai_detector
+        spec = self._ai_spec
+        return {
+            "state": self._ai_detector_state,
+            "hef_path": self.detector_hef_path(),
+            "tag": spec.tag if spec else None,
+            "classes": len(spec.class_names) if spec else None,
+            "conf_threshold": spec.conf_threshold if spec else None,
+            "hardware_available": bool(driver is not None and driver.hardware_available),
+            "error": self._ai_detector_error,
+            "health": await driver.health_check() if driver is not None else None,
+        }
 
     def _frame_to_tensor(self, frame: CameraFrame):
-        """Decode a frame into the detector's input tensor (zeros if undecodable)."""
+        """Decode a frame into ``(input tensor, Letterbox)``; None if undecodable."""
         import numpy as np
 
-        shape = (1, 640, 640, 3)
+        if self._ai_spec is None:
+            # Simulation: the simulated driver ignores its input.
+            return np.zeros((1, 640, 640, 3), np.uint8), letterbox_params(640, 640, 640)
         raw = frame.get_frame_data()
-        if raw:
-            try:
-                import cv2
+        if not raw or not OPENCV_AVAILABLE:
+            return None
+        bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+        if bgr is None:
+            return None
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        return letterbox(rgb, self._ai_spec.input_size)
 
-                arr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
-                if arr is not None:
-                    arr = cv2.resize(arr, (640, 640))
-                    return arr.reshape(shape).astype(np.float32) / 255.0
-            except Exception:
-                pass
-        return np.zeros(shape, dtype=np.float32)
-
-    def _decode_detections(self, result) -> list[dict[str, Any]]:
+    def _decode_detections(self, result, lb: Letterbox) -> list[dict[str, Any]]:
         """Turn a Hailo inference result into annotation dicts."""
         model = (getattr(result, "model_name", "") or "").lower()
         annotation: dict[str, Any] = {
@@ -882,22 +974,22 @@ class CameraStreamService:
         }
         if "sim" in model:
             # Representative output for simulation/testing (the sim tensor is
-            # random noise, so we don't run NMS over it).
+            # random noise, so we don't decode it).
             annotation["source"] = "simulation"
             annotation["objects"] = [
                 {"class": "grass", "confidence": 0.95, "bbox": [0, 0, 100, 100]},
             ]
         else:
-            # Real hardware inference: decode the YOLOv8 output tensor.
             annotation["source"] = "hardware"
+            spec = self._ai_spec
+            if spec is not None:
+                annotation["model"] = spec.tag
             try:
-                from ..drivers.ai.yolo_postprocess import decode_yolov8
-
-                outputs = getattr(result, "outputs", {}) or {}
-                tensor = next(iter(outputs.values())) if outputs else None
-                annotation["objects"] = decode_yolov8(tensor) if tensor is not None else []
+                if spec is None:
+                    raise RuntimeError("no detector spec loaded")
+                annotation["objects"] = decode_yolo26(result.outputs, spec, lb)
             except Exception as exc:
-                logger.debug("YOLO decode skipped: %s", exc)
+                logger.warning("YOLO26 decode failed: %s", exc)
                 annotation["objects"] = []
         return [annotation]
 
@@ -921,9 +1013,12 @@ class CameraStreamService:
             detector = await self._ensure_ai_detector()
             if detector is not None:
                 try:
-                    inference = await detector.infer(self._frame_to_tensor(frame))
-                    frame.ai_annotations = self._decode_detections(inference)
-                    return
+                    prepared = self._frame_to_tensor(frame)
+                    if prepared is not None:
+                        tensor, lb = prepared
+                        inference = await detector.infer(tensor)
+                        frame.ai_annotations = self._decode_detections(inference, lb)
+                        return
                 except Exception as exc:
                     logger.debug("AI inference skipped: %s", exc)
 
@@ -1097,6 +1192,10 @@ class CameraStreamService:
                     self.camera.release()
             except Exception as e:
                 logger.error(f"Error closing camera: {e}")
+
+        # Release the Hailo before the IPC socket goes away
+        if self._ai_detector is not None:
+            await self._stop_ai_detector("released")
 
         # Close IPC server
         if self.ipc_server:

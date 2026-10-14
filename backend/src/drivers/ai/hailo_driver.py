@@ -5,8 +5,7 @@ Supports both real hardware and simulation modes.
 
 Hardware Requirements:
 - Raspberry Pi 5 with Hailo-8L M.2 AI HAT+
-- Matching versions: driver 4.20.0, firmware 4.20.0, hailort 4.20.0
-  OR driver 4.21.0, firmware 4.21.0, hailort 4.21.0
+- Matching versions: driver 4.24.0, firmware 4.24.0, hailort 4.24.0
 
 Note: Version mismatches between kernel driver, firmware, and library will
 cause initialization to fail. Check versions with:
@@ -60,7 +59,7 @@ class HailoDriver(HardwareDriver):
     In simulation mode, generates mock inference results for testing.
 
     Supported models:
-    - yolov8m: Object detection (640x640 input)
+    - detector: YOLO26 object detection (see ``yolo26.py``)
     - scdepthv3: Monocular depth estimation
 
     Example usage:
@@ -74,16 +73,17 @@ class HailoDriver(HardwareDriver):
     # Default HEF model paths, relative to LAWNBERRY_DATA_DIR. Resolved at call
     # time (not import time) so the env var can be set after this module loads.
     DEFAULT_MODEL_RELPATHS = {
-        "yolov8m": "hailo/yolov8m.hef",
+        "detector": "hailo/detector.hef",
         "scdepthv3": "hailo/scdepthv3.hef",
     }
+    INPUT_FORMATS = ("float32", "uint8")
 
     @staticmethod
     def default_model_path(model_name: str) -> Path:
         """Default HEF location for `model_name`, under `LAWNBERRY_DATA_DIR`."""
         base = os.getenv("LAWNBERRY_DATA_DIR", "./data")
         relpath = HailoDriver.DEFAULT_MODEL_RELPATHS.get(
-            model_name, HailoDriver.DEFAULT_MODEL_RELPATHS["yolov8m"]
+            model_name, HailoDriver.DEFAULT_MODEL_RELPATHS["detector"]
         )
         return Path(base) / relpath
 
@@ -103,8 +103,13 @@ class HailoDriver(HardwareDriver):
         # Get HEF path from config or use default
         self._hef_path = self.config.get("hef_path")
         if self._hef_path is None:
-            model_name = self.config.get("model", "yolov8m")
+            model_name = self.config.get("model", "detector")
             self._hef_path = str(self.default_model_path(model_name))
+        self._input_format = self.config.get("input_format", "float32")
+        if self._input_format not in self.INPUT_FORMATS:
+            raise ValueError(
+                f"input_format must be one of {self.INPUT_FORMATS}, got {self._input_format!r}"
+            )
 
     async def initialize(self) -> None:
         """Initialize Hailo device and load model."""
@@ -121,16 +126,7 @@ class HailoDriver(HardwareDriver):
         # Determine model type from HEF path
         hef_name = Path(self._hef_path).stem.lower()
 
-        if "yolo" in hef_name:
-            self._model_info = HailoModelInfo(
-                name="yolov8m_sim",
-                hef_path=self._hef_path,
-                input_names=["images"],
-                input_shapes={"images": (1, 640, 640, 3)},
-                output_names=["output0"],
-                output_shapes={"output0": (1, 84, 8400)},  # YOLOv8m output format
-            )
-        elif "depth" in hef_name:
+        if "depth" in hef_name:
             self._model_info = HailoModelInfo(
                 name="scdepthv3_sim",
                 hef_path=self._hef_path,
@@ -165,6 +161,7 @@ class HailoDriver(HardwareDriver):
             from hailo_platform import (
                 HEF,
                 ConfigureParams,
+                FormatType,
                 HailoStreamInterface,
                 InferVStreams,
                 InputVStreamParams,
@@ -174,12 +171,13 @@ class HailoDriver(HardwareDriver):
 
             lib_version = getattr(hailo_platform, "__version__", "unknown")
 
-            # Create virtual device
-            self._device = VDevice()
-
-            # Load HEF model
+            # Check the model before claiming the device, so a missing HEF never
+            # holds /dev/hailo0.
             if not Path(self._hef_path).exists():
                 raise FileNotFoundError(f"HEF file not found: {self._hef_path}")
+
+            # Create virtual device
+            self._device = VDevice()
 
             hef = HEF(self._hef_path)
             network_groups = hef.get_network_group_names()
@@ -202,12 +200,12 @@ class HailoDriver(HardwareDriver):
                 output_shapes={info.name: tuple(info.shape) for info in output_infos},
             )
 
-            # Create inference pipeline
-            input_params = InputVStreamParams.make_from_network_group(
-                self._network_group, quantized=False
-            )
-            output_params = OutputVStreamParams.make_from_network_group(
-                self._network_group, quantized=False
+            # Create inference pipeline: uint8 input feeds the HEF's own
+            # normalization; outputs are always dequantized to float32.
+            in_format = FormatType.UINT8 if self._input_format == "uint8" else FormatType.FLOAT32
+            input_params = InputVStreamParams.make(self._network_group, format_type=in_format)
+            output_params = OutputVStreamParams.make(
+                self._network_group, format_type=FormatType.FLOAT32
             )
             self._infer_pipeline = InferVStreams(self._network_group, input_params, output_params)
 
@@ -220,6 +218,7 @@ class HailoDriver(HardwareDriver):
             }
 
         except Exception as e:
+            self._release_device()
             self._hw_available = False
             self._hw_error = str(e)
             self._version_info = {
@@ -228,6 +227,16 @@ class HailoDriver(HardwareDriver):
             }
             # Fall back to simulation
             await self._init_simulation()
+
+    def _release_device(self) -> None:
+        """Release the VDevice so another process can claim /dev/hailo0."""
+        if self._device is not None:
+            try:
+                self._device.release()
+            except Exception:
+                pass
+        self._device = None
+        self._network_group = None
 
     async def start(self) -> None:
         """Start the driver (enter inference mode)."""
@@ -244,6 +253,7 @@ class HailoDriver(HardwareDriver):
             except Exception:
                 pass
         self._infer_pipeline = None
+        self._release_device()
 
     async def health_check(self) -> dict[str, Any]:
         """Return health snapshot for /health endpoint."""
@@ -329,9 +339,6 @@ class HailoDriver(HardwareDriver):
                 depth = np.tile(y_coords, (1, w))
                 depth = depth + np.random.uniform(-0.05, 0.05, (h, w))
                 outputs[name] = depth.reshape(shape).astype(np.float32)
-            elif "yolo" in self._model_info.name.lower():
-                # Simulate YOLO detection output
-                outputs[name] = np.random.randn(*shape).astype(np.float32) * 0.1
             else:
                 # Generic output
                 outputs[name] = np.random.randn(*shape).astype(np.float32)
@@ -346,6 +353,11 @@ class HailoDriver(HardwareDriver):
     def hardware_available(self) -> bool:
         """Check if real hardware is available."""
         return self._hw_available
+
+    @property
+    def hardware_error(self) -> str | None:
+        """Why hardware init failed (None when it succeeded or was not attempted)."""
+        return self._hw_error
 
 
 __all__ = ["HailoDriver", "HailoInferenceResult", "HailoModelInfo"]
