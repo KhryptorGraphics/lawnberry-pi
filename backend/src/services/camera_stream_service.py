@@ -114,6 +114,8 @@ class CameraStreamService:
         # unloaded | active | failed | released
         self._ai_detector_state: str = "unloaded"
         self._ai_detector_error: str | None = None
+        # Single worker: the Hailo pipeline is not re-entrant.
+        self._ai_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hailo")
 
         # Frame storage
         self.storage_dir = Path("data/camera")
@@ -625,7 +627,9 @@ class CameraStreamService:
                     return None
 
                 height, width = frame.shape[:2]
-                encoded = self._encode_numpy_frame_to_jpeg(frame, color_space="RGB")
+                # Picamera2 "RGB888" arrays are ordered [B, G, R] (libcamera names
+                # formats by little-endian word order), i.e. already OpenCV BGR.
+                encoded = self._encode_numpy_frame_to_jpeg(frame, color_space="BGR")
                 if encoded:
                     return encoded, (width, height)
 
@@ -993,6 +997,14 @@ class CameraStreamService:
                 annotation["objects"] = []
         return [annotation]
 
+    def _detect_blocking(self, frame: CameraFrame, detector) -> list[dict[str, Any]]:
+        """Preprocess, infer and decode one frame on the AI executor thread."""
+        prepared = self._frame_to_tensor(frame)
+        if prepared is None:
+            return []
+        tensor, lb = prepared
+        return self._decode_detections(detector.infer_blocking(tensor), lb)
+
     async def _process_frame_for_ai(self, frame: CameraFrame):
         """Run AI analysis on a frame and attach annotations.
 
@@ -1013,12 +1025,22 @@ class CameraStreamService:
             detector = await self._ensure_ai_detector()
             if detector is not None:
                 try:
-                    prepared = self._frame_to_tensor(frame)
-                    if prepared is not None:
-                        tensor, lb = prepared
+                    if self._ai_spec is None:
+                        # Simulation: the simulated driver is cheap and async.
+                        tensor, lb = self._frame_to_tensor(frame)
                         inference = await detector.infer(tensor)
                         frame.ai_annotations = self._decode_detections(inference, lb)
                         return
+                    # Hardware: JPEG decode + letterbox + inference + decode take
+                    # ~35-50 ms; keep them off the event loop. The lock keeps
+                    # release/reload from stopping the driver mid-inference.
+                    async with self._ai_detector_lock:
+                        if self._ai_detector is detector:
+                            loop = asyncio.get_running_loop()
+                            frame.ai_annotations = await loop.run_in_executor(
+                                self._ai_executor, self._detect_blocking, frame, detector
+                            )
+                            return
                 except Exception as exc:
                     logger.debug("AI inference skipped: %s", exc)
 
@@ -1208,6 +1230,7 @@ class CameraStreamService:
 
         # Shutdown executor
         self.executor.shutdown(wait=True)
+        self._ai_executor.shutdown(wait=True)
 
         logger.info("Camera service shutdown complete")
 

@@ -301,36 +301,45 @@ class HailoDriver(HardwareDriver):
         Returns:
             HailoInferenceResult with output tensors and timing info.
         """
+        if self._hw_available and self._infer_pipeline:
+            return self.infer_blocking(input_data)
+        input_dict = self._input_dict(input_data)
+        start_time = time.perf_counter()
+        outputs = await self._simulate_inference(input_dict)
+        return self._result(outputs, input_dict, start_time)
+
+    def infer_blocking(
+        self, input_data: np.ndarray | dict[str, np.ndarray]
+    ) -> HailoInferenceResult:
+        """Hardware inference on the calling thread (no event loop required).
+
+        For running inference in an executor; the caller must keep ``stop()``
+        from running concurrently.
+        """
+        if not (self._hw_available and self._infer_pipeline):
+            raise RuntimeError("Hailo hardware pipeline is not running")
+        input_dict = self._input_dict(input_data)
+        start_time = time.perf_counter()
+        results = self._infer_pipeline.infer(input_dict)
+        outputs = {name: results[name] for name in self._model_info.output_names}
+        return self._result(outputs, input_dict, start_time)
+
+    def _input_dict(self, input_data: np.ndarray | dict[str, np.ndarray]) -> dict:
         if not self.initialized or not self.running:
             raise RuntimeError("Driver not initialized or not running")
-
         if not self._model_info:
             raise RuntimeError("No model loaded")
-
-        # Normalize input to dict format
         if isinstance(input_data, np.ndarray):
-            input_name = self._model_info.input_names[0]
-            input_dict = {input_name: input_data}
-        else:
-            input_dict = input_data
+            return {self._model_info.input_names[0]: input_data}
+        return input_data
 
-        start_time = time.perf_counter()
-
-        if self._hw_available and self._infer_pipeline:
-            # Real hardware inference
-            results = self._infer_pipeline.infer(input_dict)
-            outputs = {name: results[name] for name in self._model_info.output_names}
-        else:
-            # Simulation inference
-            outputs = await self._simulate_inference(input_dict)
-
+    def _result(
+        self, outputs: dict[str, np.ndarray], input_dict: dict, start_time: float
+    ) -> HailoInferenceResult:
         inference_time_ms = (time.perf_counter() - start_time) * 1000
-
-        # Update statistics
         self._inference_count += 1
         self._total_inference_time_ms += inference_time_ms
         self._last_inference_time_ms = inference_time_ms
-
         return HailoInferenceResult(
             outputs=outputs,
             inference_time_ms=inference_time_ms,

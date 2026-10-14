@@ -135,3 +135,42 @@ async def test_detector_status_keys():
     assert set(resp["data"]) == STATUS_KEYS
     assert resp["data"]["health"] == {"driver": "stub"}
     assert resp["data"]["hardware_available"] is True
+
+
+async def test_release_waits_for_in_flight_hardware_inference():
+    """release_detector must not stop the driver while a frame is inside infer_blocking."""
+    import asyncio
+    import threading
+
+    from backend.src.drivers.ai.yolo26 import DetectorSpec, letterbox_params
+
+    events: list[str] = []
+    entered = threading.Event()
+
+    class BlockingDriver(_StubDriver):
+        def infer_blocking(self, tensor):
+            entered.set()
+            threading.Event().wait(0.2)
+            events.append("infer_done")
+            return "result"
+
+        async def stop(self):
+            events.append("stop")
+
+    service = CameraStreamService(sim_mode=True)
+    service._ai_detector = BlockingDriver()
+    service._ai_detector_state = "active"
+    service._ai_spec = DetectorSpec("yolo26", 640, ("a",), 0.25, 100, "t")
+    lb = letterbox_params(640, 640, 640)
+    service._frame_to_tensor = lambda frame: ("tensor", lb)
+    service._decode_detections = lambda result, lb: [{"result": result}]
+
+    frame = _frame()
+    task = asyncio.create_task(service._process_frame_for_ai(frame))
+    await asyncio.get_running_loop().run_in_executor(None, entered.wait, 2)
+    resp = await service._handle_client_message({"command": "release_detector"})
+    await task
+
+    assert events == ["infer_done", "stop"]
+    assert resp["data"]["state"] == "released"
+    assert frame.ai_annotations == [{"result": "result"}]

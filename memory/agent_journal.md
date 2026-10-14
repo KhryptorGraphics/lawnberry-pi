@@ -406,3 +406,20 @@ The YOLOv8 decoder (`yolo_postprocess.py`) is gone; nothing else used it.
   `scripts/eval_detector.py` compares HEF vs ONNX recall per class and applies the W5 gates.
 
 Detections feed nothing yet: hard-stop wiring waits for a real-data model that passes `--gate`.
+
+First runs on the real Hailo (zoo `yolo26s_h8l.hef`, 41.6 FPS / 20.4 ms in `hailortcli benchmark`)
+turned up three defects that no simulated test could have shown:
+
+- **The network group was never activated.** In pyhailort, `VDevice()` defaults to no scheduler,
+  so `InferVStreams.infer` failed with `NETWORK_GROUP_NOT_ACTIVATED`. `HailoDriver` had never run
+  on hardware before this. `start()` now enters the vstreams and then `activate()`; `stop()`
+  unwinds both. After the fix, bus.jpg matched all 5 CPU reference boxes (IoU 0.957–0.991).
+- **Every live JPEG had red and blue swapped.** Picamera2 `RGB888` arrays are [B,G,R], but the
+  capture encoded them as RGB. A live frame from the shed showed blue wood. The encode now uses
+  `color_space="BGR"`. Any W1 capture JPEGs written before this have R/B swapped.
+- **The per-frame AI chain blocked the event loop for 51 ms of the 66 ms frame budget**:
+  imdecode 7.6, infer 21.7, decode 18.2. The decode now picks top-k on raw logits, since sigmoid is
+  monotonic (3.1 ms, identical output). Preprocess + infer + decode now run on a one-thread
+  executor while holding the detector lock, so release/reload cannot stop the driver mid-frame.
+  Chain: 36.8 ms median. The worst event-loop stall is 26 ms, apparently because HailoRT holds
+  the GIL during `infer`.

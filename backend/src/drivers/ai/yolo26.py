@@ -18,6 +18,7 @@ numpy only; ``cv2`` is imported lazily inside :func:`letterbox`.
 
 from __future__ import annotations
 
+import functools
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -155,33 +156,39 @@ def _pair_levels(
     return [(boxes[hw], scores[hw]) for hw in sorted(boxes, key=lambda s: (-s[0], -s[1]))]
 
 
+@functools.lru_cache(maxsize=16)
+def _grid_centers(h: int, w: int) -> np.ndarray:
+    """Cell centres ``(h*w, 2)`` as ``(x, y)`` in grid units, row-major."""
+    gy, gx = np.meshgrid(np.arange(h) + 0.5, np.arange(w) + 0.5, indexing="ij")
+    centers = np.stack((gx.ravel(), gy.ravel()), axis=1).astype(np.float32)
+    centers.flags.writeable = False
+    return centers
+
+
 def decode_yolo26(
     outputs: Mapping[str, np.ndarray], spec: DetectorSpec, lb: Letterbox
 ) -> list[dict[str, Any]]:
-    """Decode raw YOLO26 head tensors into detections in source-image pixels."""
-    nc = len(spec.class_names)
-    all_boxes = []
-    all_scores = []
-    for box_t, cls_t in _pair_levels(outputs, nc):
-        h, w = box_t.shape[:2]
-        stride = spec.input_size / h
-        gy, gx = np.meshgrid(np.arange(h) + 0.5, np.arange(w) + 0.5, indexing="ij")
-        d = box_t.astype(np.float32)
-        xyxy = (
-            np.stack((gx - d[..., 0], gy - d[..., 1], gx + d[..., 2], gy + d[..., 3]), axis=-1)
-            * stride
-        )
-        all_boxes.append(xyxy.reshape(-1, 4))
-        logits = cls_t.astype(np.float32).reshape(-1, nc)
-        all_scores.append(1.0 / (1.0 + np.exp(-logits)))
-    boxes = np.concatenate(all_boxes)
-    scores = np.concatenate(all_scores)
+    """Decode raw YOLO26 head tensors into detections in source-image pixels.
 
-    n = boxes.shape[0]
+    Sigmoid is monotonic, so the top-k anchors are chosen on raw max logits and
+    only those ``k x nc`` scores and the finally selected boxes are computed.
+    """
+    nc = len(spec.class_names)
+    levels = _pair_levels(outputs, nc)
+    logits = np.concatenate([c.reshape(-1, nc) for _, c in levels]).astype(np.float32, copy=False)
+    dists = np.concatenate([b.reshape(-1, 4) for b, _ in levels])
+    centers = np.concatenate([_grid_centers(*b.shape[:2]) for b, _ in levels])
+    strides = np.concatenate(
+        [np.full(b.shape[0] * b.shape[1], spec.input_size / b.shape[0]) for b, _ in levels]
+    )
+
+    n = logits.shape[0]
     k = min(spec.max_det, n)
     # Top-k anchors by best class score, then top-k (anchor, class) pairs among them.
-    anchor_idx = np.argsort(-scores.max(axis=1), kind="stable")[:k]
-    cand = scores[anchor_idx].reshape(-1)
+    best = logits.max(axis=1)
+    anchor_idx = np.argpartition(-best, k - 1)[:k] if k < n else np.arange(n)
+    anchor_idx = anchor_idx[np.argsort(-best[anchor_idx], kind="stable")]
+    cand = (1.0 / (1.0 + np.exp(-logits[anchor_idx]))).reshape(-1)
     pair_idx = np.argsort(-cand, kind="stable")[:k]
     pair_scores = cand[pair_idx]
     keep = pair_scores >= spec.conf_threshold
@@ -190,7 +197,10 @@ def decode_yolo26(
     sel_anchor = anchor_idx[pair_idx // nc]
     sel_class = pair_idx % nc
 
-    out = boxes[sel_anchor].copy()
+    c = centers[sel_anchor]
+    d = dists[sel_anchor].astype(np.float32)
+    s = strides[sel_anchor, None]
+    out = np.concatenate((c - d[:, :2], c + d[:, 2:]), axis=1) * s
     out[:, [0, 2]] = np.clip((out[:, [0, 2]] - lb.pad_x) / lb.scale, 0, lb.src_w)
     out[:, [1, 3]] = np.clip((out[:, [1, 3]] - lb.pad_y) / lb.scale, 0, lb.src_h)
 
