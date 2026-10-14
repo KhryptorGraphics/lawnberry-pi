@@ -6,7 +6,8 @@
 #   scripts/hailo_compile.sh --tag smoke [--calib DIR] [--gpu N] [--dry-run]
 #     --calib  calibration images (>= 1024, the zoo alls calibset_size); default SDG v1
 #     --gpu    CUDA_VISIBLE_DEVICES under PCI_BUS_ID order (0 P100, 1 3080 Ti, 2 V100);
-#              "" compiles on CPU (the DFC lowers the optimization level by itself)
+#              "" compiles on CPU: much slower, since the zoo alls pins
+#              optimization_level=4 with adaround; check compile.log for the level used
 #
 # Inputs: $LB/data/models/yolo26s_<tag>/weights/best.onnx, exported end2end by
 # `python -m workshop.export_detector onnx --tag <tag>` (the zoo yolo26 parser ends
@@ -106,7 +107,7 @@ fi
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES="$GPU"
 echo "[compile] CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES' (PCI_BUS_ID order)"
-run "$ENV/bin/python" -c 'import hailo_sdk_client, tensorflow as tf; g=tf.config.list_physical_devices("GPU"); print("GPU", g); import numpy; tf.linalg.matmul(tf.ones((256,256)), tf.ones((256,256))).numpy()'
+run "$ENV/bin/python" -c 'import os, hailo_sdk_client, tensorflow as tf; g=tf.config.list_physical_devices("GPU"); print("GPU", g); assert g or os.environ["CUDA_VISIBLE_DEVICES"] == "", "no GPU visible (pass --gpu \"\" to compile on CPU)"; tf.linalg.matmul(tf.ones((256,256)), tf.ones((256,256))).numpy()'
 if [[ $DRY -eq 0 ]]; then
   zoo_version="$("$ENV/bin/hailomz" --version 2>&1 | tail -1)"
   echo "[compile] hailomz --version: $zoo_version"
