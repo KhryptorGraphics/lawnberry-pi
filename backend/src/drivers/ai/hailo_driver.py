@@ -92,6 +92,7 @@ class HailoDriver(HardwareDriver):
         self._device = None
         self._network_group = None
         self._infer_pipeline = None
+        self._activation = None
         self._model_info: HailoModelInfo | None = None
         self._inference_count = 0
         self._total_inference_time_ms = 0.0
@@ -239,14 +240,26 @@ class HailoDriver(HardwareDriver):
         self._network_group = None
 
     async def start(self) -> None:
-        """Start the driver (enter inference mode)."""
+        """Start the driver (enter inference mode).
+
+        The default VDevice has no scheduler, so the network group must be
+        activated explicitly while the vstreams are open.
+        """
         if self._hw_available and self._infer_pipeline:
             self._infer_pipeline.__enter__()
+            self._activation = self._network_group.activate(self._network_group.create_params())
+            self._activation.__enter__()
         self.running = True
 
     async def stop(self) -> None:
         """Stop the driver and release resources."""
         self.running = False
+        if self._activation is not None:
+            try:
+                self._activation.__exit__(None, None, None)
+            except Exception:
+                pass
+            self._activation = None
         if self._hw_available and self._infer_pipeline:
             try:
                 self._infer_pipeline.__exit__(None, None, None)

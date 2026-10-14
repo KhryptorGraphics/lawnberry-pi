@@ -178,11 +178,13 @@ async def run_predict(a, spec: DetectorSpec) -> int:
         )
         status = "ok" if best >= a.min_iou else "MISSING"
         print(
-            f"[eval] ref {r['class']:<12} conf {r['confidence']:.2f} best IoU {best:.3f} {status}"
+            f"[eval] ref {r['class']:<12} conf {r['confidence']:.2f} best IoU {best:.3f} {status}",
+            file=sys.stderr,
         )
         if best < a.min_iou:
             failures.append(r)
-    print(f"[eval] expect: {len(ref) - len(failures)}/{len(ref)} reference boxes matched")
+    matched = len(ref) - len(failures)
+    print(f"[eval] expect: {matched}/{len(ref)} reference boxes matched", file=sys.stderr)
     return 1 if failures else 0
 
 
