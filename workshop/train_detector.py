@@ -13,8 +13,8 @@ deterministic: md5(filename) % 10 < 9 -> train. SDG frames NEVER appear in val
 imagery.
 
 Writes ``$LB/data/models/yolo26s_<tag>/``: ``dataset/data.yaml``, weights,
-``best.onnx`` (opset 17, simplified), and ``run_manifest.json`` (split
-assignment counts + per-class recall vs gates).
+``best.onnx`` (opset 17, simplified, end2end for the Hailo zoo yolo26 parser),
+and ``run_manifest.json`` (split assignment counts + per-class recall vs gates).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import shutil
 from pathlib import Path
 
 from workshop.classes import CLASSES, NAMES, RECALL_GATE
+from workshop.export_detector import export_hailo_onnx
 
 LB = Path(os.environ.get("LB", str(Path.home() / "nvme2" / "lawnberrypiserver")))
 IMG_EXTS = (".jpg", ".jpeg", ".png")
@@ -210,10 +211,7 @@ def main() -> None:
             f"{'PASS' if ok else 'BELOW GATE'}"
         )
 
-    onnx_path = model.export(format="onnx", opset=17, simplify=True, device=a.device)
-    import onnx
-
-    onnx.checker.check_model(onnx.load(str(onnx_path)), full_check=False)
+    onnx_path = export_hailo_onnx(best, device=a.device)
 
     manifest = {
         "schema": "train-v1",
@@ -235,6 +233,7 @@ def main() -> None:
         "gate_failures": failures,
         "onnx": str(onnx_path),
         "onnx_opset": 17,
+        "onnx_end2end": True,
     }
     (run_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"run manifest + ONNX: {run_dir}")
