@@ -116,6 +116,7 @@ class CameraStreamService:
         self._ai_detector_error: str | None = None
         # Single worker: the Hailo pipeline is not re-entrant.
         self._ai_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hailo")
+        self._ai_infer_failures = 0
 
         # Frame storage
         self.storage_dir = Path("data/camera")
@@ -986,16 +987,19 @@ class CameraStreamService:
         else:
             annotation["source"] = "hardware"
             spec = self._ai_spec
-            if spec is not None:
-                annotation["model"] = spec.tag
-            try:
-                if spec is None:
-                    raise RuntimeError("no detector spec loaded")
-                annotation["objects"] = decode_yolo26(result.outputs, spec, lb)
-            except Exception as exc:
-                logger.warning("YOLO26 decode failed: %s", exc)
-                annotation["objects"] = []
+            if spec is None:
+                raise RuntimeError("no detector spec loaded")
+            annotation["model"] = spec.tag
+            # Decode errors propagate to _note_inference_failure (rate-limited).
+            annotation["objects"] = decode_yolo26(result.outputs, spec, lb)
         return [annotation]
+
+    def _note_inference_failure(self, exc: Exception) -> None:
+        """Expose a hardware inference failure in detector_status; log 1st and every 100th."""
+        self._ai_infer_failures += 1
+        self._ai_detector_error = f"inference failed ({self._ai_infer_failures}x): {exc}"
+        if self._ai_infer_failures == 1 or self._ai_infer_failures % 100 == 0:
+            logger.warning("AI inference failed (%dx): %s", self._ai_infer_failures, exc)
 
     def _detect_blocking(self, frame: CameraFrame, detector) -> list[dict[str, Any]]:
         """Preprocess, infer and decode one frame on the AI executor thread."""
@@ -1040,9 +1044,11 @@ class CameraStreamService:
                             frame.ai_annotations = await loop.run_in_executor(
                                 self._ai_executor, self._detect_blocking, frame, detector
                             )
+                            self._ai_infer_failures = 0
+                            self._ai_detector_error = None
                             return
                 except Exception as exc:
-                    logger.debug("AI inference skipped: %s", exc)
+                    self._note_inference_failure(exc)
 
             frame.ai_annotations = []
 

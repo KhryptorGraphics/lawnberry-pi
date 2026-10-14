@@ -99,7 +99,9 @@ def class_names_from(path: Path) -> list[str]:
     return [str(n) for n in names]
 
 
-def build_spec(names_from: Path, hef: Path, tag: str, calib: Path | None) -> dict:
+def build_spec(
+    names_from: Path, hef: Path, tag: str, calib: Path | None, model_script: str | None = None
+) -> dict:
     return {
         "schema": SPEC_SCHEMA,
         "arch": "yolo26",
@@ -114,6 +116,7 @@ def build_spec(names_from: Path, hef: Path, tag: str, calib: Path | None) -> dic
         "dfc_version": DFC_VERSION,
         "model_zoo_version": MODEL_ZOO_VERSION,
         "calibration_dir": str(calib) if calib else None,
+        "model_script": model_script,
         "created_utc": datetime.now(UTC).isoformat(timespec="seconds"),
     }
 
@@ -168,7 +171,8 @@ def cmd_check(a) -> int:
 
 
 def cmd_spec(a) -> int:
-    spec = build_spec(Path(a.names_from), Path(a.hef), a.tag, Path(a.calib) if a.calib else None)
+    calib = Path(a.calib) if a.calib else None
+    spec = build_spec(Path(a.names_from), Path(a.hef), a.tag, calib, a.model_script)
     _write_json(Path(a.out), spec)
     print(f"spec ({len(spec['class_names'])} classes, tag {a.tag}): {a.out}")
     return 0
@@ -199,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--hef", required=True)
     p.add_argument("--tag", required=True)
     p.add_argument("--calib")
+    p.add_argument("--model-script", help="alls used for the compile (zoo default or derived)")
     p.add_argument("--out", required=True)
     p.set_defaults(fn=cmd_spec)
 

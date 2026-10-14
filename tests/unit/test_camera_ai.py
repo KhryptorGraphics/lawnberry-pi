@@ -174,3 +174,37 @@ async def test_release_waits_for_in_flight_hardware_inference():
     assert events == ["infer_done", "stop"]
     assert resp["data"]["state"] == "released"
     assert frame.ai_annotations == [{"result": "result"}]
+
+
+async def test_hardware_inference_failure_is_reported_then_cleared():
+    from backend.src.drivers.ai.yolo26 import DetectorSpec, letterbox_params
+
+    class FlakyDriver(_StubDriver):
+        fail = True
+
+        def infer_blocking(self, tensor):
+            if self.fail:
+                raise RuntimeError("HAILO_TIMEOUT")
+            return "ok"
+
+    service = CameraStreamService(sim_mode=True)
+    driver = FlakyDriver()
+    service._ai_detector = driver
+    service._ai_detector_state = "active"
+    service._ai_spec = DetectorSpec("yolo26", 640, ("a",), 0.25, 100, "t")
+    lb = letterbox_params(640, 640, 640)
+    service._frame_to_tensor = lambda frame: ("tensor", lb)
+    service._decode_detections = lambda result, lb: [{"result": result}]
+
+    for _ in range(2):
+        await service._process_frame_for_ai(_frame())
+    status = (await service._handle_client_message({"command": "detector_status"}))["data"]
+    assert status["state"] == "active"
+    assert status["error"] == "inference failed (2x): HAILO_TIMEOUT"
+
+    driver.fail = False
+    frame = _frame()
+    await service._process_frame_for_ai(frame)
+    status = (await service._handle_client_message({"command": "detector_status"}))["data"]
+    assert frame.ai_annotations == [{"result": "ok"}]
+    assert status["error"] is None
