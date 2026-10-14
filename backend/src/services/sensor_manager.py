@@ -855,6 +855,7 @@ class SensorManager:
         tof_config: dict | None = None,
         power_config: dict | None = None,
         stereo_config: dict | None = None,
+        ultrasonic_enabled: bool | None = None,
     ):
         self.coordinator = SensorCoordinator()
 
@@ -866,6 +867,16 @@ class SensorManager:
         self.power = PowerSensorInterface(self.coordinator, driver_config=power_config)
         self.ultrasonic = UltrasonicSensorInterface(self.coordinator)
         self.stereo_camera = StereoCameraSensorInterface(self.coordinator, config=stereo_config)
+
+        if ultrasonic_enabled is None:
+            try:
+                from ..core.config_loader import ConfigLoader
+
+                loader = ConfigLoader(config_dir=os.environ.get("LAWNBERRY_CONFIG_DIR") or None)
+                ultrasonic_enabled = bool(loader.get()[1].ultrasonic_enabled)
+            except Exception:
+                ultrasonic_enabled = True
+        self.ultrasonic_enabled = ultrasonic_enabled
 
         self.initialized = False
         self.validation_enabled = True
@@ -880,7 +891,7 @@ class SensorManager:
             self.tof.initialize(),
             self.environmental.initialize(),
             self.power.initialize(),
-            self.ultrasonic.initialize(),
+            self.ultrasonic.initialize() if self.ultrasonic_enabled else self._skip_ultrasonic(),
             self.stereo_camera.initialize(),
             return_exceptions=True,
         )
@@ -897,6 +908,11 @@ class SensorManager:
         # re-initialize (re-opening the camera) on every call → timeouts.
         self.initialized = True
         return self.initialized
+
+    async def _skip_ultrasonic(self) -> bool:
+        self.ultrasonic.status = SensorStatus.OFFLINE
+        logger.info("Ultrasonic sensors disabled by safety limits configuration")
+        return False
 
     async def read_all_sensors(self) -> SensorData:
         """Read data from all sensors"""

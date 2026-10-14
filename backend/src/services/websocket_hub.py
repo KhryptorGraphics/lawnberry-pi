@@ -124,6 +124,7 @@ class WebSocketHub:
         # Extract typed ToF configuration from app.state.hardware_config
         tof_cfg: dict | None = None
         power_cfg: dict | None = None
+        ultrasonic_enabled: bool | None = None
         if self._app_state and getattr(self._app_state, "hardware_config", None):
             try:
                 hwc = self._app_state.hardware_config
@@ -140,12 +141,19 @@ class WebSocketHub:
                     power_cfg["victron"] = victron.model_dump(exclude_none=True)
                 if not power_cfg:
                     power_cfg = None
+                limits = getattr(self._app_state, "safety_limits", None)
+                if limits is not None:
+                    ultrasonic_enabled = bool(getattr(limits, "ultrasonic_enabled", True))
             except Exception:
                 tof_cfg = None
                 power_cfg = None
+                ultrasonic_enabled = None
 
         self._sensor_manager = SensorManager(
-            gps_mode=gps_mode, tof_config=tof_cfg, power_config=power_cfg
+            gps_mode=gps_mode,
+            tof_config=tof_cfg,
+            power_config=power_cfg,
+            ultrasonic_enabled=ultrasonic_enabled,
         )
         await self._sensor_manager.initialize()
         if ntrip_enabled:

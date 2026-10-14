@@ -16,6 +16,8 @@ class SafetyLimits(BaseModel):
     geofence_buffer_meters: float = Field(default=0.5)
     high_temperature_celsius: float = Field(default=80.0)
     tof_obstacle_distance_meters: float = Field(default=0.2)
+    ultrasonic_obstacle_distance_cm: float = Field(default=30.0)
+    ultrasonic_enabled: bool = Field(default=True)
 
     @field_validator("estop_latency_ms")
     @classmethod
