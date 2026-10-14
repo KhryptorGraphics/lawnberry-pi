@@ -351,3 +351,35 @@ Not done: the clamp point along the lever, which is a constrained choice rather 
 check on the sleeve set against a real bar; and the tower stations' collar/screw hardware, which the
 column now accommodates but no screw is specified. No part is load-, creep- or powered-steering
 qualified; the printed linkage remains first-article fit prototypes.
+
+## 2026-10-13 — HaLow AP radio restored; failure evidence made durable
+
+The Orange Pi HaLow AP lost its radio on 2026-10-08 01:39 UTC, about 48 h after its TX cap was
+removed (28 dBm). The shed Pi 5 was unreachable. Restored by a cold power cycle with
+`tx_max_power_mbm=2000` (20 dBm); no live driver reload. Pi 5 ↔ AP at the shed: TCP 4.84 up /
+5.17 down Mbit/s; 500 kbit/s UDP plus 10 Hz ping lost nothing (ping max 49 ms); 30-min soak 0% loss.
+Details and units: docs/autonomy-toolchain-matrix.md and `~/halow-build/README-STATE.md` on the
+Orange Pi. No repository code changed. Host configuration changed on the Orange Pi, the Pi 5 and
+the Thor's NetworkManager profile.
+
+Verified facts that change earlier assumptions:
+
+- **The Orange Pi's /var/log is a 47 MB zram, and it was full.** atop kept 28 days and the journal
+  could reach 20 MB. journald then flooded the kernel ring with ENOSPC errors (1,488 of 1,489
+  lines), and that destroyed the radio failure's evidence. atop/sysstat prune by mtime, which does
+  not track file age on this board. A filename-date pruner (`halow-log-prune.timer`) and an 8 MB
+  journal cap now hold /var/log near 50%. Driver evidence persists in `/var/lib/halow-diag/`.
+- **The guard no longer unloads `morse`.** It only stops the AP. Its old `modprobe -r` is the
+  reload the never-reload rule forbids, and README-STATE records it hanging and resetting the host.
+  In idle tests with throwaway units, systemd stopped the guard (BindsTo) before that line ran,
+  3 of 3 times. Whether it runs under a real SPI storm is untested.
+- **The shed Pi 5's only working link is HaLow.** Its home WiFi is -83 dBm with ~43% loss, yet it
+  carried all Pi→LAN traffic through the on-link 192.168.1.0/24 route. `halow-lan-routes.timer`
+  now routes the LAN via HaLow. DNS was checked separately: it already goes over halow0 (tcpdump:
+  4 packets on halow0, 0 on wlan0).
+- **Pressing Apply or Rollback in wifi-halow-admin (`:1337`) bounces halow0**, cutting the shed Pi off.
+- **The Thor could not route to 192.168.50.0/24.** Docker's unused `app-network` (192.168.48.0/20)
+  overlaps it. The Thor's NetworkManager profile now routes the /24 via 192.168.1.140. The LAN
+  port-forwards (:2222, :1337) work only because of a new DNAT MASQUERADE rule on the AP.
+
+Not exercised: a real guard trip, a real HaLow drop/reconnect, a reboot of either Pi.

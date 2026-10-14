@@ -11,7 +11,7 @@ Last run: 2026-10-06.
 
 | Host | Access | Identity | Status |
 |---|---|---|---|
-| Mower Pi `pi5` | `ssh -J orangepi@192.168.1.140 kp@192.168.50.20` | Pi 5 8 GB, Ubuntu 24.04.4, kernel 6.8.0-raspi, Python 3.12.3. **Hailo-8L** (part `HM21LB1C2LAE`) on PCIe Gen3, firmware + HailoRT **4.24.0** (built from source: `scripts/pi_build_hailort.sh`, installed: `scripts/pi_install_hailort.sh`; apt 4.20 pkgs held). Backend on port **8081**. GNSS: **Quectel LC29H-DA** on `/dev/ttyAMA0` (RTK-fixed reached per `~/PI-SETUP-README.md`), not ZED-F9P. Cameras `/dev/video0-2`. | **verified** |
+| Mower Pi `pi5` | From the Thor: `ssh kp@192.168.50.20` (needs the Thor's `192.168.50.0/24 via 192.168.1.140` route). From other LAN hosts: `ssh -J orangepi@192.168.1.140 kp@192.168.50.20` | Pi 5 8 GB, Ubuntu 24.04.4, kernel 6.8.0-raspi, Python 3.12.3. **Hailo-8L** (part `HM21LB1C2LAE`) on PCIe Gen3, firmware + HailoRT **4.24.0** (built from source: `scripts/pi_build_hailort.sh`, installed: `scripts/pi_install_hailort.sh`; apt 4.20 pkgs held). Backend on port **8081**. GNSS: **Quectel LC29H-DA** on `/dev/ttyAMA0` (RTK-fixed reached per `~/PI-SETUP-README.md`), not ZED-F9P. Cameras `/dev/video0-2`. | **verified** |
 | x86 workshop `utrainn` | `ssh kp@192.168.1.53` | Ubuntu, 96 cores **without AVX2**, 377 GB RAM, driver 580.178.04, Docker 29.8.2 + `nvidia` runtime, xrdp running. V100 32 GB (reports `Tesla PG500-216`, sm_70, PCI 21:00), P100 16 GB (sm_60, PCI 04:00), 3080 Ti 12 GB (sm_86, PCI 07:00). | **verified**. 3080 Ti: CUDA works (correct 4096² FP16 matmul), but the power sensor reads ~416 W at idle, so `SW Power Cap` pins it at 1200 MHz in P2 (5.2 FP16 TFLOPS). Link is PCIe Gen3 **x4**. The GPUs are shared with other user jobs (`longcat-video` ~26 GB on the V100, `phosphene-nvidia` ~6 GB on the 3080 Ti). |
 | HaLow link | Pi `halow0` 192.168.50.20 → gateway 192.168.50.1 → LAN | Morse Micro MM6108 (Seeed WM6108) | **measured at one location** (below) |
 
@@ -41,6 +41,33 @@ The reported "1.2–1.5 MB/s" does not match this location: measured TCP is
 Budget stays fixed at 1,200 B/datagram, 10 Hz. **Still required:** repeat at
 the far and obstructed points of the yard, and record the worst result here.
 
+### HaLow outage and re-measurement (2026-10-13, Pi ↔ AP, shed position)
+
+The AP radio (Orange Pi 4 Pro, HT-HC01P on SPI3) vanished on 2026-10-08 01:39 UTC, about 48 h
+after its TX cap was removed (28 dBm). It was restored by a cold power cycle with
+`tx_max_power_mbm=2000` (20 dBm). The driver is never reloaded live; the AP's SPI-error guard only stops hostapd. Measured between the Pi 5 and
+the AP (192.168.50.1). These numbers are not Pi → Thor. 4 MHz, channel 40; Pi signal at the AP is −56 dBm.
+
+| Test | Result |
+|---|---|
+| `iperf3` TCP Pi→AP, 30 s | **4.84 Mbit/s** |
+| `iperf3 -R` TCP AP→Pi, 30 s | **5.17 Mbit/s** |
+| UDP 500 kbit/s, 1,200 B, 70 s (video-like), with `ping` 10 Hz ×600 alongside | UDP 0/3,646 lost, jitter 5.9 ms; ping 0% loss, RTT max 48.9 ms |
+| `ping` 1,200 B, 1 Hz ×1,800 (30 min) | 0% loss, RTT avg 18.5 ms, max 256 ms |
+| Guard trips / SPI failures during the tests | 0 / 0 |
+
+A 500 kbit/s monitoring stream plus 10 Hz control fits with RTT far below the 0.5 s safe-hold
+timeout. The Thor reaches the Pi directly (`ssh kp@192.168.50.20`, backend `http://192.168.50.20:8081`)
+through the route `192.168.50.0/24 via 192.168.1.140` in its NetworkManager profile "Wired connection 2".
+That `/24` overrides the unused Docker network `app-network` (`192.168.48.0/20`, which contains the HaLow
+subnet). Other LAN hosts use the jump host `orangepi@192.168.1.140` or the AP's forwards
+(`192.168.1.140:2222` → Pi ssh, `:1337` → Pi web UI). The Pi's home WiFi is near-dead in the shed
+(−83 dBm, ~43% loss), so on the Pi `halow-lan-routes.timer` (every 15 s, station mode only) keeps
+`192.168.1.0/24` and `192.168.1.1` routed via HaLow (metric 500 vs wlan0's 600). It restored a
+manually deleted route in 12 s. A real HaLow drop and a Pi reboot were not exercised. Failure
+evidence is kept on the AP in `/var/lib/halow-diag/`. The 2026-10-13 section of its README-STATE.md
+has the details.
+
 ## Stage assignments
 
 | Stage | Host | Status | Evidence / blocker |
@@ -55,7 +82,7 @@ the far and obstructed points of the yard, and record the worst result here.
 | Gaussian-splat reconstruction + labelled splat render (W3) | Thor (sm_110) | **verified on a public scene (Mip-NeRF 360 garden); Isaac Sim ParticleField check pending on the workshop** | 3DGRUT `e6f4552` (pyproject 2.0.0; no v2.0.0 tag), **3DGUT** (Thor has no OptiX/RT cores). Conda env `~/thordrive/nvidia-sim/envs/3dgrut`: Python 3.11, `openusd 26.08` from conda-forge (PyPI `usd-core` has no aarch64 wheel), `torch 2.13.0+cu130` (arch list includes sm_110). `fused-ssim`, `ppisp` and the JIT `lib3dgut_cc` were built with `TORCH_CUDA_ARCH_LIST=11.0` and contain sm_110 SASS only. Builds use **`CUDA_HOME=/usr/local/cuda-13.2`**: on this host `cuda-13.0/.../include/cuda` symlinks into 13.2's CCCL, so 13.0 thrust fails a `static_assert`. Garden, `images_4`, 15k iterations (densify/LR schedule halved): 3,059 s at 4.90 it/s, 2,420,270 Gaussians, test **PSNR 26.78 / SSIM 0.836 / LPIPS 0.188**, peak CUDA 5.0 GB reserved. Export: `export_last_lightfield.usdz` 545 MB (`UsdVol.ParticleField3DGaussianSplat`, SH3, root normalizing xform, upAxis Y, OpenUSD validation passes) and `export_last.ply` 572 MB (raw COLMAP frame). Newton 1.6.1 `SensorTiledCamera` with the splat (`add_shape_gaussian`) and a mesh box: 1297×840 FAST 1.30–1.43 s/frame, QUALITY 3.6–5.7 s/frame. Box shape id matches the splat-vs-box depth order on 100% of box-footprint pixels in 2 views (vase correctly occludes the box). Gotchas: `Gaussian.create_from_ply` + open3d 0.20 silently drops scale/rotation/SH (use the numpy loader in `tools/thor/newton_render_splat.py`); never share one `Gaussian` between models (CUDA error 700). Runbook: `~/thordrive/nvidia-sim/src/3dgrut/THOR_RUNBOOK.md`. Assets copied to the workshop `$LB/data/assets/w3-garden/` (sha256 match). Dataset has no stated licence (Google Research benchmark, CVPR 2022): evaluation only. |
 | Detector training (W5) | workshop: V100 (P100 also works) | **verified** | `workshop/train_detector.py`: YOLO26s, 3-epoch smoke on 1448 SDG train / 162 SDG val frames (`--smoke-sdg-val`; recall gates need real val, W2) on the P100 at ~2 it/s, batch 16. Needs `polars[rtcompat]` (no AVX2). |
 | ONNX export (W5) | workshop | **verified** | opset 17, onnxslim; `onnx.checker` clean: `$LB/data/models/yolo26s_smoke/weights/best.onnx` |
-| Hailo DFC compile to HEF (W5) | workshop (DFC is x86-only) | **blocked on wheel only** | `scripts/hailo_compile.sh --tag smoke --dry-run` exits 0; sole WARN is the missing DFC 3.34 wheel (Hailo developer-zone login). Target **`hailo8l`**; DFC 3.34 pairs with HailoRT 4.24 (installed on the Pi). |
+| Hailo DFC compile to HEF (W5) | workshop (DFC is x86-only) | **wheel downloaded; not installed** | Wheel in `~/Downloads` on the workshop (2026-10-13). `scripts/hailo_compile.sh --tag smoke --dry-run` exits 0 with no WARN. Open risk: the workshop CPU (Xeon E5-4657L v2) has AVX but no AVX2/FMA, and the DFC pins tensorflow 2.18 and jaxlib 0.5.3 prebuilt wheels; an import test in `env-dfc` decides whether this host can compile. Target **`hailo8l`**; DFC 3.34 pairs with HailoRT 4.24 (installed on the Pi). |
 | HailoRT inference (W5) | Pi | **verified** | HailoRT 4.24.0; `hailortcli benchmark` on zoo v2.19.0 hailo8l HEFs: yolo26s **41.7 FPS**, yolo26m **20.6 FPS** (hw_only, batch 1, `-t 10`) |
 | Detector training fallback, mower parked only | Thor | verified (capability) | torch 2.14.0+cu130, 22.9 FP16 TFLOPS |
 | Thor inference (ONNX → TensorRT) | Thor | **verified** | `trtexec` TensorRT 10.16.2 FP16 engine `PASSED` |
@@ -154,7 +181,7 @@ Sanity images: Ultralytics `bus.jpg` (4 people + bus) and SDG `v1-wide-fold/imag
 | NuRec NRE container (`nvcr.io/nvidia/nre/nre-ga`) | 26.04.01 | NVIDIA Software License + Omniverse product terms | **not pulled** (deliberate) | 14.3 GB compressed | — | The autonomous-vehicle product: NCore V3/V4 camera+lidar input, **≥24 GB VRAM** on Ampere or newer. The 3080 Ti (12 GB) is below the minimum; the V100 is Volta and shared. For the mower (cameras, no lidar) the robotics path is pyCuSFM → nvblox → 3DGRUT. `docker pull` reverses this. |
 | Cosmos-Transfer2.5-2B (`nvidia/Cosmos-Transfer2.5-2B`) | HF `ce8440327c63`; code `nvidia-cosmos/cosmos-transfer2.5` `2ff49d0` (v1.5.0) | NVIDIA Open Model License (weights); Apache-2.0 (code) | **Thor:** repo `~/thordrive/nvidia-sim/src/cosmos-transfer2.5`, uv venv `~/thordrive/nvidia-sim/envs/cosmos-transfer2.5` (Python 3.13.11, torch 2.9.1+cu130, `uv sync --frozen --extra cu130`), runbook `THOR_RUNBOOK.md` in the repo. Workshop: not installed | ~40 GB cached in `~/thordrive/nvidia-sim/models/hf-hub`: seg + edge checkpoints 5.5 GB each, tokenizer 0.5 GB, Reason1-7B text encoder 16.6 GB, SigLIP2 4.3 GB, Guardrail1 3.5 GB + SigLIP 3.3 GB + Qwen3Guard 1.5 GB | **Thor: seg-controlled inference verified** (2026-10-07, repo sample `robot_input.mp4`; one 93-frame chunk at 720p (960×704); 35 steps; guardrails on and passed). Exit 0. **Wall 41:45**: denoising 33:46 at 57.9 s/step, ~5 min VAE decode. **Peak ~64 GB** system-wide (MemAvailable 95.4 → 31.3 GB with `brandy-llm` stopped); 49 GB GPU in `nvidia-smi`. Output `~/thordrive/nvidia-sim/outputs/ct25-seg-smoke-20261007-074905/robot_seg.mp4`. The GPU was 97% busy, but the DiT ran torch's flash SDPA at 46 TFLOPS: the repo puts cuDNN first only for cc 90/100. cuDNN measures 111 TFLOPS at the real shape, so ~46 of the 58 s/step was avoidable attention time. The checkout now adds `110` to that list; projected ~31 s/step, not yet re-run. Env checks (cuobjdump on all 27 CUDA `.so` + tiny GPU calls): torch has `sm_110`, and SDPA flash/efficient/cuDNN bf16 runs (the DiT's attention path on cc 11.0). natten 0.21.0 and xformers 0.0.33 have sm_110 SASS and run. transformer-engine 2.8 has no sm_110 SASS, but its compute_100 PTX JITs (RMSNorm, Linear, fused RoPE, DotProductAttention OK; 6.9 s first call, then cached). The cosmos flash-attn 2.7.4.post1 wheel has no sm_110 (`no kernel image`), so it was **rebuilt from source for sm_110** (`wheels/sm110/`, 62 min, CUDA 13.2: the 13.0 tree has a stray CCCL symlink that breaks thrust). The rebuild has sm_110 SASS; fwd, varlen, bwd, Triton rotary and the Reason1 text encoder's `flash_attention_2` import pass. `import cosmos_transfer2` and the inference CLI load. | Thor's shell sets `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`, which makes HF requests anonymous, so gated repos look inaccessible. Unset it for downloads and runs (`giggahost` has access to all three gated repos). `HF_HUB_OFFLINE=1` breaks the run: Reason1/Guardrail1 resolve via `hf download --include '*'`, which needs the online tree listing. Inference needs ~64 GB of the 122 GB unified memory, so `brandy-llm.service` must be stopped first (≥70 GB free; `scripts/ct25-smoke-seg.sh` always restarts it). The workshop GPUs cannot run it (3080 Ti 12 GB; V100 32 GB, no bf16). Never `uv sync` the env: it reinstalls the non-sm_110 flash-attn. |
 | COLMAP | 3.9.1 (apt) | BSD | `/usr/bin/colmap` | — | `colmap -h`: built **without CUDA** | CPU only |
-| Hailo DFC | 3.34.0 needed | Hailo EULA | **absent** | — | `pip show hailo_dataflow_compiler`: not found | Developer-zone login (open action 2) |
+| Hailo DFC | 3.34.0 (`hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl`) | Hailo EULA | workshop `~/Downloads/` (not installed) | 524 MB | sha256 `f539ebb5997149ec68ca443a547196a03d28c624fbb072fdcd22a7d37fad9fb1`; zip test OK. 47 `.so` with no CPython tag; no `Requires-Python`; pins tensorflow 2.18.0, jax/jaxlib 0.5.3, scipy 1.12.0 (all have cp311 wheels). Hailo's catalogue labels the row Python 3.10. | Not yet imported; AVX2-less CPU (see W5 row) |
 
 **SAM 3 (2026-10-07).** Access to both gated repos was granted to the Thor HF login. The weights were
 downloaded there and rsynced, so the workshop needs no token. Run it as
@@ -190,9 +217,9 @@ the JSON configuration, not the contents of each referenced file.
 ## Open W0 actions
 
 1. HaLow: repeat the measurements at far and obstructed yard points.
-2. Hailo DFC 3.34.0: the only source is Hailo's developer zone (free login). It is not on PyPI,
-   GitHub or Hugging Face; Hugging Face has only third-party HEFs for other tasks. Download the x86
-   wheel to the workshop, then compile YOLO26s to a `hailo8l` HEF and benchmark it on the Pi.
+2. Hailo DFC 3.34.0: wheel downloaded to the workshop (2026-10-13). Install it into `$LB/env-dfc`
+   and import-test it on the AVX2-less workshop CPU, then compile YOLO26s to a `hailo8l` HEF and
+   benchmark it on the Pi.
 3. Integrate SAM 3.1 into `workshop/autolabel.py`; the model and environment are verified on
    the P100 but not yet wired into the labelling workflow.
 
