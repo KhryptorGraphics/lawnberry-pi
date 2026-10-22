@@ -874,8 +874,15 @@ class SensorManager:
 
                 loader = ConfigLoader(config_dir=os.environ.get("LAWNBERRY_CONFIG_DIR") or None)
                 ultrasonic_enabled = bool(loader.get()[1].ultrasonic_enabled)
-            except Exception:
-                ultrasonic_enabled = True
+            except Exception as exc:
+                # Fail closed. On this robot GPIO4/9/10/11 carry the HaLow HAT (the Pi's only
+                # link from the shed); driving them as HC-SR04 TRIG/ECHO lines glitches the
+                # radio and has taken it down on a backend restart. An unreadable config must
+                # leave the array off, never on.
+                logger.warning(
+                    "ultrasonic_enabled unreadable (%s); keeping the ultrasonic array off", exc
+                )
+                ultrasonic_enabled = False
         self.ultrasonic_enabled = ultrasonic_enabled
 
         self.initialized = False

@@ -27,3 +27,16 @@ def test_ultrasonic_flag_resolves_from_config_dir(tmp_path, monkeypatch):
 
 def test_repo_limits_disable_ultrasonic():
     assert ConfigLoader(config_dir="config").get()[1].ultrasonic_enabled is False
+
+
+def test_unreadable_limits_keeps_ultrasonic_off(monkeypatch):
+    from backend.src.core import config_loader as config_loader_module
+
+    class _Boom:
+        def __init__(self, *a, **k):
+            raise RuntimeError("limits.yaml unreadable")
+
+    monkeypatch.setattr(config_loader_module, "ConfigLoader", _Boom)
+
+    # Fail closed: an unreadable config must not drive GPIO4/9/10/11 (the HaLow HAT's lines).
+    assert SensorManager().ultrasonic_enabled is False

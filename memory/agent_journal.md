@@ -457,3 +457,14 @@ were exercised with a stubbed `iw`; the timer fires every 60 s and its first run
 Not established: whether the Pi was powered, hung, or wedged — its journal is the only evidence
 and it is on the far side of the link. The AP still cannot be shown to accept a client, because
 the Pi is the only S1G transmitter in the fleet.
+
+### The ultrasonic flag failed open
+
+`sensor_manager.py` resolved `ultrasonic_enabled` from `limits.yaml`, and its `except Exception`
+branch set it **True**. Any config that failed to load — a validator rejection, a bad path, a
+service started outside `/apps/lawnberry-pi` — therefore initialized the HC-SR04 driver, which
+drives GPIO4/9/10/11. Those are the HaLow HAT's lines on this Pi; the documented way to take the
+link down was "restart the backend remotely". Every `SensorManager()` built without an explicit
+flag (dashboard, sensors router, calibration, timezone) went through that path. The fallback is now
+`False` with a warning, which is the only safe default while the radio shares those pins. Covered
+by `test_unreadable_limits_keeps_ultrasonic_off` and checked against a real invalid `limits.yaml`.
