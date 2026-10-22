@@ -29,7 +29,8 @@ vue, vue-router, pinia, axios, @vueuse/core, leaflet, @vue-leaflet/vue-leaflet, 
 ## HaLow network (Orange Pi AP, 192.168.1.140 / 192.168.50.1)
 - **Notes of record:** `~/halow-build/README-STATE.md` on the Orange Pi; tested numbers are in docs/autonomy-toolchain-matrix.md.
 - **Radio:** never reload `morse` live (`rmmod`/`modprobe`, warm reset); that wedges the card and can reset the host. TX cap 20 dBm in `/etc/modprobe.d/halow-morse.conf`; changes need a cold power cycle. `halow-guard` only stops the AP on an SPI error storm; it no longer unloads `morse`.
-- **Failure evidence:** `/var/lib/halow-diag/` (SD card): `health.log` (UP/DOWN/BOOT), `evidence-*.log`, `kernel.log`, `guard.log`.
+- **Failure evidence:** `/var/lib/halow-diag/` (SD card): `health.log` (UP/DOWN/BOOT), `evidence-*.log`, `kernel.log`, `guard.log`, `client-watch.log`.
+- **Client watch (`halow-client-watch.timer`, 60 s):** records when the Pi's station disappears (`client-watch.log`, `client-watch.lastseen`) and restarts `halow-ap.service` after 3 checks with zero stations — only if the client was seen within the last 2 h, at most once per 30 min. It does not reload `morse`. A powered-off Pi is not fixed by it; that needs a cold power cycle.
 - **/var/log is a 47 MB zram:** atop/sysstat are pruned by the date in the file name (`halow-log-prune.timer`), and the journal is capped at 8 MB. A full /var/log floods dmesg and destroys driver evidence.
 - **Shed Pi 5:** HaLow is its only working link. On the Pi 5, `halow-lan-routes.timer` routes 192.168.1.0/24 via HaLow. Pressing Apply/Rollback in `wifi-halow-admin` (`:1337`) reloads networkd and restarts halow0, briefly cutting the Pi off.
 - **Thor:** reaches 192.168.50.0/24 only through the route `192.168.50.0/24 via 192.168.1.140` in NetworkManager "Wired connection 2". Docker's unused `app-network` (192.168.48.0/20) overlaps it. Other LAN hosts use `ssh -J orangepi@192.168.1.140` or `192.168.1.140:2222` / `:1337`.

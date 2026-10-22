@@ -423,3 +423,37 @@ turned up three defects that no simulated test could have shown:
   executor while holding the detector lock, so release/reload cannot stop the driver mid-frame.
   Chain: 36.8 ms median. The worst event-loop stall is 26 ms, apparently because HailoRT holds
   the GIL during `infer`.
+
+## 2026-10-22 — Pi 5 absent from the HaLow link; the AP now watches for it
+
+The shed Pi 5 (`192.168.50.20`) was unreachable from the Thor and from the AP. Diagnosis on the
+Orange Pi, before anything was restarted:
+
+- **The AP side was healthy.** `halow-ap` ENABLED at 922 MHz / 4 MHz, country US, S1G primary
+  channel 37; `morse_cli health` success; firmware `restarts=0`; 8,199,118 beacons TX (≈10/s over
+  its 9-day uptime); page counters moved only in matched host↔chip pairs (591/min each way).
+- **No client was present.** `iw dev halow0 station dump` and `hostapd_cli all_sta` were empty,
+  `ap_info` said `Num assoc STAs: 0`, netdev RX/TX packet counters were frozen, ARP for
+  `192.168.50.20` was FAILED, and dnsmasq held no lease (the Pi's `halow0` is static, so the
+  lease file proves nothing about it).
+- **Nothing answered on the LAN either.** A /24 sweep found only .25 (an old-SSH appliance), .53,
+  .64 and .140; no host had 8081. `192.168.1.140:2222` (DNAT to the Pi's ssh) was closed.
+- **Restarting `halow-ap.service` did not bring it back** (hostapd re-ENABLED in 3 s, still 0
+  stations after 120 s). `halow0` carrier is up and the radio keeps beaconing.
+
+So the Pi is not transmitting at all. That is either a dead host (power) or a wedged MM6108, and
+README-STATE already records that a wedged card clears only on a cold power cycle. Both need
+hands on the mower; nothing on the AP can revive it.
+
+Change made on the AP (no driver reload): `halow-client-watch.{service,timer}` runs
+`/usr/local/sbin/halow-client-watch.sh` every 60 s. It records the client's last-seen time and
+its disappearance, and restarts only `halow-ap.service` — never `morse` — after 3 checks with zero
+stations, only when the client was seen within 2 h, at most once per 30 min. Log:
+`/var/lib/halow-diag/client-watch.log`. Copies are in `~/halow-build/` next to the other units.
+The four state paths (absent, present again, restart after a recent loss, no restart past 2 h)
+were exercised with a stubbed `iw`; the timer fires every 60 s and its first run logged
+`no client on the AP since boot (no association recorded)`.
+
+Not established: whether the Pi was powered, hung, or wedged — its journal is the only evidence
+and it is on the far side of the link. The AP still cannot be shown to accept a client, because
+the Pi is the only S1G transmitter in the fleet.
