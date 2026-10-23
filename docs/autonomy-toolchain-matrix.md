@@ -13,6 +13,7 @@ Last run: 2026-10-06.
 |---|---|---|---|
 | Mower Pi `pi5` | From the Thor: `ssh kp@192.168.50.20` (needs the Thor's `192.168.50.0/24 via 192.168.1.140` route). From other LAN hosts: `ssh -J orangepi@192.168.1.140 kp@192.168.50.20` | Pi 5 8 GB, Ubuntu 24.04.4, kernel 6.8.0-raspi, Python 3.12.3. **Hailo-8L** (part `HM21LB1C2LAE`) on PCIe Gen3, firmware + HailoRT **4.24.0** (built from source: `scripts/pi_build_hailort.sh`, installed: `scripts/pi_install_hailort.sh`; apt 4.20 pkgs held). Backend on port **8081**. GNSS: **Quectel LC29H-DA** on `/dev/ttyAMA0` (RTK-fixed reached per `~/PI-SETUP-README.md`), not ZED-F9P. Cameras `/dev/video0-2`. | **verified** |
 | x86 workshop `utrainn` | `ssh kp@192.168.1.53` | Ubuntu, 96 cores **without AVX2**, 377 GB RAM, driver 580.178.04, Docker 29.8.2 + `nvidia` runtime, xrdp running. V100 32 GB (reports `Tesla PG500-216`, sm_70, PCI 21:00), P100 16 GB (sm_60, PCI 04:00), 3080 Ti 12 GB (sm_86, PCI 07:00). | **verified**. 3080 Ti: CUDA works (correct 4096² FP16 matmul), but the power sensor reads ~416 W at idle, so `SW Power Cap` pins it at 1200 MHz in P2 (5.2 FP16 TFLOPS). Link is PCIe Gen3 **x4**. The GPUs are shared with other user jobs (`longcat-video` ~26 GB on the V100, `phosphene-nvidia` ~6 GB on the 3080 Ti). |
+| Thor `agx-thor` | local shell on the Thor itself | aarch64, Ubuntu 24.04.5, 131.86 GB RAM, 1213 GB free, driver 595.78, Vulkan 1.4 with RT extensions. Isaac Sim **6.1.0-rc.26 (arm64, native)** at `~/isaacsim` plus the `nvcr.io/nvidia/isaac-sim:6.0.0` **arm64** container. torch 2.14.0+cu130 works; no ultralytics. | **launches, does not render** (2026-10-23) |
 | HaLow link | Pi `halow0` 192.168.50.20 → gateway 192.168.50.1 → LAN | Morse Micro MM6108 (Seeed WM6108) | **measured at one location** (below) |
 
 ## Hardware deviations from the goal's fixed-hardware list
@@ -300,3 +301,36 @@ accepted for training.
 - Known issues:
   - The Kit process can crash at shutdown after `SDG done`, once the manifest is written.
   - Some assets float, from the spawn code.
+
+## Isaac Sim hosts (measured 2026-10-23)
+
+The Thor runs Kit but produces no usable frame, so it cannot replace the 3080 Ti for SDG:
+
+| Check | Result |
+|---|---|
+| `isaac-sim.compatibility_check.sh` | `System checking result: PASSED` (RAM 131.86 GB, storage 1213 GB, driver supported) |
+| `SimulationApp({"headless": True})`, native 6.1.0 | app ready in ~22 s, `ISAAC_OK` |
+| `rep.orchestrator.run()` + BasicWriter, full experience, native 6.1.0 | 1000 PNGs written, **every one fully black** (320x240, max pixel 0) — including a rerun with a Dome light and `rt_subframes=8` |
+| Canonical `rep.create.camera(look_at=…)` scene, native 6.1.0 | **0 frames** in 35 s |
+| `nvcr.io/nvidia/isaac-sim:6.0.0` arm64 container, same script | **0 frames** |
+| Logs, both paths | `[omni.rtx] Failed to create an Optix adaptor for device 0`, `NGX isn't enabled`, `Failed to initialize OptixDenoiserContext` |
+
+`~/isaacsim_assets` is empty, so an SDG run there would also need the Isaac asset library
+(the workshop keeps it under `$LB/data/isaac-assets/6.0`).
+
+The workshop box's RTX 3080 Ti remains the only host that has produced SDG output: `data/sdg/v1` =
+1,933 labelled frames from a 2,000-frame run (`manifest.json`: Isaac 6.0.0, RealTimePathTracing,
+seed 1, 1280x720). Its `nvcr.io/nvidia/isaac-sim:6.0.0` image has since been removed; the box keeps
+an `nvcr.io` credential in `~/.docker/config.json`, so re-pulling the 17.6 GB image is one command.
+
+## Detector data on hand (2026-10-23)
+
+| Item | State |
+|---|---|
+| `$LB/data/sdg/v1` | 1,933 images + labels (synthetic; 24 classes, `workshop/classes.py`) |
+| `$LB/data/models/yolo26s_smoke` | 3-epoch recipe run on 1,610 images; `--smoke-sdg-val`, so its metrics are not a recall gate |
+| `$LB/data/hailo/compiled` | `yolo26s_smoke.hef` + sidecar (opt level 2; failed its on-device gate on 2026-10-13) |
+| `$LB/data/captures`, `$LB/data/datasets` | **empty** — no real imagery has been collected |
+| `workshop.autolabel` | deps present in `$LB/env` (`transformers==4.57.1`, imagehash, PIL); MM-Grounding-DINO weights are **not** cached; huggingface.co reachable from the box |
+| `workshop.train_detector` | requires `--real` for a valid validation split; `--smoke-sdg-val` is documented as "metrics are NOT a recall gate" |
+| `$LB/repo` | a 32 MB snapshot dated 2026-10-13, **not a git checkout** (no `.git`) |
