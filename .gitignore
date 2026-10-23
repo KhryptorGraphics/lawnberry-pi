@@ -84,7 +84,11 @@ data/*.json
 data/*.csv
 data/exports/
 memory/*.json
-workshop/sdg_assets.generated.json
+# The generated asset map is build output, but it is also the record of which assets
+# produced data/sdg/v1 and it is the only source of three classes (pet, wildlife, root).
+# Losing it is how ten classes ended up with zero instances; tests/unit/test_sdg_class_coverage.py
+# reads it. Keep the file versioned.
+!workshop/sdg_assets.generated.json
 
 # Process files
 *.pid

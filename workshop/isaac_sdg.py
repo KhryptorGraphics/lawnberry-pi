@@ -270,6 +270,8 @@ def apply(values: dict) -> None:
 # ---- procedural classes ------------------------------------------------------
 # Objaverse has only two hoses and two sprinklers; these build randomised USD
 # geometry (metres, Z-up) under ``<obj>/asset`` instead of referencing a file.
+# The structures below (house..dropoff) have no asset in any config at all — see
+# PROCEDURAL at the end of this block.
 def _torus_mesh(path: str, major: float, minor: float, nu: int = 48, nv: int = 12) -> UsdGeom.Mesh:
     """Torus lying in the XY plane, centred on the origin, as a quad mesh."""
     pts, idx = [], []
@@ -336,7 +338,174 @@ def _spawn_sprinkler(root: str, r: random.Random) -> None:
     _bind_colour(root, r.choice([(0.03, 0.12, 0.04), (0.02, 0.02, 0.02), (0.05, 0.08, 0.05)]))
 
 
-PROCEDURAL = {"hose": _spawn_hose, "sprinkler_head": _spawn_sprinkler}
+
+def _box(path: str, size: tuple[float, float, float], centre=(0.0, 0.0, 0.0)) -> UsdGeom.Cube:
+    """Axis-aligned box with full extents ``size`` (metres) centred on ``centre``."""
+    cube = UsdGeom.Cube.Define(stage, path)
+    cube.CreateSizeAttr(1.0)
+    xf = UsdGeom.Xformable(cube)
+    xf.AddTranslateOp().Set(Gf.Vec3d(*centre))
+    xf.AddScaleOp().Set(Gf.Vec3f(*size))
+    return cube
+
+
+def _gable(path: str, width: float, depth: float, height: float) -> UsdGeom.Mesh:
+    """Triangular prism roof: rectangular base at z=0, ridge along Y at z=height."""
+    hw, hd = width / 2, depth / 2
+    pts = [
+        (-hw, -hd, 0),
+        (hw, -hd, 0),
+        (hw, hd, 0),
+        (-hw, hd, 0),
+        (0, -hd, height),
+        (0, hd, height),
+    ]
+    faces = [(0, 1, 4), (3, 2, 5), (0, 4, 5, 3), (1, 2, 5, 4), (0, 3, 2, 1)]
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    mesh.CreatePointsAttr(pts)
+    mesh.CreateFaceVertexCountsAttr([len(f) for f in faces])
+    mesh.CreateFaceVertexIndicesAttr([i for f in faces for i in f])
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreateDoubleSidedAttr(True)
+    return mesh
+
+
+def _spawn_house(root: str, r: random.Random) -> None:
+    """Detached house: body plus a gabled roof, 5-9 m wide."""
+    UsdGeom.Xform.Define(stage, root)
+    w, d = r.uniform(5.0, 9.0), r.uniform(4.0, 7.0)
+    h = r.uniform(2.8, 4.2)
+    _box(f"{root}/body", (w, d, h), (0.0, 0.0, h / 2))
+    roof = _gable(f"{root}/roof", w * 1.05, d * 1.05, r.uniform(1.2, 2.4))
+    UsdGeom.Xformable(roof).AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, h))
+    _bind_colour(root, r.choice([(0.72, 0.70, 0.66), (0.55, 0.42, 0.32), (0.62, 0.58, 0.52)]))
+
+
+def _spawn_shed(root: str, r: random.Random) -> None:
+    """Garden shed: small body, shallow roof, 2-3.5 m wide."""
+    UsdGeom.Xform.Define(stage, root)
+    w, d = r.uniform(2.0, 3.5), r.uniform(1.6, 2.8)
+    h = r.uniform(1.9, 2.5)
+    _box(f"{root}/body", (w, d, h), (0.0, 0.0, h / 2))
+    roof = _gable(f"{root}/roof", w * 1.08, d * 1.08, r.uniform(0.3, 0.7))
+    UsdGeom.Xformable(roof).AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, h))
+    _bind_colour(root, r.choice([(0.38, 0.30, 0.22), (0.45, 0.47, 0.45), (0.30, 0.36, 0.28)]))
+
+
+def _spawn_wall(root: str, r: random.Random) -> None:
+    """Boundary wall: long, tall, thin."""
+    UsdGeom.Xform.Define(stage, root)
+    w = r.uniform(3.0, 6.5)
+    h = r.uniform(1.5, 2.2)
+    _box(f"{root}/wall", (w, r.uniform(0.15, 0.30), h), (0.0, 0.0, h / 2))
+    _bind_colour(root, r.choice([(0.55, 0.45, 0.38), (0.60, 0.60, 0.58), (0.42, 0.30, 0.26)]))
+
+
+def _spawn_bed(root: str, r: random.Random) -> None:
+    """Flower bed: a low soil box with a few loosely placed plants."""
+    UsdGeom.Xform.Define(stage, root)
+    w, d = r.uniform(1.2, 3.0), r.uniform(0.8, 1.6)
+    _box(f"{root}/soil", (w, d, r.uniform(0.10, 0.22)), (0.0, 0.0, 0.08))
+    for n in range(r.randint(3, 7)):
+        h = r.uniform(0.15, 0.45)
+        plant = UsdGeom.Xformable(_cylinder(f"{root}/plant_{n}", r.uniform(0.08, 0.18), h))
+        plant.AddTranslateOp().Set(
+            Gf.Vec3d(r.uniform(-w / 2.4, w / 2.4), r.uniform(-d / 2.4, d / 2.4), h / 2 + 0.15)
+        )
+    _bind_colour(root, (0.22, 0.14, 0.08))
+
+
+def _spawn_edging(root: str, r: random.Random) -> None:
+    """Lawn edging strip along the ground."""
+    UsdGeom.Xform.Define(stage, root)
+    _box(
+        f"{root}/strip",
+        (r.uniform(2.0, 5.0), r.uniform(0.08, 0.14), r.uniform(0.06, 0.12)),
+        (0.0, 0.0, 0.05),
+    )
+    _bind_colour(root, r.choice([(0.35, 0.33, 0.30), (0.50, 0.50, 0.48), (0.30, 0.22, 0.16)]))
+
+
+def _spawn_flat(root_name: str, size: tuple[float, float], height: float, colour) -> None:
+    UsdGeom.Xform.Define(stage, root_name)
+    _box(f"{root_name}/slab", (size[0], size[1], height), (0.0, 0.0, height / 2))
+    _bind_colour(root_name, colour)
+
+
+def _spawn_path(root: str, r: random.Random) -> None:
+    """Paved path: narrow slab, typically running away from the camera."""
+    _spawn_flat(
+        root,
+        (r.uniform(0.9, 1.3), r.uniform(3.0, 8.0)),
+        r.uniform(0.03, 0.08),
+        r.choice([(0.55, 0.53, 0.50), (0.62, 0.58, 0.50)]),
+    )
+
+
+def _spawn_driveway(root: str, r: random.Random) -> None:
+    """Driveway: wide slab."""
+    _spawn_flat(
+        root,
+        (r.uniform(3.0, 5.0), r.uniform(4.0, 10.0)),
+        r.uniform(0.04, 0.10),
+        r.choice([(0.38, 0.37, 0.35), (0.48, 0.46, 0.42)]),
+    )
+
+
+def _spawn_mulch(root: str, r: random.Random) -> None:
+    """Mulch patch: flat, irregular, dark."""
+    UsdGeom.Xform.Define(stage, root)
+    radius = r.uniform(0.6, 1.8)
+    pad = UsdGeom.Xformable(_cylinder(f"{root}/pad", radius, r.uniform(0.04, 0.09)))
+    pad.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.04))
+    _bind_colour(root, (0.16, 0.10, 0.06))
+
+
+def _spawn_water(root: str, r: random.Random) -> None:
+    """Still water: flat, low-roughness patch."""
+    UsdGeom.Xform.Define(stage, root)
+    size = (r.uniform(1.5, 4.0), r.uniform(1.0, 3.0))
+    _box(f"{root}/surface", (size[0], size[1], 0.03), (0.0, 0.0, 0.02))
+    mat, _ = omnipbr(
+        root + "/Looks/Mat",
+        {
+            "diffuse_color_constant": (C3, r.choice([(0.05, 0.16, 0.22), (0.08, 0.20, 0.16)])),
+            "reflection_roughness_constant": (F3, 0.05),
+        },
+    )
+    UsdShade.MaterialBindingAPI.Apply(stage.GetPrimAtPath(root)).Bind(mat)
+
+
+def _spawn_dropoff(root: str, r: random.Random) -> None:
+    """Step / drop-off: an upper platform with a visible vertical face and a lower apron."""
+    UsdGeom.Xform.Define(stage, root)
+    upper = r.uniform(0.25, 0.8)
+    w = r.uniform(1.8, 3.5)
+    _box(f"{root}/upper", (w, r.uniform(1.2, 2.5), upper), (0.0, 0.0, upper / 2))
+    _box(
+        f"{root}/apron",
+        (w, r.uniform(0.8, 1.6), r.uniform(0.10, 0.20)),
+        (0.0, -r.uniform(1.0, 1.6), 0.08),
+    )
+    _bind_colour(root, r.choice([(0.30, 0.26, 0.22), (0.45, 0.43, 0.40)]))
+
+
+PROCEDURAL = {
+    "hose": _spawn_hose,
+    "sprinkler_head": _spawn_sprinkler,
+    # Ten classes have no Objaverse/Isaac asset at all; without these the dataset
+    # never contains them (v1: 0 instances for every one of them).
+    "house": _spawn_house,
+    "shed": _spawn_shed,
+    "wall": _spawn_wall,
+    "bed": _spawn_bed,
+    "edging": _spawn_edging,
+    "path": _spawn_path,
+    "driveway": _spawn_driveway,
+    "mulch": _spawn_mulch,
+    "water": _spawn_water,
+    "dropoff": _spawn_dropoff,
+}
 
 
 # ---- per-frame randomisation ----------------------------------------------

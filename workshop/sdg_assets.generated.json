@@ -1,0 +1,128 @@
+{
+  "person": [
+    "/Isaac/People/Characters/F_Business_02/F_Business_02.usd",
+    "/Isaac/People/Characters/F_Medical_01/F_Medical_01.usd",
+    "/Isaac/People/Characters/M_Medical_01/M_Medical_01.usd",
+    "/Isaac/People/Characters/female_adult_police_02/female_adult_police_02.usd",
+    "/Isaac/People/Characters/male_adult_construction_03/male_adult_construction_03.usd",
+    "/Isaac/People/Characters/male_adult_police_04/male_adult_police_04.usd",
+    "/Characters/Reallusion/Worker/Worker.usd",
+    "/Characters/Reallusion/Debra/Debra.usd"
+  ],
+  "pet": [
+    "/data/assets/objaverse/usd/057dd0154cbc47549c73a092aa15199e.usd",
+    "/data/assets/objaverse/usd/166469433a8948c386d127c6cf374513.usd",
+    "/data/assets/objaverse/usd/17c6a24dfab7436e927bffd1738b4081.usd",
+    "/data/assets/objaverse/usd/1afaa69215604838911ccd3221e4a6d6.usd",
+    "/data/assets/objaverse/usd/1d381152ae61423d8bf493fd7ff00e74.usd",
+    "/data/assets/objaverse/usd/1e1c77e3898f43b780fa240175b7183f.usd",
+    "/data/assets/objaverse/usd/655edd88cfa74d2cafc13c7aa387d137.usd",
+    "/data/assets/objaverse/usd/85229c525ded401ca3a1456e1f238758.usd",
+    "/data/assets/objaverse/usd/b5d4e86964954a7d988ab1fb601aca91.usd",
+    "/data/assets/objaverse/usd/e8d121d8a25c4e469ae4e6b0db66bbb5.usd"
+  ],
+  "wildlife": [
+    "/data/assets/objaverse/usd/0bc47e68d77243efa50a22b881970626.usd",
+    "/data/assets/objaverse/usd/1da37b3d991a43a8ad9f58458053ac13.usd",
+    "/data/assets/objaverse/usd/2859a3fdb9a9423aafe0b031af8ffa81.usd",
+    "/data/assets/objaverse/usd/339b8902625e4f458882aeb764ecfb0c.usd",
+    "/data/assets/objaverse/usd/43431f19525f4d6984522b285977c48f.usd",
+    "/data/assets/objaverse/usd/6f81ad29c150407c84670c84d4f216c3.usd",
+    "/data/assets/objaverse/usd/74166573c34c40bc977c7a8db5b92ff4.usd",
+    "/data/assets/objaverse/usd/75578506d748405fb0fdc6426aa103d7.usd",
+    "/data/assets/objaverse/usd/b7294b6b1ad64cc6b624f1185be8523e.usd",
+    "/data/assets/objaverse/usd/b856c4f123694de3814645223fa3147a.usd",
+    "/data/assets/objaverse/usd/c12909c5b64943d6a11a9f2e3dded93e.usd",
+    "/data/assets/objaverse/usd/caba07ca532947858ab66b65879cc105.usd",
+    "/data/assets/objaverse/usd/ce642db7a44b4cbb9bbae22b977df0ae.usd"
+  ],
+  "hose": [
+    "/data/assets/objaverse/usd/0d36aa81e1a8482d894421ff24ebf3c0.usd",
+    "/data/assets/objaverse/usd/6f054321e329476d859df23b608dc7f6.usd"
+  ],
+  "sprinkler_head": [
+    "/data/assets/objaverse/usd/96f8ad5ab8b34243be3c77a424229c9c.usd",
+    "/data/assets/objaverse/usd/ba9fbe0107c746ab90de6f509638cb09.usd"
+  ],
+  "toy": [
+    "/ArchVis/Residential/Entertainment/Toys/WaterGun.usd",
+    "/ArchVis/Residential/Entertainment/Games/Ball_Walnut.usd",
+    "/ArchVis/Residential/Entertainment/Games/RubixCube.usd",
+    "/Isaac/Props/YCB/Axis_Aligned/061_foam_brick.usd"
+  ],
+  "tool": [
+    "/ArchVis/Residential/Misc/Ladders/Ladder.usd",
+    "/ArchVis/Residential/Misc/PaintRoller/PaintRoller.usd",
+    "/Isaac/Props/YCB/Axis_Aligned/035_power_drill.usd",
+    "/Isaac/Props/YCB/Axis_Aligned/052_extra_large_clamp.usd",
+    "/Isaac/Props/YCB/Axis_Aligned/037_scissors.usd"
+  ],
+  "rock": [
+    "/Vegetation/Rocks/rock_small_01.usda",
+    "/Vegetation/Rocks/rock_small_04.usda",
+    "/Vegetation/Rocks/rock_small_07.usda",
+    "/Vegetation/Rocks/rock_small_10.usda",
+    "/Vegetation/Rocks/rock_small_13.usda"
+  ],
+  "root": [
+    "/data/assets/objaverse/usd/0563fd3f162a437b8a5bf72986ca35cd.usd",
+    "/data/assets/objaverse/usd/12773f6ca0164e9ab209af89b9ff86be.usd",
+    "/data/assets/objaverse/usd/1334e4f7765d4d42a94cece14a0150d7.usd",
+    "/data/assets/objaverse/usd/24262ed417244b37971a9ed254410a9f.usd",
+    "/data/assets/objaverse/usd/389df4cc80fd444e9de374df44f95fba.usd",
+    "/data/assets/objaverse/usd/3ab473333d324d23aa5eb3d6f2c964ba.usd",
+    "/data/assets/objaverse/usd/3ad088e629c64680ab068afd50bd4d5c.usd",
+    "/data/assets/objaverse/usd/4ea00ccc12524db9b5a229ba969038c0.usd",
+    "/data/assets/objaverse/usd/5f5bb2305d534283be08f534ece9c9db.usd",
+    "/data/assets/objaverse/usd/60b03030191a443eacf691b6e9dce7a7.usd",
+    "/data/assets/objaverse/usd/7efdf3304fa64258a90be4f47b9aedb6.usd",
+    "/data/assets/objaverse/usd/86de736e3fc044aeac2e4be59fd7a1e2.usd",
+    "/data/assets/objaverse/usd/883f0b0cba374545a11f807d1146c990.usd",
+    "/data/assets/objaverse/usd/8a935c2b04dd4925acb4bf6aed24b60a.usd",
+    "/data/assets/objaverse/usd/95023859e97f44ddb654037c1932f65c.usd",
+    "/data/assets/objaverse/usd/b968b5dc462148989cb87b072885da85.usd",
+    "/data/assets/objaverse/usd/e50ed2b965ba4d4a8f0e2b7b39cdfc92.usd",
+    "/data/assets/objaverse/usd/e5317637f57d48b6ba0668cc7c074498.usd",
+    "/data/assets/objaverse/usd/f26ec9c6862140359301fb5baf9c1e26.usd"
+  ],
+  "furniture": [
+    "/ArchVis/Residential/Furniture/Outdoors/Dellwood/Dellwood_LoungeChair.usd",
+    "/ArchVis/Residential/Furniture/Outdoors/Dellwood/Dellwood_DiningTable.usd",
+    "/ArchVis/Residential/Furniture/Outdoors/Roxana/Roxana_FoldingChair.usd",
+    "/ArchVis/Residential/Furniture/Outdoors/Roxana/Roxana_Rocker.usd",
+    "/ArchVis/Residential/Furniture/Outdoors/Roxana/Roxana_RoundEndTable.usd"
+  ],
+  "planter": [
+    "/ArchVis/Residential/Outdoors/Planters/Anza_Medium.usd",
+    "/ArchVis/Residential/Outdoors/Planters/GardenPlanter_Large.usd",
+    "/ArchVis/Residential/Outdoors/Planters/ChippedPlanter_Medium.usd",
+    "/ArchVis/Residential/Outdoors/Planters/SquareGardenPlanter_Tall.usd"
+  ],
+  "house": [],
+  "fence": [
+    "/ArchVis/Industrial/Railing/MetalFencing_A1.usd",
+    "/ArchVis/Industrial/Railing/MetalFencing_A2.usd"
+  ],
+  "shed": [],
+  "wall": [],
+  "bed": [],
+  "edging": [],
+  "tree": [
+    "/Vegetation/Trees/American_Beech.usd",
+    "/Vegetation/Trees/Black_Oak.usd",
+    "/Vegetation/Trees/Japanese_Maple.usd",
+    "/Vegetation/Trees/Colorado_Spruce.usd"
+  ],
+  "path": [],
+  "driveway": [],
+  "mulch": [],
+  "water": [],
+  "dropoff": [],
+  "unknown_obstacle": [
+    "/ArchVis/Industrial/Containers/Cardboard/Cardbox_B2.usd",
+    "/ArchVis/Industrial/Containers/Wooden/WoodenCrate_A1.usd",
+    "/ArchVis/Residential/Outdoors/Decor/GardenMoai.usd",
+    "/ArchVis/Residential/Outdoors/Decor/PinkFlamingos.usd",
+    "/ArchVis/Residential/Outdoors/FirePits/Bowl.usd"
+  ]
+}
