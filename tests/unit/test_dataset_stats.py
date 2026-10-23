@@ -98,3 +98,15 @@ def test_json_report_is_written(tmp_path, capsys):
 
     assert json.loads(out.read_text())["images"] == 1
     assert "boxes 1" in capsys.readouterr().out
+
+
+def test_rejected_frames_are_excluded_by_default(tmp_path):
+    _img(tmp_path / "images" / "a.png")
+    (tmp_path / "images" / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+    _img(tmp_path / "rejected" / "bad.png")
+
+    default = scan(tmp_path, NAMES)
+    included = scan(tmp_path, NAMES, skip_dirs=frozenset())
+
+    assert default["images"] == 1
+    assert included["images"] == 2

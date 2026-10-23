@@ -103,8 +103,18 @@ def _near_duplicate_pairs(images: list[Path], root: Path, max_near: int) -> list
     return pairs
 
 
-def scan(root: Path, names: list[str], near_dupes: bool = False, max_near: int = 5) -> dict:
-    images = sorted(p for p in root.rglob("*") if p.suffix.lower() in IMG_EXT)
+def scan(
+    root: Path,
+    names: list[str],
+    near_dupes: bool = False,
+    max_near: int = 5,
+    skip_dirs: frozenset[str] = frozenset({"rejected"}),
+) -> dict:
+    images = sorted(
+        p
+        for p in root.rglob("*")
+        if p.suffix.lower() in IMG_EXT and not (set(p.relative_to(root).parts) & skip_dirs)
+    )
     per_image_boxes: list[int] = []
     per_class_images: Counter[int] = Counter()
     per_class_boxes: Counter[int] = Counter()
@@ -165,6 +175,7 @@ def scan(root: Path, names: list[str], near_dupes: bool = False, max_near: int =
     return {
         "root": str(root),
         "images": len(images),
+        "skipped_dirs": sorted(skip_dirs),
         "images_without_label_file": len(missing_labels),
         "images_with_zero_boxes": len(unlabeled),
         "boxes": total_boxes,
@@ -237,6 +248,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--max-hamming", type=int, default=5)
     ap.add_argument("--names", default="workshop.classes", help="module exposing NAMES")
+    ap.add_argument(
+        "--include-rejected",
+        action="store_true",
+        help="count frames under a rejected/ directory (excluded by default)",
+    )
     a = ap.parse_args(argv)
 
     names = list(NAMES)
@@ -244,7 +260,8 @@ def main(argv: list[str] | None = None) -> int:
         mod = __import__(a.names, fromlist=["NAMES"])
         names = list(mod.NAMES)
 
-    reports = [scan(d, names, a.near_dupes, a.max_hamming) for d in a.dirs]
+    skip = frozenset() if a.include_rejected else frozenset({"rejected"})
+    reports = [scan(d, names, a.near_dupes, a.max_hamming, skip) for d in a.dirs]
     for report in reports:
         print(render(report))
         print()
