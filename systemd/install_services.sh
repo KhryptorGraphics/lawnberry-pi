@@ -31,12 +31,20 @@ cp "$SCRIPT_DIR/lawnberry-cert-renewal.service" "$SYSTEMD_DIR/"
 cp "$SCRIPT_DIR/lawnberry-cert-renewal.timer" "$SYSTEMD_DIR/"
 cp "$SCRIPT_DIR/lawnberry-backup.service" "$SYSTEMD_DIR/"
 cp "$SCRIPT_DIR/lawnberry-backup.timer" "$SYSTEMD_DIR/"
+# HaLow link recovery (the shed Pi's only link) and the hardware watchdog
+cp "$SCRIPT_DIR/halow-link-watch.service" "$SYSTEMD_DIR/"
+cp "$SCRIPT_DIR/halow-link-watch.timer" "$SYSTEMD_DIR/"
+install -m 755 "$SCRIPT_DIR/../scripts/halow_link_watch.sh" /usr/local/sbin/halow-link-watch.sh
+install -d /etc/systemd/system.conf.d
+cp "$SCRIPT_DIR/10-watchdog.conf" /etc/systemd/system.conf.d/10-watchdog.conf
 
 # Set correct permissions
 chmod 644 "$SYSTEMD_DIR/lawnberry-"*.service
 chmod 644 "$SYSTEMD_DIR/lawnberry-"*.timer
 chown root:root "$SYSTEMD_DIR/lawnberry-"*.service
 chown root:root "$SYSTEMD_DIR/lawnberry-"*.timer
+chmod 644 "$SYSTEMD_DIR/halow-link-watch."{service,timer}
+chown root:root "$SYSTEMD_DIR/halow-link-watch."{service,timer}
 
 # Reload systemd daemon
 echo "Reloading systemd daemon..."
@@ -55,6 +63,7 @@ systemctl enable lawnberry-cert-renewal.service
 systemctl enable lawnberry-cert-renewal.timer
 systemctl enable lawnberry-backup.service
 systemctl enable lawnberry-backup.timer
+systemctl enable halow-link-watch.timer
 
 # If legacy ACME units exist, explicitly disable them to avoid conflicts
 if systemctl list-unit-files | grep -q '^lawnberry-acme-renew.timer'; then

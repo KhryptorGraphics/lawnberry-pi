@@ -1,0 +1,15 @@
+# Recovers the shed Pi's only working link: restarts wpa_supplicant@halow0 after 3 min of
+# no association/AP answer, then reboots (at most once per 4 h). Never reloads `morse`.
+# See scripts/halow_link_watch.sh for the ladder and why.
+[Unit]
+Description=Recover the HaLow station link (restart wpa_supplicant, then reboot)
+After=network.target
+ConditionPathExists=/sys/class/net/halow0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/halow-link-watch.sh
+TimeoutStartSec=90
+# One run a minute: keep PID 1's per-run lines out of the journal; the script logs transitions.
+SyslogLevel=notice
+LogLevelMax=notice

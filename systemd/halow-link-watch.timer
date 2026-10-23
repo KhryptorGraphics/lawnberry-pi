@@ -1,0 +1,11 @@
+# Checks the HaLow station link every 60 s. See scripts/halow_link_watch.sh.
+[Unit]
+Description=Check the HaLow station link every 60 s
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

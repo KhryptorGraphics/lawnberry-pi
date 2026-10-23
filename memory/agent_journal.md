@@ -468,3 +468,26 @@ link down was "restart the backend remotely". Every `SensorManager()` built with
 flag (dashboard, sensors router, calibration, timezone) went through that path. The fallback is now
 `False` with a warning, which is the only safe default while the radio shares those pins. Covered
 by `test_unreadable_limits_keeps_ultrasonic_off` and checked against a real invalid `limits.yaml`.
+
+## 2026-10-22 — Link recovery on both ends
+
+The Pi came back once (associated 18:11 UTC, ARP working) and then went mute at ~21:29 with the
+association still in the table: `inactive time` climbing, `rx/tx packets` frozen, `ip neigh`
+FAILED, ICMP unreachable from the AP. A `hostapd_cli deauthenticate` was accepted but nothing
+re-associated in the next 3 min. So a drop can leave a station that *looks* associated and carries
+no traffic — the failure the old watcher could not see.
+
+Orange Pi (live): `halow-client-watch.sh` now has two repair paths. A mute association (station
+present, neither ICMP nor a unicast ARP answered, 3 checks) is deauthenticated with a 10 min
+cooldown; zero stations for 3 checks still restarts `halow-ap.service` with a 30 min cooldown. Both
+stop once the client has been gone 2 h. `halow-ap.service` gained a drop-in with `Restart=always`
+(an explicit `systemctl stop`, which is what the guard does, still does not restart it). The ladder
+ran for real at 00:55:26 — three checks with no station, hostapd restarted, Pi still absent.
+
+Shed Pi 5 (source in the repo, not yet installed): `scripts/halow_link_watch.sh` restarts
+`wpa_supplicant@halow0` after 3 min with no association or no answer from 192.168.50.1, then
+reboots after 10 min, at most once per 4 h, and never touches `morse`. `systemd/halow-link-watch.
+{service,timer}` tick it every 60 s; `systemd/10-watchdog.conf` sets `RuntimeWatchdogSec=20s`, which
+this board did not have. Both state machines were exercised against stubbed `iw`/`ping`/`arping`/
+`systemctl` (healthy, mute, lost, cooldown, recovery), and the Pi script's reboot path was checked in
+dry-run so nothing rebooted. Installing them is the first thing to do when the link is back.
