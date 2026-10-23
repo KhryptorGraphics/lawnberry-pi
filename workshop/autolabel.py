@@ -1,6 +1,11 @@
 """W2 auto-labeling (workshop only, offline).
 
-    python -m workshop.autolabel --frames DIR --out DATASET_DIR [--every-s 1.0]
+    CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=2 \
+      python -m workshop.autolabel --frames DIR --out DATASET_DIR --device cuda
+
+   Device pinning: nvidia-smi lists 0 = P100, 1 = 3080 Ti, 2 = V100, but torch
+   reorders visible devices by speed unless CUDA_DEVICE_ORDER=PCI_BUS_ID is set —
+   without it, "cuda" lands on the P100 (16 GB) and a run can OOM mid-dataset.
 
 1. Sample: perceptual-hash dedup keeps a frame only if it differs from the
    last kept frame by >= ``--min-hamming`` bits.
@@ -8,7 +13,8 @@
    prompts in ``workshop/classes.py``.
 3. Write YOLO labels plus ``review.jsonl`` (every box ``reviewed: false``).
    Human review flips boxes to reviewed/corrected; ``workshop.review`` refuses
-   to export a dataset with unreviewed boxes or missing spot checks.
+   to export a dataset with unreviewed boxes, a missing manifest, a label file
+   that disagrees with ``review.jsonl``, or missing spot checks.
 
 The output folder is versioned by ``manifest.json`` (model id, revision,
 thresholds, input hashes) so a run is reproducible.

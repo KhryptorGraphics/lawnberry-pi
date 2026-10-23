@@ -25,9 +25,13 @@ def test_yolo_conversion_clips_to_image():
 
 
 def _ds(tmp_path, reviewed=True, checks=None):
+    """Minimal dataset that passes every gate check except the one under test."""
     (tmp_path / "images").mkdir()
+    (tmp_path / "labels").mkdir()
     for i in range(20):
         (tmp_path / "images" / f"{i}.jpg").write_bytes(b"x")
+        (tmp_path / "labels" / f"{i}.txt").write_text("0 0.5 0.5 0.1 0.1\n")
+    (tmp_path / "manifest.json").write_text("{}")
     (tmp_path / "review.jsonl").write_text(
         "\n".join(
             json.dumps({"image": f"{i}.jpg", "cls": 0, "reviewed": reviewed}) for i in range(20)
