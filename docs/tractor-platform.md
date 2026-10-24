@@ -188,7 +188,18 @@ The Pi ↔ Thor link has its own file, `config/thor_link.yaml`, **off by default
   lever, throttle), blade, starter, authorize/revoke, emergency-stop/clear.
   Exact route names are owned by the actuation workstream's implementation,
   not fixed by this document.
-- UI: the **Tractor** dashboard view (`/tractor`).
+- UI: the **Tractor** dashboard view (`/tractor`). It is **hold-to-run** (review finding SF-08): the
+  backend holds a lever/throttle command for `command_deadman.default_hold_ms` (500 ms by default, echoed
+  as `hold_ms` in every accepted reply) and then returns the lever to neutral and the throttle to idle, so
+  the page re-sends a held slider every third of that hold (150 ms until the first echo), one request at
+  a time, levers left then right. Releasing a slider sends neutral; so do the page being hidden or
+  closed, the browser going offline, leaving the page, a request that fails or takes longer than the
+  hold, and a rejected command (the page then stays at neutral until the operator moves a slider again).
+  A latched E-stop ends every hold without further writes, and the E-stop button is never disabled.
+  The sliders show what *this page* commands; the "Backend is holding" lines show the backend state.
+  The **Latch** checkbox keeps a slider where it was left (two sliders cannot both be dragged with one
+  mouse) with the same stop conditions. Every write needs the operator sign-in (`Authorization: Bearer`)
+  while `OPERATOR_AUTH_REQUIRED=1`; the E-stop does not.
 
 ## Pi ↔ Thor link (autonomy W7)
 

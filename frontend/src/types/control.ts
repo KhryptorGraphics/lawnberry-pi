@@ -7,7 +7,10 @@
 export interface ControlResponseV2 {
   accepted: boolean
   audit_id: string
-  result: string
+  // drive: accepted | rejected | queued. emergency: accepted, or `incomplete` together with accepted:false when
+  // the stop is latched but NOT confirmed on every output. `blocked` is the safety-lockout result (see the blade
+  // route below); `result` is a plain string in the backend model, so treat unknown values as a failure.
+  result: 'accepted' | 'rejected' | 'queued' | 'incomplete' | 'blocked'
   status_reason?: string | null
   watchdog_echo?: string | null
   watchdog_latency_ms?: number | null
@@ -158,6 +161,21 @@ export interface TractorState {
 export type TractorActuatorResponse =
   | { status: 'rejected'; reason: string }
   | ({ status: 'ok' } & Record<string, unknown>)
+
+// POST /tractor/emergency-stop and /tractor/clear-emergency answer more than ok/rejected
+// (backend tractor_service.py emergency_stop()/clear_emergency()): the E-stop reports
+// { status: 'emergency_stop', complete, subsystems, faults } (`complete: false` = the
+// latch is set but an output could not be confirmed driven), 'not_enabled' when no
+// tractor is configured, and a clear that cannot finish answers 'partial' with the
+// latches that remain in `still_latched` (or 'rejected' while a stop is in progress).
+export interface TractorSafetyResponse {
+  status: string
+  reason?: string
+  complete?: boolean
+  faults?: string[]
+  still_latched?: string[]
+  [extra: string]: unknown
+}
 
 // POST /tractor/authorize, /tractor/revoke — ad-hoc literals, not from the service layer
 export interface TractorAuthResult {
