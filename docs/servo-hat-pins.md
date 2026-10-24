@@ -6,6 +6,9 @@ claim is either from this repo, from a datasheet, or explicitly marked as needin
 **Scope assumed:** the mower platform — RoboHAT MM1 (RP2040-Zero on a custom carrier) driving a Cytron
 MDDRC10. If you meant the Toro lever servos, jump to the last section; that path is the PCA9685, not the HAT.
 
+**Platform tag (H-11):** §1–§6 are the **differential-drive mower** (RoboHAT → MDDRC10). §7 is the **Toro TimeCutter
+tractor variant**, which is a different wiring harness. Neither section is an as-built record.
+
 ## 1. What the motor controller actually needs
 
 The MDDRC10 is not a PWM/DIR driver — it takes **RC servo pulses** on RC1/RC2 (Cytron datasheet Rev 1.0):
@@ -115,7 +118,24 @@ every new channel's fail-safe at 1500 µs, as the two existing ones are.
 
 ## 7. If the target is the Toro lever servos instead
 
+> **Platform tag: Toro TimeCutter variant (H-11).** Corrected 2026-10-24 by the integration audit; the earlier
+> wording is kept (struck through) with the corrections listed under it.
+
 That platform has no motor controller — `hardware.md` and `docs/hardware-overview.md` place the lever
 servos on a **PCA9685 at I2C address 0x41 on bus 1** (channels 0/1/2), and the relays on GPIO 5 (starter)
 and GPIO 26 (blade PTO). Its "HAT pins" are therefore the Pi header's I2C pins: SDA1/SCL1 (pins 3/5),
-plus 5 V/GND — and the 24 V servo rail must stay off the PCA9685's `V+` terminal.
+plus 5 V/GND — ~~and the 24 V servo rail must stay off the PCA9685's `V+` terminal~~.
+
+**Corrections (2026-10-24):**
+
+- **Servo rail (H-05, H-20).** The 24 V statement is superseded. The servos are 12 V-class (`hardware.md`
+  Actuation; owner-reported nominal 10–12.6 V, possibly 8 A or more stall current, purchased label pending).
+  Do not route a servo supply through the PCA9685 `V+` terminal unless that breakout's `V+` path is proven for
+  the measured stall current; the default is direct wiring from a separately fused branch to each servo, with
+  only the PWM signal on the PCA9685 header and a common ground.
+- **Pins 3/5 are not usable as configured on the deployed Pi (H-17, H-25).** Live Pi, read-only audit
+  2026-10-24: `/boot/firmware/config.txt` has `dtparam=i2c_arm=off` and GPIO3 (pin 5) is the HaLow HAT's WAKE
+  line, so `/dev/i2c-1` does not exist (only `i2c-11`, `i2c-13`, `i2c-14`, none on the header). The Toro control
+  path needs a different I2C route, which is undecided (`2026-10-24-integration-audit.md`, Part B.1 and B.4).
+- **GPIO5 (starter relay, pin 29) is the HaLow radio's RESET line and GPIO25 its IRQ on the deployed Pi
+  (H-02b).** Do not connect a relay input to GPIO5 until that is resolved.

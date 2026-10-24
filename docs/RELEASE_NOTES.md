@@ -58,6 +58,13 @@ This release replaces version 1 with a unified v2 backend and frontend, contract
 
 **Hardware/power note**: lever servos run at **24V** off a 12V→24V boost converter, not the 12V rail directly. This is a safety-driven choice, not a preference — Constitution Principle VI requires positional actuators to *physically reach* their safe position within 500ms of an E-stop, and at 12V the servo's 1.0s/60° rate leaves that budget no margin under worst-case both-lever load. 24V must **not** be fed to the PCA9685's `V+` terminal (rated 10–16V); servo power goes direct from the converter with only the signal wire on the PCA9685 header and a common ground.
 
+> **SUPERSEDED (2026-10-24, H-05 / H-20):** the 24 V lever-servo power design in the paragraph above is
+> withdrawn. The currently selected servos are 12 V-class (`hardware.md` Actuation: DSSERVO/ANNIMOS RDS51150SG,
+> 12 V; owner-reported nominal 10–12.6 V, possibly 8 A or more stall current; purchased label pending), and
+> `docs/tractor-platform.md` records the ASMC-04B 24 V design as superseded. Never connecting the servo supply
+> to the PCA9685 `V+` terminal remains good practice, but "rated 10–16V" is a typical-value statement, not a
+> datasheet quote. The entry above is left unchanged as a historical record.
+
 **Readiness**: as with the superseded entry, this is the software/config layer only — `config/tractor.yaml` still ships `enabled: false`. No acceptance-criteria item is satisfied by this work. The bus-fault failsafe (PCA9685 holds its last commanded value on I2C/host loss) remains unbuilt and is still the top-priority blocker, and the IMU tilt-cutoff and motor-watchdog gaps carried forward from v3.0.0 are still open.
 
 ## Highlights
