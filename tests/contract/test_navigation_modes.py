@@ -1,44 +1,67 @@
-"""Contract test (T056): Navigation mode manager transitions.
+"""Contract test (T056): navigation mode transitions.
 
-Test goals (FR-032):
-- Support transitions MANUAL ↔ AUTONOMOUS ↔ EMERGENCY_STOP
+FR-032: the robot supports MANUAL <-> AUTONOMOUS <-> EMERGENCY_STOP. Exercises
+``POST /api/v2/nav/mode`` and the three places the mode is read back:
+``GET /api/v2/nav/status``, ``GET /api/v2/status`` and the ``RobotState`` itself
+(``backend/src/api/navigation.py``, ``backend/src/api/status.py``).
 
-Notes:
-- Placeholder uses /api/v2/nav/mode endpoints if present.
+Scope: this is the ``RobotState.navigation_mode`` enum (IDLE / MANUAL / AUTONOMOUS /
+EMERGENCY_STOP). It is a different enum from the one ``NavigationService`` uses for
+missions (AUTO / AI / PAUSED ..., audit N-31), and ``POST /api/v2/control/emergency`` does not
+write it, so the E-stop route is not asserted here (``tests/unit/test_emergency_stop_service.py``
+covers the E-stop fan-out).
 """
 
 from __future__ import annotations
 
-import os
-
-import httpx
 import pytest
 
-from backend.src.main import app
+from backend.src.models.robot_state import NavigationMode
 
-BASE_URL = "http://test"
+
+async def _read_modes(client) -> tuple[str, str]:
+    """Return the mode as served by /nav/status and by /status."""
+    nav = await client.get("/api/v2/nav/status")
+    overview = await client.get("/api/v2/status")
+    assert nav.status_code == 200
+    assert overview.status_code == 200
+    return nav.json()["mode"], overview.json()["navigation_state"]
 
 
 @pytest.mark.asyncio
-async def test_navigation_mode_transitions():
-    os.environ["SIM_MODE"] = "1"
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
-        # Set MANUAL
-        resp = await client.post("/api/v2/nav/mode", json={"mode": "MANUAL"})
-        assert resp.status_code in {200, 404}
+async def test_navigation_mode_transitions(api_client, nav_state):
+    assert await _read_modes(api_client) == ("IDLE", "IDLE")
+    assert nav_state.navigation_mode is NavigationMode.IDLE
 
-        # Set AUTONOMOUS
-        resp = await client.post("/api/v2/nav/mode", json={"mode": "AUTONOMOUS"})
-        assert resp.status_code in {200, 404}
+    # Every hop of MANUAL <-> AUTONOMOUS <-> EMERGENCY_STOP, in both directions where the
+    # contract names them; each one must be accepted and then read back everywhere.
+    path = [
+        "MANUAL",
+        "AUTONOMOUS",
+        "MANUAL",
+        "AUTONOMOUS",
+        "EMERGENCY_STOP",
+        "MANUAL",
+        "EMERGENCY_STOP",
+        "MANUAL",
+    ]
+    for mode in path:
+        resp = await api_client.post("/api/v2/nav/mode", json={"mode": mode})
+        assert resp.status_code == 200, mode
+        assert resp.json() == {"ok": True, "mode": mode}
+        assert await _read_modes(api_client) == (mode, mode)
+        assert nav_state.navigation_mode == mode
 
-        # Trigger EMERGENCY_STOP via control API
-        resp = await client.post("/api/v2/control/emergency", json={})
-        assert resp.status_code in {200, 202}
 
-        nav = await client.get("/api/v2/nav/status")
-        assert nav.status_code in {200, 404}
-        if nav.status_code == 200:
-            data = nav.json()
-            mode = data.get("mode") or data.get("navigation_mode")
-            assert mode in {"EMERGENCY_STOP", "MANUAL", "AUTONOMOUS", None}
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_mode", ["BOGUS", "AUTO", "manual", ""])
+async def test_unknown_mode_is_rejected_and_leaves_the_mode_alone(api_client, nav_state, bad_mode):
+    ok = await api_client.post("/api/v2/nav/mode", json={"mode": "AUTONOMOUS"})
+    assert ok.status_code == 200
+
+    resp = await api_client.post("/api/v2/nav/mode", json={"mode": bad_mode})
+    assert resp.status_code == 422
+    assert "mode" in str(resp.json()["detail"])
+
+    # "AUTO" belongs to the mission enum, not this one: it must not be coerced either.
+    assert await _read_modes(api_client) == ("AUTONOMOUS", "AUTONOMOUS")
