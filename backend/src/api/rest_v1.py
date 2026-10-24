@@ -105,14 +105,15 @@ def get_status():
 @router.post("/auth/login", response_model=AuthResponse)
 async def auth_login(payload: AuthLoginRequest, request: Request):
     """Start login flow (MFA compatible)."""
-    expected_secret = os.getenv("LAWN_BERRY_OPERATOR_CREDENTIAL", "operator123")
+    # No built-in default: with no credential configured nothing matches (fail closed).
+    expected_secret = os.getenv("LAWN_BERRY_OPERATOR_CREDENTIAL")
     credential = payload.credential
     if credential is None and payload.username and payload.password:
         # username/password form: the password IS the single shared operator
         # credential (username is informational). No hard-wired admin/admin alias.
         credential = payload.password
 
-    if credential != expected_secret:
+    if not expected_secret or credential != expected_secret:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
     try:

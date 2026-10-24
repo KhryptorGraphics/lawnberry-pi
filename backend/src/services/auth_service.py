@@ -22,6 +22,7 @@ import jwt
 import pyotp
 
 from ..core.context import get_correlation_id
+from ..core.credential_policy import assess_signing_secret, known_default_reason
 from ..models import (
     AuthenticationMethod,
     Permission,
@@ -76,13 +77,40 @@ class PasswordManager:
             return False
 
 
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, message: str) -> None:
+    """Log ``message`` once per process (every AuthService owns a JWTManager)."""
+    if key not in _warned:
+        _warned.add(key)
+        logger.warning(message)
+
+
 class JWTManager:
     """JWT token management"""
 
     def __init__(self, secret_key: str | None = None, *, expiry_hours: int = 8) -> None:
-        self.secret_key = (
-            secret_key or os.getenv("LAWN_BERRY_AUTH_SECRET") or secrets.token_urlsafe(32)
-        )
+        configured = secret_key or os.getenv("LAWN_BERRY_AUTH_SECRET")
+        simulated = os.getenv("SIM_MODE", "0") == "1"
+        if configured:
+            weak = assess_signing_secret(configured)
+            if weak and not simulated:
+                _warn_once(
+                    "signing-secret-weak",
+                    "LAWN_BERRY_AUTH_SECRET " + "; ".join(weak) + ": operator tokens are signed "
+                    "with a weak key",
+                )
+        else:
+            configured = secrets.token_urlsafe(32)
+            if not simulated:
+                _warn_once(
+                    "signing-secret-ephemeral",
+                    "LAWN_BERRY_AUTH_SECRET is not set: operator tokens are signed with a random "
+                    "per-process key and every restart ends all sessions; run "
+                    "systemd/install_services.sh to provision a persistent secret",
+                )
+        self.secret_key = configured
         self.algorithm = "HS256"
         self.token_expiry_hours = expiry_hours
 
@@ -230,15 +258,37 @@ class RateLimiter:
 class AuthService:
     """Main authentication service"""
 
-    def __init__(self, operator_credential: str = "operator123"):
+    def __init__(self, operator_credential: str | None = None):
         # Managers
         self.password_manager = PasswordManager()
         self.jwt_manager = JWTManager()
         self.rate_limiter = RateLimiter(failure_limit=5, lockout_seconds=30)
+        self._simulation_mode = os.getenv("SIM_MODE", "0") == "1"
 
-        # Single shared operator credential (per constitutional requirement)
-        default_secret = os.getenv("LAWN_BERRY_OPERATOR_CREDENTIAL", operator_credential)
-        self.operator_credential_hash = self._hash_credential(default_secret)
+        # Single shared operator credential (per constitutional requirement). There is NO
+        # built-in default: unset, empty or a published default (credential_policy) means no
+        # credential is accepted and operator login is disabled (fail closed; E-stop routes
+        # are unauthenticated by design and unaffected). SIM_MODE accepts any non-empty
+        # credential, so a simulated run needs none.
+        configured = (
+            operator_credential
+            if operator_credential is not None
+            else os.getenv("LAWN_BERRY_OPERATOR_CREDENTIAL")
+        )
+        self.operator_credential_hash: str | None = None
+        problem = None
+        if not configured:
+            problem = "is not set"
+        elif not self._simulation_mode:
+            problem = known_default_reason(configured)
+        if configured and problem is None:
+            self.operator_credential_hash = self._hash_credential(configured)
+        elif not self._simulation_mode:
+            logger.critical(
+                "LAWN_BERRY_OPERATOR_CREDENTIAL %s: operator login is DISABLED (nobody can log "
+                "in). Run systemd/install_services.sh, or set a strong credential in .env.",
+                problem,
+            )
 
         # Active sessions
         self.active_sessions: dict[str, UserSession] = {}
@@ -247,7 +297,6 @@ class AuthService:
         self.session_timeout_hours = 8
         self.require_https = False  # Would be True in production
         self.audit_logging_enabled = True
-        self._simulation_mode = os.getenv("SIM_MODE", "0") == "1"
 
     def _hash_credential(self, credential: str) -> str:
         """Hash the operator credential"""
@@ -263,6 +312,8 @@ class AuthService:
     def _validate_credential(self, credential: str) -> bool:
         if self._simulation_mode:
             return bool(credential)
+        if self.operator_credential_hash is None:
+            return False  # no usable credential configured: nobody logs in
         return self.password_manager.verify_password(credential, self.operator_credential_hash)
 
     def _issue_token_for_session(self, session: UserSession) -> AuthResult:
@@ -460,6 +511,11 @@ class AuthService:
         self, current_credential: str, new_credential: str
     ) -> bool:
         """Update the operator credential"""
+        if self.operator_credential_hash is None:
+            # Nothing configured to verify against: the credential can only be set through
+            # the environment (LAWN_BERRY_OPERATOR_CREDENTIAL), never over the API.
+            logger.warning("Operator credential update refused: no credential is configured")
+            return False
         # Verify current credential
         if not self.password_manager.verify_password(
             current_credential, self.operator_credential_hash

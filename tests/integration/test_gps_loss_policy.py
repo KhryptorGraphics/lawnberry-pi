@@ -104,14 +104,14 @@ async def test_gps_recovery_resumes_normal_operation():
 
 
 @pytest.mark.asyncio
-async def test_manual_override_during_gps_loss():
+async def test_manual_override_during_gps_loss(operator_credential):
     """Test that manual control works during GPS loss."""
     from backend.src.main import app
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         # Authenticate first
-        auth_payload = {"credential": "operator123"}
+        auth_payload = {"credential": operator_credential}
         auth_response = await client.post("/api/v2/auth/login", json=auth_payload)
         assert auth_response.status_code == 200
 

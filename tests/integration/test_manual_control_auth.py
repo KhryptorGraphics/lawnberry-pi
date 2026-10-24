@@ -26,14 +26,14 @@ async def test_manual_control_requires_authentication():
 
 
 @pytest.mark.asyncio
-async def test_manual_control_with_valid_mfa():
+async def test_manual_control_with_valid_mfa(operator_credential):
     """Test that manual control works with valid MFA token."""
     from backend.src.main import app
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         # First, authenticate with MFA
-        auth_payload = {"credential": "operator123"}
+        auth_payload = {"credential": operator_credential}
         auth_response = await client.post("/api/v2/auth/login", json=auth_payload)
         assert auth_response.status_code == 200
 
@@ -90,14 +90,14 @@ async def test_emergency_stop_always_accessible():
 
 
 @pytest.mark.asyncio
-async def test_mfa_token_expiration():
+async def test_mfa_token_expiration(operator_credential):
     """Test that MFA tokens expire and require refresh."""
     from backend.src.main import app
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         # Get a token
-        auth_payload = {"credential": "operator123"}
+        auth_payload = {"credential": operator_credential}
         auth_response = await client.post("/api/v2/auth/login", json=auth_payload)
         assert auth_response.status_code == 200
 
@@ -120,7 +120,7 @@ async def test_mfa_token_expiration():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_manual_control_sessions():
+async def test_concurrent_manual_control_sessions(operator_credential):
     """Test behavior with multiple concurrent manual control sessions."""
     from backend.src.main import app
 
@@ -130,7 +130,7 @@ async def test_concurrent_manual_control_sessions():
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client1:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client2:
             # Both authenticate
-            auth_payload = {"credential": "operator123"}
+            auth_payload = {"credential": operator_credential}
 
             auth1 = await client1.post("/api/v2/auth/login", json=auth_payload)
             auth2 = await client2.post("/api/v2/auth/login", json=auth_payload)

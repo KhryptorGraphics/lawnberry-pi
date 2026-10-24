@@ -61,6 +61,12 @@ os.environ.setdefault("SIM_MODE", "1")
 # Operator auth on write endpoints is secure-by-default in production; disable it
 # for the suite so existing contract tests can call writes without a token.
 os.environ.setdefault("OPERATOR_AUTH_REQUIRED", "0")
+# There is no built-in operator credential (backend/src/core/credential_policy.py). The suite
+# configures an explicit one before the backend is imported; tests that log in take it from
+# the `operator_credential` fixture instead of hard-coding a value. Forced, not setdefault:
+# a developer's real credential must never leak into a test run.
+TEST_OPERATOR_CREDENTIAL = "test-operator-credential"
+os.environ["LAWN_BERRY_OPERATOR_CREDENTIAL"] = TEST_OPERATOR_CREDENTIAL
 os.environ.setdefault("GLOBAL_RATE_LIMIT_RATE", "1000")
 os.environ.setdefault("GLOBAL_RATE_LIMIT_BURST", "10000")
 os.environ.setdefault("AUTH_RATE_LIMIT_WINDOW", "60")
@@ -113,3 +119,9 @@ async def test_client():
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+
+
+@pytest.fixture
+def operator_credential() -> str:
+    """The explicit operator credential the suite configures (there is no built-in one)."""
+    return TEST_OPERATOR_CREDENTIAL
