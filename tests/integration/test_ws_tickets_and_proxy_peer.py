@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.testclient import WebSocketDenialResponse
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from backend.src.api import status as status_api
 from backend.src.api.routers import auth as auth_router
@@ -38,7 +39,7 @@ from backend.src.core.peer_address import (
 )
 from backend.src.main import app
 from backend.src.middleware.rate_limiting import register_global_rate_limiter
-from backend.src.middleware.security import SecurityMiddleware
+from backend.src.middleware.security import UNLIMITED_AUTH_PATHS, SecurityMiddleware
 from backend.src.services.auth_service import AuthService
 
 CRED = "correct-horse-battery-staple"
@@ -179,12 +180,34 @@ async def test_an_untrusted_peer_cannot_dodge_the_lockout_with_forwarded_for(str
         assert locked.status_code == 429
 
 
+async def test_uvicorn_proxy_headers_and_the_backend_agree_on_the_client(strict):
+    """In the shipped deployment uvicorn (``--proxy-headers``, trusting 127.0.0.1) has already
+    replaced ``request.client`` with the forwarded hop before the backend looks. Both layers take
+    the last untrusted hop, so a client-written prefix is ignored and each browser is counted on
+    its own. Pins the documented assumption against a uvicorn upgrade."""
+    wrapped = ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")
+    async with _client_for(wrapped) as proxy:
+        assert await _bad_logins(proxy, [f"6.6.6.{n}, 203.0.113.9" for n in range(3)]) == [401] * 3
+        locked = await proxy.post(
+            LOGIN, json={"credential": CRED}, headers={"X-Forwarded-For": "6.6.6.99, 203.0.113.9"}
+        )
+        assert locked.status_code == 429
+        other = await proxy.post(
+            LOGIN, json={"credential": CRED}, headers={"X-Forwarded-For": "203.0.113.10"}
+        )
+        assert other.status_code == 200, other.text
+
+
 def _auth_app() -> FastAPI:
     sub = FastAPI()
 
     @sub.post(LOGIN)
     async def login() -> JSONResponse:
         return JSONResponse({"detail": "bad credentials"}, status_code=401)
+
+    @sub.post(TICKET)
+    async def ticket() -> JSONResponse:
+        return JSONResponse({"detail": "expired token"}, status_code=401)
 
     sub.add_middleware(
         SecurityMiddleware,
@@ -207,6 +230,22 @@ async def test_the_auth_prefix_limiter_counts_each_browser_behind_a_trusted_prox
         b = await proxy.post(LOGIN, json={}, headers={"X-Forwarded-For": "203.0.113.2"})
     assert a[:3] == [401] * 3 and set(a[3:]) == {429}, a
     assert b.status_code == 401
+
+
+async def test_ticket_requests_are_not_counted_by_the_auth_prefix_limiter():
+    """The UI asks for a ticket before every WebSocket (re)connect, with a token that may have
+    expired (401): neither may use up the login's attempt budget or lock the login out."""
+    async with _client_for(_auth_app()) as proxy:
+        tickets = [(await proxy.post(TICKET, json={})).status_code for _ in range(12)]
+        assert tickets == [401] * 12, "a ticket request was rate limited"
+        login = await proxy.post(LOGIN, json={})
+        assert login.status_code == 401, "the login was locked out by ticket requests"
+
+
+def test_every_path_exempt_from_the_auth_limiter_is_a_real_post_route():
+    routes = {(m, r.path) for r in app.routes if hasattr(r, "methods") for m in r.methods}
+    assert UNLIMITED_AUTH_PATHS == {TICKET}
+    assert all(("POST", path) in routes for path in UNLIMITED_AUTH_PATHS)
 
 
 def _limited_app(monkeypatch, burst: str) -> FastAPI:
@@ -387,13 +426,16 @@ async def test_the_control_socket_helper_refuses_the_loopback_only_when_auth_is_
     assert (await _authorize_websocket(loopback, command_capable=True)).session_id
 
 
-async def test_forwarded_for_never_decides_websocket_admission(clean_env):
+async def test_the_websocket_helper_never_reads_forwarded_for(clean_env):
+    """The peer is ``websocket.client``; the helper itself ignores the header. (In the shipped
+    deployment uvicorn has already replaced the peer with the forwarded hop by then, so a LAN
+    browser behind the UI server arrives here as its own address: see the auth guide.)"""
     forged = FakeWebSocket(host="203.0.113.9", headers={"X-Forwarded-For": "127.0.0.1"})
     with pytest.raises(HTTPException) as refused:
         await _authorize_websocket(forged)
     assert refused.value.status_code == 401
-    behind_ui = FakeWebSocket(host="127.0.0.1", headers={"X-Forwarded-For": "203.0.113.9"})
-    assert (await _authorize_websocket(behind_ui)).session_id, "the TCP peer decides"
+    loopback = FakeWebSocket(host="127.0.0.1", headers={"X-Forwarded-For": "203.0.113.9"})
+    assert (await _authorize_websocket(loopback)).session_id, "the peer decides, not the header"
 
 
 async def test_the_status_stream_is_authorized_before_it_is_accepted(clean_env):

@@ -22,6 +22,12 @@ from starlette.responses import JSONResponse
 from ..core.context import set_correlation_id
 from ..core.peer_address import request_peer_key
 
+# Routes under a protected prefix that take no credential to guess: ``POST /auth/ws-ticket`` only
+# redeems a live bearer token, and the UI calls it before every WebSocket (re)connect. Counting
+# those calls would block the login after a handful of reconnects, and counting its 401 (an
+# expired token) would lock the operator out of the very login that renews the token.
+UNLIMITED_AUTH_PATHS = frozenset({"/api/v2/auth/ws-ticket"})
+
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     """Apply security headers, correlation IDs, and auth rate limiting.
@@ -112,6 +118,8 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         return request_peer_key(request)
 
     def _is_protected_path(self, path: str) -> bool:
+        if path.rstrip("/") in UNLIMITED_AUTH_PATHS:
+            return False
         return any(path.startswith(prefix) for prefix in self._protected_prefixes)
 
     async def _preprocess_rate_limit(self, client_token: str) -> Response | None:

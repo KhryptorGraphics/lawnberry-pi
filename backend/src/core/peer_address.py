@@ -18,6 +18,12 @@ inbound ``X-Forwarded-For`` / ``Forwarded`` / ``X-Real-IP`` and set ``xfwd: true
 hop is the browser's real socket address. Without that header every browser behind it shares the
 proxy's one budget, and a lockout caused by one applies to all of them.
 
+uvicorn applies the same rule first: its ProxyHeadersMiddleware (``--proxy-headers``, on by
+default, trusting only ``FORWARDED_ALLOW_IPS``, default 127.0.0.1) replaces ``request.client``
+with the last untrusted ``X-Forwarded-For`` hop before any of this code runs, so in the shipped
+deployment the "TCP peer" seen here is already the browser's address. Never run with
+``FORWARDED_ALLOW_IPS=*``: uvicorn then takes the FIRST hop, which the client wrote.
+
 Other consequences, all deliberate:
 
 * An IPv6 client is counted per /64, the smallest prefix a single subscriber normally owns, so

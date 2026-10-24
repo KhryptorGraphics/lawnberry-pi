@@ -359,12 +359,16 @@ async def _authorize_websocket(
     With no credential:
 
     * ``command_capable`` paths (``/ws/control``) are refused whenever ``OPERATOR_AUTH_REQUIRED``
-      is on, whoever the peer is: the loopback (the UI server's proxied browsers) and
-      ``SIM_MODE`` included;
-    * everything else is admitted for a loopback TCP peer (the UI server proxies from there; the
-      read-only streams carry what the open GET routes carry) or the explicit simulator opt-in
-      (``SIM_MODE=1`` AND ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in production), and refused for
-      every other peer. ``X-Forwarded-For`` is irrelevant here: the TCP peer decides.
+      is on, whoever the peer is: a loopback peer and ``SIM_MODE`` included;
+    * everything else is admitted for a loopback peer (the read-only streams carry what the open
+      GET routes carry) or the explicit simulator opt-in (``SIM_MODE=1`` AND
+      ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in production), and refused for every other peer.
+
+    "Peer" is ``websocket.client``. This code never derives it from a header, but uvicorn's own
+    proxy-headers handling (on by default, trusting only 127.0.0.1: ``FORWARDED_ALLOW_IPS``)
+    replaces the TCP peer with the last ``X-Forwarded-For`` hop when the connection comes from
+    the UI server. So a LAN browser behind the UI server IS its own address (refused without a
+    credential, admitted with a ticket) and only a browser on the mower itself is a loopback peer.
 
     No WebSocket handler changes mower state today (``/ws/control`` only acknowledges), so an
     anonymous connection cannot actuate anything.
