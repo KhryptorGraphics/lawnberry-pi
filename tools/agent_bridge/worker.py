@@ -950,6 +950,22 @@ class Worker:
                 pr = self.github.create_pull_request(
                     title=title, head=run.branch, base=self.cfg.git.base_branch, body=body
                 )
+            # Whatever supplied ``pr`` (found or just created), the "draft only" promise rests on
+            # what GitHub says it is, not on what we asked for: anyone with write access can open a
+            # pull request from the branch right after the push, and a server may drop ``draft``.
+            if not (pr.head_ref == run.branch and pr.state == "open" and pr.draft):
+                raise _Stop(
+                    RunStatus.BLOCKED,
+                    "pull_request_unexpected",
+                    f"pull request #{pr.number} ({pr.html_url or 'no url'}) is {pr.state}, "
+                    f"{'a draft' if pr.draft else 'not a draft'}, from branch {pr.head_ref!r}; "
+                    f"expected an open draft pull request from {run.branch!r}",
+                    hints=[
+                        "The branch was pushed, but the pull request found for it is not an open "
+                        "draft from this run's branch. Close it (or, if it is the bridge's own "
+                        "work, turn it into a draft), then re-approve."
+                    ],
+                )
             if pr.number and self.cfg.pull_request.labels:
                 self.github.add_labels(pr.number, self.cfg.pull_request.labels)
             self.ledger.set_phase(

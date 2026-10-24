@@ -17,8 +17,10 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import replace
+from typing import Any
 
 import pytest
+from bridgefakes.github_server import WEB_URL, FakeGitHub, FakePull
 from bridgefakes.rig import REPO, Rig, task_body
 
 from tools.agent_bridge.agents.base import AgentReport, AgentResult, AgentStatus
@@ -359,3 +361,191 @@ def test_a_hostile_title_reaches_the_real_pull_request_as_one_well_formed_row(ri
     assert [len(gfm_cells(row)) for row in table] == [2] * len(table)
     live = outside_code(body)
     assert "@x" not in live and "evil.example" not in live
+
+
+# ----------------------------------------------------------------------------------------------
+# F6: the pull request recorded for a run is an open draft from the run's own branch
+# ----------------------------------------------------------------------------------------------
+DONE_HEADING = "Draft pull request ready for review"
+BLOCKED_HEADING = "Agent run blocked"
+
+# Pull requests that are not what the worker expects, as they stand when it finds them.
+UNEXPECTED_PULLS = {
+    "closed-and-not-a-draft": {"state": "closed", "draft": False},  # the reviewer's repro
+    "open-and-ready-for-review": {"state": "open", "draft": False},
+    "closed-draft": {"state": "closed", "draft": True},
+}
+
+
+def plant_pull(fake: FakeGitHub, branch: str, *, author: str, state: str, draft: bool) -> int:
+    """A pull request from ``branch`` opened by ``author`` (the fake cannot create as another)."""
+    title = f"Pull request by {author}"
+    number = fake.add_issue(title=title, author=author, state=state, pull_request=True)
+    fake.pulls[number] = FakePull(
+        number=number,
+        title=title,
+        body="",
+        head_ref=branch,
+        base_ref="main",
+        draft=draft,
+        state=state,
+        html_url=f"{WEB_URL}/{REPO}/pull/{number}",
+        created_at=fake.now(),
+    )
+    return number
+
+
+def plant_pull_after_push(rig: Rig, monkeypatch: pytest.MonkeyPatch, **pull: Any) -> list[int]:
+    """Have a pull request appear for the run's branch the moment the bridge has pushed it."""
+    push = rig.git.push
+    planted: list[int] = []
+
+    def push_then_plant(branch: str) -> None:
+        push(branch)
+        planted.append(plant_pull(rig.fake, branch, **pull))
+
+    monkeypatch.setattr(rig.git, "push", push_then_plant)
+    return planted
+
+
+def pull_posts(rig: Rig) -> list[Any]:
+    return [r for r in rig.fake.requests if r.method == "POST" and r.path.endswith("/pulls")]
+
+
+def canned_pull(number: int, *, head: str) -> dict[str, Any]:
+    """The JSON of an open draft pull request as a (misbehaving) server might answer a POST."""
+    return {
+        "number": number,
+        "state": "open",
+        "draft": True,
+        "html_url": f"{WEB_URL}/{REPO}/pull/{number}",
+        "title": "canned",
+        "head": {"ref": head},
+        "base": {"ref": "main"},
+    }
+
+
+def assert_pull_refused(rig: Rig, number: int, run: RunRecord, pull_number: int) -> None:
+    """The run ended BLOCKED because pull request ``pull_number`` is not the draft it expects."""
+    assert run.status is RunStatus.BLOCKED, (run.status, run.failure_kind, run.failure_detail)
+    assert run.failure_kind == "pull_request_unexpected"
+    assert f"pull request #{pull_number} " in (run.failure_detail or "")
+    assert run.pr_number is None and run.pr_url is None
+    labels = rig.fake.issue_labels(number)
+    assert "agent-blocked" in labels and not {"agent-done", "agent-running"} & set(labels)
+    labelled = [
+        r
+        for r in rig.fake.requests
+        if r.method == "POST" and r.path.endswith(f"/issues/{pull_number}/labels")
+    ]
+    assert labelled == []  # the pull request was not claimed as the bridge's own
+    comments = rig.comments(number)
+    assert [c for c in comments if DONE_HEADING in c] == []
+    (blocked,) = [c for c in comments if BLOCKED_HEADING in c]
+    assert "`pull_request_unexpected`" in blocked and f"#{pull_number}" in blocked
+    assert "re-approve" in blocked
+
+
+@pytest.mark.parametrize("case_id", sorted(UNEXPECTED_PULLS))
+def test_a_pull_request_someone_else_opened_for_the_branch_is_never_adopted(
+    make_rig_for: Any, monkeypatch: pytest.MonkeyPatch, case_id: str
+) -> None:
+    rig: Rig = make_rig_for(pull_request={"labels": ["bridge-pr"]})
+    planted = plant_pull_after_push(rig, monkeypatch, author="mallory", **UNEXPECTED_PULLS[case_id])
+    number = rig.new_task_issue()
+
+    run = rig.run_issue(number)
+
+    (foreign,) = planted
+    assert_pull_refused(rig, number, run, foreign)
+    assert rig.fake.issue_labels(foreign) == []
+    assert pull_posts(rig) == []  # it found that pull request, so it never opened one of its own
+    assert rig.git_env.origin_branches() == sorted(["main", run.branch or ""])  # pushed, as before
+
+
+class SimulatedCrash(BaseException):
+    """The bridge process dying: nothing in the worker catches ``BaseException``."""
+
+
+def test_recovery_does_not_adopt_a_pull_request_someone_else_opened_either(
+    make_rig_for: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig: Rig = make_rig_for(pull_request={"labels": ["bridge-pr"]})
+    push = rig.git.push
+    planted: list[int] = []
+
+    def push_then_die(branch: str) -> None:
+        push(branch)
+        planted.append(plant_pull(rig.fake, branch, author="mallory", state="closed", draft=False))
+        raise SimulatedCrash
+
+    monkeypatch.setattr(rig.git, "push", push_then_die)
+    number = rig.new_task_issue()
+    with pytest.raises(SimulatedCrash):
+        rig.poll()
+    monkeypatch.undo()  # the replacement process has no such hook
+    rig.clock.advance(rig.cfg.limits.lease_ttl_seconds + 1)  # the dead worker's lease runs out
+
+    rig.worker.recover(execute=True)
+
+    (foreign,) = planted
+    (run,) = rig.ledger.runs_for_issue(REPO, number)
+    assert_pull_refused(rig, number, run, foreign)
+    assert rig.fake.issue_labels(foreign) == []
+
+
+def test_a_pull_request_opened_ready_for_review_is_never_recorded_as_the_draft(
+    make_rig_for: Any,
+) -> None:
+    rig: Rig = make_rig_for(pull_request={"labels": ["bridge-pr"]})
+    rig.fake.ignore_draft = True  # a server that drops the ``draft: true`` the bridge sends
+    number = rig.new_task_issue()
+
+    run = rig.run_issue(number)
+
+    [(pull_number, pull)] = rig.fake.pulls.items()  # the bridge did open it, as asked
+    assert pull.draft is False and pull.head_ref == run.branch
+    assert_pull_refused(rig, number, run, pull_number)
+    assert rig.fake.issue_labels(pull_number) == []
+    assert len(pull_posts(rig)) == 1
+
+
+def test_a_created_pull_request_from_another_branch_is_never_recorded(rig: Rig) -> None:
+    rig.fake.inject("POST", r"/pulls$", status=201, json=canned_pull(77, head="agent/elsewhere"))
+    number = rig.new_task_issue()
+
+    run = rig.run_issue(number)
+
+    assert_pull_refused(rig, number, run, 77)
+    assert "agent/elsewhere" in (run.failure_detail or "")
+
+
+def test_an_open_draft_for_the_branch_from_an_earlier_attempt_is_still_adopted(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    planted = plant_pull_after_push(
+        rig, monkeypatch, author=rig.fake.bot_login, state="open", draft=True
+    )
+    number = rig.new_task_issue()
+
+    run = rig.run_issue(number)
+
+    (earlier,) = planted
+    assert run.status is RunStatus.DONE, (run.failure_kind, run.failure_detail)
+    assert run.pr_number == earlier and list(rig.fake.pulls) == [earlier]
+    assert pull_posts(rig) == []  # adopted, not duplicated
+    assert "agent-done" in rig.fake.issue_labels(number)
+    assert len([c for c in rig.comments(number) if DONE_HEADING in c]) == 1
+
+
+def test_the_fake_can_play_a_server_that_drops_the_draft_flag() -> None:
+    """Guards the guard: the knob the tests above rely on must really change the answer."""
+    fake = FakeGitHub(REPO)
+    request = {"title": "t", "base": "main", "draft": True}
+    with fake.client() as http:
+        honoured = http.post(f"/repos/{REPO}/pulls", json={**request, "head": "agent/a"})
+        fake.ignore_draft = True
+        ignored = http.post(f"/repos/{REPO}/pulls", json={**request, "head": "agent/b"})
+
+    assert (honoured.status_code, honoured.json()["draft"]) == (201, True)
+    assert (ignored.status_code, ignored.json()["draft"]) == (201, False)

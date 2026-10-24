@@ -21,6 +21,11 @@ Fidelity notes (kept on purpose so client bugs surface here and not in productio
 * ``GET /user`` answers with the account that authored every comment, label event and pull
   request the fake creates (``bot_login``), which is how the bridge recognises its own comments.
 
+Fault knobs (plain attributes, off by default; ``inject`` and ``deny`` cover everything else):
+
+* ``ignore_draft``: ``POST .../pulls`` opens ready-for-review pull requests whatever ``draft``
+  says, like a server that drops a request field it does not understand.
+
 Not implemented (404 as unknown routes): ``GET /repos/{owner}/{repo}``.
 """
 
@@ -302,6 +307,7 @@ class FakeGitHub:
         self.name = name
         self.token = token
         self.bot_login = "agent-bot"
+        self.ignore_draft = False
         self.issues: dict[int, FakeIssue] = {}
         self.comments: dict[int, list[FakeComment]] = {}
         self.pulls: dict[int, FakePull] = {}
@@ -840,6 +846,8 @@ class FakeGitHub:
             return _validation_failed(
                 {"resource": "PullRequest", "field": "draft", "code": "invalid"}
             )
+        if self.ignore_draft:
+            draft = False
         for pull in self.pulls.values():
             if (
                 pull.state == "open"
