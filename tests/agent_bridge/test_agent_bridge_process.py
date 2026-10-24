@@ -1384,7 +1384,7 @@ def test_a_check_that_cannot_be_started_fails_with_the_reason(
 ENV_DUMP = "import json, os; open('env.json', 'w').write(json.dumps(dict(os.environ)))"
 
 
-def test_checks_see_only_the_allow_listed_environment_plus_their_own(tmp_path: Path) -> None:
+def test_checks_see_only_the_scrubbed_environment_plus_their_own(tmp_path: Path) -> None:
     environ = {
         "PATH": "/usr/bin:/bin",
         "HOME": "/home/agent",
@@ -1405,25 +1405,43 @@ def test_checks_see_only_the_allow_listed_environment_plus_their_own(tmp_path: P
     (result,) = go(["env"], checks, tmp_path, environ)
 
     assert result.passed, result.output_tail
-    assert json.loads((tmp_path / "env.json").read_text()) == {
-        "PATH": "/usr/bin:/bin",
-        "HOME": "/home/agent",
-        "USER": "agent",
-        "LOGNAME": "agent",
-        "LANG": "C.UTF-8",  # the check's own setting wins over the inherited value
-        "TMPDIR": "/tmp/agent",
-        "CHECK_EXTRA": "from config",
-        "PYTHONCOERCECLOCALE": "0",
+    seen = json.loads((tmp_path / "env.json").read_text())
+    # A private HOME, a pinned PATH and fixed identity replace what the bridge process holds;
+    # tests/agent_bridge/test_agent_bridge_check_isolation.py checks each value.
+    assert set(seen) == {
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_TERMINAL_PROMPT",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONNOUSERSITE",
+        "CHECK_EXTRA",
+        "PYTHONCOERCECLOCALE",
     }
+    assert seen["HOME"] != "/home/agent" and seen["TMPDIR"] != "/tmp/agent"
+    assert seen["USER"] == seen["LOGNAME"] == "agent-bridge"
+    assert seen["LANG"] == "C.UTF-8"  # the check's own setting wins over the inherited value
+    assert seen["CHECK_EXTRA"] == "from config"
+    assert FAKE_TOKEN not in json.dumps(seen) and "/evil" not in json.dumps(seen)
 
 
-def test_allow_listed_variables_that_are_absent_are_not_invented(tmp_path: Path) -> None:
+def test_the_locale_is_not_invented(tmp_path: Path) -> None:
     checks = {"env": check(ENV_DUMP, env={"PYTHONCOERCECLOCALE": "0"})}
 
     (result,) = go(["env"], checks, tmp_path, {"PATH": os.environ.get("PATH", "")})
 
     assert result.passed
-    assert set(json.loads((tmp_path / "env.json").read_text())) == {"PATH", "PYTHONCOERCECLOCALE"}
+    seen = json.loads((tmp_path / "env.json").read_text())
+    assert "LANG" not in seen and "LC_ALL" not in seen
 
 
 def test_the_process_environment_is_used_when_none_is_given(
@@ -1443,13 +1461,9 @@ def test_the_process_environment_is_used_when_none_is_given(
     )[0]
 
     seen = json.loads((tmp_path / "env.json").read_text())
-    allowed = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR")
     assert result.passed
-    assert seen == {
-        **{k: os.environ[k] for k in allowed if k in os.environ},
-        "PYTHONCOERCECLOCALE": "0",
-    }
     assert "BRIDGE_TEST_CANARY" not in seen and seen["LANG"] == "C.UTF-8"
+    assert seen["HOME"] != os.environ.get("HOME")
 
 
 def test_command_prefix_wraps_every_check_but_is_not_part_of_the_reported_argv(

@@ -7,6 +7,7 @@ outside the worktree and the agent must not be able to turn a commit into code e
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 import subprocess
@@ -20,7 +21,7 @@ from .errors import GitError
 from .policy import MODE_GITLINK, MODE_SYMLINK, Change
 from .redact import Redactor
 
-__all__ = ["GitOps", "StagedDiff", "worktree_pointer"]
+__all__ = ["GitOps", "GitSnapshot", "StagedDiff", "worktree_pointer"]
 
 GIT_ENV_ALLOWLIST: tuple[str, ...] = (
     "PATH",
@@ -94,6 +95,54 @@ def _is_text(content: bytes) -> bool:
     except UnicodeDecodeError:
         return False
     return True
+
+
+@dataclass(frozen=True)
+class GitSnapshot:
+    """The shared git state that decides what a task branch publishes.
+
+    Taken when a task worktree is created and compared after the agent phase and after the checks
+    (:meth:`GitOps.state_snapshot`).  Agent-written code runs unsandboxed in both phases, so the
+    gate covers what such code could use to publish something other than the reviewed tree: the
+    repository's config (remote URLs, ``url.*.insteadOf``, credential and ssh settings), the
+    worktree's ``.git`` pointer and HEAD, and the agent branches (``refs/heads/<branch_prefix>*``)
+    that the bridge pushes.  Every other ref and worktree is ignored: the owner may work in the
+    same clone while a run is in progress.
+    """
+
+    config: str  # sha256 of the shared repository's ``config`` file ("" when unreadable)
+    pointer: str | None  # text of the worktree's ``.git`` file
+    head: str  # commit HEAD names
+    head_ref: str | None  # branch HEAD is attached to (None: detached)
+    agent_refs: tuple[tuple[str, str], ...]  # (refname, commit [-> symref target]), sorted
+
+    def differences(self, after: GitSnapshot) -> list[str]:
+        """What changed between this snapshot and ``after``: one short sentence per difference."""
+        found: list[str] = []
+        if self.config != after.config:
+            found.append("the repository's git config changed")
+        if self.pointer != after.pointer:
+            found.append("the worktree's .git pointer changed")
+        if self.head != after.head:
+            found.append(f"HEAD moved from {self.head[:12]} to {after.head[:12]}")
+        if self.head_ref != after.head_ref:
+            if after.head_ref is None:
+                found.append(f"HEAD is now detached (was attached to {self.head_ref})")
+            elif self.head_ref is None:
+                found.append(f"HEAD is now attached to {after.head_ref} (was detached)")
+            else:
+                found.append(f"HEAD is now attached to {after.head_ref} (was {self.head_ref})")
+        before, now = dict(self.agent_refs), dict(after.agent_refs)
+        changed = sorted(name for name in before.keys() & now.keys() if before[name] != now[name])
+        for label, names in (
+            ("created", sorted(now.keys() - before.keys())),
+            ("deleted", sorted(before.keys() - now.keys())),
+            ("moved", changed),
+        ):
+            if names:
+                more = f" and {len(names) - 5} more" if len(names) > 5 else ""
+                found.append(f"agent branches {label}: {', '.join(names[:5])}{more}")
+        return found
 
 
 class GitOps:
@@ -477,3 +526,61 @@ class GitOps:
             ["ls-remote", "--heads", self.cfg.remote, f"refs/heads/{branch}"], auth=True
         )
         return out.split()[0] if out else None
+
+    # ---------------------------------------------------------------- shared-state integrity
+    def state_snapshot(self, path: Path) -> GitSnapshot:
+        """Fingerprint the shared git state a run must not change (see :class:`GitSnapshot`).
+
+        Raises :class:`GitError` when git cannot read the repository any more: an unreadable
+        repository must never look unchanged.
+        """
+        common = Path(self._text(["rev-parse", "--git-common-dir"], cwd=path))
+        if not common.is_absolute():
+            common = path / common
+        try:
+            config = hashlib.sha256((common / "config").read_bytes()).hexdigest()
+        except OSError:
+            config = ""
+        symbolic = self._run(["symbolic-ref", "-q", "HEAD"], cwd=path, check=False)
+        if symbolic.returncode not in (0, 1):  # 1: HEAD is detached
+            stderr = self._redactor.redact(symbolic.stderr.decode("utf-8", errors="replace"))
+            raise GitError(
+                f"git symbolic-ref failed ({symbolic.returncode}): {stderr.strip()[:500]}",
+                argv=["symbolic-ref", "-q", "HEAD"],
+                stderr=stderr.strip(),
+            )
+        listing = self._text(
+            [
+                "for-each-ref",
+                "--format=%(objectname) %(refname) %(symref)",
+                f"refs/heads/{self.cfg.branch_prefix}",
+            ],
+            cwd=path,
+        )
+        refs: list[tuple[str, str]] = []
+        for line in listing.splitlines():
+            commit, _, rest = line.partition(" ")
+            name, _, symref = rest.partition(" ")
+            refs.append((name, f"{commit} -> {symref.strip()}" if symref.strip() else commit))
+        return GitSnapshot(
+            config=config,
+            pointer=worktree_pointer(path),
+            head=self.worktree_head(path),
+            head_ref=symbolic.stdout.decode("utf-8", errors="replace").strip() or None,
+            agent_refs=tuple(sorted(refs)),
+        )
+
+    def commit_parents(self, sha: str) -> list[str]:
+        """The parents recorded inside commit ``sha`` itself.
+
+        Read from the raw object, so replacement refs and grafts cannot make a commit look like
+        it sits on the base commit.
+        """
+        raw = self._run(["--no-replace-objects", "cat-file", "commit", sha]).stdout
+        parents: list[str] = []
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            if not line:  # the header ends at the first empty line
+                break
+            if line.startswith("parent "):
+                parents.append(line[len("parent ") :].strip())
+        return parents

@@ -39,7 +39,7 @@ from .errors import (
     TaskValidationError,
 )
 from .github import GitHubClient, edited_after, find_approval
-from .gitops import GitOps, worktree_pointer
+from .gitops import GitOps, GitSnapshot, worktree_pointer
 from .ledger import LeaseRequest, Ledger, RunRecord
 from .models import Approval, Issue, RunPhase, RunStatus
 from .policy import Violation, build_write_policy, evaluate_changes
@@ -200,6 +200,7 @@ class _Ctx:
     run_dir: Path
     worktree: Path | None = None
     pointer: str | None = None
+    git_state: GitSnapshot | None = None  # shared git state when the worktree was created
     agent: AgentResult | None = None
     files: list[str] = field(default_factory=list)
     added: int = 0
@@ -647,6 +648,7 @@ class Worker:
         )
         (ctx.run_dir / "worktree.pointer").write_text(ctx.pointer or "", encoding="utf-8")
         ctx.run = self.ledger.get(run.run_id) or run
+        ctx.git_state = self.git.state_snapshot(path)
 
     def _verify_remote(self, *, warn: bool = True) -> None:
         """Stop before any fetch or push unless the clone's remote is the configured repository.
@@ -814,18 +816,59 @@ class Worker:
     def _verify_and_commit(self, ctx: _Ctx) -> None:
         run, el = ctx.run, ctx.el
         assert ctx.worktree is not None and ctx.agent is not None
-        path = ctx.worktree
+        assert ctx.git_state is not None
+        path, baseline = ctx.worktree, ctx.git_state
         run = self.ledger.get(run.run_id) or run
         ctx.run = run
         self.ledger.set_phase(run.run_id, RunPhase.VERIFY)
         self._check_cancel(run)
         base_sha = run.base_sha or ""
-        if worktree_pointer(path) != ctx.pointer:
-            raise _Stop(
-                RunStatus.BLOCKED, "worktree_tampered", "the worktree's .git pointer changed"
-            )
-        if self.git.worktree_head(path) != base_sha:
-            raise _Stop(RunStatus.BLOCKED, "worktree_tampered", "the agent moved the worktree HEAD")
+        tamper_hints = [
+            "Nothing was committed or pushed. Inspect the kept worktree, the clone's git config "
+            "and its agent branches before approving anything again."
+        ]
+
+        def verify_worktree(who: str) -> None:
+            """Block the run when ``who`` (the agent, the checks) disturbed what gets published.
+
+            Agent-written code runs unsandboxed in both phases, so afterwards the worktree's
+            pointer and HEAD and the shared git state (config, agent branches) must be what
+            they were when the worktree was created.
+            """
+            if worktree_pointer(path) != ctx.pointer:
+                raise _Stop(
+                    RunStatus.BLOCKED,
+                    "worktree_tampered",
+                    f"{who} changed the worktree's .git pointer",
+                    hints=tamper_hints,
+                )
+            try:
+                now = self.git.state_snapshot(path)
+            except GitError as exc:
+                raise _Stop(
+                    RunStatus.BLOCKED,
+                    "worktree_tampered",
+                    f"git cannot read the worktree after {who} ran: {exc}",
+                    hints=tamper_hints,
+                ) from exc
+            if now.head != base_sha:
+                raise _Stop(
+                    RunStatus.BLOCKED,
+                    "worktree_tampered",
+                    f"{who} moved the worktree HEAD",
+                    hints=tamper_hints,
+                )
+            changes = baseline.differences(now)
+            if changes:
+                shown = "; ".join(strip_control_chars(change) for change in changes)
+                raise _Stop(
+                    RunStatus.BLOCKED,
+                    "worktree_tampered",
+                    f"{who} changed shared git state: {shown}",
+                    hints=tamper_hints,
+                )
+
+        verify_worktree("the agent")
         report = ctx.agent.report
         if report is not None and report.status == "blocked":
             raise _Stop(
@@ -887,6 +930,7 @@ class Worker:
                 )
             except CheckAborted as exc:
                 raise self._abort_outcome(exc.reason) from exc
+            verify_worktree("the checks")
             failed = [c for c in ctx.checks if not c.passed]
             if failed:
                 raise _Stop(
@@ -907,8 +951,17 @@ class Worker:
         message = self._commit_message(ctx)
         try:
             sha = self.git.commit(path, message)
+            parents = self.git.commit_parents(sha)
         except GitError as exc:
             raise _Stop(RunStatus.BLOCKED, "commit_failed", str(exc)) from exc
+        if parents != [base_sha]:
+            sits_on = ", ".join(parent[:12] for parent in parents) or "nothing"
+            raise _Stop(
+                RunStatus.BLOCKED,
+                "worktree_tampered",
+                f"the new commit {sha[:12]} sits on {sits_on} instead of the base {base_sha[:12]}",
+                hints=tamper_hints,
+            )
         payload = ctx.payload()
         self.ledger.set_phase(
             run.run_id,
