@@ -1,0 +1,267 @@
+[
+ {
+  "pattern": "docs/**",
+  "path": "docs",
+  "match": true
+ },
+ {
+  "pattern": "docs/**",
+  "path": "docs/a.md",
+  "match": true
+ },
+ {
+  "pattern": "docs/**",
+  "path": "docs/x/y/z.md",
+  "match": true
+ },
+ {
+  "pattern": "docs/**",
+  "path": "docsx/a.md",
+  "match": false
+ },
+ {
+  "pattern": "docs/**",
+  "path": "README.md",
+  "match": false
+ },
+ {
+  "pattern": "*.md",
+  "path": "README.md",
+  "match": true
+ },
+ {
+  "pattern": "*.md",
+  "path": "docs/a.md",
+  "match": false
+ },
+ {
+  "pattern": "*.md",
+  "path": ".md",
+  "match": true
+ },
+ {
+  "pattern": "**/*.md",
+  "path": "a.md",
+  "match": true
+ },
+ {
+  "pattern": "**/*.md",
+  "path": "docs/a.md",
+  "match": true
+ },
+ {
+  "pattern": "**/*.md",
+  "path": "docs/deep/er/a.md",
+  "match": true
+ },
+ {
+  "pattern": "**/*.md",
+  "path": "docs/a.txt",
+  "match": false
+ },
+ {
+  "pattern": "**",
+  "path": "anything/at/all",
+  "match": true
+ },
+ {
+  "pattern": "**",
+  "path": "x",
+  "match": true
+ },
+ {
+  "pattern": "a/**/b",
+  "path": "a/b",
+  "match": true
+ },
+ {
+  "pattern": "a/**/b",
+  "path": "a/x/b",
+  "match": true
+ },
+ {
+  "pattern": "a/**/b",
+  "path": "a/x/y/b",
+  "match": true
+ },
+ {
+  "pattern": "a/**/b",
+  "path": "a/xb",
+  "match": false
+ },
+ {
+  "pattern": "a/**/b",
+  "path": "ab",
+  "match": false
+ },
+ {
+  "pattern": "docs/*",
+  "path": "docs/a.md",
+  "match": true
+ },
+ {
+  "pattern": "docs/*",
+  "path": "docs/sub/a.md",
+  "match": false
+ },
+ {
+  "pattern": "docs/*",
+  "path": "docs",
+  "match": false
+ },
+ {
+  "pattern": "?.md",
+  "path": "a.md",
+  "match": true
+ },
+ {
+  "pattern": "?.md",
+  "path": "ab.md",
+  "match": false
+ },
+ {
+  "pattern": "file?.txt",
+  "path": "file1.txt",
+  "match": true
+ },
+ {
+  "pattern": "file?.txt",
+  "path": "file/.txt",
+  "match": false
+ },
+ {
+  "pattern": "config/secrets*.json",
+  "path": "config/secrets.json",
+  "match": true
+ },
+ {
+  "pattern": "config/secrets*.json",
+  "path": "config/secrets.prod.json",
+  "match": true
+ },
+ {
+  "pattern": "config/secrets*.json",
+  "path": "config/sub/secrets.json",
+  "match": false
+ },
+ {
+  "pattern": "**/.env",
+  "path": ".env",
+  "match": true
+ },
+ {
+  "pattern": "**/.env",
+  "path": "a/b/.env",
+  "match": true
+ },
+ {
+  "pattern": "**/.env",
+  "path": "a/.env.local",
+  "match": false
+ },
+ {
+  "pattern": "**/.env.*",
+  "path": "a/.env.local",
+  "match": true
+ },
+ {
+  "pattern": "**/*.key",
+  "path": "x/y/server.key",
+  "match": true
+ },
+ {
+  "pattern": "**/id_rsa*",
+  "path": "home/.ssh/id_rsa.pub",
+  "match": true
+ },
+ {
+  "pattern": ".git",
+  "path": ".git",
+  "match": true
+ },
+ {
+  "pattern": ".git/**",
+  "path": ".git",
+  "match": true
+ },
+ {
+  "pattern": ".git/**",
+  "path": ".git/config",
+  "match": true
+ },
+ {
+  "pattern": ".git/**",
+  "path": ".github/x",
+  "match": false
+ },
+ {
+  "pattern": ".github/**",
+  "path": ".github/workflows/ci.yml",
+  "match": true
+ },
+ {
+  "pattern": "a.b",
+  "path": "a.b",
+  "match": true
+ },
+ {
+  "pattern": "a.b",
+  "path": "axb",
+  "match": false
+ },
+ {
+  "pattern": "a+b",
+  "path": "a+b",
+  "match": true
+ },
+ {
+  "pattern": "a(b)",
+  "path": "a(b)",
+  "match": true
+ },
+ {
+  "pattern": "tools/agent_bridge/**",
+  "path": "tools/agent_bridge/omp_guard.mjs",
+  "match": true
+ },
+ {
+  "pattern": "tools/agent_bridge/**",
+  "path": "tools/other/x.py",
+  "match": false
+ },
+ {
+  "pattern": "backend/src/safety/**",
+  "path": "backend/src/safety/estop.py",
+  "match": true
+ },
+ {
+  "pattern": "backend/src/safety/**",
+  "path": "backend/src/safety",
+  "match": true
+ },
+ {
+  "pattern": "backend/src/safety/**",
+  "path": "backend/src/safetyx/a.py",
+  "match": false
+ },
+ {
+  "pattern": "x/**/**/y",
+  "path": "x/y",
+  "match": true
+ },
+ {
+  "pattern": "**/a/**",
+  "path": "a",
+  "match": true
+ },
+ {
+  "pattern": "**/a/**",
+  "path": "q/a/b",
+  "match": true
+ },
+ {
+  "pattern": "**/a/**",
+  "path": "q/ab/b",
+  "match": false
+ }
+]

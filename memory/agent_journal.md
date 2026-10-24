@@ -491,3 +491,19 @@ reboots after 10 min, at most once per 4 h, and never touches `morse`. `systemd/
 this board did not have. Both state machines were exercised against stubbed `iw`/`ping`/`arping`/
 `systemctl` (healthy, mute, lost, cooldown, recovery), and the Pi script's reboot path was checked in
 dry-run so nothing rebooted. Installing them is the first thing to do when the link is back.
+
+## 2026-10-24 - Approval-gated GitHub-issue agent bridge (OhMyPi default, Claude Code optional)
+
+Developer tooling only, in `tools/agent_bridge/` (nothing under `backend/`, nothing deployed, no
+hardware access). A worker polls GitHub issues labelled `agent-task`, runs a local coding agent only
+for issues a configured approver labelled `agent-approved`, and opens a *draft* pull request. The
+agent is a pluggable backend: OhMyPi `omp` (default, `omp -p --mode json`) or Claude Code `claude -p`
+(`agent.default` in `config/agent-bridge.yaml`, `--backend` on the CLI, `agent:` in the task block);
+both return the same structured result and share timeout, budget and kill handling.
+
+Safety boundaries kept from `docs/agent-bridge.md` (the PR #16 spec, now with OhMyPi as primary):
+dry run by default, one git worktree per run, a protected-path write policy enforced by a guard
+extension (omp) / tool allow-list (claude) *and* re-checked on the staged diff, secret redaction,
+untrusted issue text quoted as data, SQLite ledger keyed by the approval event for idempotence and
+crash recovery, no merge, no deploy, no mower access. Tests run both backends against fake CLIs and a
+fake GitHub (`tests/agent_bridge/`); `python -m tools.agent_bridge smoke` drives the real binaries.

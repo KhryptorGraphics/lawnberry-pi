@@ -137,6 +137,7 @@ Thumbs.db
 .env.production
 config/secrets.json
 config/maps_settings.json
+config/agent-bridge.yaml
 config/*.key
 config/*.pem
 config/ssl/
