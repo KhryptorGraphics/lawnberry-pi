@@ -314,6 +314,12 @@ ACCEPTED_GLOBS = [
     ("a:b/**", "a:b/**"),
     ("docs/a..b", "docs/a..b"),
     ("..a/**", "..a/**"),
+    ("docs/", "docs/**"),
+    ("scripts/", "scripts/**"),
+    ("a//b", "a/b"),
+    ("a/./b/", "a/b/**"),
+    (".//a", "a"),
+    ("docs//**", "docs/**"),
     ("a" * 400, "a" * 400),
 ]
 REJECTED_GLOBS = [
@@ -332,6 +338,10 @@ REJECTED_GLOBS = [
     ("a\nb/**", "control characters"),
     ("a\tb", "control characters"),
     ("a\x7f", "control characters"),
+    (".", "repository root"),
+    ("./", "repository root"),
+    ("./.", "repository root"),
+    ("//", "repository-relative"),
     ("a" * 401, "too long"),
 ]
 
@@ -353,8 +363,14 @@ def test_normalize_glob_rejects_non_strings(raw: Any) -> None:
         normalize_glob(raw)
 
 
-def test_a_trailing_slash_glob_is_accepted_without_error() -> None:
-    assert isinstance(normalize_glob("docs/"), str)
+def test_canonical_globs_match_canonical_paths_where_the_raw_form_never_could() -> None:
+    """``scripts/`` and ``a//b`` as written can never equal a normalised path; after
+    canonicalisation a protected glob written that way protects what it looks like it protects."""
+    assert match_any("scripts/deploy.sh", [normalize_glob("scripts/")])
+    assert match_any("scripts", [normalize_glob("scripts/")])
+    assert match_any("a/b", [normalize_glob("a//b")])
+    assert match_any("a/b/c", [normalize_glob("./a/./b/")])
+    assert not match_any("scripts-extra/x", [normalize_glob("scripts/")])
 
 
 # --------------------------------------------------------------------------- match_any / regex

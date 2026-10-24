@@ -325,6 +325,8 @@ UNHANDLED_SCALAR_CASES = [
     ("timestamp-invalid-month", "x: 2020-13-45"),
     ("timestamp-invalid-hour", "x: 2001-12-14 25:00:00"),
     ("explicit-int-garbage", "x: !!int abc"),
+    ("explicit-int-without-value", "x: !!int"),
+    ("explicit-set-with-scalar", "x: !!set 1e999"),
     ("explicit-float-garbage", "x: !!float abc"),
     ("explicit-bool-garbage", "x: !!bool maybe"),
     ("explicit-timestamp-garbage", "x: !!timestamp foo"),

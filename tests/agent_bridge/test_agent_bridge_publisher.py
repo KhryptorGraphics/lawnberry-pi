@@ -296,7 +296,7 @@ def test_render_done_without_checks_or_pull_request_url_or_agent_summary() -> No
     assert "- Checks: none requested" in body
     assert "- Files changed (0): none" in body
     assert "_The agent returned no summary._" in body
-    assert "None" not in body.replace("None.", "")
+    assert "None" not in body
 
 
 @pytest.mark.parametrize(
@@ -426,22 +426,25 @@ def test_render_cancelled_states_reason_and_run() -> None:
     assert "- No branch was pushed and no pull request was opened." in body
 
 
-@pytest.mark.parametrize("render", ["cancelled", "refusal"])
-def test_free_text_is_one_line_and_length_capped(render: str) -> None:
+@pytest.mark.parametrize(
+    ("which", "prefix", "closing", "limit"),
+    [
+        pytest.param("cancelled", "- Reason:", "...`", 300 + len("- Reason: ``"), id="cancelled"),
+        pytest.param("refusal", "- first line", "...", 300 + len("- "), id="refusal"),
+    ],
+)
+def test_free_text_is_one_line_and_length_capped(
+    which: str, prefix: str, closing: str, limit: int
+) -> None:
     messy = "first line\n\n## not a heading\r\n\ttabbed\x00 " + "word " * 200
-    if render == "cancelled":
+    if which == "cancelled":
         body = render_cancelled(make_run(), messy)
-        rows = [r for r in body.splitlines() if r.startswith("- Reason:")]
-        limit = 300
     else:
         body = render_refusal("invalid_task", [messy], key="k")
-        rows = [r for r in body.splitlines() if r.startswith("- first line")]
-        limit = 300
 
-    assert len(rows) == 1 and "\x00" not in body
-    assert "first line ## not a heading tabbed word" in rows[0]
-    assert rows[0].endswith("...") or rows[0].endswith("...`")
-    assert len(rows[0]) <= limit + 40
+    (row,) = [r for r in body.splitlines() if r.startswith(prefix)]
+    assert "first line ## not a heading tabbed word" in row and "\x00" not in body
+    assert row.endswith(closing) and len(row) == limit
 
 
 def test_render_refusal_lists_at_most_twenty_messages_and_names_the_code() -> None:
@@ -578,7 +581,7 @@ def test_literal_secrets_registered_with_the_redactor_are_removed_from_agent_tex
 @pytest.mark.parametrize("renderer", ["done", "blocked", "pull-request-body"])
 def test_ten_megabytes_of_agent_text_become_a_bounded_summary(renderer: str) -> None:
     # The token straddles the truncation boundary: truncating before redacting would leak a prefix.
-    text = "x" * 2970 + SECRET + "y" * (10 * 1024 * 1024)
+    text = "x" * 2969 + " " + SECRET + " " + "y" * (10 * 1024 * 1024)
     payload = make_payload(report=None, final_text=text)
 
     body, markers = hostile_renderings(payload)[renderer]
@@ -615,8 +618,8 @@ def test_render_blocked_detail_is_one_line_and_length_capped() -> None:
     body = blocked(kind="agent_failed", detail="word\n\n" * 300)
 
     (reason,) = [r for r in body.splitlines() if r.startswith("- Reason:")]
-    assert reason.count("word") <= 82 and reason.endswith("...`")
-    assert len(reason) < 450
+    assert reason.endswith("...`")
+    assert len(reason) == len("- Reason: `agent_failed` - ``") + 400
 
 
 def test_render_blocked_neutralises_violations_built_from_agent_chosen_paths() -> None:

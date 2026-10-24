@@ -735,6 +735,24 @@ def test_a_sigterm_proof_agent_is_killed_after_the_grace_period(
     assert_child_gone(pid_file)
 
 
+def test_a_cooperative_agent_gets_the_configured_grace_period_to_exit(
+    new_harness: Callable[..., Harness], backend_name: str, tmp_path: Path
+) -> None:
+    slow_exit = make_script(
+        tmp_path / "slow-exit-cli",
+        "trap 'sleep 0.6; exit 42' TERM",
+        "sleep 30 &",
+        "wait $!",
+    )
+    h = new_harness(
+        backend_name, backend={"binary": str(slow_exit)}, agent={"kill_grace_seconds": 3}
+    )
+    result = h.run(timeout_s=1.0)
+    assert result.status is AgentStatus.TIMED_OUT
+    assert result.exit_code == 42  # it was allowed to finish its clean-up, not killed outright
+    assert 1.4 <= result.duration_s < 3
+
+
 @pytest.mark.parametrize(
     "reason",
     [
@@ -982,6 +1000,30 @@ def test_secrets_in_error_output_are_redacted(
         assert secret not in json.dumps(result.to_dict())
         for log in (result.stdout_log, result.stderr_log):
             assert secret not in Path(log).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("kind", ["omp", "claude"])
+def test_parse_redacts_secrets_even_when_the_runner_did_not(kind: str) -> None:
+    """Defense in depth: unredacted recorded output is still cleaned by ``parse``."""
+    text = f"Done: token {TOKEN} end"
+    if kind == "omp":
+        ok = parse_omp(omp_session() + omp_assistant(text=text) + omp_agent_end())
+        error_stream = omp_session() + omp_assistant(stop="error", error=f"401 bad {TOKEN}")
+        failed = parse_omp(error_stream + omp_agent_end(), returncode=1)
+        crashed = parse_omp("", returncode=4, stderr=f"fatal: auth with {TOKEN} failed\n")
+    else:
+        ok = parse_claude(json.dumps(claude_result(text)))
+        failed = parse_claude(
+            json.dumps(claude_result(f"401 bad {TOKEN}", is_error=True)), returncode=1
+        )
+        crashed = parse_claude("", returncode=4, stderr=f"fatal: auth with {TOKEN} failed\n")
+    for result in (ok, failed, crashed):
+        assert TOKEN not in json.dumps(result.to_dict())
+    assert "[REDACTED:github-token]" in ok.final_text
+    assert failed.failure_kind is FailureKind.AUTH
+    assert "[REDACTED:github-token]" in (failed.error or "")
+    assert crashed.failure_kind is FailureKind.NONZERO_EXIT
+    assert "[REDACTED:github-token]" in (crashed.error or "")
 
 
 def test_blocked_tool_calls_are_counted(h: Harness) -> None:

@@ -1012,7 +1012,6 @@ def test_execute_with_yes_opens_a_draft_pull_request(env: Env) -> None:
     result = env.run("run-once", "--execute", "--yes")
     assert result.code == 0
     (run,) = env.runs()
-    assert (run.status, run.phase) is not None
     assert run.status is RunStatus.DONE and run.phase is RunPhase.FINISHED
     assert run.pr_number is not None and run.backend == env.backend
     assert f"run {run.run_id[:12]} issue #{number}: done/finished PR #{run.pr_number}" in result.out
@@ -1059,7 +1058,7 @@ class TestConfirmation:
     """Without ``--yes`` a human at a terminal must say yes."""
 
     def test_no_answer_runs_nothing(self, env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
-        number = env.issue()
+        env.issue()
         prompts = answer_prompts(monkeypatch, "n")
         result = env.run("run-once", "--execute")
         assert result.code == 2
@@ -1067,7 +1066,6 @@ class TestConfirmation:
         assert len(prompts) == 1 and "[y/N]" in prompts[0]
         assert "run the next approved issue" in prompts[0]
         assert_nothing_executed(env)
-        assert number == 1
 
     @pytest.mark.parametrize("answer", ["", "maybe", "nope", "  "])
     def test_anything_but_yes_is_no(
@@ -1522,7 +1520,6 @@ def test_recover_with_nothing_stale(env: Env) -> None:
 
 def test_recover_execute_follows_the_same_gates_as_run_once(env: Env) -> None:
     env.stale_lease(7)
-    assert env.run("recover", "--execute", "--yes").code == 0 or True
     env.write_config(dry_run=True)
     refused = env.run("recover", "--execute", "--yes")
     assert refused.code == 3 and "dry_run: true" in refused.out

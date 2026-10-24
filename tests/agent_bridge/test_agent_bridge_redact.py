@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 import re
 import signal
@@ -171,6 +172,67 @@ def test_near_misses_are_not_redacted(text: str) -> None:
     assert kinds_for(text) == []
 
 
+GLUED_KINDS = ["github-token", "anthropic-key", "aws-access-key", "slack-token", "google-api-key"]
+
+
+@pytest.mark.parametrize("kind", GLUED_KINDS)
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("x", ""),
+        ("_", ""),
+        ("9", ""),
+        ("-", ""),
+        ("caf\u00e9", ""),
+        ("PREFIX_", "_suffix"),
+        ("", "_backup"),
+        ("", "\u00e9"),
+    ],
+    ids=[
+        "letter",
+        "underscore",
+        "digit",
+        "hyphen",
+        "unicode-letter",
+        "both-sides",
+        "tail",
+        "accent",
+    ],
+)
+def test_tokens_glued_to_word_characters_are_still_redacted(
+    kind: str, before: str, after: str
+) -> None:
+    """A ``\\b`` anchor would let ``x<token>`` or ``<token>_x`` slip through unredacted."""
+    secret = SECRET_SAMPLES[kind][0]
+    redactor = Redactor()
+
+    out = redactor.redact(f"{before}{secret}{after}")
+
+    assert secret not in out
+    assert f"[REDACTED:{kind}]" in out
+    assert kind in redactor.find(f"{before}{secret}{after}")
+
+
+@pytest.mark.parametrize("glue", ["_", "-", "\u00e9", ":", "=", '"', "("])
+def test_openai_keys_are_found_after_anything_but_a_letter_or_digit(glue: str) -> None:
+    secret = SECRET_SAMPLES["openai-key"][0]
+    assert Redactor().redact(f"{glue}{secret}!tail") == f"{glue}[REDACTED:openai-key]!tail"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "docs/risk-assessment-and-mitigation-strategy-document.md",
+        "see disk-usage-monitoring-and-alerting-configuration for details",
+        "task-queue-worker-concurrency-and-retry-policy-overview",
+        "flask-sqlalchemy-migrations-and-database-seeding-notes",
+    ],
+)
+def test_hyphenated_words_ending_in_sk_are_not_mistaken_for_api_keys(text: str) -> None:
+    assert Redactor().redact(text) == text
+    assert kinds_for(text) == []
+
+
 def test_several_secrets_in_one_text_are_all_redacted() -> None:
     text = f"a={GITHUB_TOKEN} b={AWS_KEY} c={SLACK_TOKEN} d={JWT}"
     out = Redactor().redact(text)
@@ -270,6 +332,37 @@ def test_json_and_dict_style_credentials_are_redacted(text: str, key: str) -> No
     assert secret.group(0) not in out
     assert key in out  # the key stays readable
     assert redactor.find(text) != []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"maxOutputTokens":32000}},"permission_denials":[]}',
+        '{"max_tokens": 1234567890, "n": 1}',
+        '{"inputTokens":842,"outputTokens":40,"totalTokens":123456789}',
+        '{"secret_count": 123456789, "passwordless": true}',
+        '{"token": null, "api_key": false, "access_key": [1, 2, 3, 4, 5, 6, 7, 8]}',
+    ],
+)
+def test_json_structure_under_credential_looking_keys_is_left_intact(text: str) -> None:
+    """Numbers, booleans and brackets after a quoted key are structure, not secrets."""
+    redactor = Redactor()
+    assert redactor.redact(text) == text
+    assert redactor.find(text) == []
+
+
+def test_redacted_json_stays_parseable_and_only_the_secret_changes() -> None:
+    document = {
+        "usage": {"inputTokens": 842, "maxOutputTokens": 32000},
+        "result": {"token": "abcdefgh12345678", "n": 3, "note": "fine"},
+        "tail": ["x", {"password": "hunter2hunter2"}],
+    }
+    out = json.loads(Redactor().redact(json.dumps(document)))
+
+    assert out["usage"] == document["usage"] and out["result"]["n"] == 3
+    assert out["result"]["token"] == "[REDACTED:assignment]"
+    assert out["tail"][1]["password"] == "[REDACTED:assignment]"
+    assert out["result"]["note"] == "fine"
 
 
 # --------------------------------------------------------------------------- literals
@@ -493,6 +586,17 @@ def test_scan_line_numbers_survive_a_missing_trailing_newline(tmp_path: Path) ->
     assert _triples(findings) == [("github-token", "docs/noeol.md", 3)]
 
 
+@pytest.mark.parametrize("context", [0, 3])
+def test_scan_reads_past_a_no_newline_marker_inside_a_hunk(tmp_path: Path, context: int) -> None:
+    """The marker sits between the removed and the added line; the hunk must not end there."""
+    git = make_git_env(tmp_path, {"docs/a.md": "old line"})  # no trailing newline
+    base = _stage(git, {"docs/a.md": f"++ {GITHUB_TOKEN}\n"})
+
+    findings = Redactor().scan_added_lines(_diff(git, base, context))
+
+    assert _triples(findings) == [("github-token", "docs/a.md", 1)]
+
+
 def test_scan_finds_a_secret_on_a_line_that_starts_with_two_plus_signs(tmp_path: Path) -> None:
     """In a diff such a line reads ``+++ ...`` and must not be mistaken for a file header."""
     git = make_git_env(tmp_path, {"docs/a.md": _lines("x", "y")})
@@ -521,6 +625,39 @@ def test_scan_uses_registered_literals_too(tmp_path: Path) -> None:
     redactor = Redactor(["plum-tree-42"])
 
     assert _triples(redactor.scan_added_lines(_diff(git, base, 0))) == [("literal", "docs/a.md", 2)]
+
+
+@pytest.mark.parametrize("separator", ["\r", "\x0b", "\x0c", "\x1c", "\x85", "\u2028", "\u2029"])
+def test_scan_sees_secrets_after_characters_that_splitlines_would_cut_at(separator: str) -> None:
+    """``str.splitlines`` splits on these; the tail of an added line must still be scanned."""
+    diff = (
+        "diff --git a/docs/a.md b/docs/a.md\n"
+        "--- a/docs/a.md\n"
+        "+++ b/docs/a.md\n"
+        "@@ -0,0 +1,2 @@\n"
+        f"+harmless text{separator}{GITHUB_TOKEN}\n"
+        f"+second {AWS_KEY}\n"
+    )
+
+    findings = Redactor().scan_added_lines(diff)
+
+    assert _triples(findings) == [
+        ("aws-access-key", "docs/a.md", 2),
+        ("github-token", "docs/a.md", 1),
+    ]
+
+
+def test_scan_ignores_a_fake_header_inside_an_added_line_and_keeps_the_real_path() -> None:
+    diff = (
+        "diff --git a/docs/a.md b/docs/a.md\n"
+        "--- a/docs/a.md\n"
+        "+++ b/docs/a.md\n"
+        "@@ -0,0 +1,3 @@\n"
+        "++++ b/elsewhere.md\n"
+        "+@@ -1 +9 @@\n"
+        f"+{GITHUB_TOKEN}\n"
+    )
+    assert _triples(Redactor().scan_added_lines(diff)) == [("github-token", "docs/a.md", 3)]
 
 
 # --------------------------------------------------------------------------- fenced()
@@ -627,6 +764,10 @@ def test_strip_control_chars_drops_terminal_controls_but_keeps_layout() -> None:
     dirty = "a\x00b\x07c\x08d\x0be\x0cf\x1bg\x7fh\ni\tj"
     assert strip_control_chars(dirty) == "abcdefgh\ni\tj"
     assert strip_control_chars("\x1b[31mred\x1b[0m") == "[31mred[0m"
+
+
+def test_strip_control_chars_drops_carriage_returns_too() -> None:
+    assert strip_control_chars("a\r\nb\rc") == "a\nbc"
 
 
 @pytest.mark.parametrize(

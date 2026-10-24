@@ -7,9 +7,11 @@
 //
 //   * only tools named in `policy.tools` (plus the hidden `yield`/`think`) may run;
 //   * every path argument must stay inside `policy.root` (symlinks resolved), must not be a URL
-//     or `xd://` device, and must not match `read_deny`;
+//     or `xd://` device, and must not match `read_deny`; the path as written and its
+//     symlink-resolved form are both matched against `read_deny`, `write_deny` and the allow sets;
 //   * write-class tools must also match every set in `write_allow_sets` and no `write_deny` glob;
-//   * `bash`, when enabled at all, may only run command lines listed verbatim in `bash_exact`.
+//   * `bash`, when enabled at all, may only run command lines listed verbatim in `bash_exact`,
+//     and its path arguments (`cwd`) are checked like any other.
 //
 // A missing or invalid policy blocks everything (fail closed).  Decisions are appended to
 // `policy.audit_log` as JSON lines.  The glob dialect is identical to tools/agent_bridge/globs.py.
@@ -117,6 +119,7 @@ export function resolveWithin(raw, root, realRoot, cwd) {
 	}
 	if (raw.startsWith("~")) return { ok: false, reason: "home-relative paths are not allowed" };
 	const rels = [];
+	const reals = [];
 	for (const part of raw.split(";")) {
 		if (part === "") continue;
 		const variants = new Set([part]);
@@ -132,10 +135,11 @@ export function resolveWithin(raw, root, realRoot, cwd) {
 				return { ok: false, reason: `path resolves outside the task worktree: ${part.slice(0, 80)}` };
 			}
 			rels.push(path.relative(root, abs).split(path.sep).join("/") || ".");
+			reals.push(path.relative(realRoot, real).split(path.sep).join("/") || ".");
 		}
 	}
 	if (rels.length === 0) return { ok: false, reason: "empty path argument" };
-	return { ok: true, rels };
+	return { ok: true, rels, reals };
 }
 
 export function validatePolicy(policy) {
@@ -172,7 +176,7 @@ export function decide(policy, event, cwdFallback) {
 		const command = typeof input.command === "string" ? input.command.trim() : "";
 		const exact = Array.isArray(policy.bash_exact) ? policy.bash_exact : [];
 		if (!exact.includes(command)) return { allow: false, reason: "command is not on the allowlist", paths: [] };
-		return { allow: true, paths: [] };
+		// an allowlisted command line still has to keep its path arguments (cwd, ...) inside the worktree
 	}
 
 	const raws = collectPaths(input, tool);
@@ -181,12 +185,16 @@ export function decide(policy, event, cwdFallback) {
 		return { allow: false, reason: "write call without a recognisable path (failing closed)", paths: [] };
 	}
 	const rels = [];
+	const reals = [];
 	for (const raw of raws) {
 		const resolved = resolveWithin(raw, root, realRoot, cwd);
 		if (!resolved.ok) return { allow: false, reason: resolved.reason, paths: rels };
 		rels.push(...resolved.rels);
+		reals.push(...resolved.reals);
 	}
-	for (const rel of rels) {
+	// The lexical path and the symlink-resolved path must both pass: a directory symlink inside an
+	// allowed folder must not lead to a protected, out-of-scope or read-denied file.
+	for (const rel of new Set([...rels, ...reals])) {
 		if (rel !== "." && matchAny(rel, policy.read_deny)) {
 			return { allow: false, reason: `path is not readable by agents: ${rel}`, paths: rels };
 		}

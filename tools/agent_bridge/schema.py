@@ -195,6 +195,13 @@ def strict_yaml_load(text: str) -> Any:
         raise TaskValidationError([f"task block is not valid YAML: {problem}{where}"]) from exc
     except RecursionError as exc:
         raise TaskValidationError(["task block is nested too deeply"]) from exc
+    except Exception as exc:  # noqa: BLE001 - PyYAML constructors raise an open-ended set
+        # (timestamps, !!int, !!bool, huge integers, !!set, ...: ValueError, KeyError,
+        # IndexError, AttributeError, ...) instead of YAMLError for malformed scalars.
+        detail = str(exc).replace("\n", " ")[:80]
+        raise TaskValidationError(
+            [f"task block is not valid YAML: invalid value ({type(exc).__name__}: {detail})"]
+        ) from exc
 
 
 class TaskSpec(BaseModel):

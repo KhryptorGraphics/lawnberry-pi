@@ -289,10 +289,13 @@ def test_fetch_and_resolve_base_fail_for_a_base_branch_that_does_not_exist(
         ghost.resolve_base()
 
 
-def test_resolve_base_returns_the_commit_even_for_an_annotated_tip(h: Harness) -> None:
+def test_resolve_base_returns_the_full_sha_of_the_remote_tracking_commit(h: Harness) -> None:
     sha = h.ops.resolve_base()
+
     assert len(sha) == 40 and set(sha) <= set("0123456789abcdef")
     assert h.git.git("rev-parse", "refs/remotes/origin/main") == sha
+    pushed = h.git.push_main_commit("docs/pushed.md", "pushed from the clone\n")
+    assert h.ops.resolve_base() == pushed  # a push from the clone updates the tracking ref too
 
 
 # ------------------------------------------------------------------------- worktrees
@@ -336,9 +339,7 @@ def test_create_worktree_rejects_invalid_branch_names_before_touching_disk(
     with pytest.raises(GitError, match="invalid branch name"):
         h.ops.create_worktree(path, branch, h.ops.resolve_base())
     assert not path.exists()
-    assert (
-        h.ops.list_worktree_paths() == [h.clone.resolve()] or len(h.ops.list_worktree_paths()) == 1
-    )
+    assert {p.resolve() for p in h.ops.list_worktree_paths()} == {h.clone.resolve()}
 
 
 def test_create_worktree_fails_for_unknown_commits_existing_branches_and_busy_paths(
@@ -368,9 +369,7 @@ def test_remove_worktree_deletes_directory_and_branch_and_is_idempotent(h: Harne
     h.ops.remove_worktree(path, "agent/issue-1-abc")
 
     assert not path.exists()
-    assert (
-        h.ops.list_worktree_paths() == [h.clone.resolve()] or len(h.ops.list_worktree_paths()) == 1
-    )
+    assert {p.resolve() for p in h.ops.list_worktree_paths()} == {h.clone.resolve()}
     assert h.git.git("branch", "--list", "agent/*") == ""
     h.ops.remove_worktree(path, "agent/issue-1-abc")  # nothing left: still fine
     h.ops.remove_worktree(h.state_dir / "worktrees" / "never-existed", "agent/never")
@@ -775,10 +774,10 @@ def test_the_ext_transport_stays_disabled_even_if_the_repository_enables_it(
         h.git.git("config", "protocol.ext.allow", "always")
         h.git.git("remote", "set-url", "origin", f"ext::{script} %S")
 
-    run_git_failure = subprocess.run(
+    plain = subprocess.run(
         ["git", "fetch", "origin"], cwd=control.clone, env=control.git.env, capture_output=True
     )
-    assert run_git_failure.returncode != 0 and fired(markers) == {"ext"}  # plain git runs it
+    assert plain.returncode != 0 and fired(markers) == {"ext"}  # plain git runs the command
     (markers / "ext").unlink()
 
     with pytest.raises(GitError, match="transport 'ext' not allowed"):
@@ -1104,8 +1103,8 @@ def test_every_git_process_is_hardened_and_non_interactive(h: Harness) -> None:
         assert call.env["LC_ALL"] == "C"
         assert call.kwargs["capture_output"] is True and call.kwargs["check"] is False
         assert call.kwargs["timeout"] == 60
-        if call.subcommand != "commit":
-            assert call.kwargs["stdin"] == subprocess.DEVNULL or call.kwargs["input"]
+        has_input = call.kwargs["input"] is not None
+        assert call.kwargs["stdin"] == (None if has_input else subprocess.DEVNULL)
 
 
 ALLOWED = {

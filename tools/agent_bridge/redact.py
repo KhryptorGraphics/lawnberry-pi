@@ -22,13 +22,15 @@ __all__ = [
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "github-token",
-        re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,255}|github_pat_[A-Za-z0-9_]{50,255})\b"),
+        re.compile(r"gh[pousr]_[A-Za-z0-9]{30,255}|github_pat_[A-Za-z0-9_]{50,255}"),
     ),
-    ("anthropic-key", re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}")),
-    ("openai-key", re.compile(r"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_\-]{32,}")),
-    ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
-    ("slack-token", re.compile(r"\bxox[abprs]-[A-Za-z0-9\-]{10,}")),
-    ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b")),
+    ("anthropic-key", re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}")),
+    # "sk-" also ends ordinary words ("disk-usage-...", "risk-assessment-..."): no letter or digit
+    # may precede it.  The other prefixes are distinctive, so they match even when glued to text.
+    ("openai-key", re.compile(r"(?<![A-Za-z0-9])sk-(?:proj-|svcacct-)?[A-Za-z0-9_\-]{32,}")),
+    ("aws-access-key", re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}")),
+    ("slack-token", re.compile(r"xox[abprs]-[A-Za-z0-9\-]{10,}")),
+    ("google-api-key", re.compile(r"AIza[0-9A-Za-z_\-]{35}")),
     (
         "private-key",
         re.compile(
@@ -39,25 +41,33 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("bearer-token", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=\-]{20,}")),
     (
         "jwt",
-        re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"),
+        # a start may not sit inside a longer token run: every run is scanned once (linear time)
+        re.compile(
+            r"(?<![A-Za-z0-9_\-])eyJ[A-Za-z0-9_\-]{8,}"
+            r"\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"
+        ),
     ),
     (
         "url-credentials",
-        re.compile(r"(?i)\b(?P<scheme>[a-z][a-z0-9+.\-]*://)[^\s/:@]+:[^\s/@]+@"),
+        re.compile(r"(?i)(?<![a-z0-9+.\-])(?P<scheme>[a-z][a-z0-9+.\-]*://)[^\s/:@]+:[^\s/@]+@"),
     ),
 )
 
 # NAME=value / NAME: value where NAME looks like a credential.  Only the value is replaced.
+# The key is the credential word plus a bounded tail of identifier characters; no unbounded
+# quantifier sits before it, so scanning stays linear on any input.
 _ASSIGNMENT = re.compile(
-    r"(?i)\b(?P<key>[A-Z0-9_]*(?:API[_-]?KEY|ACCESS[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)"
-    r"[A-Z0-9_]*)(?P<sep>\s*[:=]\s*)(?P<quote>['\"]?)(?P<value>[^\s'\"\\]{8,})(?P=quote)"
+    r"(?i)(?P<key>(?:API[_-]?KEY|ACCESS[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)"
+    r"[A-Z0-9_]{0,64}+)(?P<kq>\\?['\"]?)(?P<sep>\s*[:=]\s*)(?P<quote>\\?['\"]?)"
+    r"(?P<value>[^\s'\"\\]{8,})(?P=quote)"
 )
 # Values that are obviously placeholders must not trigger the assignment rule.
 _PLACEHOLDER = re.compile(
     r"(?i)^(?:<[^>]*>|\$\{?[A-Z0-9_]+\}?|\[REDACTED[^\]]*\]|x{4,}|\*{4,}|\.{3,}|none|null)$"
 )
 
-_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 _MIN_LITERAL = 8
 
 
@@ -100,11 +110,20 @@ class Redactor:
         return _ASSIGNMENT.sub(self._assignment, text)
 
     @staticmethod
-    def _assignment(match: re.Match[str]) -> str:
+    def _is_secret_assignment(match: re.Match[str]) -> bool:
         if _PLACEHOLDER.match(match.group("value")):
+            return False
+        # `"maxOutputTokens":32000}},` is JSON structure, not a credential: after a quoted key
+        # only a quoted value counts, otherwise numbers and brackets would be eaten.
+        return not (match.group("kq") and not match.group("quote"))
+
+    @staticmethod
+    def _assignment(match: re.Match[str]) -> str:
+        if not Redactor._is_secret_assignment(match):
             return match.group(0)
         quote = match.group("quote")
-        return f"{match.group('key')}{match.group('sep')}{quote}[REDACTED:assignment]{quote}"
+        head = f"{match.group('key')}{match.group('kq')}{match.group('sep')}"
+        return f"{head}{quote}[REDACTED:assignment]{quote}"
 
     def find(self, text: str) -> list[str]:
         """Names of the secret kinds present in ``text`` (values are never returned)."""
@@ -117,32 +136,58 @@ class Redactor:
             if pattern.search(text):
                 kinds.append(name)
         for match in _ASSIGNMENT.finditer(text):
-            if not _PLACEHOLDER.match(match.group("value")):
+            if self._is_secret_assignment(match):
                 kinds.append("assignment")
                 break
         return kinds
 
     def scan_added_lines(self, diff_text: str) -> list[SecretFinding]:
-        """Scan a unified diff and report secrets on added lines only."""
+        """Scan a unified diff and report secrets on added lines only.
+
+        Hunks are followed by their declared line counts, so an added line that happens to read
+        ``+++ ...`` is content, not a file header, and the ``\\ No newline at end of file`` marker
+        never shifts line numbers.  The text is split on ``\\n`` only: ``str.splitlines`` also
+        cuts at ``\\r``, form feeds and U+2028, which would hide the tail of an added line.
+        """
         findings: list[SecretFinding] = []
         path = ""
         new_line = 0
-        for raw in diff_text.splitlines():
+        old_left = new_left = 0
+        for raw in diff_text.split("\n"):
+            if raw.startswith("\\"):  # "\ No newline at end of file"
+                continue
+            if old_left > 0 or new_left > 0:
+                tag = raw[:1]
+                if tag == "+":
+                    for kind in self.find(raw[1:]):
+                        findings.append(SecretFinding(kind=kind, path=path, line=new_line))
+                    new_line += 1
+                    new_left -= 1
+                    continue
+                if tag == "-":
+                    old_left -= 1
+                    continue
+                if tag == " " or raw == "":
+                    new_line += 1
+                    old_left -= 1
+                    new_left -= 1
+                    continue
+                old_left = new_left = 0  # truncated or malformed hunk: read the line as a header
             if raw.startswith("+++ "):
                 target = raw[4:].strip()
                 path = target[2:] if target.startswith("b/") else target
                 continue
             if raw.startswith("--- ") or raw.startswith("diff --git"):
                 continue
-            hunk = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
+            hunk = _HUNK.match(raw)
             if hunk:
-                new_line = int(hunk.group(1))
+                new_line = int(hunk.group(2))
+                old_left = 1 if hunk.group(1) is None else int(hunk.group(1))
+                new_left = 1 if hunk.group(3) is None else int(hunk.group(3))
                 continue
-            if raw.startswith("+"):
+            if raw.startswith("+"):  # a '+' line outside any counted hunk (hand-written diff)
                 for kind in self.find(raw[1:]):
                     findings.append(SecretFinding(kind=kind, path=path, line=new_line))
-                new_line += 1
-            elif not raw.startswith("-"):
                 new_line += 1
         return findings
 
@@ -158,7 +203,9 @@ def truncate(text: str, limit: int, marker: str = "\n... [truncated]") -> str:
         return ""
     if len(text) <= limit:
         return text
-    keep = max(0, limit - len(marker))
+    keep = limit - len(marker)
+    if keep < 0:  # the marker does not fit: a plain cut still honours "at most limit"
+        return text[:limit]
     return text[:keep] + marker
 
 

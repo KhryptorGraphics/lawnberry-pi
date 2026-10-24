@@ -135,7 +135,7 @@ class ClaudeBackend(AgentBackend):
             "--permission-prompts",
             "none",
             "--max-budget-usd",
-            f"{req.budget_usd:.2f}",
+            f"{max(req.budget_usd, 0.01):.2f}",  # claude rejects a cap that rounds to 0.00
         ]
         model = req.model or self.cfg.model
         if model:

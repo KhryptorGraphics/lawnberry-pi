@@ -56,7 +56,12 @@ def normalize_repo_path(raw: str) -> str:
 
 
 def normalize_glob(raw: str) -> str:
-    """Validate a glob pattern (same rules as paths, wildcards allowed)."""
+    """Validate a glob pattern (same rules as paths, wildcards allowed) and canonicalise it.
+
+    Empty and ``.`` segments are dropped (``a//b`` -> ``a/b``, ``./a`` -> ``a``) and a trailing
+    slash means "everything below" (``scripts/`` -> ``scripts/**``), so the result is never a
+    pattern that can only match non-canonical paths, i.e. nothing at all.
+    """
     if not isinstance(raw, str):
         raise PathError("glob must be a string")
     value = raw.strip()
@@ -70,9 +75,11 @@ def normalize_glob(raw: str) -> str:
         raise PathError(f"glob must be repository-relative: {value!r}")
     if any(segment == ".." for segment in value.split("/")):
         raise PathError(f"glob escapes the repository: {value!r}")
-    if value.startswith("./"):
-        value = value[2:]
-    return value
+    segments = [segment for segment in value.split("/") if segment not in ("", ".")]
+    if not segments:
+        raise PathError("glob refers to the repository root")
+    canonical = "/".join(segments)
+    return f"{canonical}/**" if value.endswith("/") else canonical
 
 
 @lru_cache(maxsize=512)

@@ -250,8 +250,8 @@ The process is started in its own session and process group with the prompt on *
 environment and a deadline. Environment: `PATH`, `HOME`, `USER`, `LOGNAME`, locale, temp dir, proxy and CA
 variables, plus `TERM=dumb`, `NO_COLOR=1`, `LAWNBERRY_AGENT_RUN_ID` and the names in the backend's
 `pass_env`. GitHub tokens, `SSH_AUTH_SOCK`, `GIT_ASKPASS` and anything starting with `LAWNBERRY_BRIDGE_`
-can never be passed (the configuration is rejected at start-up). When `agent.command_prefix` is set, the
-prefix goes in front of the agent command and of every check command.
+can never be passed (listing one in `pass_env` makes the backend refuse to start). When
+`agent.command_prefix` is set, the prefix goes in front of the agent command and of every check command.
 
 **Why the prompt goes on stdin:** (1) real `omp` treats positional `@path` arguments as files to include,
 and Claude Code's variadic `--tools`/`--allowedTools` options swallow trailing positional arguments, so a
@@ -306,15 +306,20 @@ checks every call before it executes, against a JSON policy that lives outside t
 - only tools named in the policy run (plus the hidden `yield` and `think`);
 - every path argument must stay inside the worktree after symlink resolution, must not be a URL or `xd://`
   device, must not start with `~` and must not match the read deny list (`.git`, `.env*`, `*.pem`,
-  `*.key`, `id_rsa*`, `config/secrets*.json`, `config/ssl/**`);
+  `*.key`, `id_rsa*`, `config/secrets*.json`, `config/ssl/**`); deny list and write rules are applied
+  to the path as written *and* to the symlink-resolved path, so a directory symlink inside `docs/` cannot
+  lead to a protected or out-of-scope file;
 - `edit` and `write` must also match every write allow-set (scope, then the task's `allowed_paths`) and no
   protected-path glob, may not write through a symlink and may not exceed 1,000,000 bytes;
-- `bash`, when enabled at all, runs only command lines listed verbatim;
+- `bash`, when enabled at all, runs only command lines listed verbatim, and its path arguments (`cwd`)
+  must stay inside the worktree like any other;
 - a missing or invalid policy blocks everything (fail closed); each decision is appended to
   `omp-guard-audit.jsonl`, and blocked calls reach the model as errors starting with
   `[agent-bridge guard]`.
 
-The glob dialect is shared with `globs.py`; `tests/agent_bridge/fixtures/glob_vectors.json` is checked
+The glob dialect is shared with `globs.py`; globs from the configuration are canonicalised on load
+(`scripts/` means `scripts/**`, `a//b` becomes `a/b`, a bare `.` is rejected) so a protected glob can never
+silently match nothing. `tests/agent_bridge/fixtures/glob_vectors.json` is checked
 against both implementations. The guard is defence in depth: the authoritative decision is the staged-diff
 policy applied after the run.
 
@@ -331,7 +336,7 @@ Exact command, as built by `ClaudeBackend.build_argv` (prompt on stdin):
 ```text
 claude -p --output-format json --no-session-persistence --safe-mode --strict-mcp-config \
        --disable-slash-commands --permission-mode dontAsk --permission-prompts none \
-       --max-budget-usd <budget, two decimals> [--model <model>] [--effort <level>] \
+       --max-budget-usd <budget, two decimals, at least 0.01> [--model <model>] [--effort <level>] \
        [<agent.claude.extra_args> ...] \
        --tools Read Edit Write Glob Grep [Bash] \
        --allowedTools Read Edit Write Glob Grep [Bash(<exact command line>) ...]

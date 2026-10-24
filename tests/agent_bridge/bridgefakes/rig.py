@@ -269,7 +269,9 @@ class Rig:
 
     def run_issue(self, number: int) -> RunRecord:
         report = self.poll(only_issue=number)
-        assert report.runs, f"no run started: {[r.render() for r in report.refused]} {report.errors}"
+        assert report.runs, (
+            f"no run started: {[r.render() for r in report.refused]} {report.errors}"
+        )
         return report.runs[0]
 
     def comments(self, number: int) -> list[str]:
