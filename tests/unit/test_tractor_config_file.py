@@ -68,11 +68,27 @@ class TestTractorServiceLoadsConfig:
         service = TractorControlService()
         assert service.blade_pto.gpio == 26
 
-    def test_service_pca9685_config_matches_yaml(self):
+    @pytest.mark.asyncio
+    async def test_service_pca9685_config_matches_yaml(self):
+        """The shipped address/bus/frequency must reach the driver (it used to assert only that a
+        driver object existed, which a driver built from ``{}`` also satisfies)."""
         from backend.src.services.tractor_service import TractorControlService
 
+        cfg = yaml.safe_load(Path("config/tractor.yaml").read_text())["pca9685"]
+        health = await TractorControlService()._pca9685.health_check()
+
+        assert health["address"] == hex(cfg["address"]) == "0x41"
+        assert health["bus"] == cfg["bus"]
+        assert health["frequency_hz"] == float(cfg["frequency_hz"])
+
+    def test_service_deadman_config_matches_yaml(self):
+        from backend.src.services.tractor_service import TractorControlService
+
+        deadman = yaml.safe_load(Path("config/tractor.yaml").read_text())["command_deadman"]
         service = TractorControlService()
-        assert service._pca9685 is not None
+
+        assert service.default_hold_s == deadman["default_hold_ms"] / 1000.0 == 0.5
+        assert service.max_hold_s == deadman["max_hold_ms"] / 1000.0 == 2.0
 
 
 def test_ultrasonic_disabled_while_spec_shows_halow_on_spi0():

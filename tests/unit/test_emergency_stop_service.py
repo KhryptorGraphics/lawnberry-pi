@@ -801,7 +801,10 @@ async def test_emergency_clear_requires_operator_auth_but_estop_does_not(monkeyp
             headers={"Authorization": f"Bearer {token}"},
         )
 
-    assert ok.status_code == 200 and ok.json()["status"] == "EMERGENCY_CLEARED"
+    # The tractor E-stop the stop just latched is NOT released by the general clear, so the
+    # answer must say "partially cleared" and name it (audit SEC-07).
+    assert ok.status_code == 200 and ok.json()["status"] == "EMERGENCY_PARTIALLY_CLEARED"
+    assert ok.json()["still_latched"] == ["tractor_emergency_stop"]
     assert _safety_state["emergency_stop_active"] is False
 
 

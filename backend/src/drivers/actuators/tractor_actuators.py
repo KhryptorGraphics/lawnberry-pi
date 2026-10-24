@@ -9,13 +9,20 @@ function (unit-testable); the actual I2C write is performed by
 The starter and blade-PTO are GPIO relays. ``RelayActuator`` is SIM-safe: in
 SIM_MODE it only tracks state; otherwise it drives the GPIO (lazy import) and
 raises ``RelayUnavailableError`` if the pin cannot be driven -- it never
-degrades silently to a no-op.
+degrades silently to a no-op. A relay built ``armed=False`` (the tractor platform is
+disabled in ``config/tractor.yaml``) never claims or drives its pin outside SIM_MODE: its
+GPIO may belong to something else on the header (audit H-02b), and a disabled platform
+owns no pin.
+
+A non-finite command (NaN/inf) is refused (``ValueError``) instead of being clamped: NaN
+clamps to full scale, and an invalid command must never turn into maximum motion.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,7 +58,13 @@ class ServoActuator:
         self._us: int = calibration.us_center if calibration.bidirectional else calibration.us_min
 
     def microseconds(self, value: float) -> int:
-        """Map a normalized command to a pulse width in microseconds (pure)."""
+        """Map a normalized command to a pulse width in microseconds (pure).
+
+        Raises ``ValueError`` for NaN/inf: ``min``/``max`` clamping turns NaN into full
+        scale, so a corrupted command would otherwise drive the lever to its end stop.
+        """
+        if not math.isfinite(value):
+            raise ValueError(f"{self.name}: non-finite command {value!r} refused")
         cal = self.cal
         if cal.bidirectional:
             v = _clamp(value, -1.0, 1.0)
@@ -98,10 +111,12 @@ class RelayActuator:
     after the write succeeded, so it never claims a switch that did not happen.
     """
 
-    def __init__(self, name: str, gpio: int, active_high: bool = True):
+    def __init__(self, name: str, gpio: int, active_high: bool = True, *, armed: bool = True):
         self.name = name
         self.gpio = gpio
         self.active_high = active_high
+        #: False => the pin is never claimed or driven outside SIM_MODE (platform disabled).
+        self.armed = armed
         self._on: bool = False
         self._device: Any = None
         self._sim = is_simulation_mode()
@@ -119,6 +134,13 @@ class RelayActuator:
     def _ensure_device(self) -> Any:
         if self._sim or self._device is not None:
             return self._device
+        if not self.armed:
+            self._fault = (
+                f"relay {self.name} GPIO{self.gpio} not armed: the tractor platform is not "
+                "enabled (config/tractor.yaml), so the pin is not claimed or driven"
+            )
+            logger.error("%s", self._fault)
+            raise RelayUnavailableError(self._fault)
         try:  # lazy hardware import — never at module load
             from gpiozero import OutputDevice  # type: ignore
 
