@@ -1656,3 +1656,54 @@ unverified (gates G0-G1).
 
 The suite rewrites the tracked `verification_artifacts/001-integrate-hardware-and/telemetry_integration_evidence.json`
 on every run; it was restored and is not part of this PR.
+
+### Finish track thor
+
+Goal item T2.5 of `docs/GOAL-2026-10-24-finish.md`: the Thor link wired behind a flag, its plan consumed only
+through the local navigation path, a Thor-side client, and an end-to-end test from plan to link loss to recovery over
+real UDP. The same caveat applies as above: this is `SIM_MODE` software on fakes and loopback sockets. Nothing ran on
+the mower or on HaLow, and the link has no REST route yet (`app.state.thor_link.status()` only).
+
+| Item | Commits | What changed | Gaps advanced or closed |
+|---|---|---|---|
+| T2.5 wiring, default off | `b699ae7` | `backend/src/services/thor_link_wiring.py`, `config/thor_link.yaml` (`enabled: false`), `main.py` lifespan. The link starts only if enabled **and** `tractor.enabled`, the tractor safety monitor is running, `THOR_LINK_KEY` is configured (outside SIM there is no public-key fallback) and, outside SIM, a geofence exists; otherwise `ThorLinkStartError`, a CRITICAL log, `app.state.thor_link_error`, and the backend carries on with local control. Defaults are closed: bind `127.0.0.1`, accept only the Thor's address, blade forbidden, `rtk_fixed` only. Unknown keys, hostnames, IPv6 and `uplink_hz > 50` are errors. Stopped before the shutdown park | H-13 and H-23 (link now instantiated, SIM-tested); WP-P3-02 wiring part (the REST routes still do not consult the hold); RS-2 (loopback bind, Thor-only allowlist), RS-8 (key from environment or secrets file, still no rotation) |
+| T2.5 consumer of `current_plan()` and local re-validation | `db37db0`, `b603afe`, `ff06cb3` | `thor_plan_follower.py` is the only consumer. It drives each leg through `NavigationService.go_to_waypoint` (new keyword-only `should_continue` gate, polled every tick, soft stop on the first False, no mission-service lookup), so E-stop latch, tilt latch, deadman and any limiter at `set_levers` stay in the path. Per-tick local gate (reasons in `docs/tractor-platform.md`); `start_index` adopted per plan and then required to contain the Pi's own index (`out_of_sync` stands still); speed is local; the blade is forced off unless `allow_blade`; the fence check covers the mower's position and each straight leg, with no-go zones and an inward margin (`geofence_validator`: `no_go`, `inset_m`, `segment_within`). Uplink builder: position, fix, heading, progress, with a stale GNSS reading reported as no fix | N-15 (consumer exists); RS-6 partly (waypoints and legs in the fence and clear of no-go zones, `start_index`, blade permission, local speed; plan age was already the link's); WP-P3-03; WP-P3-04 partly (no detections, battery or link counters) |
+| T2.5 Thor-side client | `1f57d85` | `scripts/thor_link_client.py`: key from a 0600 file or `THOR_LINK_KEY` (no key, no start; `--sim` needs `SIM_MODE=1`), authentication, per-`sid` replay drop, one echoing answer per uplink (windows or pause), pause on no `rtk_fixed`/e-stop/hold fault/planner failure, `--plan` and `--boundary` (strategist, first transit from the reported position), SIGUSR1/2 pause/resume | H-23 Thor side (minimal); the Thor-side obligations of RS-3 now exist in code and are listed in `docs/tractor-platform.md` |
+| T2.5 tests | `76750f0` and the commits above | 205 new tests, 0 failing. `tests/integration/test_thor_link_e2e.py` (21): real UDP, plan accepted and driven, link loss to hold (neutral and stays neutral) to recovery with progress kept, Thor pause, a fake Thor that reads every uplink but lacks the key, forged/unsigned/oversized/replayed/other-host datagrams, plan outside the fence, leg across a no-go zone, and against a Thor that never pauses: E-stop, tilt latch, stale GNSS, dead navigation feed, degraded fix, leaving the fence, a running mission, no authorization or engine, a limiter at `set_levers`. Unit: follower 80, wiring and real `lifespan` 42, client incl. real subprocess CLI 45, `go_to_waypoint` gate 7, geofence +10. 53 source mutations of the new code were run by a scratch harness (not committed); every one is caught, the one the first e2e run missed (stop without the blade drop) now is | the roadmap P3 acceptance "unsafe or stale commands never reach the tractor service", in SIM |
+| T2.5 docs | the commit that adds this section | `docs/tractor-platform.md` (enable steps, how a plan becomes motion, what wins, Thor side and what remains), `code_structure_overview.md`, `CODEMAPS/backend.md`, `autonomy-toolchain-matrix.md` | |
+
+Status changes against Part A (rows this track touches):
+
+| Part A row | Before | After |
+|---|---|---|
+| Application lifespan wiring | `ThorLinkService` is never instantiated | instantiated only when `config/thor_link.yaml` enables it and the preconditions hold; stopped before the park |
+| Pi-side Thor link service | PARTIALLY IMPLEMENTED; **not wired** | PARTIALLY IMPLEMENTED; wired behind a default-off flag and tested over real UDP in SIM; not run on hardware |
+| Re-validation of every plan (C.1) | MISSING | PARTIAL: see the consumer row. Still open: speed or blade veto from sensors, obstacle input, operator acknowledgement (SD-3) |
+| Detector output to the Thor uplink | MISSING | PARTIAL: position, fix, heading and progress; no detections, battery or link counters |
+| Link-loss to safe hold | IMPLEMENTED (software, fake clock) | also exercised with the follower on a real clock over UDP: the leg ends within a tick, the mower stays neutral, a new Thor recovers it. No latency measured |
+| Thor coverage strategist | IMPLEMENTED (SIM) | also driven end to end over UDP through the client; still no detections fed to it |
+
+Findings from this track, not fixed here:
+
+- **Steering sign and heading convention unverified.** `go_to_waypoint` mixes `left = v(1 - e/45)`, `right = v(1 + e/45)`
+  from `e = bearing - yaw`. A pure-kinematics check of that law (ideal differential drive, compass heading, 0.2 s ticks,
+  target 14 m away) never arrives from headings 0, 90 and 225 degrees, while the mirrored law arrives in 171 to 188 ticks;
+  with a counter-clockwise yaw convention it fails too. The BNO085 driver is a stub, so the convention is unknown, and
+  `tests/unit/test_tractor_navigation.py` pins the current sign. It affects missions as much as Thor plans. Evidence: an
+  ad hoc script (not committed). Needs a bench check with the drive wheels off the ground before any powered run (owner
+  action O-7 gates powered actuation).
+- **The tractor service does not gate lever commands on authorization or a running engine** (`set_levers`,
+  `tractor_service.py:411-461`); only the blade and the starter check them. The follower therefore gates on both itself.
+- **`get_mission_service()` called with no argument before the singleton exists** builds it around a FastAPI `Depends`
+  object (`mission_service.py:129-135`). Nothing reaches it that way today; a gated leg now never calls it.
+- **Resume after a hold is automatic** on a fresh plan; whether a person must acknowledge first is the open decision SD-3.
+  With `allow_blade: true` the blade can come on by itself when a Thor returns, so the shipped value is `false`.
+
+Verification (this track, branch `finish/thor`):
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `env -u PYTEST_ADDOPTS SIM_MODE=1 pytest tests -o addopts="" -p no:cacheprovider --ignore=tests/soak -W ignore --junitxml=/tmp/FinishThor.xml` | 967 collected: **898 passed, 69 skipped, 0 failed, 0 errors** (baseline 762 / 693 / 69 / 0) |
+| Real-time tests under load | the follower unit tests and the e2e file, 6 runs with a busy loop on every core (`nproc` = 14) | 101 passed, six times |
+| Lint | `ruff check backend tests scripts workshop`; `ruff format --check` on the touched files | All checks passed; 12 files already formatted |
+| Pin checker | `python scripts/check_hardware_pin_conflicts.py` (+ `--self-test`) | unchanged: exit 0, `self-test OK` |

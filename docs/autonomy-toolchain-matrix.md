@@ -89,7 +89,7 @@ has the details.
 | Thor inference (ONNX → TensorRT) | Thor | **verified** | `trtexec` TensorRT 10.16.2 FP16 engine `PASSED` |
 | ONNX Runtime GPU on Thor | Thor | blocked (not needed) | `onnxruntime 1.30.0` is CPU-only; use TensorRT |
 | Coverage planner (W6) | Thor | **verified (software)** | `backend/src/nav/thor_strategist.py`, `tests/unit/test_thor_strategist.py` |
-| Pi ↔ Thor link (W7) | Pi + Thor | protocol verified in software; link measured | `tests/unit/test_thor_link.py`, HaLow table above |
+| Pi ↔ Thor link (W7) | Pi + Thor | protocol verified in software; wired into `main.py` behind `config/thor_link.yaml` (off by default) and exercised over real UDP on loopback in `SIM_MODE` with `scripts/thor_link_client.py`; link measured; **not run on HaLow or on the mower** | `tests/unit/test_thor_link.py`, `tests/unit/test_thor_plan_follower.py`, `tests/integration/test_thor_link_e2e.py`, HaLow table above |
 
 ## Storage
 
