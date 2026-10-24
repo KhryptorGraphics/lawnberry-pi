@@ -407,3 +407,22 @@ Runbook `~/thordrive/nvidia-sim/cosmos3/README.md`; scripts in `~/thordrive/nvid
 | Predict2.5-2B (older generation, Diffusers) | `outputs/cosmos-predict25-i2w-20261024-015307/predict25_garden_i2w.mp4`: image2world from a 16:9 crop of the garden photo with a robotic-mower prompt, 93 frames 832x480, 28 steps, **718 s** (24 s/step), load 24 s, GPU peak 25.7 GiB; a black and orange mower drives in from the right. |
 | **Blockers (licence clicks by the owner of HF user `giggahost`)** | (1) `nvidia/Cosmos-1.0-Guardrail` (gated=auto, 403) is the default of `cosmos_guardrail`, Diffusers and the framework's `--guardrails`: accept at <https://huggingface.co/nvidia/Cosmos-1.0-Guardrail>. Workaround in use: `CosmosSafetyChecker(checkpoint_id="nvidia/Cosmos-Guardrail1")` in the Diffusers scripts (safety checker stays on); the framework runs use `--no-guardrails`. (2) `nvidia/Cosmos-Reason2-2B` and `-8B` (gated=auto, 403): accept at <https://huggingface.co/nvidia/Cosmos-Reason2-2B> and <https://huggingface.co/nvidia/Cosmos-Reason2-8B> (the same blocker as GR00T N1.7 above; the Cosmos 3 Reasoner needs neither). |
 | Thor pitfalls | (a) transformers/diffusers `caching_allocator_warmup` makes one model-sized `cudaMalloc`; with a ~45 GB page cache it held the NVIDIA RM lock for ~4 min (`nvidia-smi` and the GR00T jobs sat in D state). `cosmos3/thor_patches.py` skips it; `sudo sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'` clears a live stall. (b) nltk refuses group-writable data dirs (umask 0002): `chmod -R go-w ~/.cache/huggingface/cosmos_guardrail`. (c) The login shell's `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` turns gated repos into 403s; `env.sh` unsets it. (d) huggingface_hub 2.x shared blob store uses relative symlinks that break for a symlinked model dir: `HF_HUB_DISABLE_SHARED_BLOBS=1`. (e) Video input needs `torchcodec`. (f) `Cosmos2_5_PredictBasePipeline._execution_device` raises when a `CosmosSafetyChecker` is attached (guardrail sub-models have no `.device`): patched in `run_predict25.py`. |
+
+## Hailo compile with DALI (workshop box, 2026-10-24)
+
+DFC 3.34 only uses DALI for adaround when `nvidia.dali.plugin.tf` imports
+(`hailo_model_optimization/algorithms/dali_utils/__init__.py` falls back to a TF dataset otherwise, logging
+"DALI is not installed"). Measured on the P100 (adaround block 2): **15 -> 21 batches/s** with DALI, GPU use 22 -> 50 %.
+The GPU is not the bottleneck without it: the V100 managed only 34 min/block vs the P100's 33.5.
+
+Env: `/home/kp/repossata1/env-dfc-dali` (ext4 copy of `$LB/env-dfc`; `$LB/env-dfc` is left without DALI). Recipe:
+
+| Step | Why |
+|---|---|
+| `cp -a $LB/env-dfc $D`, then rewrite `#!$LB/env-dfc/` shebangs in `$D/bin/*` to `#!$D/` | otherwise `hailomz` and `pip` silently run the original env |
+| `$D/bin/python -m pip install --force-reinstall --no-deps "setuptools<81"` | the copied setuptools lacked `pkg_resources` |
+| `$D/bin/python -m pip install nvidia-dali-cuda120==2.3.0` | DALI core |
+| `PATH=~/bin/cxx:$PATH` (symlinks to `x86_64-linux-gnu-g++-13`/`gcc-13`), then `pip install --no-build-isolation --extra-index-url https://pypi.nvidia.com nvidia-dali-tf-plugin-cuda120==2.3.0` | the plugin builds against the env's TF 2.18; `/usr/bin/g++` is missing on this box |
+
+Check: `$D/bin/python -c "from hailo_model_optimization.algorithms.dali_utils import dali_train_dataset as d; print(d.__module__)"`
+must print `...dali_dataset`, not `...mock_dali_dataset`. Run: `DFC_ENV=$D scripts/hailo_compile.sh --tag T --gpu 2`.
