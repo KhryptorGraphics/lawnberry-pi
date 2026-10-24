@@ -114,6 +114,19 @@ def free_local_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def dead_remote(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point origin at a port nobody listens on, while it still names the configured repository.
+
+    A remote that names another repository is refused as ``remote_mismatch``, so the URL the
+    bridge reads back is the configured repository's; fetch and push still hit the dead port.
+    """
+    rig.git_env.git(
+        "remote", "set-url", "origin", f"git://127.0.0.1:{free_local_port()}/owner/repo.git"
+    )
+    monkeypatch.setattr(rig.git, "remote_url", lambda: "git://github.test/owner/repo.git")
+    monkeypatch.setattr(rig.git, "push_urls", lambda: ["git://github.test/owner/repo.git"])
+
+
 def record_subprocesses(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     """Record the argv of every process started through ``subprocess.Popen`` (and so ``run``)."""
     spawned: list[list[str]] = []
@@ -720,13 +733,11 @@ def test_github_loss_right_after_the_lease_requeues_without_spend_and_resumes_th
 
 
 def test_unreachable_git_remote_requeues_and_the_same_run_completes_when_it_is_back(
-    rig: Rig,
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     number = rig.new_task_issue()
     reachable = str(rig.git_env.origin)
-    rig.git_env.git(
-        "remote", "set-url", "origin", f"git://127.0.0.1:{free_local_port()}/owner/repo.git"
-    )
+    dead_remote(rig, monkeypatch)
 
     first = rig.poll().runs[0]
 
@@ -744,13 +755,11 @@ def test_unreachable_git_remote_requeues_and_the_same_run_completes_when_it_is_b
 
 
 def test_unreachable_git_remote_gives_up_after_the_bounded_automatic_retries(
-    make_rig_for: Any,
+    make_rig_for: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig: Rig = make_rig_for(limits={"max_start_retries": 1})
     number = rig.new_task_issue()
-    rig.git_env.git(
-        "remote", "set-url", "origin", f"git://127.0.0.1:{free_local_port()}/owner/repo.git"
-    )
+    dead_remote(rig, monkeypatch)
 
     first = rig.poll().runs[0]
     assert first.status is RunStatus.PENDING

@@ -189,6 +189,14 @@ class GitOps:
     def remote_url(self) -> str:
         return self._text(["remote", "get-url", self.cfg.remote])
 
+    def push_urls(self) -> list[str]:
+        """Every URL ``git push <remote>`` sends to: ``pushurl`` and the rewrite rules applied.
+
+        A push does not necessarily go where a fetch does (``remote.<name>.pushurl``,
+        ``url.<base>.pushInsteadOf``), and with several URLs configured it goes to all of them.
+        """
+        return self._text(["remote", "get-url", "--push", "--all", self.cfg.remote]).splitlines()
+
     def check_branch_name(self, branch: str) -> bool:
         done = self._run(["check-ref-format", "--branch", branch], check=False)
         return done.returncode == 0

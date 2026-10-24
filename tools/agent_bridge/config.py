@@ -12,6 +12,7 @@ import stat
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -119,6 +120,18 @@ class GitHubConfig(_Strict):
         if not _ENV_RE.match(value):
             raise ValueError("token_env must be an environment variable name")
         return value
+
+    @property
+    def web_host(self) -> str:
+        """Host that the repository's web pages and git remotes live on.
+
+        An API on a host of its own drops the leading ``api.``: ``api.github.com`` serves
+        ``github.com`` and ``api.<name>.ghe.com`` serves ``<name>.ghe.com``.  An Enterprise
+        Server API under a path (``https://host/api/v3``) shares its host with the web UI.
+        """
+        parts = urlsplit(self.api_url)
+        host = parts.hostname or ""
+        return host if parts.path.strip("/") else host.removeprefix("api.")
 
 
 class LabelsConfig(_Strict):

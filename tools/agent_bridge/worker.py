@@ -55,6 +55,7 @@ from .publisher import (
     render_started,
 )
 from .redact import Redactor, strip_control_chars, truncate
+from .remote import check_remote
 from .schema import ParsedTask, compute_revision, parse_task, validate_against_config
 
 __all__ = ["Eligible", "PollReport", "Preview", "Refused", "Worker"]
@@ -617,6 +618,7 @@ class Worker:
     def _worktree(self, ctx: _Ctx) -> None:
         run = ctx.run
         try:
+            self._verify_remote()
             if self.cfg.git.fetch_before_run:
                 self.git.fetch()
             base_sha = self.git.resolve_base()
@@ -639,6 +641,57 @@ class Worker:
         )
         (ctx.run_dir / "worktree.pointer").write_text(ctx.pointer or "", encoding="utf-8")
         ctx.run = self.ledger.get(run.run_id) or run
+
+    def _verify_remote(self, *, warn: bool = True) -> None:
+        """Stop before any fetch or push unless the clone's remote is the configured repository.
+
+        Approvals, labels and pull requests go to ``cfg.repository`` through the GitHub API,
+        while the base comes from, and the branch goes to, whatever URLs the remote holds.  Both
+        sides are compared: the URL fetches use, and every URL pushes go to (git applies
+        ``pushurl`` and the rewrite rules, and with several URLs it pushes to all of them).  A
+        filesystem remote (a local mirror, a test rig) cannot be compared and is allowed, with a
+        warning unless ``warn`` is off.  Credentials embedded in a URL are never echoed: the
+        message is built from the parsed host and repository only.
+        """
+        cfg = self.cfg
+        remote, repository, host = cfg.git.remote, cfg.repository, cfg.github.web_host
+        try:
+            urls = [("fetches from", self.git.remote_url())]
+            urls += [("pushes to", url) for url in self.git.push_urls()]
+        except GitError as exc:
+            raise _Stop(
+                RunStatus.BLOCKED,
+                "git_failed",
+                str(exc),
+                hints=["Check the local clone, the remote and the base branch name."],
+            ) from exc
+        checked: set[str] = set()
+        for role, url in urls:
+            if url in checked:  # pushes usually go where fetches do
+                continue
+            checked.add(url)
+            found = check_remote(url, repository=repository, web_host=host)
+            if found.local:
+                if warn:
+                    LOG.warning(
+                        "git remote %r %s a local path (%s): it cannot be checked against %s on %s",
+                        remote,
+                        role,
+                        found.shown,
+                        repository,
+                        host,
+                    )
+            elif not found.ok:
+                raise _Stop(
+                    RunStatus.BLOCKED,
+                    "remote_mismatch",
+                    f"the clone's git remote {remote!r} {role} {found.shown}, "
+                    f"not {repository} on {host}",
+                    hints=[
+                        "Point `git.remote` (its URL and any `pushurl`) and `repo_path` at a "
+                        f"clone of {repository} on {host}, then re-approve."
+                    ],
+                )
 
     # ----------------------------------------------------------------- agent
     def _abort_check(self, ctx: _Ctx) -> Callable[[], str | None]:
@@ -886,6 +939,7 @@ class Worker:
 
     def _publish(self, run: RunRecord, payload: dict[str, Any]) -> None:
         """Push, open the draft PR, tell the issue.  Safe to call again after any failure."""
+        self._verify_remote(warn=False)  # right before the first push, whoever changed the config
         delays = list(self.cfg.limits.publish_retry_delays)
         attempt = 0
         while True:
