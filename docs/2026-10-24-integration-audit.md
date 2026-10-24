@@ -15,7 +15,7 @@ owner's requirement documents. Anything that is none of those is marked `TBD` (n
 - [Part E. Prioritised development plan (P0 to P6)](#part-e-prioritised-development-plan-p0-to-p6)
 - [Part F. Remaining hardware conflicts and unresolved safety requirements](#part-f-remaining-hardware-conflicts-and-unresolved-safety-requirements)
 - [Appendix. Gap register index (H-01 to H-28)](#appendix-gap-register-index-h-01-to-h-28)
-- [Implemented in this PR](#implemented-in-this-pr) (placeholder: the integrator fills it)
+- [Implemented in this PR](#implemented-in-this-pr)
 
 ## 0. Scope, baseline and conventions
 
@@ -1618,14 +1618,41 @@ H-02c are sub-findings of H-02 introduced by this audit.
 
 ## Implemented in this PR
 
-> **Placeholder: the integrator completes this section** after merging the parallel branches. This document is
-> written against baseline `765c737`, so Part A and Part E describe the state **before** those branches. For each
-> merged branch record the commits, what changed, the gaps advanced or closed, and the exact test command and counts;
-> then re-mark the affected rows in Part A, Part E and the Appendix.
+Part A and Part E describe baseline `765c737`. This section records what this PR changes on top of it; where a row
+below disagrees with Part A, this section is the current state. Nothing here was exercised on mower hardware: every
+item is software behaviour proven in `SIM_MODE` against fakes. Physical stopping, neutral and power removal remain
+unverified (gates G0-G1).
 
-| Branch | Commits | What changed | Gaps advanced or closed | Tests (exact command and counts) |
-|---|---|---|---|---|
-| `audit/docs` | see `git log 765c737..audit/docs` | documentation only: this document and the corrections listed in A.12 | H-01, H-04, H-05 (documentation), H-11 (tags) | counts are in the final commit message of the branch |
-| `audit/checker` | to be filled by the integrator | | | |
-| `audit/safety` | to be filled by the integrator | | | |
-| `audit/thorlink` | to be filled by the integrator | | | |
+| Branch | Commits | What changed | Gaps advanced or closed |
+|---|---|---|---|
+| `audit/docs` | `f4a7c52` `9371078` `79a545a` `81fe90b` `302a867` `45c2e1b` `3883f36` `17d4378` | Ultrasonic guide marked legacy / DO NOT WIRE, pin 17 = 3.3 V, divider fixed; PCA9685 `OE` active-low corrected; 24 V servo rail superseded (12 V-class pending label); feature matrix and README corrected; platform tags; this document | H-01, H-04, H-05, H-18 (documentation); H-10/H-19 (documented, not designed); H-11 |
+| `audit/checker` | `65a189c` `bb2edda` `4c6de02` | `spec/hardware.yaml` gains HaLow HAT, UART0/UART4, ultrasonic and I2C1 claims, each with evidence and status, plus a `deployment` block from the live Pi; checker rewritten (txd/rxd, tractor relays, ultrasonic only when enabled, I2C availability); reviewed allow-list `spec/known_conflicts.yaml` that fails on new or stale entries and on tractor conflicts once `enabled: true`; `check_docs_drift.sh` no longer vacuous; guard workflow runs checker and tests | H-02, H-03, H-17, H-25 now **detected and gated** (not resolved) |
+| `audit/safety` | `3a9dfdf` `fe3ea6d` `f70d315` `615bb90` `2095702` | Truthful per-subsystem E-stop on `/control/emergency*` (`services/emergency_stop_service.py`); authenticated `emergency_clear`; PCA9685 absent/failed raises and tractor motion commands are rejected; tractor command deadman (`command_deadman` in `config/tractor.yaml`, 500 ms default, 2 s ceiling) returns levers to neutral and throttle to idle; RoboHAT commands expire, no blind PWM resend; tilt/E-stop latch blocks blade re-engagement until an authenticated clear; shutdown parks actuators; repo unit sets `OPERATOR_AUTH_REQUIRED=1`, `admin/admin` alias removed | H-08 (software side), H-14, loss-of-comms, false-assurance E-stop |
+| `audit/thorlink` | `6cc2076` `2deae0f` `dc3941f` | HMAC-SHA256 datagrams (`THOR_LINK_KEY`, refuses to start without a key outside SIM); Pi session id + uplink echo replaces `seq`, so replays and seq poisoning are rejected and Thor restarts are accepted; 1.0 s plan age; bounded size and waypoint count; optional geofence; failed safe-hold neutral surfaced as `hold_fault`. Still **not wired** into `main.py` | H-13 (protocol hardened), H-23 (unchanged: not live) |
+
+### Status changes against Part A
+
+| Part A row | Baseline | After this PR |
+|---|---|---|
+| General E-stop routes | STUBBED / false assurance | PARTIALLY IMPLEMENTED: invokes tractor, RoboHAT and blade service; reports `stopped/simulated/unconfirmed/failed/not_present`; IBT-4 GPIO is still a stub so blade reports `unconfirmed` outside SIM |
+| Independent hardwired E-stop | MISSING | MISSING (hardware work, G0) |
+| PCA9685 `OE` / servo-power cut | MISSING | MISSING in hardware; absent-PCA9685 is now reported instead of silent success |
+| Loss of comms (operator) | MISSING | SIMULATED: tractor deadman and RoboHAT command expiry, tested with fakes |
+| Tractor safety monitor | PARTIALLY IMPLEMENTED | PARTIALLY IMPLEMENTED: blade re-engagement after tilt now blocked by a latch; watchdog still event-loop liveness only |
+| Safe shutdown | MISSING | SIMULATED: lifespan teardown parks actuators (tested through the real `lifespan`) |
+| Operator authentication | disabled in shipped unit | Enabled in the repo unit; **the deployed Pi still runs `OPERATOR_AUTH_REQUIRED=0` until the operator installs the unit and sets credentials** |
+| Pi-Thor link authentication | MISSING | IMPLEMENTED (protocol, tests); not wired |
+| Replay and stale-plan protection | PARTIALLY IMPLEMENTED | IMPLEMENTED (protocol, tests) |
+| Pin and address conflict checker | PARTIALLY IMPLEMENTED | IMPLEMENTED: reports GPIO5, GPIO25, GPIO12, GPIO3 conflicts and the disabled header I2C bus; tested |
+
+### Verification (integrated branch)
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `SIM_MODE=1 pytest tests -o addopts="" -p no:cacheprovider --ignore=tests/soak -W ignore` | 762 collected: **693 passed, 69 skipped, 0 failed, 0 errors** (baseline 530 passed, 69 skipped) |
+| Pin checker | `python scripts/check_hardware_pin_conflicts.py` / `--self-test` | exit 0; 4 allow-listed conflicts (GPIO 25, 12, 5, 3), 2 deployment warnings, 4 unverified-overlap warnings; `self-test OK` |
+| Lint | `ruff check backend tests scripts workshop`; `ruff format --check` on changed files | All checks passed; 36 files already formatted |
+| Docs drift | `bash scripts/check_docs_drift.sh` | `code_changed=true, docs_changed=true` (non-vacuous) |
+
+The suite rewrites the tracked `verification_artifacts/001-integrate-hardware-and/telemetry_integration_evidence.json`
+on every run; it was restored and is not part of this PR.
