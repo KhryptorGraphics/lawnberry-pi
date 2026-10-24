@@ -1,11 +1,13 @@
-"""Unit tests (Constitution Principle VI follow-up): IMU tilt-cutoff + watchdog
-heartbeat wiring for the tractor platform.
+"""Unit tests (Constitution Principle VI follow-up): IMU tilt-cutoff + the monitor's
+watchdog heartbeat for the tractor platform.
 
 Covers the gap the constitution's v3.0.0 Sync Impact Report named explicitly:
 "IMU tilt-cutoff (200ms) and motor-watchdog requirements... are not yet
-wired to backend/src/services/tractor_service.py." Both close via
-``TractorSafetyMonitor`` (safety/tractor_safety_monitor.py) and a small
-optional ``on_timeout`` extension to the existing ``Watchdog`` (T031).
+wired to backend/src/services/tractor_service.py." The tilt-cutoff is
+``TractorSafetyMonitor`` (safety/tractor_safety_monitor.py). The monitor feeds only the
+watchdog's ``safety_monitor`` source, and only after a completed tilt cycle: its loop turning
+no longer vouches for the actuation path (audit N-04; the actuation heartbeat is tested in
+test_tractor_actuation_watchdog.py).
 """
 
 from __future__ import annotations
@@ -21,7 +23,11 @@ from backend.src.safety.estop_handler import EstopHandler  # noqa: E402
 from backend.src.safety.motor_authorization import MotorAuthorization  # noqa: E402
 from backend.src.safety.safety_triggers import SafetyTriggerManager  # noqa: E402
 from backend.src.safety.tractor_safety_monitor import TractorSafetyMonitor  # noqa: E402
-from backend.src.safety.watchdog import Watchdog  # noqa: E402
+from backend.src.safety.watchdog import (  # noqa: E402
+    ACTUATION_SOURCE,
+    SAFETY_MONITOR_SOURCE,
+    Watchdog,
+)
 from backend.src.services.tractor_service import TractorControlService  # noqa: E402
 
 
@@ -30,14 +36,19 @@ def _tractor() -> TractorControlService:
     return TractorControlService(config={"enabled": False})
 
 
-def _watchdog(on_timeout=None, timeout_ms: int = 1000) -> Watchdog:
+def _watchdog(
+    on_timeout=None, timeout_ms: int = 1000, sources=(SAFETY_MONITOR_SOURCE,)
+) -> Watchdog:
     return Watchdog(
-        EstopHandler(MotorAuthorization()), timeout_ms=timeout_ms, on_timeout=on_timeout
+        EstopHandler(MotorAuthorization()),
+        timeout_ms=timeout_ms,
+        on_timeout=on_timeout,
+        required_sources=sources,
     )
 
 
 class TestWatchdogOnTimeoutCallback:
-    """The additive extension to the existing (already contract-tested) Watchdog."""
+    """The on_timeout extension to the (contract-tested) single-source Watchdog."""
 
     @pytest.mark.asyncio
     async def test_on_timeout_callback_invoked_alongside_estop(self):
@@ -85,7 +96,7 @@ class TestWatchdogOnTimeoutCallback:
         await wd.start()
         for _ in range(5):
             await asyncio.sleep(0.02)
-            wd.heartbeat()
+            wd.heartbeat(SAFETY_MONITOR_SOURCE)
         await wd.stop()
 
         assert not called.is_set(), "steady heartbeats must suppress the timeout entirely"
@@ -244,3 +255,99 @@ class TestTractorSafetyMonitorHeartbeat:
         await wd.stop()
 
         assert timed_out.is_set()
+
+    @pytest.mark.asyncio
+    async def test_a_failing_tilt_check_is_not_a_heartbeat(self):
+        """The tilt check raising every cycle is a dead blade protection. The old monitor
+        fed the watchdog regardless (its loop kept turning), so this was silent."""
+        timed_out = asyncio.Event()
+
+        async def on_timeout():
+            timed_out.set()
+
+        async def broken_imu():
+            raise RuntimeError("imu bus error")
+
+        wd = _watchdog(on_timeout=on_timeout, timeout_ms=40)
+        monitor = TractorSafetyMonitor(
+            _tractor(),
+            wd,
+            tilt_threshold_degrees=30.0,
+            trigger_manager=SafetyTriggerManager(),
+            imu_reader=broken_imu,
+            poll_interval_s=0.01,
+        )
+        await wd.start()
+        await monitor.start()
+        await asyncio.sleep(0.2)
+        await monitor.stop()
+        await wd.stop()
+
+        assert timed_out.is_set(), "a tilt check that never completes must not keep the dog fed"
+
+    @pytest.mark.asyncio
+    async def test_a_hung_tilt_check_trips_and_does_not_hang_shutdown(self):
+        timed_out = asyncio.Event()
+
+        async def on_timeout():
+            timed_out.set()
+
+        async def hung_imu():
+            await asyncio.sleep(3600)
+
+        wd = _watchdog(on_timeout=on_timeout, timeout_ms=40)
+        monitor = TractorSafetyMonitor(
+            _tractor(),
+            wd,
+            tilt_threshold_degrees=30.0,
+            trigger_manager=SafetyTriggerManager(),
+            imu_reader=hung_imu,
+            poll_interval_s=0.01,
+        )
+        await wd.start()
+        await monitor.start()
+        await asyncio.sleep(0.2)
+        assert timed_out.is_set()
+        await asyncio.wait_for(monitor.stop(), timeout=3.0)  # cancels the stuck read
+        await wd.stop()
+
+    @pytest.mark.asyncio
+    async def test_a_ticking_monitor_cannot_vouch_for_the_actuation_path(self):
+        """The defect: the monitor loop was the only heartbeat, so a dead command path
+        (nobody feeding the actuation source) went unnoticed while the loop turned."""
+        timed_out = asyncio.Event()
+
+        async def on_timeout():
+            timed_out.set()
+
+        async def imu_reader():
+            return (0.0, 0.0)
+
+        wd = _watchdog(
+            on_timeout=on_timeout, timeout_ms=60, sources=(ACTUATION_SOURCE, SAFETY_MONITOR_SOURCE)
+        )
+        monitor = TractorSafetyMonitor(
+            _tractor(),
+            wd,
+            tilt_threshold_degrees=30.0,
+            trigger_manager=SafetyTriggerManager(),
+            imu_reader=imu_reader,
+            poll_interval_s=0.01,
+        )
+        await wd.start()
+        await monitor.start()
+        await asyncio.sleep(0.25)
+        await monitor.stop()
+        await wd.stop()
+
+        assert timed_out.is_set()
+        reason = wd.snapshot()["last_trip_reason"]
+        assert ACTUATION_SOURCE in reason and SAFETY_MONITOR_SOURCE not in reason
+
+    def test_a_watchdog_that_does_not_require_the_monitor_source_is_refused(self):
+        with pytest.raises(ValueError, match=SAFETY_MONITOR_SOURCE):
+            TractorSafetyMonitor(
+                _tractor(),
+                Watchdog(EstopHandler(MotorAuthorization()), timeout_ms=1000),
+                tilt_threshold_degrees=30.0,
+            )

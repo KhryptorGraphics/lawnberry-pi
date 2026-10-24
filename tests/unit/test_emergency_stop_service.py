@@ -50,6 +50,10 @@ class Pca:
             raise OSError("bus fault")
         self.writes.append((channel, us))
 
+    async def verify_pwm_us(self, channel: int, us: int) -> None:
+        if self.last_us(channel) != us:
+            raise OSError("read-back mismatch")
+
     def last_us(self, channel: int):
         return next((us for ch, us in reversed(self.writes) if ch == channel), None)
 

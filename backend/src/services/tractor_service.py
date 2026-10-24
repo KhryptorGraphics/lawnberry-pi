@@ -34,6 +34,15 @@ the standard interlocks:
   commands are *refused* with the reason and the fault is exposed on
   ``TractorState`` -- never a silent no-op "ok". SIM_MODE is the exception: the
   simulated driver succeeds so the stack stays testable.
+- **Actuation self-check** (``supervise_once``, run every ``supervise_interval_s`` by
+  ``start_supervision``): reads the servo outputs back from the PCA9685, checks that no
+  write fault is outstanding, that an armed command hold has a running deadman, and that a
+  latched E-stop really reached the safe state. Only a clean cycle fires the heartbeat the
+  watchdog's ``actuation`` source needs, so a healthy loop cannot vouch for a broken
+  command path. A *hardware* watchdog is still required (audit O-7): this one shares the
+  event loop.
+- **Lock-out** (``lock_out``): when a safety function failed to start, every actuation is
+  refused until the process restarts; ``clear_emergency`` cannot lift it.
 
 SIM-safe: positional commands degrade to state-tracking in SIM_MODE, and relays
 only touch GPIO on real hardware.
@@ -122,6 +131,8 @@ class TractorControlService:
     #: How long an E-stop waits for an in-flight actuation to land before it
     #: writes neutral anyway (so a slow write cannot overwrite the stop).
     ESTOP_LOCK_WAIT_S = 0.25
+    #: Period of the actuation self-check whose success is the watchdog's actuation heartbeat.
+    SUPERVISE_INTERVAL_S = 0.25
 
     def __init__(self, config: dict[str, Any] | None = None):
         cfg = config if config is not None else _load_tractor_config()
@@ -191,6 +202,17 @@ class TractorControlService:
         # on motion an autonomous source has in force, never on a human's manual drive.
         self._lever_source: str | None = None
         self._blade_source: str | None = None
+        # Actuation self-check (watchdog heartbeat). ``config/tractor.yaml`` may set
+        # ``actuation_supervision.interval_ms``; the default is far under the watchdog window.
+        sup = cfg.get("actuation_supervision", {}) or {}
+        self.supervise_interval_s = max(
+            0.005, float(sup.get("interval_ms", self.SUPERVISE_INTERVAL_S * 1000)) / 1000.0
+        )
+        self._heartbeat: Callable[[], None] | None = None
+        self._supervise_task: asyncio.Task | None = None
+        self._supervision_fault: str | None = None
+        # Set by lock_out(): every actuation is refused until the process restarts.
+        self._lockout: str | None = None
         self._sync_hardware_state()
 
     def _notify(self, kind: str, source: str, **values: Any) -> None:
@@ -236,7 +258,8 @@ class TractorControlService:
         self._sync_hardware_state()
 
     async def shutdown(self) -> None:
-        """Stop the deadman task (does not move any actuator; see ``park``)."""
+        """Stop the deadman and supervision tasks (moves no actuator; see ``park``)."""
+        await self.stop_supervision()
         task = self._deadman_task
         self._cancel_deadman()
         if task is not None and task is not asyncio.current_task():
@@ -282,7 +305,8 @@ class TractorControlService:
             return True, None
         return False, self._pca9685.last_error or "PCA9685 not ready"
 
-    def _current_fault(self) -> str | None:
+    def _hardware_fault(self) -> str | None:
+        """An outstanding actuator fault (what the hardware itself reported), else ``None``."""
         ready, reason = self.actuators_ready()
         if not ready:
             return reason
@@ -293,6 +317,11 @@ class TractorControlService:
             or self.starter.fault
         )
 
+    def _current_fault(self) -> str | None:
+        # The self-check's verdict is reported too, but it is deliberately not an input to
+        # the self-check itself (that would latch a stale verdict).
+        return self._hardware_fault() or self._supervision_fault
+
     def _sync_hardware_state(self) -> None:
         ready, _ = self.actuators_ready()
         fault = self._current_fault()
@@ -302,10 +331,150 @@ class TractorControlService:
 
     def _guard_actuation(self) -> dict[str, Any] | None:
         """A rejection if the actuator hardware cannot take commands, else ``None``."""
+        if self._lockout is not None:
+            return self._reject(f"locked out: {self._lockout}")
         ready, reason = self.actuators_ready()
         if not ready:
             return self._reject(f"actuator hardware not ready: {reason}")
         return None
+
+    def lock_out(self, reason: str) -> None:
+        """Refuse every actuation until the process restarts: a safety function did not start.
+
+        Used when the watchdog or tilt monitor could not be brought up (audit N-05), so the
+        actuation routes fail closed instead of staying live with nothing supervising them.
+        Unlike the E-stop latch no API call clears this: ``clear_emergency`` refuses. It does
+        not move an actuator; the caller drives the safe state (``emergency_stop``).
+        """
+        self._lockout = reason
+        self.revoke()
+        self.state.interlock_reason = f"locked out: {reason}"
+        self.state.last_updated = datetime.now(UTC)
+        logger.critical("Tractor LOCKED OUT until restart: %s", reason)
+
+    # -- actuation self-check (the watchdog's heartbeat) ------------------------
+
+    def attach_heartbeat(self, beat: Callable[[], None] | None) -> None:
+        """Set the callback ``supervise_once`` fires, only after a clean self-check.
+
+        main.py passes ``lambda: watchdog.heartbeat(ACTUATION_SOURCE)``. ``None`` detaches.
+        """
+        self._heartbeat = beat
+
+    async def start_supervision(self) -> None:
+        """Start the periodic actuator-control loop (idempotent)."""
+        if self._supervise_task is None or self._supervise_task.done():
+            self._supervise_task = asyncio.get_running_loop().create_task(self._supervise_loop())
+
+    async def stop_supervision(self) -> None:
+        task, self._supervise_task = self._supervise_task, None
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def _supervise_loop(self) -> None:
+        while True:
+            # supervise_once swallows everything but cancellation: a failed cycle is a cycle
+            # without a heartbeat, and the loop keeps going so the next one can recover.
+            await self.supervise_once()
+            await asyncio.sleep(self.supervise_interval_s)
+
+    async def supervise_once(self) -> str | None:
+        """One actuator-control cycle: check the outputs and, only if they check out, beat.
+
+        The heartbeat is therefore evidence about the actuation path, not about a loop that
+        turns: it is withheld while the PCA9685 is not ready or a write fault is outstanding,
+        while a command hold is armed but the deadman is not running or is overdue, while a
+        latched E-stop (or blade interlock) has not actually reached the safe state, and
+        while the servo outputs read back from the PCA9685 differ from what was commanded
+        (a reset chip, a dead read path, a hung bus). Returns ``None`` when it beat, else
+        the reason it did not.
+        """
+        try:
+            reason = await self._verify_actuation()
+            if reason is None and self._heartbeat is not None:
+                self._heartbeat()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # a self-check (or a heartbeat sink) that crashes has not passed
+            reason = f"actuation self-check crashed: {_err(exc)}"
+        previous, self._supervision_fault = self._supervision_fault, reason
+        if reason is None:
+            if previous is not None:
+                logger.warning("Actuation self-check recovered: heartbeat resumed")
+        elif reason != previous:
+            logger.error("Actuation self-check FAILED (no heartbeat): %s", reason)
+        self._sync_hardware_state()
+        return reason
+
+    async def _verify_actuation(self) -> str | None:
+        fault = self._hardware_fault()
+        if fault:
+            return f"actuator fault outstanding: {fault}"
+        return self._deadman_fault() or self._safe_state_fault() or await self._read_back_outputs()
+
+    def _deadman_fault(self) -> str | None:
+        """A command hold that nothing is going to expire (the machine would keep driving)."""
+        armed = [d for d in (self._lever_deadline, self._throttle_deadline) if d is not None]
+        if not armed:
+            return None
+        task = self._deadman_task
+        if task is None or task.done():
+            return "a command hold is armed but the deadman task is not running"
+        # A normal expiry waits for the actuation lock, which a write may hold for a while.
+        grace = self.ACTUATION_TIMEOUT_S + self.supervise_interval_s
+        late = time.monotonic() - min(armed)
+        if late > grace:
+            return f"command deadman is {late:.2f}s overdue (grace {grace:.2f}s)"
+        return None
+
+    def _safe_state_fault(self) -> str | None:
+        """A latched stop whose outputs are not at the safe state (an unconfirmed E-stop)."""
+        s = self.state
+        if s.emergency_stop_active:
+            unsafe = [
+                name
+                for name, value in (
+                    ("left_lever", s.left_lever),
+                    ("right_lever", s.right_lever),
+                    ("throttle", s.throttle),
+                )
+                if value != 0.0
+            ]
+            if s.blade_engaged:
+                unsafe.append("blade")
+            if unsafe:
+                return f"E-stop is latched but {', '.join(unsafe)} not at the safe state"
+        elif s.interlock_latched and s.blade_engaged:
+            return "blade interlock is latched but the blade is engaged"
+        return None
+
+    async def _read_back_outputs(self) -> str | None:
+        """Read every servo channel back; ``None`` when each holds what was commanded."""
+        try:
+            await asyncio.wait_for(self._act_lock.acquire(), timeout=self.supervise_interval_s)
+        except TimeoutError:
+            return f"actuation lock held for more than {self.supervise_interval_s:.2f}s"
+        try:
+            # Under the lock so a command cannot change the expected value between reading
+            # the registers and comparing them.
+            await asyncio.wait_for(self._verify_servo_outputs(), timeout=self.ACTUATION_TIMEOUT_S)
+        except TimeoutError:
+            return f"PCA9685 read-back timed out after {self.ACTUATION_TIMEOUT_S}s"
+        except Exception as exc:
+            return f"PCA9685 read-back failed: {_err(exc)}"
+        finally:
+            self._act_lock.release()
+        return None
+
+    async def _verify_servo_outputs(self) -> None:
+        for actuator in (self.left_lever, self.right_lever, self.throttle):
+            await self._pca9685.verify_pwm_us(
+                actuator.cal.channel, actuator.microseconds(actuator.value)
+            )
 
     # -- servo output --------------------------------------------------------
 
@@ -883,8 +1052,11 @@ class TractorControlService:
 
         Does not re-authorize and does not re-engage anything: the operator must
         ``authorize()`` and command the blade again. A latch whose cause persists
-        (e.g. still tilted) is re-asserted by its monitor on its next tick.
+        (e.g. still tilted) is re-asserted by its monitor on its next tick. Refused while the
+        tractor is locked out (``lock_out``): that needs a restart.
         """
+        if self._lockout is not None:
+            return self._reject(f"locked out: {self._lockout}")
         self.state.emergency_stop_active = False
         self.state.interlock_latched = False
         self.state.latch_reason = None

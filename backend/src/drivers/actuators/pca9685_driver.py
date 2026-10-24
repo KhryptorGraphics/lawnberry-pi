@@ -60,6 +60,10 @@ class PCA9685UnavailableError(PCA9685Error):
     """
 
 
+class PCA9685ReadbackError(PCA9685Error):
+    """A channel's registers do not hold the pulse that was commanded (see ``verify_pwm_us``)."""
+
+
 @dataclass(slots=True)
 class _Pca9685Config:
     address: int = 0x40  # datasheet default; override in config (0x40 collides with INA3221)
@@ -228,5 +232,58 @@ class PCA9685Driver(HardwareDriver):
             raise
         self._last_error = None
 
+    async def verify_pwm_us(self, channel: int, us: int) -> None:
+        """Read ``channel`` back and require its registers to hold the pulse for ``us``.
 
-__all__ = ["PCA9685Driver", "PCA9685Error", "PCA9685UnavailableError"]
+        This is the evidence a write-only keepalive cannot give: a chip that reset after a
+        brown-out (every output drops to FULL OFF), a bus that still ACKs writes but whose
+        read path is dead, or a register that was overwritten behind our back. It reads only;
+        it never changes an output and it does not touch ``last_error`` (that is the write
+        path's record).
+
+        SIM_MODE has no chip: a simulated success, like ``set_pwm_us``. Anywhere else it
+        returns only when the registers match, and raises :class:`PCA9685UnavailableError`
+        (never initialised), the transport error (the bus failed), or
+        :class:`PCA9685ReadbackError` (a different pulse, or a FULL ON / FULL OFF flag).
+
+        UNVERIFIED on hardware: the register decoding follows the PCA9685 datasheet and is
+        exercised only against a fake ``smbus2``; bench-confirm on the real breakout (M-28).
+        """
+        if not 0 <= channel <= 15:
+            raise ValueError(f"PCA9685 channel out of range 0-15: {channel}")
+        if not self._hw_ok:
+            if is_simulation_mode():
+                return  # simulated by design: there is no chip to read
+            raise PCA9685UnavailableError(
+                self._last_error or "PCA9685 not initialised: nothing to read back"
+            )
+
+        on, off = self._ticks_for_us(us)
+        # Bits 4 (FULL ON / FULL OFF) and 3:0 (count[11:8]) of the high bytes; bits 7:5 are
+        # reserved. A set FULL flag therefore never equals the expected high byte.
+        expected = (on & 0xFF, (on >> 8) & 0x1F, off & 0xFF, (off >> 8) & 0x1F)
+        from smbus2 import SMBus  # type: ignore
+
+        def _read() -> list[int]:
+            with SMBus(self._cfg.bus) as bus:
+                base = self._LED0_ON_L + 4 * channel
+                return list(bus.read_i2c_block_data(self._cfg.address, base, 4))
+
+        raw = await asyncio.to_thread(_read)
+        if len(raw) != 4:
+            raise PCA9685ReadbackError(
+                f"PCA9685 channel {channel}: read {len(raw)} bytes, expected 4"
+            )
+        got = (raw[0] & 0xFF, raw[1] & 0x1F, raw[2] & 0xFF, raw[3] & 0x1F)
+        if got != expected:
+            raise PCA9685ReadbackError(
+                f"PCA9685 channel {channel} holds {got} but {us} us ({expected}) was commanded"
+            )
+
+
+__all__ = [
+    "PCA9685Driver",
+    "PCA9685Error",
+    "PCA9685ReadbackError",
+    "PCA9685UnavailableError",
+]
