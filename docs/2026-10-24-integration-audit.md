@@ -1656,3 +1656,58 @@ unverified (gates G0-G1).
 
 The suite rewrites the tracked `verification_artifacts/001-integrate-hardware-and/telemetry_integration_evidence.json`
 on every run; it was restored and is not part of this PR.
+
+### Finish track nav
+
+Branch `finish/nav` (goal T2 items 1-4). Everything below is software behaviour proven on fakes in `SIM_MODE`;
+nothing was run on mower hardware and every number in the stopping-distance model is **UNVALIDATED** (M-43).
+Items 1, 2 and the N-30 half of item 3 are implemented; the **N-31 GPS-degradation monitor (item 3, second half)
+and the actuation-path watchdog (item 4) are not implemented** (see "Not done").
+
+| Item | Commit | What changed | Tests | Gaps advanced |
+|---|---|---|---|---|
+| T2.2 stopping-distance model | `707099a` | `safety/stopping_distance.py`: `stop_distance(v) = v*(reaction + reading age + actuation) + v^2/(2a) + sensor uncertainty + margin`, a slow band, and the exact inverse (speed cap for a free range; 0 below `min_motion_speed_mps` = hold). Parameters in `config/limits.yaml` `obstacle_stop` (`StoppingDistanceLimits`); unknown keys fail loudly; all defaults `validated: false` | `tests/unit/test_stopping_distance.py` (37): formula, monotonicity in speed and reading age, inverse round trip, numerically sound for a slow actuator, boundaries at the hold distance, each pessimistic parameter lowers the cap, config load/typo/nonsense rejection | H-26 (model exists; numbers unmeasured), WP-P4-02 |
+| T2.1 obstacle stop wired for real | `9298331` | `safety/obstacle_stop.py`: one fail-closed `ObstacleGuard` (stale, blind, unknown, missing or erroring required sensor = hold; release only after `clear_dwell_s`). `ObstacleStopMonitor` (20 Hz, lifespan-started) samples the sensor manager's cached ToF/ultrasonic readings, publishes the obstacle interlocks (first production caller of `trigger_obstacle`/`trigger_ultrasonic_obstacle`) and drives blade off + levers neutral when a hold begins. `go_to_waypoint`, `apply_ai_prediction` and `set_speed` read the cap and hold (the mission still honours pause/abort and resumes after the dwell). `TractorControlService.set_levers/engage_blade/apply` enforce the same guard for every non-manual source, so a Thor plan driven through the service interface cannot outrun it; neutral, reverse, blade-off and the E-stop are never limited. Default command source is now `unspecified` (autonomous); the REST router labels manual commands `operator`. The VL53L0X interface no longer stamps a replayed value `valid` (`stale`) | `tests/unit/test_obstacle_stop.py` (43): guard fail-closed cases, dwell/hysteresis, cap vs reading age, sampler (ToF offline/error/stale/unknown, ultrasonic `verdict` contract), tractor chokepoint (scaling, hold, blade refuse+drop, Thor-plan labels, failing limiter, `enforce_motion_hold` incl. a failing relay), nav loop (obstacle appears mid-leg, hold, resume; cap respected; pause during a hold; broken guard), differential `set_speed`, monitor (interlocks, sensor fault is not an obstacle, survives handler/provider failures), lifespan attach/detach | H-26 (partly), N-11, N-25 (a missing reading is a hold, not 0 cm by accident), N-19 (`limits.yaml` comment now says hold, not E-stop) |
+| T2.3 N-30 | `8ccaed0` | The hold's retry branch keyed on `state.moving` (needs the commanded engine flag, which reads OFF after any backend restart), so a lever moved while held was never re-neutralised. It now keys on the levers and the blade directly. The blade half (retry until confirmed, no resume while unconfirmed) was already in the code since `2deae0f`; it is now pinned by a fault-injection test | `tests/unit/test_thor_link.py` +2: flaky blade relay retried every tick, a good plan cannot end the hold, hold ends only after the relay confirms; engine-flag-off lever re-neutralised (fails on the old predicate) | N-30 |
+
+Behaviour changes the owner should know about:
+
+* With the lifespan's guard attached, **autonomous motion needs every required obstacle source fresh and valid**.
+  On a machine whose ToF sensors are offline (the deployed Pi has no header I2C bus) missions, the AI and Thor plans
+  hold; manual operator/teleop drive is unaffected (set `obstacle_stop.apply_to_manual: true` to limit it too).
+  Dropping a source from the required set (`obstacle_stop.ignored_sources`) is explicit and logged CRITICAL.
+* With the shipped UNVALIDATED defaults the slowest useful speed needs about 0.69 m of proven free range and the
+  1.0 m detection reach caps autonomous speed at about 0.35 m/s. They are conservative guesses, not measurements.
+* After an obstacle hold the blade is re-engaged by the navigation loop once the path has been clear for
+  `clear_dwell_s` (2 s). Whether resumption must instead need an operator acknowledgement is a reviewer decision.
+* Ultrasonic channels follow the sensor interface's own `verdict` (`clear`/`obstacle`/`unknown`, owned by the JSN
+  work); the guard only ever tightens it. Soft targets are invisible to ultrasonics and nothing senses behind the
+  machine, so reverse is not limited.
+
+Not done (no code written for these; the design is settled):
+
+* **N-31 / WP-P4-03 GPS-degradation monitor.** Still the baseline `nav/gps_degradation.py` (acts only on the debug
+  `RobotState` `AUTONOMOUS` mode, fix age = age of the whole state, no actuator). Plan: `observe(reading)` fed from
+  `NavigationService.update_navigation_state` with the real `GpsReading` (fix age from `reading.timestamp`, accuracy,
+  `rtk_status` NO_FIX/DEAD_RECKONING), a resume dwell (`gps_degradation` block already in `limits.yaml`, schema in
+  `GpsDegradationLimits`), the verdict added to `NavigationService._motion_gate()` so `go_to_waypoint` holds the
+  levers/blade exactly like an obstacle hold, a monitor task that calls `NavigationService._hold_motion` when degraded
+  while autonomy is active, `execute_mission` refusing to start without a healthy fix, and `last_gps_fix` taken from
+  the reading's own timestamp. Tests: fix loss/stale replay/poor accuracy during a mission holds the levers; resume
+  only after the dwell.
+* **Watchdog (WP-P1-08, N-04).** Still the baseline `safety/watchdog.py` (one-shot `break`, fed by the safety
+  monitor's own loop). Plan: multi-source `Watchdog(required_sources=("actuation", "safety_monitor"))` that never
+  exits its loop (re-trips at a bounded rate while stale, recovers when beats resume); the tractor service feeds
+  `actuation` from a periodic verification of its servo outputs through the real PCA9685 path (needs a read-back such
+  as `read_pwm_us`; a write-only keepalive cannot see a chip reset) and only when no write fault is outstanding;
+  `TractorSafetyMonitor` feeds `safety_monitor` only after a completed tilt cycle; `main.py` latches the tractor
+  E-stop when tractor initialisation fails (N-05). **A hardware watchdog (O-7: independent of the Pi, opening servo
+  power and the PTO supply) is required whatever the software does:** the software watchdog shares the event loop it
+  supervises and cannot act if that loop is blocked or the process or kernel hangs.
+
+Verification (branch `finish/nav`, worktree `lf-nav`):
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `env -u PYTEST_ADDOPTS SIM_MODE=1 timeout 900 python -m pytest tests -o addopts="" -p no:cacheprovider --ignore=tests/soak -W ignore --junitxml=/tmp/finishnav.xml` | junit: 844 tests, **775 passed, 69 skipped, 0 failures, 0 errors** (baseline 762 collected, 693 passed, 69 skipped; +82 new tests) |
+| Lint | `ruff check backend tests scripts workshop`; `ruff format --check` on the touched files | All checks passed; touched files already formatted |
