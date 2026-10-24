@@ -393,8 +393,16 @@ class ThorLinkService:
                 await self._neutralise()
                 return
             state = self._tractor.state
-            if self.hold_fault or state.moving or state.blade_engaged:
+            # The engine flag is only a commanded value (it reads OFF after any backend restart
+            # whatever the engine is doing), so "is it moving" must not decide whether the
+            # neutral is re-asserted: any lever out of neutral, or a blade that is on, does.
+            levers_out = (
+                abs(state.left_lever) > LEVER_NEUTRAL_EPS
+                or abs(state.right_lever) > LEVER_NEUTRAL_EPS
+            )
+            if self.hold_fault or levers_out or state.blade_engaged:
                 # Retry a failed neutral, or re-assert it: something moved the mower while held.
+                # Blade off is attempted on every such tick until the relay write is confirmed.
                 await self._neutralise()
             return
         if not self.safe_hold:
