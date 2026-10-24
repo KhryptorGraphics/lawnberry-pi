@@ -125,16 +125,16 @@ tractor:
     bus: "I2C"
     address: 0x41
   constraints:
-    - "config/tractor.yaml relays.*.gpio MUST NOT collide with any pins.gpio_used[].gpio entry below."
-    - "config/tractor.yaml pca9685.address (once set) MUST NOT collide with any key in i2c_addresses below, and MUST NOT be 0x40."
+    - "config/tractor.yaml relays.*.gpio MUST be usable header GPIOs (BCM 2-27) and MUST NOT collide with any pins.gpio_used[].gpio entry below; two actuators MUST NOT share a PCA9685 channel."
+    - "config/tractor.yaml pca9685.address MUST NOT collide with any key in i2c_addresses below on the same bus. A missing address is the driver default 0x40, the INA3221's address on the header bus, so the address must be set explicitly."
     - "Enforced by scripts/check_hardware_pin_conflicts.py, wired into .github/workflows/hardware-guard.yml."
 
 pins:
   gpio_used:
     - { pin: 15, gpio: 22, role: "ToF Left Shutdown", status: "documented", evidence: ["docs/hardware-integration.md ToF XSHUT GPIO22; config/hardware.yaml tof_config left_shutdown_gpio; gpioinfo line 22 held by lg"] }
     - { pin: 16, gpio: 23, role: "ToF Right Shutdown", status: "documented", evidence: ["docs/hardware-integration.md ToF XSHUT GPIO23; config/hardware.yaml tof_config right_shutdown_gpio; gpioinfo line 23 held by lg"] }
-    - { pin: 18, gpio: 24, role: "Blade IN1", status: "documented", evidence: ["docs/hardware-integration.md IBT-4 IN1 GPIO24; driver is a stub (ibt4_gpio.py), no electrical measurement"] }
-    - { pin: 22, gpio: 25, role: "Blade IN2", status: "documented", evidence: ["docs/hardware-integration.md IBT-4 IN2 GPIO25; driver is a stub (ibt4_gpio.py), no electrical measurement"] }
+    - { pin: 18, gpio: 24, role: "Blade IN1", owner: ibt4, status: "documented", evidence: ["docs/hardware-integration.md IBT-4 IN1 GPIO24; config/hardware.yaml ibt4.pins; flag-only stub while ibt4.gpio_enabled is false (ibt4_lgpio.py never run on hardware), no electrical measurement"] }
+    - { pin: 22, gpio: 25, role: "Blade IN2", owner: ibt4, status: "documented", evidence: ["docs/hardware-integration.md IBT-4 IN2 GPIO25; config/hardware.yaml ibt4.pins; flag-only stub while ibt4.gpio_enabled is false (ibt4_lgpio.py never run on hardware), no electrical measurement"] }
     - { pin: 31, gpio: 6,  role: "ToF Left Interrupt", status: "documented", evidence: ["docs/hardware-integration.md optional ToF IRQ GPIO6; no driver code reads it"] }
     - { pin: 32, gpio: 12, role: "ToF Right Interrupt", status: "documented", evidence: ["docs/hardware-integration.md optional ToF IRQ GPIO12; no driver code reads it"] }
     - { pin: 33, rxd: 4,  role: "BNO085 RX", rpi4_alt_pin: 21, status: "documented", evidence: ["docs/hardware-integration.md UART4 RXD GPIO13; uart4-pi5 overlay not loaded on deployed Pi; driver is a sim stub"] }
@@ -159,6 +159,8 @@ pins:
     - { pin: 3, gpio: 2, role: "I2C1 SDA (header bus 1)", status: "documented", evidence: ["docs/hardware-integration.md: I2C1 SDA=GPIO2 (pin 3)", "config/tractor.yaml pca9685 bus=1", "config/hardware.yaml tof_config bus=1", "INA3221 driver default bus=1"], note: "Header I2C1 disabled on deployed Pi (dtparam=i2c_arm=off)" }
     - { pin: 5, gpio: 3, role: "I2C1 SCL (header bus 1)", status: "documented", evidence: ["docs/hardware-integration.md: I2C1 SCL=GPIO3 (pin 5)", "config/tractor.yaml pca9685 bus=1", "config/hardware.yaml tof_config bus=1", "INA3221 driver default bus=1"], note: "Header I2C1 disabled on deployed Pi (dtparam=i2c_arm=off); GPIO3 also HaLow WAKE" }
 
+  # Rows sit on deployment.header_i2c_bus unless a value is a mapping {device: "...", bus: N}.
+  # An address only conflicts with the same address on the same bus.
   i2c_addresses:
     "0x29": "VL53L0X Left"
     "0x30": "VL53L0X Right"
@@ -186,7 +188,7 @@ pins:
     uart4:
       pi5: { txd_gpio: 12, rxd_gpio: 13, pin: 32, pin_rxd: 33, overlay: "uart4-pi5" }
       pi4: { txd_gpio: 8, rxd_gpio: 9, pin: 24, pin_rxd: 21, overlay: "uart4" }
-      note: "Pi 5 uses uart4-pi5 overlay (GPIO12/13); Pi 4 uses uart4 (GPIO8/11). rpi4_alt_pin in gpio_used rows = physical pin numbers on Pi 4."
+      note: "Pi 5 uses the uart4-pi5 overlay; Pi 4 uses the uart4 overlay (BCM2711 only). The GPIO and physical pin numbers are the txd/rxd fields above. rpi4_alt_pin in gpio_used rows = physical pin numbers on Pi 4; the checker validates them against the pi4 entry."
 
   ultrasonic:
     enabled_by: "limits.yaml:ultrasonic_enabled AND hardware.yaml ultrasonic.backend == gpio_hcsr04 (legacy; the default mcu_usb backend, four JSN-SR04T behind a USB MCU, claims no Pi pin)"
@@ -215,6 +217,8 @@ deployment:
     - 14
   header_i2c_bus: 1
   header_i2c_bus_enabled: false
+  # UART names (keys of pins.uart_overlays) that are enabled on the deployed Pi: "uart0" today;
+  # add "uart4" once the uart4-pi5 overlay is loaded and /dev/ttyAMA4 exists.
   uart_overlays_enabled:
     - "uart0"
   evidence_source: "read-only SSH inspection: config.txt, /proc/device-tree, /sys/kernel/debug/pinctrl, gpioinfo, dtoverlay list"
