@@ -7,6 +7,7 @@ and everything else in the issue are ignored.  Content that GitHub hides from a 
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import re
@@ -45,6 +46,33 @@ _FENCE_OPEN = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<info>[^\n]*)$")
 _ASCII_PATH = re.compile(r"^[A-Za-z0-9._\-/*?]+$")
 _ALLOWED_CONTROL = {"\n", "\r", "\t"}
 _ALLOWED_FORMAT = {"\u200d"}  # zero-width joiner is part of legitimate emoji sequences
+
+# Unicode ``Default_Ignorable_Code_Point`` (DerivedCoreProperties.txt, Unicode 18): characters a
+# renderer must not draw, so text made of them is invisible to a reviewer.  ``unicodedata`` (14.0
+# in the project venv) cannot report the property and files its reserved members under ``Cn``,
+# hence explicit, merged ranges.
+_DEFAULT_IGNORABLE = (
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+_IGNORABLE_STARTS = [start for start, _ in _DEFAULT_IGNORABLE]
+_BLANK_GLYPHS = frozenset({"\u2800"})  # braille pattern blank: draws nothing, not default-ignorable
+_EMOJI_SELECTORS = frozenset({"\ufe0e", "\ufe0f"})  # VS15/VS16: text/emoji presentation
 
 
 def normalize_text(text: str) -> str:
@@ -110,6 +138,66 @@ def find_task_blocks(body: str) -> list[str]:
     return [content for info, content in _fence_blocks(body) if _is_task_info(info)]
 
 
+def _default_ignorable(codepoint: int) -> bool:
+    index = bisect.bisect_right(_IGNORABLE_STARTS, codepoint) - 1
+    return index >= 0 and codepoint <= _DEFAULT_IGNORABLE[index][1]
+
+
+def _is_hidden(ch: str, previous: str) -> bool:
+    """True when ``ch`` would draw nothing (or act as a control) in a reviewer's view."""
+    category = unicodedata.category(ch)
+    if category == "Cc":
+        return ch not in _ALLOWED_CONTROL
+    if ch in _ALLOWED_FORMAT:
+        return False
+    if ch in _EMOJI_SELECTORS:
+        # Only directly after the character it modifies, never in a run: a stream of variation
+        # selectors is a known way to smuggle text past a reader.
+        return not previous or previous in _EMOJI_SELECTORS or previous.isspace()
+    if category in {"Cf", "Co", "Cs", "Zl", "Zp"}:  # Zl/Zp: line breaks a per-line prefix misses
+        return True
+    return ch in _BLANK_GLYPHS or _default_ignorable(ord(ch))
+
+
+def _hidden_positions(text: str, limit: int = 5) -> list[str]:
+    """``U+XXXX@index`` for the first characters of ``text`` a reviewer cannot see."""
+    bad: list[str] = []
+    previous = ""
+    for index, ch in enumerate(text):
+        if _is_hidden(ch, previous):
+            bad.append(f"U+{ord(ch):04X}@{index}")
+            if len(bad) >= limit:
+                break
+        previous = ch
+    return bad
+
+
+def _decoded_text_errors(value: object, path: str = "task") -> list[str]:
+    """Hidden characters in the *decoded* task values.
+
+    The raw-body scan cannot see a character written as a YAML escape (``"\\u202e"``,
+    ``"\\U000E0041"``, ``"\\x1b"``): it only exists after parsing.  The parsed strings, mapping
+    keys included, are therefore scanned again before an agent can receive them.
+    """
+    found: list[str] = []
+    if isinstance(value, str):
+        bad = _hidden_positions(value)
+        if bad:
+            found.append(
+                f"{path} contains invisible or control characters once YAML escapes are decoded "
+                f"({', '.join(bad)}); write the text plainly so a reviewer can see the whole task"
+            )
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            label = ascii(key)[1:-1] if isinstance(key, str) else str(key)
+            found += _decoded_text_errors(key, f"{path} key {ascii(key)}")
+            found += _decoded_text_errors(item, f"{path}.{label}")
+    elif isinstance(value, list):
+        for position, item in enumerate(value):
+            found += _decoded_text_errors(item, f"{path}[{position}]")
+    return found[:10]
+
+
 def hygiene_errors(title: str, body: str) -> list[str]:
     """Reasons an issue cannot be trusted to show a reviewer what an agent would receive."""
     errors: list[str] = []
@@ -118,17 +206,7 @@ def hygiene_errors(title: str, body: str) -> list[str]:
     if len(body) > MAX_BODY_CHARS:
         errors.append(f"body is longer than {MAX_BODY_CHARS} characters")
     for label, text in (("title", title), ("body", body)):
-        bad: list[str] = []
-        for index, ch in enumerate(text):
-            cat = unicodedata.category(ch)
-            if cat == "Cc" and ch not in _ALLOWED_CONTROL:
-                bad.append(f"U+{ord(ch):04X}@{index}")
-            elif cat == "Cf" and ch not in _ALLOWED_FORMAT:
-                bad.append(f"U+{ord(ch):04X}@{index}")
-            elif cat in {"Co", "Cs"}:
-                bad.append(f"U+{ord(ch):04X}@{index}")
-            if len(bad) >= 5:
-                break
+        bad = _hidden_positions(text)
         if bad:
             errors.append(
                 f"{label} contains invisible or control characters ({', '.join(bad)}); "
@@ -182,10 +260,18 @@ def strict_yaml_load(text: str) -> Any:
     if len(text) > MAX_BLOCK_CHARS:
         raise TaskValidationError([f"task block is longer than {MAX_BLOCK_CHARS} characters"])
     try:
+        has_tag = False
         for event in yaml.parse(text, Loader=yaml.SafeLoader):
             if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
                 raise TaskValidationError(["YAML anchors and aliases are not allowed"])
-        return yaml.load(text, Loader=_StrictLoader)
+            has_tag = has_tag or bool(getattr(event, "tag", None))
+        loaded = yaml.load(text, Loader=_StrictLoader)
+        if has_tag:
+            # Tags SafeLoader cannot construct already failed above as a YAML error.  The
+            # standard ones (``!!binary``, ``!!str``, ``!!int`` ...) would otherwise decode text
+            # the approver only saw as base64, or retype a scalar behind the schema's back.
+            raise TaskValidationError(["YAML tags are not allowed"])
+        return loaded
     except TaskValidationError:
         raise
     except yaml.YAMLError as exc:
@@ -298,6 +384,9 @@ def parse_task(title: str, body: str) -> ParsedTask:
     data = strict_yaml_load(blocks[0])
     if not isinstance(data, dict):
         raise TaskValidationError(["task block must be a YAML mapping"])
+    decoded = _decoded_text_errors(data)
+    if decoded:
+        raise TaskValidationError(decoded)
     try:
         spec = TaskSpec.model_validate(data)
     except ValidationError as exc:

@@ -59,9 +59,13 @@ stripped. Limits marked *config* come from the bridge configuration and are chec
 
 Block rules: exactly one fenced block whose info string is `agent-task` or `yaml agent-task` (or `yml`), made
 of at least three backticks or tildes; the block is at most 20,000 characters, the whole body at most 60,000.
-It is a single YAML document with string keys and **no anchors, aliases, custom tags or duplicate keys**. The
-title and body may not contain hidden HTML comments, control characters or invisible/bidirectional Unicode
-(zero-width and direction-override characters are rejected, so the approver sees everything the agent gets).
+It is a single YAML document with string keys and **no anchors, aliases, tags (`!!binary`, `!!str`, `!custom`
+...) or duplicate keys**. The title and body may not contain hidden HTML comments, control characters or
+invisible/bidirectional Unicode: zero-width and direction-override characters, variation selectors, fillers,
+line/paragraph separators and every other Unicode `Default_Ignorable_Code_Point` are rejected (only the
+zero-width joiner and a single emoji presentation selector after a base character are allowed). The check
+runs on the raw text **and** on the decoded YAML values, so an escape such as `"\u202e"` or `"\U000E0041"` is
+rejected too, and the approver sees everything the agent gets.
 
 What the agent receives, as quoted untrusted data: the issue number, the title, the scope, the objective, the
 acceptance criteria, the files to read first and the notes. What the bridge enforces itself regardless of what
@@ -253,6 +257,8 @@ Other rejections seen in practice:
 | an HTML comment such as `<!-- note -->` outside a code fence | `body contains an HTML comment outside a code fence; GitHub hides it from reviewers, so it is not allowed` |
 | two `agent-task` blocks | ``expected exactly one fenced ```yaml agent-task block, found 2`` |
 | YAML anchors or aliases (`&goal`, `*goal`) | `YAML anchors and aliases are not allowed` |
+| a YAML tag such as `!!binary` or `!!str` | `YAML tags are not allowed` |
+| an escape that decodes to an invisible character (`"\u202e"`) | `task.objective contains invisible or control characters once YAML escapes are decoded (U+202E@17); write the text plainly so a reviewer can see the whole task` |
 | a zero-width space pasted into the block | `body contains invisible or control characters (U+200B@100); remove them so a reviewer can see the whole task` |
 | no block, or a block tagged only `yaml` | ``expected exactly one fenced ```yaml agent-task block, found 0`` |
 
