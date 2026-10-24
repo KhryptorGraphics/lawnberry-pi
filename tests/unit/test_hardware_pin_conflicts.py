@@ -304,6 +304,48 @@ class TestCheckerMutations:
         report = checker.run_check(root)
         assert {c.key for c in report.new} >= {9, 10, 11}
 
+    @staticmethod
+    def _with_hardware(root: Path, ultrasonic: dict | None) -> None:
+        cfg = yaml.safe_load(Path("config/hardware.yaml").read_text())
+        cfg.pop("ultrasonic", None)
+        if ultrasonic is not None:
+            cfg["ultrasonic"] = ultrasonic
+        (root / "config/hardware.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+
+    def test_mcu_backend_claims_no_pi_pin_even_when_the_array_is_enabled(self, tmp_path):
+        root = self._copy(tmp_path)
+        self._with_hardware(root, {"backend": "mcu_usb"})
+        self._mutate(root / "config/limits.yaml", lambda d: d.update(ultrasonic_enabled=True))
+        report = checker.run_check(root)
+        assert not report.new and not report.blocked and not report.stale
+        assert checker.print_report(report) == 0
+        hw = yaml.safe_load((root / "spec/hardware.yaml").read_text())
+        limits = yaml.safe_load((root / "config/limits.yaml").read_text())
+        claims, _ = checker.collect_gpio_claims(
+            root, hw, {}, limits, checker._load_ultrasonic_pins(hw)
+        )
+        assert not [c for c in claims if c.source.endswith("ultrasonic_driver.py")]
+
+    def test_legacy_gpio_backend_claims_the_halow_pins_when_enabled(self, tmp_path):
+        root = self._copy(tmp_path)
+        self._with_hardware(root, {"backend": "gpio_hcsr04"})
+        self._mutate(root / "config/limits.yaml", lambda d: d.update(ultrasonic_enabled=True))
+        report = checker.run_check(root)
+        assert {c.key for c in report.new} >= {9, 10, 11}
+        assert checker.print_report(report) == 1
+
+    def test_absent_ultrasonic_block_means_the_runtime_default_mcu_backend(self, tmp_path):
+        root = self._copy(tmp_path)
+        self._with_hardware(root, None)
+        self._mutate(root / "config/limits.yaml", lambda d: d.update(ultrasonic_enabled=True))
+        assert not checker.run_check(root).new
+
+    def test_an_unknown_backend_is_treated_as_the_pin_claiming_one(self, tmp_path):
+        root = self._copy(tmp_path)
+        self._with_hardware(root, {"backend": "i2c_magic"})
+        self._mutate(root / "config/limits.yaml", lambda d: d.update(ultrasonic_enabled=True))
+        assert {c.key for c in checker.run_check(root).new} >= {9, 10, 11}
+
     def test_i2c_address_collision_detected(self, tmp_path):
         root = self._copy(tmp_path)
         self._mutate(root / "config/tractor.yaml", lambda d: d["pca9685"].update(address=0x40))

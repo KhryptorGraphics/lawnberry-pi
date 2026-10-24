@@ -52,6 +52,44 @@ victron:
 motor_controller: robohat-rp2040
 blade_controller: ibt-4
 
+# IBT-4 blade driver (differential-drive mower). The real lgpio implementation is armed ONLY by
+# gpio_enabled: true. It ships false: the driver is then a flag-only stub and the E-stop reports the
+# blade output as "unconfirmed". Nothing here has been run on hardware. Before arming:
+#   - GPIO25 (in2) is the HaLow HAT SPI IRQ on the deployed Pi (audit C-03; owner action O-5):
+#     the kernel holds the line, so the claim fails until the pin is moved;
+#   - the IBT-4 truth table (which input is high for the blade direction, PWM or enable needs) and
+#     the pin state at process exit/SIGKILL are unmeasured (on_levels below is a placeholder).
+ibt4:
+  gpio_enabled: false
+  pins:
+    in1: 24
+    in2: 25
+  on_levels:          # level driven on each input when the blade is ON; OFF drives both low
+    in1: 1
+    in2: 0
+
+# Four JSN-SR04T behind a dedicated USB microcontroller (firmware/ultrasonic-mcu/). No Raspberry Pi
+# header pin is used. The master switch is ultrasonic_enabled in config/limits.yaml (shipped false).
+# Every number here is an UNVALIDATED placeholder until the JSN-SR04T measurements (audit M-40).
+ultrasonic:
+  backend: mcu_usb            # mcu_usb | gpio_hcsr04 (legacy 3x HC-SR04 on Pi pins, DO NOT WIRE)
+  port: null                  # TBD (owner): USB CDC *data* port of the MCU, e.g. /dev/serial/by-id/...
+  baudrate: 115200            # ignored by USB CDC
+  channels: [outer_left, inner_left, inner_right, outer_right]   # labels only; positions are TBD
+  disabled_channels: []       # channels not fitted
+  echo_window_ms: 30          # per-sensor echo window after TRIG (TBD, M-40)
+  inter_sensor_gap_ms: 30     # quiet time between two sensors firing (TBD, M-40)
+  speed_of_sound_mps: 343.2   # 20 degC; no temperature compensation until M-40 justifies it
+  min_range_cm: 25.0          # blind zone: closer echoes are UNKNOWN, never clear (TBD, M-40)
+  max_range_cm: 400.0         # longest usable echo (TBD, M-40)
+  stale_after_ms: 700         # a channel not refreshed for this long is UNKNOWN
+  link_timeout_ms: 1500       # no valid frame from the MCU for this long: link down, all UNKNOWN
+  handshake_timeout_s: 2.0
+  alive_window_s: 10.0
+  out_of_range_is_clear: false   # keep false until M-40 shows what a healthy sensor does in open air
+  no_echo_is_clear: false        # keep false: a silent line cannot tell open air from a dead sensor
+  no_echo_requires_alive: true   # with no_echo_is_clear: still need a real echo within alive_window_s
+
 # Camera configuration
 camera:
   # Primary camera for navigation (Pi Camera 2 via CSI)

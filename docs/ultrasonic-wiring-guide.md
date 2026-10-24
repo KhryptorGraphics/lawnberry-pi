@@ -35,6 +35,11 @@
 >
 > Replacement requirements (four JSN-SR04T, GPIO allocation, coverage geometry, blind-zone and stopping
 > distance measurements) are in `2026-10-24-integration-audit.md`, Part B.
+>
+> **Software for the replacement now exists (unverified on hardware):** four JSN-SR04T behind a dedicated
+> RP2040 over USB serial, no Pi header pin: [`firmware/ultrasonic-mcu/README.md`](../firmware/ultrasonic-mcu/README.md)
+> (protocol, TBD list for the owner), host driver `backend/src/drivers/sensors/jsn_sr04t_driver.py`, bench tool
+> `scripts/ultrasonic_mcu_probe.py` for measurement M-40. No wiring is decided by this repository.
 
 ## Overview
 

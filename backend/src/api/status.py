@@ -15,6 +15,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .rest import websocket_hub
 from ..core.robot_state_manager import get_robot_state_manager
+from ..models.safety_interlock import InterlockState, InterlockType
 
 
 router = APIRouter()
@@ -25,13 +26,18 @@ async def get_status_v2():
     """Return current robot state in a simplified schema for contract tests."""
     mgr = get_robot_state_manager()
     st = mgr.get_state()
+    # The named flags must agree with the interlock list below: an interlock is "detected"
+    # while ACTIVE (a cleared-pending-ack one is still listed, but no longer detected).
+    detected = {i.interlock_type for i in st.active_interlocks if i.state == InterlockState.ACTIVE}
     return {
         "battery_percentage": st.battery.percentage,
         "navigation_state": str(st.navigation_mode),
         "safety_status": {
             "emergency_stop_active": False,
-            "tilt_detected": False,
-            "obstacle_detected": False,
+            "tilt_detected": InterlockType.TILT_DETECTED in detected,
+            "obstacle_detected": bool(
+                detected & {InterlockType.OBSTACLE_DETECTED, InterlockType.ULTRASONIC_OBSTACLE}
+            ),
             "blade_safety_ok": True,
             "safety_interlocks": [
                 (i.interlock_type.value if hasattr(i, "interlock_type") else str(i))

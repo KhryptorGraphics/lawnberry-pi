@@ -1,0 +1,122 @@
+"""CircuitPython (RP2040) hardware layer for the ultrasonic MCU.
+
+UNVERIFIED ON HARDWARE. This file has only been exercised against fake CircuitPython modules
+(``tests/unit/test_ultrasonic_mcu_firmware.py``). It mirrors the established
+``adafruit_hcsr04`` pattern: TRIG pulsed from a ``DigitalInOut``, the echo width captured by
+``pulseio.PulseIn`` (hardware timed, so a garbage-collection pause or a USB packet cannot stretch
+the measurement the way a polling loop would). What a JSN-SR04T ECHO line really does (idle level,
+pulse when nothing is in range, level at the fitted supply) is audit item M-40: nothing here
+assumes it.
+
+Limits of this HAL, reported honestly in the protocol:
+
+* ``PulseIn`` only records a pulse that has *ended*. A line stuck high or a pulse longer than the
+  window therefore both look like ``ST_NO_EDGE`` (silent). The protocol keeps ``ST_NO_FALL`` and
+  ``ST_STUCK`` for HALs that can tell them apart; the host never treats a silent line as proof of
+  a clear path unless the owner's configuration says so.
+* A raised exception inside ``measure`` is reported by the core as ``ST_STUCK`` (fault).
+"""
+
+import os
+import time
+
+import board
+import digitalio
+import microcontroller
+import pulseio
+import usb_cdc
+import usonic_proto as P
+
+try:  # CircuitPython >= 9
+    from watchdog import WatchDogMode
+except ImportError:  # CircuitPython <= 8
+    from microcontroller import WatchDogMode
+
+
+class CpHal:
+    def __init__(self, trig_pins, echo_pins, trigger_pulse_us=10, watchdog_s=4):
+        if usb_cdc.data is None:
+            raise RuntimeError("usb_cdc.data is disabled: copy boot.py and power-cycle the MCU")
+        if len(trig_pins) != len(echo_pins):
+            raise ValueError("TRIG_PINS and ECHO_PINS must have the same length")
+        self._trig = []
+        self._echo = []
+        for name in trig_pins:
+            io = digitalio.DigitalInOut(getattr(board, name))
+            io.direction = digitalio.Direction.OUTPUT
+            io.value = False
+            self._trig.append(io)
+        for name in echo_pins:
+            pin = pulseio.PulseIn(getattr(board, name), maxlen=2, idle_state=False)
+            pin.pause()
+            pin.clear()
+            self._echo.append(pin)
+        self.sensor_count = len(self._trig)
+        self._trigger_ns = int(trigger_pulse_us) * 1000
+        self._serial = usb_cdc.data
+        self._serial.timeout = 0
+        self._serial.write_timeout = 0.05
+        self._wdt = microcontroller.watchdog
+        self._wdt.timeout = watchdog_s
+        self._wdt.mode = WatchDogMode.RESET
+
+    # ---- time / identity -------------------------------------------------------------------
+
+    def now_ms(self):
+        return time.monotonic_ns() // 1000000
+
+    def boot_id(self):
+        return int.from_bytes(os.urandom(4), "little")
+
+    def reset_reason(self):
+        reasons = microcontroller.ResetReason
+        reason = microcontroller.cpu.reset_reason
+        if reason == reasons.POWER_ON:
+            return P.RESET_POWER_ON
+        if reason == reasons.WATCHDOG:
+            return P.RESET_WATCHDOG
+        if reason == reasons.SOFTWARE:
+            return P.RESET_SOFTWARE
+        if reason == reasons.RESET_PIN:
+            return P.RESET_PIN
+        return P.RESET_UNKNOWN
+
+    def feed_watchdog(self):
+        self._wdt.feed()
+
+    # ---- measuring -------------------------------------------------------------------------
+
+    def measure(self, index, window_us):
+        echo = self._echo[index]
+        trig = self._trig[index]
+        echo.pause()
+        echo.clear()
+        trig.value = True
+        stop = time.monotonic_ns() + self._trigger_ns
+        while time.monotonic_ns() < stop:
+            pass
+        trig.value = False
+        echo.resume()
+        limit = time.monotonic_ns() + window_us * 1000
+        while len(echo) == 0:
+            if time.monotonic_ns() > limit:
+                echo.pause()
+                echo.clear()
+                return P.ST_NO_EDGE, 0
+        echo.pause()
+        width_us = echo[0]
+        echo.clear()
+        return P.ST_OK, int(width_us)
+
+    # ---- host link -------------------------------------------------------------------------
+
+    def read(self):
+        waiting = self._serial.in_waiting
+        if waiting:
+            return self._serial.read(waiting)
+        return b""
+
+    def write(self, data):
+        # Never block on a host that is not listening (cable unplugged, port closed).
+        if self._serial.connected:
+            self._serial.write(data)

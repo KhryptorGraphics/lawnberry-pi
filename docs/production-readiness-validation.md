@@ -104,7 +104,12 @@ Planning jobs (a saved job = an autonomous run over its zones):
 
 ## 10. Endurance & rollback
 
-- [ ] HIL suite on-device: `RUN_PLACEHOLDER_INTEGRATION=1 SIM_MODE=0 pytest tests/hil`.
+- [ ] HIL probe on-device (read-only polling of the running backend over HTTP; `tests/hil` only
+      checks the probe's CSV format under `SIM_MODE` against its default `http://127.0.0.1:8000`,
+      not the backend on 8081, so it is not a hardware test): run
+      `python scripts/hil_probe.py --base-url http://127.0.0.1:8081 --duration 60` with
+      `--out logs/hil_probe.csv`. Every row must have `overall_status` and `safety_state` set, and
+      `watchdog_ms` populated when the RoboHAT is connected.
 - [ ] Soak: `pytest tests/soak` (long-running) — telemetry stable, no leaks.
 - [ ] Telemetry performance budgets on the Pi: `RUN_PERF_TESTS=1 pytest tests/integration/test_telemetry_perf.py`.
 - [ ] Rollback path verified: `systemctl` stop/disable, restore previous release, restart.

@@ -411,29 +411,9 @@ class PerimeterRecordingService:
             if hasattr(self._sensor_manager, "ultrasonic"):
                 ultrasonic_readings = await self._sensor_manager.ultrasonic.read_ultrasonic()
                 if ultrasonic_readings:
-                    distances = [
-                        r.get("distance_cm", 0.0)
-                        for r in ultrasonic_readings
-                        if r.get("valid", False)
-                    ]
-                    frame.ultrasonic = UltrasonicData(
-                        front_left_cm=(
-                            ultrasonic_readings[0].get("distance_cm", 0.0)
-                            if len(ultrasonic_readings) > 0
-                            else 0.0
-                        ),
-                        front_center_cm=(
-                            ultrasonic_readings[1].get("distance_cm", 0.0)
-                            if len(ultrasonic_readings) > 1
-                            else 0.0
-                        ),
-                        front_right_cm=(
-                            ultrasonic_readings[2].get("distance_cm", 0.0)
-                            if len(ultrasonic_readings) > 2
-                            else 0.0
-                        ),
-                        min_distance_cm=min(distances) if distances else 0.0,
-                    )
+                    from ..drivers.sensors.jsn_sr04t_driver import sector_distances
+
+                    frame.ultrasonic = UltrasonicData(**sector_distances(ultrasonic_readings))
 
             # ToF
             if sensor_data.tof_left or sensor_data.tof_right:

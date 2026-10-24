@@ -189,7 +189,7 @@ pins:
       note: "Pi 5 uses uart4-pi5 overlay (GPIO12/13); Pi 4 uses uart4 (GPIO8/11). rpi4_alt_pin in gpio_used rows = physical pin numbers on Pi 4."
 
   ultrasonic:
-    enabled_by: "limits.yaml:ultrasonic_enabled"
+    enabled_by: "limits.yaml:ultrasonic_enabled AND hardware.yaml ultrasonic.backend == gpio_hcsr04 (legacy; the default mcu_usb backend, four JSN-SR04T behind a USB MCU, claims no Pi pin)"
     sensors:
       front_left:  { trig_gpio: 4, echo_gpio: 17, pin_trig: 7, pin_echo: 11 }
       front_center: { trig_gpio: 27, echo_gpio: 10, pin_trig: 13, pin_echo: 19 }

@@ -1772,3 +1772,84 @@ Observed, not changed (outside this track; reported by `FinishJsn.IntegrationPla
 authentication even under `OPERATOR_AUTH_REQUIRED=1`. It does not call the RoboHAT, so nothing moves, but it returns computed motor
 speeds, writes an audit row and sets the in-memory `_legacy_motors_active` flag that the blade interlock tests read. The legacy
 integration tests depend on that contract, so closing it (reject, or require the operator gate) is a decision for the safety/API owner.
+### Finish track jsn
+
+Branch `finish/jsn`, goal T2 items 6-8. Everything here is software behaviour proven in `SIM_MODE` against fakes; **none of it
+has run on mower hardware**. The mower Pi was unreachable when checked read-only on 2026-10-24 (`ssh kp@10.8.0.2`:
+`Connection timed out`; `ssh kp@192.168.50.20`: `No route to host`; owner action O-8) and none of these items needed it.
+No pin, calibration or `tractor.enabled` value was changed, and `ultrasonic_enabled` stays `false`.
+
+| Item | What changed | Tests | Gaps advanced or closed |
+|---|---|---|---|
+| T2.6 four JSN-SR04T over a USB MCU | `firmware/ultrasonic-mcu/` (CircuitPython for an RP2040): time-division firing (never two sensors at once), per-sensor echo timeout, per-sensor health, INFO heartbeat, hardware watchdog, framed protocol v1 (sync, version, type, seq, length, CRC-16/CCITT-FALSE). MCU `TRIG_PINS`/`ECHO_PINS` ship `None` (**TBD, owner**): zero sensors, nothing fired, the host refuses the link. Host: `drivers/sensors/jsn_sr04t_driver.py` (handshake, supervision, reconnect with backoff, MCU-reset detection, blind zone, range, staleness, link-down all UNKNOWN), independent codec `ultrasonic_mcu_protocol.py`, `UltrasonicSensorInterface` with 4 channels and one fail-closed entry per channel (`obstacle` beats `unknown` beats `clear`; silence and a blind-zone echo are never `clear` under the shipped policy), typed `ultrasonic:` block in `config/hardware.yaml`, pin checker claims no Pi pin for `mcu_usb`, bench tool `scripts/ultrasonic_mcu_probe.py` for M-40 | `test_ultrasonic_mcu_protocol.py` 72 (host codec vs firmware codec byte-identical, corrupt/truncated/garbage frames, resync, flood), `test_ultrasonic_mcu_firmware.py` 30 (real firmware core on a simulated HAL: sequencing, timeouts, dead sensor, disable/re-enable), `test_ultrasonic_mcu_cp_hal.py` 19 (CircuitPython HAL against fake `board`/`digitalio`/`pulseio`/`usb_cdc`), `test_jsn_sr04t_driver.py` 47 (fake serial: corrupt frames, timeout, dead sensor, hung MCU, MCU reset, unplug and reconnect, wrong sensor count), `test_ultrasonic_interface.py` 20, `test_ultrasonic_mcu_probe.py` 3, `test_hardware_config_blocks.py` 24, `test_hardware_pin_conflicts.py` 34 | H-19 (software side only: mode, voltage and blind zone are measured with the probe, M-40), H-02 (no Pi pin, so no HaLow collision), WP-P2-02 (driver, health, staleness) |
+| T2.7 IBT-4 `lgpio` driver | `drivers/blade/ibt4_lgpio.py`: `lgpio` imported only inside `setup()`, claims IN1/IN2 at level 0, reads both back, all-or-nothing; `set_active()` returns only after a readback confirms it, else frees the lines, drives low and raises `IBT4GpioError` naming the pin. Armed only by `ibt4.gpio_enabled: true` (ships `false`, never in `SIM_MODE`); unarmed it stays the flag-only stub. E-stop reports the blade `stopped` only after a confirmed write and readback (`failed` otherwise, `unconfirmed` for the stub); an armed service that was never initialised claims the lines itself on E-stop/park (never `not_present`). Pins stay GPIO24/25; GPIO25 is the HaLow HAT SPI IRQ line (C-03, **O-5**), so arming is expected to fail closed on the deployed Pi | `test_ibt4_lgpio.py` 83 (fake `lgpio`: claim/write/readback failures, partial ON rolled back, busy GPIO25, concurrent stops, import-time safety), `test_ibt4_blade_driver.py` 9, `test_emergency_stop_service.py` 49 | N-03, H-08 (blade output truthfulness); C-03 and O-5 unchanged |
+| T2.8 `lawnberry-sensors.service` | No standalone entrypoint exists: the sensor manager is constructed inside the backend by `WebSocketHub`, and `backend/src/cli/sensor_commands.py` is a diagnostic table, not a daemon. The unit (`ExecStart` = `echo ... && sleep infinity`) is therefore **removed**, with its install, backup/restore and doc references, on `finish/deploy` (it owns `systemd/`); this branch deliberately does not touch `systemd/` | `finish/deploy` guard that no unit's `ExecStart` is a placeholder | N-20 |
+| T2.8 placeholder tests (A.11) | 41 placeholder items resolved (below): 21 implemented as real fault-injected tests, 20 deleted with a recorded reason. The `RUN_PLACEHOLDER_CONTRACT`/`RUN_PLACEHOLDER_INTEGRATION` skip hooks are gone (`tests/contract/conftest.py` now holds isolation fixtures; `tests/integration/conftest.py` deleted). `backend/src/api/status.py`: `tilt_detected` and `obstacle_detected` were hard-coded `False` beside a `safety_interlocks` list; they now derive from ACTIVE interlocks | `tests/contract` 98 collected / 11 skipped to 152 / 1 skipped (the 8 h soak); `tests/integration` 124 / 51 skipped to 121 / 21 skipped (16 `RUN_PERF_TESTS`, 1 `RUN_HW_TESTS`, 3 TDD auth). Every new test was mutation-checked (about 110 source mutations, all killed) | H-11, N-23 |
+
+Fate of every placeholder (**I** = implemented as a real test, **D** = deleted):
+
+| Placeholder | Fate | Why / what the replacement catches |
+|---|---|---|
+| `contract/test_geofence::test_position_outside_boundary_triggers_stop` | I (+3) | breach not stopping, inside/outside inverted, lat/lon swapped, fence activated late, silent auto-resume; the old assertions read keys that do not exist and passed vacuously |
+| `contract/test_gps::test_gps_accuracy_under_5m` | I (+4, over all `GpsMode`) | altered fix, missing accuracy reported as good, poor fix masked, driver fault serving a cached fix |
+| `contract/test_waypoint_navigation::test_waypoint_arrival_detection` | I (+3) | wrong haversine units, fixed 1 m threshold, arrival before any fix, no 422 on bad threshold |
+| `contract/test_navigation_modes::test_navigation_mode_transitions` | I (+1) | mode not written, `/nav/status` vs `/status` disagreeing, unknown mode accepted |
+| `contract/test_sensor_fusion::test_sensor_fusion_outputs_fused_position_with_accuracy` | I (+2) | unfed filter labelled good, corrections not applied, quality threshold, no downgrade on poor sensor health |
+| `contract/test_tof_sensors::test_tof_obstacle_triggers_emergency_stop_within_threshold` | I, renamed `..._raises_the_obstacle_interlock` (+2) | threshold units, `<=` flipped, interlock not synced to `RobotState`; it never was an E-stop |
+| `contract/test_tof_sensors::test_tof_timeout_reports_degraded_health` | I (+1) | raising ToF must give `error`, a silent bus `offline` |
+| `contract/test_imu_tilt::test_imu_tilt_stops_blade_within_200ms` | I, renamed `..._raises_the_tilt_interlock` (+4); the blade-stop and 200 ms half **D** | the stop is covered by `tests/unit/test_tractor_safety_monitor.py`; `control_blade_v2` never reads interlocks |
+| `contract/test_bme280::test_bme280_reports_environmentals_and_handles_timeouts` | I (3 tests) | humidity/pressure swap, implausible values, failure not reported as `error`, silent bus not `offline` |
+| `contract/test_ina3221::test_ina3221_reports_power_channels_and_timeouts` | I (3 tests) | battery/solar mix-up, silent bus not `offline`, fabricated readings; asserts nothing about channel numbers (N-12 is an owner decision) |
+| `unit/test_placeholders::test_unit_scaffold_placeholder` | D | `assert True` |
+| `integration/test_acme_tls::test_acme_http01_challenge_handling` | I | nginx serves `/.well-known/acme-challenge/` on port 80 without a redirect; webroot matches `ACMEService` |
+| `test_acme_certificate_provisioning` | I | fake `certbot`: exact argv, staging by default, recorded expiry is the PEM's own notAfter |
+| `test_acme_automatic_renewal` | I | 29 d renews, 31 d does not; one `renew` call per run; `--dry-run` leaves the cert alone |
+| `test_acme_fail_closed_behavior` | I | failed challenge records no cert; failed renewal exits 1, keeps the old PEM, `/api/v2/health` `acme` degraded |
+| `test_acme_domain_configuration` | D | passed only because `PUT /settings/system` stores any key; nothing reads an `acme` key (tautology) |
+| `test_acme_port_80_availability` | D | bound a port then skipped unconditionally; covered by the nginx test |
+| `test_acme_systemd_timer_configuration` | I | maintained `lawnberry-cert-renewal.*`: at least daily, `Persistent=true`, script exists, `bash -n`, 30 d / 7 d thresholds |
+| `test_acme_challenge_file_serving` | I | challenge file written with exactly the key authorization, removed on cleanup |
+| `test_acme_certificate_validation` | I (6 params + 3) | real `openssl` certs: healthy/degraded/critical by days left, expired, unreadable, `LB_DOMAIN` selection |
+| `test_autonomous_operation::..._fail_initially` | D | `pytest.skip` stub; real coverage in `test_autonomy.py`, `test_navigation_modes.py`, `test_return_to_home.py` |
+| `test_edge_cases::..._fail_initially` | D | `pytest.fail` stub; covered by fault-injection, e-stop and sensor-presence tests |
+| `test_gps_loss_policy::test_gps_loss_dead_reckoning_grace_period` | D | the 2-minute policy (FR-002) is implemented nowhere |
+| `test_dead_reckoning_reduced_speed` | D | no GPS-aware speed cap exists |
+| `test_dead_reckoning_stricter_obstacles` | D | obstacle thresholds do not depend on GPS state (FinishNav's code) |
+| `test_gps_loss_grace_period_timeout` | D | no GPS-loss timer, stop or alert exists |
+| `test_gps_recovery_resumes_normal_operation` | D | dead-reckoning exit on a fix is already covered; nothing else to restore |
+| `test_manual_override_during_gps_loss` | I | lost fix: no coordinates, dead reckoning, unlock with a test-local password (wrong one 401), drive 202 with speed cap and audit, forged session 401, recovery shown |
+| `test_gps_loss_alert_generation` | D | no GPS-alert code exists |
+| `test_hardware_compliance::..._fail_initially` | D | `pytest.fail` stub; real checks are the pin-conflict and sensor-presence tests |
+| `test_map_cost_control::test_google_maps_default_provider` | I | the old assertion defaulted to `google` when the key was absent (could only pass); now asserts the exact defaults on a private data dir |
+| `test_adaptive_map_usage_throttling` | D | no throttle or cost code exists |
+| `test_osm_fallback_when_google_unavailable` | I | Google 429/403/connect error serves the OSM tile with the right User-Agent and counters |
+| `test_map_cost_threshold_monitoring` | D | counters exist but no cost estimate or threshold; counters asserted elsewhere |
+| `test_map_tile_caching` | I | one upstream call per tile, per-provider cache, `clear_cache()`, bypass makes no external request |
+| `test_map_provider_switching_preserves_zones` | I | uses the real `PUT /settings/maps`; zones and map config unchanged across a switch |
+| `test_google_maps_api_key_validation` | D | `validate_api_key` is a prefix check with no caller |
+| `test_map_provider_performance_comparison` | D | no per-provider latency tracking exists |
+| `test_migration_v1_to_v2::..._fail_initially` | D | the documented `lawnberry-pi migrate` importer does not exist; replaced by `test_persistence_schema_migration.py` (3 tests: v1 database upgraded in place, reopening reapplies nothing, a failed migration is not swallowed and is retried) |
+| `test_power_budget::test_power_budget_structure_only` | D | asserted constants defined inside the test (25.2 W <= 30 W); the only "30 W" in the repo is the solar panel rating; motor draw is TBD (O-6) |
+| `test_webui_experience::..._fail_initially` | D | `pytest.fail` stub; the UI is covered by the frontend e2e and unit specs |
+
+New findings from the placeholder rework (**not fixed here**; each is evidenced in the tests that expose it): stale
+readings are reported as online (VL53L0X, BME280 and INA3221 drivers swallow I/O errors and return their last sample);
+`ERROR` is latched and never re-initialised; `GPSSensorInterface` with no driver reports `ONLINE` with a fabricated
+position (40.7128, -74.0060); `POST /control/emergency` does not reach `RobotState` (`status.py` hard-codes
+`emergency_stop_active: False`); a geofence breach is state-only (no interlock); `/api/v2/fusion/state` lists sources
+that have not contributed; `MapsService` is wired to no router and `attempt_provider_fallback()` has no caller;
+`acme_renew` renews nothing without `--domain`; `tls_status` reports an expired certificate as "expiring soon (-40
+days)" and falls back to the first Let's Encrypt directory when `LB_DOMAIN` has no certificate; Settings -> System
+saves `ui.map_provider`, which nothing reads (maps use `/settings/maps`).
+
+Still UNVERIFIED, owner action needed: arming `ibt4.gpio_enabled` (needs GPIO25 moved, **O-5**, and the IBT-4 truth
+table, whether the motor needs PWM or an enable line, and the power-stage behaviour measured, **O-6/O-7**); the
+JSN-SR04T revision, mode (trigger/echo vs serial), supply and ECHO logic level, blind zone and open-air behaviour (run
+`scripts/ultrasonic_mcu_probe.py`, M-40), the MCU board, its `TRIG_PINS`/`ECHO_PINS` and any ECHO level shifting in
+`firmware/ultrasonic-mcu/usonic_config.py`, and the sensor mounting geometry (B.5). Do not set `ultrasonic_enabled` to
+`true` before those are measured.
+
+| Check (this branch) | Command | Result |
+|---|---|---|
+| Full suite | `env -u PYTEST_ADDOPTS SIM_MODE=1 pytest tests -o addopts="" -p no:cacheprovider --ignore=tests/soak -W ignore --junitxml=/tmp/jsn.xml` | 1152 collected: **1123 passed, 29 skipped, 0 failed, 0 errors** (baseline 762 / 693 / 69; the skip count fell by exactly the 40 removed placeholder skips) |
+| Lint | `ruff check` and `ruff format --check` on the 49 touched or new Python files | All checks passed; 49 files already formatted |

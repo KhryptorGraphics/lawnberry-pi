@@ -10,11 +10,13 @@ RoboHAT firmware/serial, IBT-4 blade driver) and the paths are hung/absent.
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from types import SimpleNamespace
 
 import httpx
 import pytest
+from fake_lgpio import FakeLgpio
 
 from backend.src.api import rest as rest_module
 from backend.src.core.globals import _client_emergency, _safety_state
@@ -301,6 +303,422 @@ async def test_sim_mode_with_nothing_attached_is_simulated_not_failed(monkeypatc
     report = await ess.execute_emergency_stop(source="test")
     assert report["motors_stopped"] and report["blade_disabled"] and report["complete"]
     assert {v["status"] for v in report["subsystems"].values()} == {"simulated"}
+
+
+# -------------- IBT-4 through the real lgpio adapter (a FAKE lgpio, never hardware) --------------
+
+
+def _armed_blade(monkeypatch, fake: FakeLgpio) -> BladeService:
+    """A real BladeService armed through its config; ``import lgpio`` in setup() yields the fake."""
+    monkeypatch.setenv("SIM_MODE", "0")
+    monkeypatch.delenv("LAWNBERRY_GPIOCHIP", raising=False)
+    monkeypatch.setitem(sys.modules, "lgpio", fake)
+    return BladeService({"gpio_enabled": True, "pins": {"in1": 24, "in2": 25}})
+
+
+async def _armed_and_on(monkeypatch, fake: FakeLgpio) -> BladeService:
+    blade = _armed_blade(monkeypatch, fake)
+    assert await blade.initialize() is True
+    assert await blade.set_active(True) is True
+    return blade
+
+
+async def test_armed_ibt4_confirmed_off_is_stopped_and_says_what_was_confirmed(monkeypatch):
+    fake = FakeLgpio()
+    blade = await _armed_and_on(monkeypatch, fake)
+    assert fake.pad == {24: 1, 25: 0}
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await ess.execute_emergency_stop(source="test")
+
+    assert report["subsystems"]["blade_service"]["outputs"]["blade"] == {
+        "status": "stopped",
+        "detail": "GPIO24/25 driven low and read back low; "
+        "the IBT-4 power stage and the blade motor are not observed",
+    }
+    assert fake.pad == {24: 0, 25: 0}, "the wire really went low"
+    assert report["blade_disabled"] is True and report["complete"] is True
+    assert report["faults"] == []
+    assert blade.emergency_latched is True
+
+
+async def test_armed_ibt4_stuck_pin_is_failed_and_blade_disabled_is_false(monkeypatch):
+    fake = FakeLgpio()
+    blade = await _armed_and_on(monkeypatch, fake)
+    fake.hold_pad(24, 1)  # the write returns 0 but the pad stays high
+    robohat = FakeRoboHAT()
+    wire(monkeypatch, _tractor(enabled=False), robohat, blade)
+
+    report = await ess.execute_emergency_stop(source="test")
+
+    path = report["subsystems"]["blade_service"]
+    out = path["outputs"]["blade"]
+    assert path["status"] == "failed" and out["status"] == "failed"
+    assert "GPIO24 reads back 1, expected 0" in out["error"]
+    assert report["blade_disabled"] is False and report["complete"] is False
+    assert any(f.startswith("blade_service.blade: failed") for f in report["faults"])
+    assert blade.emergency_latched is True, "the latch holds although the output is unconfirmed"
+    assert robohat.calls == ["stop"] and report["motors_stopped"] is True, "other paths still run"
+
+
+async def test_armed_ibt4_write_that_raises_is_failed_and_both_inputs_are_still_driven(monkeypatch):
+    fake = FakeLgpio()
+    blade = await _armed_and_on(monkeypatch, fake)
+    fake.fail_write(24, "raise")
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await ess.execute_emergency_stop(source="test")
+
+    out = report["subsystems"]["blade_service"]["outputs"]["blade"]
+    assert out["status"] == "failed" and "GPIO24 write(0) raised" in out["error"]
+    assert report["blade_disabled"] is False
+    assert fake.writes()[-4:] == [(24, 0), (25, 0), (24, 0), (25, 0)], (
+        "IN2 is driven even though IN1 raised, and the stop retried once"
+    )
+
+
+async def test_armed_ibt4_setup_failure_is_failed_not_absent(monkeypatch):
+    fake = FakeLgpio()
+    fake.fail_claim(25, "GPIO busy")  # the HaLow HAT's IRQ line on the deployed Pi (audit C-03)
+    blade = _armed_blade(monkeypatch, fake)
+    assert await blade.initialize() is False
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await ess.execute_emergency_stop(source="test")
+
+    path = report["subsystems"]["blade_service"]
+    assert path["status"] == "failed", "attempted and failed is not 'nothing to stop'"
+    assert not path.get("absent")
+    out = path["outputs"]["blade"]
+    assert "GPIO25" in out["error"] and "GPIO busy" in out["error"]
+    assert report["blade_disabled"] is False and report["complete"] is False
+    assert fake.writes() == [], "nothing was ever driven"
+    assert blade.emergency_latched is True
+
+
+# An ARMED service that was never initialised (a restarted backend: nothing in this process has
+# claimed the lines, so their state is unknown) is claimed, driven low and read back BY the stop.
+
+_STOPPED_DETAIL = (
+    "GPIO24/25 driven low and read back low; "
+    "the IBT-4 power stage and the blade motor are not observed"
+)
+_CLAIM_THEN_OFF = [
+    ("gpiochip_open", 4),
+    ("gpio_claim_output", 7, 24, 0),  # claimed already low ...
+    ("gpio_claim_output", 7, 25, 0),
+    ("gpio_read", 7, 24),  # ... and read back low
+    ("gpio_read", 7, 25),
+    ("gpio_write", 7, 24, 0),  # then the stop itself: both inputs written low ...
+    ("gpio_write", 7, 25, 0),
+    ("gpio_read", 7, 24),  # ... and read back
+    ("gpio_read", 7, 25),
+]
+
+
+async def _stop_or_park(kind: str) -> dict:
+    if kind == "stop":
+        return await ess.execute_emergency_stop(source="test")
+    return await ess.park_actuators(source="test")
+
+
+async def test_armed_ibt4_never_initialised_is_claimed_driven_low_and_confirmed_by_the_stop(
+    monkeypatch,
+):
+    fake = FakeLgpio()
+    blade = _armed_blade(monkeypatch, fake)  # never initialize()d in this process
+    assert fake.calls == []
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await ess.execute_emergency_stop(source="test")
+
+    assert report["subsystems"]["blade_service"]["outputs"]["blade"] == {
+        "status": "stopped",
+        "detail": _STOPPED_DETAIL,
+    }
+    assert fake.calls == _CLAIM_THEN_OFF
+    assert fake.pad == {24: 0, 25: 0}
+    assert report["blade_disabled"] is True and report["complete"] is True
+    assert report["faults"] == []
+    assert blade.emergency_latched is True
+
+    # The lines are held from now on: a second stop only drives and reads, it never re-claims.
+    again = await ess.execute_emergency_stop(source="test")
+    assert again["subsystems"]["blade_service"]["outputs"]["blade"]["status"] == "stopped"
+    assert fake.names().count("gpio_claim_output") == 2
+    assert fake.names().count("gpiochip_open") == 1
+
+
+async def test_armed_ibt4_never_initialised_with_gpio25_busy_is_failed_and_gpio24_is_released(
+    monkeypatch,
+):
+    fake = FakeLgpio()
+    fake.fail_claim(25, "GPIO busy")  # the HaLow HAT's IRQ line on the deployed Pi (audit C-03)
+    blade = _armed_blade(monkeypatch, fake)
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await ess.execute_emergency_stop(source="test")
+
+    path = report["subsystems"]["blade_service"]
+    assert path["status"] == "failed" and not path.get("absent")
+    out = path["outputs"]["blade"]
+    assert out["status"] == "failed"
+    assert "GPIO25" in out["error"] and "GPIO busy" in out["error"]
+    assert fake.freed == [24] and fake.closed == [7] and fake.claimed == set()
+    assert fake.writes() == [], "nothing was driven: the lines could not be claimed"
+    assert report["blade_disabled"] is False and report["complete"] is False
+    assert blade.emergency_latched is True, "the latch is set although the lines were not claimed"
+
+
+async def test_every_stop_retries_a_failed_claim_until_the_lines_are_ours(monkeypatch):
+    fake = FakeLgpio()
+    fake.fail_claim(25, "GPIO busy")
+    blade = _armed_blade(monkeypatch, fake)
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+    first = await ess.execute_emergency_stop(source="test")
+    assert first["subsystems"]["blade_service"]["status"] == "failed"
+
+    fake.clear_claim_fault(25)  # the owner moved the pin
+    second = await ess.execute_emergency_stop(source="test")
+
+    assert second["subsystems"]["blade_service"]["outputs"]["blade"]["status"] == "stopped"
+    assert second["blade_disabled"] is True
+    assert fake.pad == {24: 0, 25: 0}
+
+
+async def test_park_with_an_armed_never_initialised_ibt4_claims_drives_low_and_latches_nothing(
+    monkeypatch,
+):
+    fake = FakeLgpio()
+    blade = _armed_blade(monkeypatch, fake)
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await ess.park_actuators(source="test")
+
+    assert report["subsystems"]["blade_service"]["outputs"]["blade"] == {
+        "status": "stopped",
+        "detail": _STOPPED_DETAIL,
+    }
+    assert fake.calls == _CLAIM_THEN_OFF
+    assert report["complete"] is True
+    assert blade.emergency_latched is False, "a park is not an E-stop"
+
+
+async def test_park_with_an_armed_never_initialised_ibt4_and_gpio25_busy_is_failed(monkeypatch):
+    fake = FakeLgpio()
+    fake.fail_claim(25, "GPIO busy")
+    blade = _armed_blade(monkeypatch, fake)
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await ess.park_actuators(source="test")
+
+    path = report["subsystems"]["blade_service"]
+    assert path["status"] == "failed" and "GPIO busy" in path["outputs"]["blade"]["error"]
+    assert fake.freed == [24] and fake.closed == [7] and fake.writes() == []
+    assert report["complete"] is False
+    assert blade.emergency_latched is False
+
+
+@pytest.mark.parametrize("kind", ["stop", "park"])
+@pytest.mark.parametrize("config", [None, {"gpio_enabled": False, "pins": {"in1": 24, "in2": 25}}])
+async def test_unarmed_ibt4_never_initialised_is_unchanged_and_touches_no_lgpio(
+    monkeypatch, kind, config
+):
+    monkeypatch.setenv("SIM_MODE", "0")
+    fake = FakeLgpio()
+    monkeypatch.setitem(sys.modules, "lgpio", fake)  # importable, so any touch would be recorded
+    blade = BladeService(config)  # the shipped default: the gate is off
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await _stop_or_park(kind)
+
+    assert report["subsystems"]["blade_service"] == {
+        "status": "not_present",
+        "outputs": {},
+        "detail": "IBT-4 blade service never initialised (nothing to switch off)",
+        "absent": True,
+    }
+    assert fake.calls == [], "an unarmed service never reaches lgpio"
+    assert blade._initialized is False and blade._driver.initialized is False
+    assert blade.emergency_latched is (kind == "stop")
+
+
+async def test_two_concurrent_stops_claim_the_lines_once(monkeypatch):
+    fake = FakeLgpio()
+    blade = _armed_blade(monkeypatch, fake)
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+    entered = 0
+    real_initialize = blade._driver.initialize
+
+    async def initialize_that_yields():
+        nonlocal entered
+        entered += 1
+        await asyncio.sleep(0)  # the other stop gets to run while this one is mid-initialise
+        await real_initialize()
+
+    monkeypatch.setattr(blade._driver, "initialize", initialize_that_yields)
+
+    first, second = await asyncio.gather(
+        ess.execute_emergency_stop(source="a"), ess.execute_emergency_stop(source="b")
+    )
+
+    assert entered == 1, "the service lock must keep the second stop out of initialize()"
+    assert fake.names().count("gpiochip_open") == 1
+    assert fake.names().count("gpio_claim_output") == 2, "one claim per line, not two"
+    for report in (first, second):
+        assert report["subsystems"]["blade_service"]["outputs"]["blade"]["status"] == "stopped"
+        assert report["blade_disabled"] is True
+    assert fake.pad == {24: 0, 25: 0}
+
+
+@pytest.mark.parametrize("kind", ["stop", "park"])
+async def test_a_claim_attempt_that_raises_never_escapes_the_stop_and_is_reported_failed(
+    monkeypatch, kind
+):
+    fake = FakeLgpio()
+    blade = _armed_blade(monkeypatch, fake)
+
+    async def exploding_initialize():
+        raise RuntimeError("arming blew up")
+
+    monkeypatch.setattr(blade, "initialize", exploding_initialize)
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await _stop_or_park(kind)
+
+    path = report["subsystems"]["blade_service"]
+    assert path["status"] == "failed" and "arming blew up" in path["outputs"]["blade"]["error"]
+    assert fake.calls == []
+    assert blade.emergency_latched is (kind == "stop")
+
+
+async def test_ibt4_initialised_stub_in_sim_mode_is_simulated(monkeypatch):
+    monkeypatch.setenv("SIM_MODE", "1")
+    stub = BladeService()
+    await stub.initialize()
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), stub)
+
+    report = await ess.execute_emergency_stop(source="test")
+
+    assert report["subsystems"]["blade_service"]["outputs"]["blade"] == {"status": "simulated"}
+    assert report["blade_disabled"] is True
+
+
+async def test_park_with_an_armed_ibt4_reports_the_confirmed_off_and_latches_nothing(monkeypatch):
+    fake = FakeLgpio()
+    blade = await _armed_and_on(monkeypatch, fake)
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    report = await ess.park_actuators(source="test")
+
+    out = report["subsystems"]["blade_service"]["outputs"]["blade"]
+    assert out["status"] == "stopped" and out["detail"].startswith("GPIO24/25 driven low")
+    assert fake.pad == {24: 0, 25: 0}
+    assert blade.emergency_latched is False
+
+
+async def test_rest_emergency_stop_does_not_claim_the_blade_disabled_for_a_stuck_ibt4(monkeypatch):
+    fake = FakeLgpio()
+    blade = await _armed_and_on(monkeypatch, fake)
+    fake.hold_pad(24, 1)
+    wire(monkeypatch, _tractor(enabled=False), FakeRoboHAT(), blade)
+
+    async with _client() as client:
+        resp = await client.post("/api/v2/control/emergency-stop")
+
+    body = resp.json()
+    assert resp.status_code == 200 and body["emergency_stop_active"] is True
+    assert body["blade_disabled"] is False, "the IBT-4 output was NOT confirmed off"
+    assert any(f.startswith("blade_service.blade: failed") for f in body["faults"])
+    assert "NOT every output" in body["remediation"]["message"]
+
+
+_BLADE_REPORT = {
+    "latched": True,
+    "off": True,
+    "initialized": True,
+    "hardware_backed": True,
+    "state_confirmed": True,
+    "gpio_error": None,
+    "pins": {"in1": 24, "in2": 25},
+    "error": None,
+}
+
+
+@pytest.mark.parametrize(
+    ("label", "sim", "overrides", "status", "needle"),
+    [
+        ("confirmed hardware off", "0", {}, "stopped", "GPIO24/25 driven low and read back low"),
+        (
+            "confirmed hardware off, pins not reported",
+            "0",
+            {"pins": None},
+            "stopped",
+            "the IBT-4 inputs driven low and read back low",
+        ),
+        (
+            "initialised, off not confirmed",
+            "0",
+            {"off": False, "state_confirmed": False, "gpio_error": "IBT4GpioError: GPIO24 stuck"},
+            "failed",
+            "GPIO24 stuck",
+        ),
+        ("off not confirmed, no text", "0", {"off": False}, "failed", "refused the off command"),
+        (
+            "a service error wins over the driver text",
+            "0",
+            {"off": False, "error": "RuntimeError: boom", "gpio_error": "older"},
+            "failed",
+            "boom",
+        ),
+        (
+            "setup failed",
+            "0",
+            {
+                "initialized": False,
+                "off": False,
+                "hardware_backed": False,
+                "gpio_error": "IBT4GpioError: GPIO25 busy",
+            },
+            "failed",
+            "GPIO25 busy",
+        ),
+        (
+            "never initialised",
+            "0",
+            {"initialized": False, "off": False, "hardware_backed": False},
+            "not_present",
+            "never initialised",
+        ),
+        ("flag-only stub outside SIM", "0", {"hardware_backed": False}, "unconfirmed", "stub"),
+        ("flag-only stub in SIM", "1", {"hardware_backed": False}, "simulated", None),
+        (
+            "never initialised in SIM",
+            "1",
+            {"initialized": False, "off": False, "hardware_backed": False},
+            "simulated",
+            None,
+        ),
+    ],
+)
+def test_blade_service_path_maps_a_report_to_exactly_one_status(
+    monkeypatch, label, sim, overrides, status, needle
+):
+    monkeypatch.setenv("SIM_MODE", sim)
+
+    path = ess._blade_service_path({**_BLADE_REPORT, **overrides})
+
+    assert path["status"] == status, (label, path)
+    if needle is not None:
+        assert needle in repr(path), (label, path)
+
+
+def test_a_blade_report_without_the_newer_keys_still_maps(monkeypatch):
+    """``FakeBlade`` reports (and any older caller) carry no gpio_error/pins/state_confirmed."""
+    monkeypatch.setenv("SIM_MODE", "0")
+    path = ess._blade_service_path(dict(GOOD_BLADE))
+    assert path["status"] == "stopped"
+    assert "read back low" in path["outputs"]["blade"]["detail"]
 
 
 # ------------------------------- REST endpoints -------------------------------

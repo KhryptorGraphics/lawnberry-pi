@@ -102,12 +102,17 @@ class IMUData:
 
 @dataclass
 class UltrasonicData:
-    """Ultrasonic sensor array data (HC-SR04 x3)."""
+    """Ultrasonic array data in the three sectors the AI model uses (see ``sector_distances``).
+
+    0.0 means no fresh valid echo, not "clear". ``channels_cm`` keeps the raw per-channel values
+    (JSN-SR04T x4 in MCU order; empty for data recorded before the four-sensor array).
+    """
 
     front_left_cm: float = 0.0
     front_center_cm: float = 0.0
     front_right_cm: float = 0.0
-    min_distance_cm: float = 0.0  # Minimum of all readings
+    min_distance_cm: float = 0.0  # Minimum of all valid readings (0.0 if none)
+    channels_cm: list[float] = field(default_factory=list)
 
 
 @dataclass

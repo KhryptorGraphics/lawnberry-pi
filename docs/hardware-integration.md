@@ -21,6 +21,13 @@ Safety:
 - Ensure E-stop physically cuts blade power path.
 - Software interlocks: tilt, obstacle, watchdog enforced.
 
+Software status (IBT-4 driver, 2026-10-24):
+- A real `lgpio` adapter exists (`backend/src/drivers/blade/ibt4_lgpio.py`) behind `ibt4.gpio_enabled` in `config/hardware.yaml`. It defaults to `false` and is never armed in SIM_MODE; with it off the driver is a flag-only stub, GPIO24/25 are never driven, and outside SIM_MODE the general E-stop reports the blade output `unconfirmed`.
+- It has never run on hardware; it is tested only against a fake `lgpio`. When armed, the E-stop reports the blade output `stopped` only after GPIO24/25 were written low and read back low. That does not observe the IBT-4 power stage or the blade motor.
+- When armed, an E-stop or shutdown park on a service that was never initialised (for example right after a backend restart, when the lines are in an unknown state) first claims GPIO24/25 at level 0, drives both low and reads them back itself, so the blade output is reported `stopped` or `failed`, never `not_present`. With the gate off, a never-initialised service stays `not_present` and no GPIO is touched.
+- GPIO25 (IN2) is the HaLow HAT's SPI IRQ line on the deployed Pi (audit C-03, owner action O-5; live `gpioinfo` showed it held by `mm610x_spi_irq_gpio`). The claim is therefore expected to fail and arming then fails closed (the E-stop reports the blade output `failed`) until the pin is moved; this has not been tried on the Pi.
+- UNVERIFIED, measure before arming: the IBT-4 truth table (`ibt4.on_levels` is a placeholder), whether the blade motor needs PWM or an enable line (only static levels are driven), whether `gpio_read` of an output pin on the Pi 5 follows the pad (the "read back low" evidence depends on it), and the pin state after `gpio_free`, process exit and SIGKILL (the audit M-26 scope measurement, repeated on GPIO24/25). Do the first bench check with the blade motor disconnected.
+
 ### Time-of-Flight Sensors (VL53L0X x2)
 - I2C Bus 1: SDA (GPIO 2), SCL (GPIO 3)
 - Left Sensor Address: 0x29
@@ -154,4 +161,4 @@ sudo i2cdetect -y 1
 - docs/OPERATIONS.md (operational procedures)
 
 ## Pin-conflict guard
-`python3 scripts/check_hardware_pin_conflicts.py` merges the claims in `spec/hardware.yaml` (GPIO rows incl. UART4 TXD/RXD and HaLow HAT lines), `config/tractor.yaml` relays/PCA9685, and the ultrasonic driver pins (only when `config/limits.yaml` has `ultrasonic_enabled: true`). Every conflict must be listed in `spec/known_conflicts.yaml` (pin, claimants, gap ID, reason, owner action); a new or stale entry fails the check, and an allow-listed conflict that involves a tractor claimant fails once `config/tractor.yaml` has `enabled: true`. The `deployment:` block in the spec records what the deployed Pi actually exposes (e.g. no header I2C bus 1) and drives the warnings. `claims with status: unverified` only warn.
+`python3 scripts/check_hardware_pin_conflicts.py` merges the claims in `spec/hardware.yaml` (GPIO rows incl. UART4 TXD/RXD and HaLow HAT lines), `config/tractor.yaml` relays/PCA9685, and the legacy HC-SR04 driver pins (only when `config/limits.yaml` has `ultrasonic_enabled: true` **and** `config/hardware.yaml` `ultrasonic.backend` is `gpio_hcsr04`; the default `mcu_usb` backend, four JSN-SR04T behind a USB MCU, claims no Pi pin). Every conflict must be listed in `spec/known_conflicts.yaml` (pin, claimants, gap ID, reason, owner action); a new or stale entry fails the check, and an allow-listed conflict that involves a tractor claimant fails once `config/tractor.yaml` has `enabled: true`. The `deployment:` block in the spec records what the deployed Pi actually exposes (e.g. no header I2C bus 1) and drives the warnings. `claims with status: unverified` only warn.
