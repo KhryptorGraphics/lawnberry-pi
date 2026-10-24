@@ -1955,10 +1955,11 @@ Verification (`frontend/`, Node v24.16.0, `npm ci` from the lockfile): `npm run 
 in specs and the view); `npm test` **32 files, 415 tests, 0 failed** (baseline 23 files, 132 tests); `npm run build` ok;
 `npx playwright test` (with `LB_CHROME_PATH`, docs/TESTING.md) **12 passed** (same 12 as the baseline run).
 
-Left for the owner or other tracks: (1) **rate limiter** - the page now sends up to ~18 requests/s from one client
-(3 per 166 ms tick); the stock limiter (2/s, burst 20, one bucket per client) 429s the page after about 3 s, which the page treats as a
-lost link and stops. Asked `FixAuth` (owner of `middleware/rate_limiting.py`) for a >= 30/s, burst 90 bucket on
-`/api/v2/tractor/{left-lever,right-lever,throttle,command}`; until that lands the page needs `GLOBAL_RATE_LIMIT_*` raised. (2) The
+Left for the owner or other tracks: (1) **rate limiter** - the page sends up to ~18 requests/s from one client
+(3 per 166 ms tick); the stock limiter (2/s, burst 20, one bucket per client) would 429 the page after about 3 s, which the page treats as a
+lost link and stops. `FixAuth` (owner of `middleware/rate_limiting.py`) confirmed the fix on `fix/auth`: the tractor write routes
+share their own bucket (`TRACTOR_COMMAND_GROUP`, 30/s, burst 90 per client). The page depends on that branch being merged with this one;
+until then `GLOBAL_RATE_LIMIT_*` must be raised. The WebSocket ticket route and the proxy header contract were likewise agreed with `FixAuth`. (2) The
 blade is still not touched by the backend deadman or by this page's stop paths (design decision, review SF-08 text). (3) On `pagehide`
 the neutral request is an ordinary XHR; if the browser cancels it the backend hold (500 ms) is the stop. (4) Hold-to-run on two
 sliders needs two pointers (touch) or the Latch checkbox (mouse); the default is the safe one. (5) Nothing here was exercised against a
