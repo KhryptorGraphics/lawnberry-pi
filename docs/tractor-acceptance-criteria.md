@@ -172,6 +172,14 @@ tractor-specific items above:
 - [ ] Motor-watchdog heartbeat, with automatic emergency stop on timeout, is
       wired to the tractor's actuator control loop.
 
+      > **Software status (branch `finish/nav`, 2026-10-24; boxes stay unticked until the bench evidence exists).**
+      > The watchdog (`backend/src/safety/watchdog.py`) now needs two heartbeats: the tractor service's own
+      > actuation self-check (`TractorControlService.supervise_once`: servo outputs read back from the PCA9685, no
+      > write fault, deadman running, a latched stop really safe) and the tilt monitor's completed cycle. A timeout
+      > revokes authorization and runs `emergency_stop`, repeated until the outputs verify again. This is software
+      > only and runs in the same event loop it supervises: **a hardware watchdog (audit O-7) is still required** and
+      > the PCA9685 read-back is unverified on hardware (bench check M-28).
+
 ## 8. OEM seat / operator-presence (OPC) switch decision
 
 See `docs/tractor-platform.md`'s "Physical integration decisions" §4. Confirmed

@@ -188,6 +188,8 @@ async def lifespan(app: FastAPI):
         await initialize_robohat_service()
     except Exception:
         pass
+    app.state.tractor_watchdog = None  # not wired until the block below succeeds
+    app.state.tractor_safety_monitor = None
     tractor = None
     try:
         tractor = get_tractor_service()
@@ -205,6 +207,14 @@ async def lifespan(app: FastAPI):
             # loop it supervises and cannot act if that loop or the process hangs.
             async def _watchdog_stop():
                 return await tractor.emergency_stop(source="watchdog")
+
+            # A window shorter than a few self-check periods would trip on a healthy machine.
+            min_window_ms = 3000.0 * tractor.supervise_interval_s
+            if safety_limits.watchdog_timeout_ms < min_window_ms:
+                raise ValueError(
+                    f"watchdog_timeout_ms={safety_limits.watchdog_timeout_ms} is shorter than "
+                    f"three actuation self-check periods ({min_window_ms:.0f} ms)"
+                )
 
             tractor_watchdog = Watchdog(
                 EstopHandler(tractor),

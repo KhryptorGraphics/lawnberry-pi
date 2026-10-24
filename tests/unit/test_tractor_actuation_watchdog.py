@@ -486,3 +486,21 @@ async def test_lifespan_fails_closed_when_the_safety_wiring_cannot_start(monkeyp
         assert not main.app.state.tractor_watchdog.running
         assert svc._supervise_task is None
         assert chip.regs[LEFT] == 1500 and not svc.state.blade_engaged
+
+
+async def test_lifespan_refuses_a_watchdog_window_shorter_than_the_self_check_cadence(
+    monkeypatch,
+):
+    """A window under three self-check periods would trip on a healthy machine: fail closed
+    (locked out, E-stopped, no watchdog running) instead of e-stopping it on every cycle."""
+    svc = TractorControlService(config={"enabled": True})
+    svc._pca9685 = FakeChip()
+    svc.supervise_interval_s = 1.0  # 3000 ms minimum window against the shipped 1000 ms
+    _wire_lifespan(monkeypatch, svc)
+
+    async with main.lifespan(main.app):
+        assert main.app.state.tractor_watchdog is None
+        assert svc.state.emergency_stop_active
+        cleared = await svc.clear_emergency()
+        assert cleared["status"] == "rejected" and "locked out" in cleared["reason"]
+        assert svc._supervise_task is None

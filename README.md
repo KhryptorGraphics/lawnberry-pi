@@ -38,11 +38,18 @@ An advanced autonomous lawn mower powered by Raspberry Pi 5 with Hailo 8L AI acc
 - **Geofencing**: Virtual boundary enforcement with configurable zones
 
 ### Safety Systems
-- **Multi-Layer Obstacle Detection** (target): the only obstacle input the code uses is two VL53L0X ToF sensors, and it
-  is advisory. Four JSN-SR04T ultrasonics (owner requirement), stereo depth and optional 2D LiDAR are not
-  implemented; the legacy 3x HC-SR04 driver is disabled because its pins collide with the HaLow radio
-- **Emergency Stop**: software only, with a watchdog; an independent hardwired E-stop is **not implemented** (H-08).
-  Which stop routes actually actuate hardware is listed under "Emergency stop and recovery" below
+- **Obstacle stop** (software; every number UNVALIDATED, audit M-43): the two VL53L0X ToF sensors (and the
+  ultrasonic array when enabled) feed one fail-closed `ObstacleGuard`. A stale, blind, unknown or missing required
+  sensor, or an obstacle inside the speed-dependent stopping envelope, holds autonomous motion (levers neutral, blade
+  off) for missions, the AI loop and Thor plans; manual operator drive is not limited by default. Four JSN-SR04T
+  ultrasonics (owner requirement), stereo depth and optional 2D LiDAR are not implemented; the legacy 3x HC-SR04
+  driver is disabled because its pins collide with the HaLow radio
+- **GNSS hold** (software; thresholds UNVALIDATED): autonomous motion holds and a mission will not start while the fix
+  is missing, stale, inaccurate or newly regained (resume dwell)
+- **Emergency Stop**: software only. An in-process watchdog needs two heartbeats (the tractor's own actuation
+  self-check with PCA9685 read-back, and the tilt monitor) and repeats the stop until the outputs verify; it shares the
+  event loop it supervises. An independent hardwired E-stop and a **hardware watchdog (O-7)** are **not implemented**
+  (H-08). Which stop routes actually actuate hardware is listed under "Emergency stop and recovery" below
 - **Tilt Protection**: tractor path only, and the BNO085 driver is a simulation stub, so the cutoff cannot trip on real
   hardware at the audit baseline
 - **Safety Interlocks**: Motor authorization, blade guards, perimeter enforcement
@@ -451,9 +458,10 @@ ultrasonic_enabled: false  # Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi
 ```
 
 These are configured thresholds, not measured performance. `estop_latency_ms` is validated only as
-`watchdog_timeout_ms >= estop_latency_ms` (`backend/src/safety/safety_validator.py:37-38`), and the two obstacle
-thresholds are consumed only by the debug injection endpoint (`backend/src/api/routers/sensors.py:474`), not by any
-stop path.
+`watchdog_timeout_ms >= estop_latency_ms` (`backend/src/safety/safety_validator.py:37-38`). The two obstacle
+thresholds above raise the obstacle interlocks that `ObstacleStopMonitor` publishes from the real sensor readings
+(a hold, not an E-stop); the speed-dependent slow/stop distances come from the separate `obstacle_stop` block and the
+GNSS bound from `gps_degradation`, both `validated: false` in `config/limits.yaml`.
 
 ---
 
