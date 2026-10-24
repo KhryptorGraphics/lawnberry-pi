@@ -25,7 +25,7 @@ owner's requirement documents. Anything that is none of those is marked `TBD` (n
 | Repository baseline | `origin/main` at `765c737` (branch `audit/docs` adds documentation only) |
 | Deployed Pi | host `pi5`, checkout `/apps/lawnberry-pi` at `23a6e4d`, kernel `6.12.21-morse+`; **read-only inspection on 2026-10-24**, nothing written, no actuator driven, no hardware config changed |
 | Requirement documents | draft PR #18, branch `docs/2026-10-24-hardware-architecture-audit`: `docs/OMP-THOR-HANDOFF-2026-10-24.md`, `docs/2026-10-24-physical-integration-plan.md`, `docs/2026-10-24-development-roadmap.md`, `docs/2026-10-24-compatibility-gap-register.md`. They are **not on this branch**; they are cited by file name and treated as proposed requirements, not as evidence of implementation |
-| Gap IDs | **H-01 … H-28** are the register's IDs. Findings the register does not contain carry **N-01 … N-28** (section A.15); they are proposed additions to the register. Conflicts are **C-xx** (B.1), measurements **M-xx** (B.7) |
+| Gap IDs | **H-01 … H-28** are the register's IDs. Findings the register does not contain carry **N-01 … N-31** (section A.15); they are proposed additions to the register. Conflicts are **C-xx** (B.1), measurements **M-xx** (B.7), owner decisions **D-n** (B.1.4), requirements **R-Pnn** (B.3), work packages **WP-Pn-nn** and sign-off gates **G0 … G6** (Part E) |
 | Test baseline | `SIM_MODE=1 pytest tests --ignore=tests/soak -p no:cacheprovider`: **530 passed, 69 skipped, 0 failed** (collection: 600 items including 1 soak test). Parallel implementation branches (`audit/checker`, `audit/safety`, `audit/thorlink`) are **not** reflected in the statuses below; the integrator records what landed under [Implemented in this PR](#implemented-in-this-pr) |
 
 ### 0.2 Status vocabulary
@@ -88,7 +88,7 @@ State of the gates at this baseline: **all three are closed** (see Part F).
 | Tractor control service | PARTIALLY IMPLEMENTED | `backend/src/services/tractor_service.py`: levers `:176-203`, blade `:218-231`, engine `:233-256` (no engine-run sensor, `:248`), e-stop `:258-288`. State fields are commanded values, not feedback | `tests/unit/test_tractor.py` (16), `test_tractor_navigation.py` | H-06, H-08, H-21, N-26 |
 | Tractor actuators | PARTIALLY IMPLEMENTED | `backend/src/drivers/actuators/tractor_actuators.py`: `ServoActuator` `:42-77` (updates `_us`/`_value` before the write, `:65-69`), `RelayActuator` `:80-125` (gpiozero `OutputDevice(initial_value=False)` `:102`, silent fallback to simulation `:104-108`, unguarded `set` `:111-115`, starter `pulse` with `finally` `:117-124`) | `tests/unit/test_tractor.py` | H-02b, H-21, N-27 |
 | PCA9685 driver | PARTIALLY IMPLEMENTED | `backend/src/drivers/actuators/pca9685_driver.py:47-171`: raw smbus2. An absent chip degrades to a silent no-op (`:117-126,155-156`, N-07); a write fault propagates once the chip was seen (`:170-171`). `MODE2 = 0x04` (`:57,111`). `MODE1` is written `0x30` then `0x20` (`:108-112`), which clears the ALLCALL bit [DS]. No `OE` handling, no read-back, no timeout on the thread write (N-28) | `tests/unit/test_pca9685_driver.py` (8) | H-04, H-08 |
-| Tractor safety monitor and watchdog | PARTIALLY IMPLEMENTED | `backend/src/safety/tractor_safety_monitor.py:144-209` (20 Hz; feeds the heartbeat unconditionally at `:181`; tilt edge calls `engage_blade(False)` once, `:197-206`; IMU loss returns silently, `:131-141,193-194`); `backend/src/safety/watchdog.py:54-69` (one-shot: `break` after the first timeout) | `tests/unit/test_tractor_safety_monitor.py` (9), `tests/contract/test_watchdog.py` | H-08, N-04, N-06 |
+| Tractor safety monitor and watchdog | PARTIALLY IMPLEMENTED | `backend/src/safety/tractor_safety_monitor.py:82-115` (20 Hz; feeds the heartbeat unconditionally at `:87`; the tilt edge calls `engage_blade(False)` once, `:103-112`; IMU loss returns silently, `:37-47,98-100`); `backend/src/safety/watchdog.py:54-69` (one-shot: `break` after the first timeout) | `tests/unit/test_tractor_safety_monitor.py` (9), `tests/contract/test_watchdog.py` | H-08, N-04, N-06 |
 | RoboHAT service | PARTIALLY IMPLEMENTED (differential-drive platform only) | `backend/src/services/robohat_service.py`: `_maintain_usb_control` re-sends the last PWM every about 0.9 s (`:246-269`, N-14); `emergency_stop` `:441-459`; `shutdown` `:501-` | `tests/unit/test_robohat_service_usb_control.py` | H-08, H-11 |
 | RoboHAT JSON driver | STUBBED (not used by the service; protocol mismatch) | `backend/src/drivers/motor/robohat_rp2040.py:84-134` sends JSON `MOTOR_COMMAND`/`EMERGENCY_STOP`; the firmware parser accepts a text protocol (`robohat-rp2040-code/code.py:186-225`) | `tests/unit/test_robohat_rp2040_driver.py` (fake) | H-11 |
 | Blade service and IBT-4 driver | **STUBBED** | `backend/src/drivers/blade/ibt4_gpio.py:25-50` (`setup`/`set_active` only set flags; no GPIO library imported). `BladeService.emergency_stop` (`backend/src/services/blade_service.py:46-55`) and `IBT4BladeDriver.set_estop` (`ibt4_gpio.py:103-106`) have no callers (N-03) | `tests/unit/test_ibt4_blade_driver.py` (flags only) | H-02c, H-08 |
@@ -203,7 +203,7 @@ State of the gates at this baseline: **all three are closed** (see Part F).
 | WebSocket authorisation | PARTIALLY IMPLEMENTED | `backend/src/api/routers/auth.py:318-386` admits localhost, `testserver` or any client under `SIM_MODE=1` as an operator; the HTTP handshake helper `backend/src/api/routers/telemetry.py:96-111` accepts any non-empty bearer string | skipped | H-14, N-16 |
 | Default credentials | **present** | `operator123` and `admin`/`admin`: `backend/src/api/rest_v1.py:108`, `backend/src/api/routers/auth.py:396-397`, `backend/src/services/auth_service.py:233` | tests use them | H-14, N-17 |
 | JWT secret persistence | PARTIALLY IMPLEMENTED | `auth_service.py:83-85` generates a random key per process start when `LAWN_BERRY_AUTH_SECRET` is unset (no `.env` live); a second mechanism exists (`backend/src/core/secrets_manager.py:81-86`) | none | N-21 |
-| CORS | PARTIALLY IMPLEMENTED | `backend/src/middleware/security.py:191-230`: origin allow-list with credentials; `http://<pi-ip>:3000` is not in the defaults unless `LAWN_BERRY_ALLOWED_ORIGINS` is set (not set) | `tests/unit/test_security_middleware.py` | N-21 |
+| CORS | PARTIALLY IMPLEMENTED | `backend/src/middleware/security.py:191-228`: origin allow-list with credentials; `http://<pi-ip>:3000` is not in the defaults unless `LAWN_BERRY_ALLOWED_ORIGINS` is set (not set) | `tests/unit/test_security_middleware.py` | N-21 |
 | Pi-Thor link authentication | **MISSING** | see A.8 | none | H-13, N-15 |
 | Secret hygiene | PARTIALLY IMPLEMENTED | A local pre-commit hook only (`scripts/pre-commit-secret-scan.sh`); no secret-scanning workflow; no secrets found in tracked files by the audit's search | none | N-22 |
 
@@ -304,7 +304,7 @@ What the passing safety tests prove and do not prove:
 | Process limits | PARTIALLY IMPLEMENTED | `MemoryMax=512M`, `CPUQuota=80%` (`lawnberry-backend.service:64-65`): an OOM kill is a SIGKILL with no cleanup (N-09) |
 | Containers and deploy path | MISSING | No Dockerfile, compose file or deploy workflow |
 
-### A.15 Findings outside the PR #18 register (N-01 to N-28)
+### A.15 Findings outside the PR #18 register (N-01 to N-31)
 
 These are proposed additions to the gap register. Each cites the file and line (baseline `765c737`).
 
@@ -313,9 +313,9 @@ These are proposed additions to the gap register. Each cites the file and line (
 | N-01 | General E-stop routes do not actuate everything yet reply that motors and blade are stopped | `backend/src/api/rest.py:600-692` | H-08 |
 | N-02 | The e-stop block on follow-up drive and blade commands lasts 0.2-0.3 s and is not latched | `rest.py:175-179,204-222,324,359,503,550,621-627` | H-08 |
 | N-03 | The IBT-4 blade is never e-stopped; `BladeService.emergency_stop` and `IBT4BladeDriver.set_estop` have no callers | `blade_service.py:46-55`, `ibt4_gpio.py:103-106`, `rest.py:550-555` | H-08 |
-| N-04 | The watchdog heartbeat is the monitor's own loop liveness; the watchdog is one-shot; its `EstopHandler` holds a private `MotorAuthorization` | `watchdog.py:54-69`, `tractor_safety_monitor.py:176-181`, `main.py:155-158` | H-08 |
+| N-04 | The watchdog heartbeat is the monitor's own loop liveness; the watchdog is one-shot; its `EstopHandler` holds a private `MotorAuthorization` | `watchdog.py:54-69`, `tractor_safety_monitor.py:84-87`, `main.py:155-158` | H-08 |
 | N-05 | If tractor initialisation raises, the actuation API stays live with no watchdog and no tilt monitor, and nothing alerts | `main.py:144-170` | H-08, H-12 |
-| N-06 | Tilt cutoff: one-shot blade-off, re-engaged by the mission loop within about 200 ms [INF]; IMU loss is fail-open; on real hardware the IMU is a stub that reports zero roll and pitch | `navigation_service.py:354-371`, `tractor_service.py:218-231,304`, `tractor_safety_monitor.py:131-141,191-209`, `sensor_manager.py:186-200`, `bno085_driver.py:69-78` | H-08 |
+| N-06 | Tilt cutoff: one-shot blade-off, re-engaged by the mission loop within about 200 ms [INF]; IMU loss is fail-open; on real hardware the IMU is a stub that reports zero roll and pitch | `navigation_service.py:354-371`, `tractor_service.py:218-231,304`, `tractor_safety_monitor.py:37-47,97-115`, `sensor_manager.py:186-200`, `bno085_driver.py:69-78` | H-08 |
 | N-07 | A PCA9685 absent or unreachable at boot makes every lever command and e-stop a silent success | `pca9685_driver.py:117-126,155-156`, `tractor_service.py:157-172,199-203` | H-04, H-08 |
 | N-08 | `execute_mission` cranks the engine whenever `engine_running` is false, and the state is OFF after any backend restart, so a mission start can pulse the starter on a running engine; it contradicts "a human starts the engine with the levers in PARK" | `navigation_service.py:188-195`, `tractor_service.py:109-110,246-250` | H-06 |
 | N-09 | No safe shutdown: teardown does not park actuators, no `ExecStopPost`, relay pin state at exit is unknown | `main.py:184-201`, `systemd/lawnberry-backend.service:37-44`, `tractor_actuators.py:95-124` | H-08 |
@@ -324,7 +324,7 @@ These are proposed additions to the gap register. Each cites the file and line (
 | N-12 | INA3221 channel map: spec and CI say CH1 battery / CH3 solar; driver and `config/hardware.yaml` say CH1 solar / CH3 battery | `spec/hardware.yaml:61-70`, `hardware-guard.yml:54-59`, `ina3221_driver.py:3-6,101`, `config/hardware.yaml:29-33` | none |
 | N-13 | `dtoverlay=uart4` is the wrong overlay for the Pi 5 (needs `uart4-pi5`); `rpi4_alt_pin: 21/24` are physical pins read as BCM | `docs/hardware-integration.md` (baseline lines 68, 116), `spec/hardware.yaml:143-144`, LIVE overlay README | H-03 |
 | N-14 | The RoboHAT host loop re-sends the last PWM about every 0.9 s, defeating the firmware's USB-silence failsafe; `duration_ms` is validated and ignored; `/tractor/command` has no TTL, lease or server dead-man | `robohat_service.py:246-269`, `rest.py:378-388`, `routers/tractor.py:67-70` | H-08, H-14 |
-| N-15 | Thor link: any source address accepted, no HMAC or epoch, sequence-poisoning denial of service, hold is non-revoking, `tick` swallows actuation errors, `current_plan()` has no consumer | `thor_link_service.py:45-62,98-145` | H-13, H-23 |
+| N-15 | Thor link: any source address accepted, no HMAC or epoch, sequence-poisoning denial of service (a Thor restart that resets `seq` is dropped the same way), hold is non-revoking, `tick` swallows actuation errors, `current_plan()` has no consumer | `thor_link_service.py:45-62,98-145` | H-13, H-23 |
 | N-16 | Missions, AI enable, `emergency_clear`, debug injectors and `/system/selftest` have no auth dependency; WebSocket helpers accept any bearer or any `SIM_MODE` client | see A.9 | H-14 |
 | N-17 | Hard-coded default credentials | A.9 | H-14 |
 | N-18 | `hw_selftest.ultrasonic_probe()` claims and drives TRIG pins GPIO4/27/11 regardless of `ultrasonic_enabled`, with `gpiochip_open(4)` hard-coded | `hw_selftest.py:36-41,192-255`, `routers/maintenance.py:62-69` | H-02 |
@@ -338,6 +338,9 @@ These are proposed additions to the gap register. Each cites the file and line (
 | N-26 | Engine and PTO state are commanded, not sensed; `stop_engine` only sets a flag, there is no ignition-kill actuator | `tractor_service.py:246-256` | H-06, H-21 |
 | N-27 | `set_levers` applies left then right with no rollback; `ServoActuator.command` records the state before the write; a relay failure can pre-empt servo safing | `tractor_service.py:196-197`, `tractor_actuators.py:65-69,95-115` | H-08 |
 | N-28 | The PCA9685 write runs in a thread with no timeout, so a hung bus can stall the e-stop sequence for as long as the kernel I2C timeout allows [INF, DS] | `pca9685_driver.py:170-171`, `tractor_service.py:272-283` | H-04, H-08 |
+| N-29 | The watchdog circuit in `hardware.md` (Safety, "Circuit") does not follow from its own formula: `t = 0.45 x R x C` with 50 kOhm and 1 uF gives 22.5 ms, not "near a 200 ms window", and is shorter than the 50 ms heartbeat period it must ride through. Its GPIO is unassigned. No value from that paragraph may be used; the window is derived from the measured stopping distance (M-43) with the safety reviewer [DS formula as quoted by the repository] | `hardware.md` (Safety, "Circuit"; section cited because this PR edits the file) | H-08 |
+| N-30 | Entering safe hold sets `safe_hold` before the actuation awaits. If `engage_blade(False)` raises, the lever call is skipped, and the retry branch re-asserts only the levers (and only while `state.moving`); the blade is never retried, while the uplink reports `safe_hold: true` [INF, not executed] | `thor_link_service.py:132-145,150-160` | H-08, H-13 |
+| N-31 | The GPS-degradation monitor does not observe real missions: it acts only when the `RobotState` mode is `AUTONOMOUS`, whose only writer in `backend/src` is the debug route `POST /api/v2/nav/mode`, while missions and the AI loop use a different enum and state (`AUTO`, `AI`); its "fix age" is the age of the whole state's `last_updated`, not of the GNSS fix; when it does fire it changes an in-memory flag and no actuator | `nav/gps_degradation.py:69-89`, `api/navigation.py:93-100`, `navigation_service.py:198`, `models/robot_state.py:18-22`, `models/navigation_state.py:12-22`, `main.py:108-110` | H-09, H-26 |
 
 ## Part B. Phase 3 hardware deliverables
 
@@ -780,3 +783,188 @@ commissioning step explicitly says otherwise.
 | M-53 | Which board is the HaLow HAT (label and photo) | inspection | H-17 |
 | M-54 | Hailo identity (`hailortcli fw-control identify`, label), power draw, temperature in the enclosure | CLI, meter, thermal probe | H-17 |
 | M-55 | Pi 5 plus Hailo thermals in the not-IP-rated printed enclosure at hot ambient | thermal probe | `hardware.md` Weatherproofing |
+
+## Part C. Phase 4 distributed AI and navigation architecture
+
+"Target" is the owner's requirement from the PR #18 documents; "implemented" is the baseline in Part A. Nothing in
+this part is a claim that a target exists. The authority rule is the owner's and is kept unchanged: **safety
+authority stays local.** The Thor may suggest waypoints or model outputs; it may never energise an actuator, clear
+an e-stop or override a Pi interlock, and the mower must follow a defined locally safe behaviour when the Thor or
+the HaLow link disappears.
+
+### C.1 Authority split
+
+```mermaid
+flowchart TB
+  subgraph HOUSE["House"]
+    THOR["Thor: coverage strategy, optional heavy inference (strategist in SIM only)"]
+    RTKB["RTK base chain: LC29H-BS, Pi Zero, Orange Pi (MISSING)"]
+  end
+  subgraph MOWER["Mower"]
+    LINK["ThorLinkService (library, not wired, no sender auth)"]
+    NAV["NavigationService (partial)"]
+    FUSE["Obstacle fusion (stub)"]
+    SAFE["Local safety supervisor as one unit (MISSING)"]
+    TRACTOR["TractorControlService, PCA9685, relays (partial)"]
+  end
+  HW["Independent hardware: E-stop, watchdog, OEM interlocks (MISSING)"]
+  THOR -->|"plan windows over HaLow"| LINK
+  LINK --> NAV
+  FUSE --> SAFE
+  NAV --> SAFE
+  SAFE --> TRACTOR
+  HW --> TRACTOR
+  classDef missing fill:#fdd,stroke:#c00
+  classDef partial fill:#ffe9b3,stroke:#b80
+  classDef impl fill:#d8f5d0,stroke:#287
+  class RTKB,SAFE,HW missing
+  class LINK,NAV,FUSE,TRACTOR partial
+  class THOR impl
+```
+
+*Legend: green = implemented (in simulation), amber = partially implemented, red = missing.*
+
+| Decision | Target owner | Implemented at baseline | Status | Gap |
+|---|---|---|---|---|
+| Coverage plan and waypoint windows | Thor, high level | strategist in SIM (`nav/thor_strategist.py`); link service unwired; no consumer of `current_plan()` | PARTIAL | H-23 |
+| Re-validation of every plan (geofence, no-go zones, speed, blade permission) | Pi | `nav/geofence_validator.py` exists; not applied to Thor plans | MISSING | H-23 |
+| Local obstacle stop | Pi, deterministic, independent of the AI and the Thor | none for actuation | MISSING | H-26, N-11 |
+| Speed cap from detection range and stopping distance | Pi | none | MISSING | H-26 |
+| E-stop | independent hardware | software only | MISSING | H-08 |
+| Clearing an e-stop | local human acknowledgement | remote API call, auth off | MISSING | N-10 |
+| Engine start | a human, levers in PARK | auto-crank in the mission start | CONTRADICTED | H-06, N-08 |
+| PTO energise | Pi, gated by interlocks and a hardware fail-safe OFF | software relay, no feedback | PARTIAL | H-21 |
+| Perception used for safety | Pi, local (Hailo, ToF, ultrasonics, stereo, optional LiDAR) | detector in the camera service; nothing feeds a stop | PARTIAL | H-26 |
+| Perception used for planning | Thor, optional | detections-to-uplink MISSING | MISSING | H-23 |
+
+### C.2 Link-loss and degraded-mode behaviour
+
+| Event | Required local behaviour (target) | Implemented at baseline | Gap |
+|---|---|---|---|
+| Thor silent for more than 0.5 s | Hold: PTO off, levers neutral, authorisation kept; resume only on a fresh, authenticated plan | `ThorLinkService._evaluate_hold` (library; `thor_link_service.py:132-145`) | H-23, N-15 |
+| Thor alive but its planner is broken | Plan sanity checks, plan age, local re-validation; hold if the plan disagrees with the Pi's state | none: freshness is "any valid downlink in 0.5 s" | N-15 |
+| HaLow link down (Pi isolated) | As for Thor silent, plus an explicit, tested decision on local continuation | not wired | H-23 |
+| HaLow radio reset or power cycle | Defined re-association; no unsafe command on rejoin | unverified (`docs/autonomy-toolchain-matrix.md:68`: "not exercised") | H-23 |
+| Operator client lost (manual or VR) | Dead-man: the command lease expires, levers go neutral, PTO off | the client stops sending (`scripts/teleop.py:37`); the server keeps the last command indefinitely | N-14 |
+| Backend process dies or hangs | An independent hardware path reaches a defined safe state | none (A.5, N-09) | H-08 |
+| RTK fix degrades (fixed to float or none) | Speed cap, hold or geofence margin by fix quality | in-memory mode flip only (`nav/gps_degradation.py:22-35`) | H-09 |
+| Correction age above its limit | Treated as a degraded fix | no metric consumed | H-09 |
+| IMU stale or lost | Fault, then hold (fail closed) | fail-open (N-06) | N-06 |
+| Obstacle sensors stale or disagreeing | Fail closed: speed cap or stop | none | H-26 |
+| Camera or inference stalled | The deterministic stop path does not depend on it | the AI path stops by accident when ultrasonic data is absent (N-25) | N-25 |
+| Battery low, over-temperature | Stop or return | `trigger_low_battery`, `trigger_high_temp` have no callers (`safety_triggers.py:112-141`) | N-11 |
+| Pi brown-out | Detect and reach a safe state | `get_throttled` is not read by any service | R-P05 |
+
+### C.3 Secure HaLow and an authenticated Thor link
+
+| ID | Requirement (target) | Status at baseline |
+|---|---|---|
+| RS-1 | Link-layer authentication and encryption on the HaLow association (AP and station); network identity documented. The AP-side configuration lives on the Orange Pi, not in this repository | UNVERIFIED |
+| RS-2 | The Thor-link socket binds the HaLow interface address only and accepts datagrams only from the configured Thor address | MISSING: binds `0.0.0.0:47101` and ignores the source (`thor_link_service.py:54,98-110`) |
+| RS-3 | Every datagram is authenticated (for example an HMAC with a pre-shared key held outside git) and carries an epoch or boot id with a sequence number, so a Thor restart and a replay are both handled correctly | MISSING |
+| RS-4 | Plan freshness: `plan_id`, an age bound, and `start_index` validated against the Pi's `waypoint_index` | PARTIAL: `seq` only (`:106-107`) |
+| RS-5 | Rate limits and bounded sizes | PARTIAL: 1200 B cap (`models/thor_link.py:24,92-100`); rejected counter (`thor_link_service.py:74`) |
+| RS-6 | Every accepted plan is re-validated locally (geofence, no-go zones, speed, blade permission); the Thor cannot enable the blade where the Pi forbids it | MISSING |
+| RS-7 | The downlink carries no e-stop clear, arm or velocity message | IMPLEMENTED by omission (`models/thor_link.py:70-82`: waypoints and `pause` only) |
+| RS-8 | Key storage, rotation and behaviour across reboots | MISSING |
+| RS-9 | Counters for rejected, stale and replayed datagrams exposed to observability | PARTIAL |
+
+Without RS-2 to RS-4, a spoofed downlink could inject waypoints with `blade: true` legs or force or release a hold,
+and one datagram with a very large `seq` blocks every later legitimate one until the Pi restarts (N-15). The service
+is unwired today, so nothing consumes a plan: the exposure is latent and must be closed **before** it is wired.
+
+### C.4 RTK correction distribution (candidate topology)
+
+```mermaid
+flowchart LR
+  BASE["LC29H-BS base: antenna, survey, RTCM out"] --> PZ["Pi Zero: serial or USB host"]
+  PZ --> OPI["Orange Pi: HaLow AP and gateway"]
+  OPI -.->|"HaLow"| MPI["Mower Pi: forwarder"]
+  MPI -->|"RTCM"| ROVER["LC29H-DA rover"]
+  CASTER["Public NTRIP caster (existing client)"] -.->|"fallback over Internet"| MPI
+```
+
+| ID | Requirement | Status at baseline |
+|---|---|---|
+| RT-1 | The base antenna position is surveyed or known, and the antenna placement is recorded | MISSING |
+| RT-2 | The RTCM message set the LC29H-DA needs is identified from Quectel documentation and the base is configured to emit it | MISSING (no `PAIR`/`PQTM` handling; the documents are not in the repository) |
+| RT-3 | Transport from the base to the mower has bounded latency and the rover measures correction age | MISSING (no age metric consumed) |
+| RT-4 | The RTCM injection path to the rover is defined (UART0 RX or a second UART) | PARTIAL: `ntrip_client.py` writes to a serial device (`NTRIP_SERIAL_DEVICE`) |
+| RT-5 | Failure of each node (base, Pi Zero, Orange Pi, radio, Thor) has a defined result | MISSING |
+| RT-6 | Fallback to the public caster when the local base is down | PARTIAL: the caster client exists; the switchover logic does not |
+| RT-7 | Alarms for fix transitions, correction age and antenna failure | MISSING |
+
+### C.5 Stereo depth and the bandwidth it implies
+
+Capture is implemented; depth is not. At 2560x960 and 30 fps (`stereo_camera_driver.py:48-50`):
+
+| Representation | Rate | Against the measured 0.60 MB/s HaLow TCP (`docs/autonomy-toolchain-matrix.md:34`) |
+|---|---|---|
+| 1 byte per pixel | 73.7 MB/s | about 120 times too large |
+| 2 bytes per pixel (YUYV) | 147.5 MB/s | about 245 times |
+| 3 bytes per pixel (BGR after decode) | 221.2 MB/s | about 370 times |
+| Thor link protocol at its worst case | 12 kB/s (`models/thor_link.py:111-113`) | 2 % |
+
+Conclusion: **raw or lightly compressed stereo cannot cross HaLow.** Depth and obstacle extraction must run on the
+mower, and only distilled results (detections, a coarse range image, or compressed video at a few Mbit/s) may cross
+the link; the throughput at the far yard is unmeasured (M-52). Candidate depth paths, all unevaluated: classical
+stereo matching on the Pi at reduced resolution; the monocular `scdepthv3` HEF on the Hailo (driver support exists,
+`hailo_driver.py:63,77`); a neural stereo model on the Thor from compressed video (latency-bound). Needed for any
+of them: stored intrinsics and extrinsics, rectification, a confidence output, a timestamp, a transform into the
+vehicle frame, and validation against measured ranges on real grass (low texture, glare, dust).
+
+### C.6 2D LiDAR (optional) and C.7 ultrasonic
+
+- **LiDAR:** MISSING. Selection criteria to fix first: sunlight and rain rating, minimum range, scan rate, interface
+  and power, driver licence, mounting height, and the blind spots above and below its scan plane. A planar scan
+  alone cannot cover negative obstacles or objects off the plane (PR #18 plan).
+- **Ultrasonic (4x JSN-SR04T):** MISSING. Needed: a driver for the actual module mode, time-division firing so the
+  four sensors do not hear each other, per-sensor blind-zone handling (a reading inside the blind zone means
+  **unknown**, never "clear"), speed-of-sound compensation if justified by M-40, staleness and outlier handling,
+  health reporting, and use as one input among several, never alone (roadmap P2).
+
+### C.8 Fusion
+
+Target: timestamped measurements from every sensor, static extrinsics per sensor into the vehicle frame, one
+obstacle representation (range-bearing hits, keep-out polygons or a local occupancy grid), per-source confidence and
+staleness, and deterministic rules for the stop path: any valid detection inside the stopping distance `d_stop(v)`
+stops the machine; stale or blind readings count as blocked for the speed cap; the AI and the Thor may only reduce
+speed further. Implemented: **none** (A.6, N-11, H-26). `tests/contract/test_sensor_fusion.py` is a skipped
+placeholder that currently stands in for it.
+
+### C.9 ROS 2 / Nav2 feasibility
+
+Status: **no ROS code, dependency or configuration exists**. Assessment (unevaluated; nothing was built or run):
+
+| Question | Finding |
+|---|---|
+| Runtime | The repository pins Python 3.11.x (`docs/hardware-integration.md`), while the Pi image documented on 2026-10-06 was Ubuntu 24.04.4 with system Python 3.12.3 (`docs/autonomy-toolchain-matrix.md:14`) and the live kernel suggests a different image. ROS 2 binary distributions are tied to the OS release [DS]; Debian Bookworm (`spec/hardware.yaml:3`) is not a tier-1 target [DS], so a source build or a container may be needed. `rclpy` binds the system Python, not the repository's venv [DS], which implies a separate process. Unknown: which OS image is intended |
+| Resource budget | Shares the Pi with the backend (`MemoryMax=512M`, `CPUQuota=80%` in `systemd/lawnberry-backend.service:64-65`), the camera service and the Hailo runtime; unmeasured |
+| Kinematics | Nav2 controllers assume differential, omni or Ackermann bases [DS]. At command level the zero-turn machine is a differential drive (`navigation_service.py:333-346` reuses the differential mix), but the lever-to-speed map, hydrostatic lag and coast are unmeasured (M-43), so a controller would need system identification |
+| Localisation | RTK-fixed GNSS plus a real IMU feed (BNO085 driver is a stub) and the ROS frame conventions [DS] |
+| Obstacle input | Nav2 costmaps accept range, laser-scan and point-cloud inputs [DS]; four ultrasonic ranges, a stereo point cloud and an optional LiDAR are plausible inputs, and **each driver is MISSING** |
+| Safety | Nav2 is not a safety system. The deterministic stop path and the interlocked tractor methods must stay outside it (`docs/tractor-acceptance-criteria.md` section 5) |
+| Coverage | The repository already has a coverage planner and a Thor strategist; Nav2 coverage add-ons would duplicate them [DS] |
+| Verdict | **Feasible in principle, unevaluated, and premature** before the P2 sensor drivers and the P4 stop path. Run a bounded spike on the Thor against recorded data first; decide at gate G4 (Part E) |
+
+### C.10 Coverage planning and C.11 VR teleoperation
+
+- **Coverage planning.** Implemented: a local planner (`nav/coverage_planner.py`, `coverage_patterns.py`,
+  `path_planner.py`, `zone_coverage.py`) and a Thor-side strategist that plans a boustrophedon inside the boundary
+  minus no-go zones, replans around detections, pauses unless the fix is `rtk_fixed`, and resumes. Target: the Thor
+  plans, the Pi validates and executes. Missing: the consumer, the uplink builder, plan-age and `start_index`
+  validation, and any run on the machine (H-23).
+- **VR and manual driving (P5, optional).** Target: a pan/tilt stereo camera, head tracking, a codec and a measured
+  latency and jitter budget, authenticated operator control with a heartbeat and a **server-enforced** dead-man,
+  local obstacle interlocks, and no use of the video path as the sole safety feedback. Implemented: keyboard
+  teleoperation with a client-side dead-man (`scripts/teleop.py`) and capture logging; no pan/tilt, head tracking,
+  stereo stream or server lease (H-16, H-14, N-14). The bandwidth arithmetic is in C.5.
+
+### C.12 Multi-agent automation (H-27) and future compute portability (H-28)
+
+PR #16 is a one-file draft design document. PR #17 (`feat/agent-bridge-omp`) is a draft of 62 files under
+`tools/agent_bridge/**`; it is not merged and adds nothing under `backend/`. Do not claim Codex, Claude Code or Oh My
+Pi orchestration until it is tested. Agents work in separate Git worktrees, exchange results through draft PRs and
+human review, and no agent drives mower hardware because it read a handoff. The HPE server migration (H-28) is a
+future optional deployment: it needs containerised services and hardware-agnostic interfaces defined first, and it
+must not be confused with the Thor's role.
