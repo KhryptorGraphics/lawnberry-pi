@@ -50,14 +50,19 @@
 > login token must not travel in a URL (uvicorn logs the query string; `?access_token=` is no
 > longer read). It therefore trades its bearer token for a 30 s, single-use ticket
 > (`POST /api/v2/auth/ws-ticket`, bearer required; a ticket dies with the login session it was
-> minted for) and connects with `?ticket=...`. Non-browser clients may send
-> `Authorization: Bearer <token>` on the handshake. A presented but invalid credential is always
-> refused. With no credential: `/api/v2/ws/control` (the command-capable socket) is refused
-> whenever operator auth is on, whoever the peer is; `/ws/telemetry` and `/api/v2/ws/status`
-> (read-only streams of what the open GET routes carry; `/ws/status` used to check nothing) admit
-> a loopback TCP peer (the UI server) or the explicit simulator opt-in, and refuse everyone else.
-> `X-Forwarded-For` plays no part in WebSocket admission. No WebSocket handler changes mower
-> state today (`/ws/control` only acknowledges).
+> minted for; the route is outside the `/api/*/auth` attempt limiter, see below) and connects with
+> `?ticket=...`. Non-browser clients may send `Authorization: Bearer <token>` on the handshake.
+> A presented but invalid credential is always refused. With no credential:
+> `/api/v2/ws/control` (the command-capable socket) is refused whenever operator auth is on,
+> whoever the peer is; `/ws/telemetry` and `/api/v2/ws/status` (read-only streams of what the open
+> GET routes carry; `/ws/status` used to check nothing) admit a loopback peer or the explicit
+> simulator opt-in, and refuse everyone else. "Peer" is the connection's address as the app sees
+> it: uvicorn's proxy-headers handling (on by default, trusting `FORWARDED_ALLOW_IPS`, default
+> `127.0.0.1`) replaces the UI server's loopback address with the browser's, so **a LAN browser
+> behind the UI server is refused without a ticket** (the UI falls back to REST polling) and only
+> a browser on the mower itself counts as loopback. Checked end to end with the real UI server and
+> backend: anonymous LAN browser 401, loopback browser 101, LAN browser with a ticket 101. No
+> WebSocket handler changes mower state today (`/ws/control` only acknowledges).
 >
 > **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate) is a
 > step-up for a logged-in operator: it needs the bearer token AND the credential again in the
@@ -76,21 +81,28 @@
 > (`cryptography`, not installed here): owner decision, see the audit.
 >
 > **Limits are per client address, not per `X-Client-Id`.** The login lockout, the unlock
-> throttle, the `/api/*/auth` limiter and the global limiter count the connection's address (IPv6
+> throttle, the `/api/*/auth` limiter and the global limiter count the client's address (IPv6
 > per /64), never a header the client writes, and every table is bounded. The shipped web UI
-> server (`frontend/server.mjs`) proxies to the backend from 127.0.0.1. The backend believes
-> `X-Forwarded-For` only from a peer in `LAWN_BERRY_TRUSTED_PROXIES` (comma-separated addresses
-> or networks, default `127.0.0.0/8,::1`; an empty value trusts none) and then takes the LAST hop
-> that is not itself a trusted proxy: the address the proxy recorded from its own socket.
-> Whatever the client wrote to the left of it is never read, and from any other peer the header
-> is ignored entirely. The UI server deletes inbound `X-Forwarded-For`/`Forwarded`/`X-Real-IP`
-> and sets the header itself (`xfwd: true`), so each browser has its own lockout and its own
+> server (`frontend/server.mjs`) proxies to the backend from 127.0.0.1. Two layers believe
+> `X-Forwarded-For` only from a trusted peer and then take the LAST hop that is not itself a
+> trusted proxy (the address the proxy recorded from its own socket; whatever the client wrote to
+> the left of it is never read): uvicorn first (`--proxy-headers`, on by default, trusting
+> `FORWARDED_ALLOW_IPS`, default `127.0.0.1`; it replaces `request.client`), then the backend's
+> `core/peer_address.py` (`LAWN_BERRY_TRUSTED_PROXIES`: comma-separated addresses or networks,
+> default `127.0.0.0/8,::1`; an empty value trusts none). From any other peer the header is
+> ignored entirely. The UI server deletes inbound `X-Forwarded-For`/`Forwarded`/`X-Real-IP` and
+> sets the header itself (`xfwd: true`), so each browser has its own lockout and its own
 > rate-limit bucket. A proxy that passes a client-supplied `X-Forwarded-For` through unchanged
 > would let that client pick its own bucket: never list such a proxy in
-> `LAWN_BERRY_TRUSTED_PROXIES`. With no header at all, every client behind a proxy shares the
-> proxy's one budget and one lockout. Tractor command POSTs and `/control/drive|blade` have their
-> own buckets so UI polling cannot starve them. Password checks (bcrypt, ~270 ms) run on a small
-> dedicated thread pool, never on the event loop that carries the deadman and the E-stop handlers.
+> `LAWN_BERRY_TRUSTED_PROXIES` or `FORWARDED_ALLOW_IPS`, and never set `FORWARDED_ALLOW_IPS=*`
+> (uvicorn then takes the FIRST hop, which the client wrote). With no header at all, every client
+> behind a proxy shares the proxy's one budget and one lockout. `POST /auth/ws-ticket` (the UI
+> calls it before every WebSocket (re)connect, with a token that may have expired) is exempt from
+> the `/api/*/auth` attempt limiter and lockout (`middleware/security.py::UNLIMITED_AUTH_PATHS`):
+> it only redeems a live bearer, and counting it would block the login after a few reconnects.
+> Tractor command POSTs and `/control/drive|blade` have their own buckets so UI polling cannot
+> starve them. Password checks (bcrypt, ~270 ms) run on a small dedicated thread pool, never on
+> the event loop that carries the deadman and the E-stop handlers.
 >
 > **`SIM_MODE` is not a credential.** `SIM_MODE=1` alone no longer makes the login accept any
 > credential or admits any WebSocket client as an operator: that needs `LAWN_BERRY_SIM_OPEN_AUTH=1`
