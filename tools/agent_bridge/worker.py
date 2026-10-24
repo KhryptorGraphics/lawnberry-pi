@@ -881,7 +881,10 @@ class Worker:
         policy = build_write_policy(el.task.spec, self.cfg)
         self.git.stage_all(path)
         staged = self.git.staged_changes(
-            path, base_sha, max_diff_bytes=self.cfg.limits.max_diff_bytes
+            path,
+            base_sha,
+            max_diff_bytes=self.cfg.limits.max_diff_bytes,
+            max_file_bytes=self.cfg.limits.max_file_bytes,
         )
         if not staged.changes:
             raise _Stop(

@@ -155,7 +155,12 @@ def run_smoke(
             }
         git = GitOps(repo, cfg.git, state_dir=tmp / "state", redactor=redactor)
         git.stage_all(repo)
-        staged = git.staged_changes(repo, base_sha, max_diff_bytes=cfg.limits.max_diff_bytes)
+        staged = git.staged_changes(
+            repo,
+            base_sha,
+            max_diff_bytes=cfg.limits.max_diff_bytes,
+            max_file_bytes=cfg.limits.max_file_bytes,
+        )
         violations = evaluate_changes(
             staged.changes, policy, cfg.limits, diff_bytes=staged.diff_bytes
         )
