@@ -41,9 +41,23 @@
 > writes, `/nav/*`, the `/debug/*` injectors, `/control/drive`, `/control/blade`, the map, recording
 > and `/api/v1` writes, and clearing an E-stop or latch (`/tractor/clear-emergency`,
 > `/control/emergency_clear`). A manual-control session id is **not** a credential and
-> `X-Session-Id` is no longer read. Not changed (observed): the `/debug/*` injectors are not
-> restricted to `SIM_MODE` (audit WP-P0-03), and the WebSocket helper still admits a loopback
-> client without a token (the shipped web UI server proxies from loopback).
+> `X-Session-Id` is no longer read. The `/debug/*` injectors (GPS, geofence, ToF and tilt) answer
+> 404 unless `SIM_MODE=1` or `LAWNBERRY_ENABLE_DEBUG_ROUTES=1` (bench use on the mower needs that
+> flag in `<root>/.env`; `/health` reports it as `debug_routes_enabled`), and need the bearer
+> token on top.
+>
+> **WebSockets.** A browser cannot set an `Authorization` header on a WebSocket handshake, and the
+> login token must not travel in a URL (uvicorn logs the query string; `?access_token=` is no
+> longer read). It therefore trades its bearer token for a 30 s, single-use ticket
+> (`POST /api/v2/auth/ws-ticket`, bearer required; a ticket dies with the login session it was
+> minted for) and connects with `?ticket=...`. Non-browser clients may send
+> `Authorization: Bearer <token>` on the handshake. A presented but invalid credential is always
+> refused. With no credential: `/api/v2/ws/control` (the command-capable socket) is refused
+> whenever operator auth is on, whoever the peer is; `/ws/telemetry` and `/api/v2/ws/status`
+> (read-only streams of what the open GET routes carry; `/ws/status` used to check nothing) admit
+> a loopback TCP peer (the UI server) or the explicit simulator opt-in, and refuse everyone else.
+> `X-Forwarded-For` plays no part in WebSocket admission. No WebSocket handler changes mower
+> state today (`/ws/control` only acknowledges).
 >
 > **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate) is a
 > step-up for a logged-in operator: it needs the bearer token AND the credential again in the
@@ -61,13 +75,21 @@
 > Cloudflare Access needs the Access issuer, audience and signing keys plus RS256 support
 > (`cryptography`, not installed here): owner decision, see the audit.
 >
-> **Limits are per TCP peer, not per `X-Client-Id`.** The login lockout, the unlock throttle, the
-> `/api/*/auth` limiter and the global limiter are keyed on the connection's address (IPv6 per
-> /64); no client-written header is consulted, and every table is bounded. Consequence: the shipped
-> web UI server proxies to the backend from 127.0.0.1, so all browsers behind it share one budget
-> (raise `GLOBAL_RATE_LIMIT_RATE`/`GLOBAL_RATE_LIMIT_BURST` if that is too tight) and a
-> lockout applies to all of them. Tractor command POSTs and `/control/drive|blade` have their own
-> buckets so UI polling cannot starve them. Password checks (bcrypt, ~270 ms) run on a small
+> **Limits are per client address, not per `X-Client-Id`.** The login lockout, the unlock
+> throttle, the `/api/*/auth` limiter and the global limiter count the connection's address (IPv6
+> per /64), never a header the client writes, and every table is bounded. The shipped web UI
+> server (`frontend/server.mjs`) proxies to the backend from 127.0.0.1. The backend believes
+> `X-Forwarded-For` only from a peer in `LAWN_BERRY_TRUSTED_PROXIES` (comma-separated addresses
+> or networks, default `127.0.0.0/8,::1`; an empty value trusts none) and then takes the LAST hop
+> that is not itself a trusted proxy: the address the proxy recorded from its own socket.
+> Whatever the client wrote to the left of it is never read, and from any other peer the header
+> is ignored entirely. The UI server deletes inbound `X-Forwarded-For`/`Forwarded`/`X-Real-IP`
+> and sets the header itself (`xfwd: true`), so each browser has its own lockout and its own
+> rate-limit bucket. A proxy that passes a client-supplied `X-Forwarded-For` through unchanged
+> would let that client pick its own bucket: never list such a proxy in
+> `LAWN_BERRY_TRUSTED_PROXIES`. With no header at all, every client behind a proxy shares the
+> proxy's one budget and one lockout. Tractor command POSTs and `/control/drive|blade` have their
+> own buckets so UI polling cannot starve them. Password checks (bcrypt, ~270 ms) run on a small
 > dedicated thread pool, never on the event loop that carries the deadman and the E-stop handlers.
 >
 > **`SIM_MODE` is not a credential.** `SIM_MODE=1` alone no longer makes the login accept any
@@ -676,13 +698,19 @@ Notes:
 
 4. **WebSocket 401 Unauthorized (remote access)**:
 
-When accessing the UI through a tunnel/proxy, browsers cannot set custom headers on WebSocket upgrades. The backend now supports passing the session token via query params. Ensure:
+Browsers cannot set custom headers on WebSocket upgrades, so the UI trades its bearer token for a
+single-use ticket and connects with `?ticket=<ticket>`. Ensure:
 
-- You are logged in to the UI (a valid token is stored in localStorage).
-- The frontend will automatically append `?access_token=<token>` to the telemetry/control WS URLs.
-- If using Cloudflare Access, the `CF-Access-Jwt-Assertion` header is accepted for WS authorization when Access policy already authenticated the user.
+- You are logged in to the UI (a valid token is stored in localStorage); the UI then calls
+  `POST /api/v2/auth/ws-ticket` before every (re)connect. The login token itself is no longer
+  accepted in a WebSocket URL.
+- A ticket lives 30 s and works once; a retry needs a fresh one (the UI fetches one per attempt).
+- A `CF-Access-Jwt-Assertion` header is not a credential on any route (it was never verified), so
+  a Cloudflare Access policy does not authorize a WebSocket: log in to the mower UI as well.
 
-If you still see WS failures, live telemetry will fall back to REST polling. Check the browser console network tab for 401/403 responses on `/api/v2/ws/telemetry` or `/ws/telemetry` and adjust Access policies accordingly.
+If you still see WS failures, live telemetry will fall back to REST polling. Check the browser
+console network tab for 401/403 responses on `/api/v2/ws/telemetry` or `/ws/telemetry`, and for
+the `POST /api/v2/auth/ws-ticket` request that precedes them.
 
 ### Debug Commands
 

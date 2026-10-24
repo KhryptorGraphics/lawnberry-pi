@@ -20,12 +20,17 @@ Environment=PYTHONUNBUFFERED=1
 # Operator auth is ENFORCED (it was 0 = disabled until the 2026-10-24 safety audit). Every
 # state-changing route needs `Authorization: Bearer <token>` from POST /api/v2/auth/login:
 # tractor, control (drive, blade), missions, AI, navigation, maintenance, map, recording, the
-# debug injectors and the manual-control unlock (which also re-checks the credential). Open by
-# design: the E-stop POSTs (/api/v2/control/emergency, /control/emergency-stop,
-# /tractor/emergency-stop; also exempt from every rate limiter) and the login routes; clearing an
-# E-stop or latch is authenticated. See api/deps.py::require_operator_auth,
-# docs/authentication-config.md and tests/integration/test_operator_auth_coverage.py (lists
-# every open route and why).
+# debug injectors (which also answer 404 unless SIM_MODE=1 or LAWNBERRY_ENABLE_DEBUG_ROUTES=1)
+# and the manual-control unlock (which also re-checks the credential). Open by design: the
+# E-stop POSTs (/api/v2/control/emergency, /control/emergency-stop, /tractor/emergency-stop;
+# also exempt from every rate limiter) and the login routes; clearing an E-stop or latch is
+# authenticated. See api/deps.py::require_operator_auth, docs/authentication-config.md and
+# tests/integration/test_operator_auth_coverage.py (lists every open route and why).
+# WebSockets: a browser trades its bearer token for a 30 s single-use ticket
+# (POST /api/v2/auth/ws-ticket); /api/v2/ws/control needs a credential while auth is on.
+# Login lockout and the rate limiters count the client address: the TCP peer, or behind a
+# trusted proxy (LAWN_BERRY_TRUSTED_PROXIES, default the loopback, where the web UI server runs)
+# its last X-Forwarded-For hop; never an X-Client-Id header.
 # Only 0, false, no or off disable it; any other value (an empty line, a typo) keeps it ON.
 # @LB_ROOT@/.env (EnvironmentFile below) overrides this line, and the backend logs CRITICAL at
 # start-up (GET /health reports operator_auth) whenever auth is disabled outside SIM_MODE.
