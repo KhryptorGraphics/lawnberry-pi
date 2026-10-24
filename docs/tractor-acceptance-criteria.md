@@ -272,3 +272,11 @@ and fault-injection items.
 | 9. Reverse definition: pivot vs. true reverse | | | | |
 | 10. Lever self-centring (gates item 1) | | | | |
 | 11. Manual-start operating sequence | | | | |
+
+## Software-side evidence from the 2026-10-24 review fixes (not hardware evidence)
+
+- E-stop ordering with a stalled PCA9685 write (fake bus, `tests/unit/test_tractor_estop_durability.py`): PTO and starter relays open at
+  0 ms, the first servo neutral write lands at 51 ms, and `complete` is reported only after the stalled write finished and neutral was
+  re-asserted. This does NOT tick the per-actuator physical-latency boxes in section 4: those still need the bench run on real hardware.
+- A stop issued while a write is in flight, a park followed by a still-running loop, a clear on a tilted machine and a clear racing a stop
+  are covered by unit tests (names in the audit section "Review-fix track FixActuation").

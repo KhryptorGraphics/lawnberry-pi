@@ -570,3 +570,29 @@ Pi's replay rule protects the Pi only):
 
 - `models/tractor_control.py`, `drivers/actuators/tractor_actuators.py`,
   `services/tractor_service.py`, `api/routers/tractor.py`.
+
+### E-stop durability, park latch, disabled platform and clear gate (review fixes, 2026-10-24)
+
+Software behaviour added by the PR #19 / #20 review fixes. None of it changes a pin, a calibration or `tractor.enabled`, and none of it
+replaces the hardwired E-stop, the PCA9685 OE line or the servo-power cut (owner action O-7).
+
+- **A stop wins durably.** Every lever/throttle write captures a stop generation and refuses to land if a stop, park or lock-out happened
+  since. The stop writes neutral after at most `ESTOP_LOCK_WAIT_S` (0.05 s); when a write was still in flight it then waits (bounded) for
+  the lock and re-asserts neutral, so a slow I2C transfer can no longer land after the stop. `complete` is true only after that
+  re-assert is confirmed.
+- **Relays first.** The PTO and starter relays open before anything waits for the PCA9685 lock. Measured with a bus stalled for 0.6 s
+  (fake bus, `tests/unit/test_tractor_estop_durability.py`), old code to new code: PTO and starter relays open at 251 ms to 0 ms, first
+  neutral write at 251 ms to 51 ms, final left channel 1950 us to 1500 us (the old stop said `complete: true` and the stalled write then
+  drove the lever forward). This is software ordering only; the physical 100 ms requirement still needs the bench measurement in
+  `tractor-acceptance-criteria.md` section 4.
+- **Disabled platform.** With `enabled: false` (the shipped default) outside SIM_MODE the service claims and drives no GPIO or PWM
+  channel: E-stop and park answer `not_enabled`, the relays are built unarmed and the `/tractor` write routes answer `rejected`. This is
+  the conservative default pending owner decision O-5 (starter off GPIO5, blade IN2 off GPIO25).
+- **Park latches.** `park()` (shutdown) refuses everything except neutral/idle/blade-off until `initialize()`. The lifespan stops the
+  Thor follower, then the mission/AI/navigation loops, then parks. The RoboHAT `park()` latches the same way.
+- **Strict config.** `config/tractor.yaml` is validated by `services/tractor_config.py`: wrong types (`enabled: "false"`), an empty
+  `default_hold_ms:`, NaN/inf, out-of-range values and a hold above 10 s are explicit errors that list every problem. An invalid file
+  yields a disabled, locked-out service, so the E-stop route still answers.
+- **Clear gate.** `clear_emergency()` keeps the blade latch (answering `partial`) while the latest tilt reading is over the threshold,
+  missing, or older than 1 s. The general `/control/emergency_clear` reports `EMERGENCY_PARTIALLY_CLEARED` / `EMERGENCY_STILL_LATCHED`,
+  fails closed when the tractor state cannot be read, answers 409 while a stop is in flight and audits every clear with its reason.
