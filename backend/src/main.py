@@ -47,6 +47,7 @@ from .safety.safety_validator import validate_on_start
 from .safety.tractor_safety_monitor import TractorSafetyMonitor
 from .safety.watchdog import Watchdog
 from .services.camera_stream_service import camera_service
+from .services.emergency_stop_service import park_actuators
 from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
 from .services.tractor_service import get_tractor_service
 from .services.websocket_hub import websocket_hub
@@ -182,6 +183,17 @@ async def lifespan(app: FastAPI):
     await websocket_hub.start_telemetry_loop()
     yield
     # Shutdown
+    # Park the actuators FIRST, before any monitor/service is torn down: blade off,
+    # levers neutral, throttle idle, RoboHAT neutral + blade off. The PCA9685 holds
+    # its last pulse and a GPIO relay pin's state at process exit is unspecified, so
+    # shutdown must command the safe state explicitly instead of relying on either.
+    # (Skipped for a SIGKILL/power loss -- only independent hardware covers those.)
+    try:
+        park_report = await park_actuators(source="shutdown")
+        if park_report["faults"]:
+            _log.critical("Shutdown park NOT fully confirmed: %s", park_report["faults"])
+    except Exception:
+        _log.exception("Actuator park on shutdown failed")
     set_safety_event_handler(None)
     if getattr(app.state, "gps_deg_monitor", None):
         await app.state.gps_deg_monitor.stop()
