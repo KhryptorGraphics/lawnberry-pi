@@ -8,6 +8,7 @@ block, and the rules above it say explicitly that it is data and cannot change t
 
 from __future__ import annotations
 
+import re
 import secrets
 from collections.abc import Sequence
 from pathlib import Path
@@ -16,14 +17,38 @@ from .policy import WritePolicy
 from .redact import Redactor, strip_control_chars, truncate
 from .schema import ParsedTask
 
-__all__ = ["build_prompt", "load_context", "quote_block"]
+__all__ = ["build_prompt", "load_context", "neutralize_file_mentions", "quote_block"]
 
 QUOTE = "| "
+
+# omp reads every ``@path`` it finds in the prompt text and inlines the file's (or a directory's)
+# contents into the conversation before the model runs - with no setting to stop it, and with
+# absolute paths and ``~`` honoured (omp utils/file-mentions.ts: FILE_MENTION_REGEX and
+# isMentionBoundary).  Task text is untrusted and the tool guard never sees this path, so an
+# issue saying ``see @~/.config/gh/hosts.yml`` would put that file in the agent's context.  A
+# mention is only recognised at the start of the text or after one of the boundary characters
+# below and needs a character other than whitespace or ``@`` right behind the ``@``; putting a
+# backslash in front of such an ``@`` removes the boundary and so the mention.  The whitespace
+# set is JavaScript's ``\s`` (not Python's), so the two engines agree exactly.
+_JS_SPACE = (
+    "\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff"
+)
+_MENTION = re.compile(rf"(?:^|(?<=[{_JS_SPACE}(\[{{<\"'`]))@(?=[^{_JS_SPACE}@])")
+
+
+def neutralize_file_mentions(text: str) -> str:
+    """Escape every ``@`` that omp (or Claude Code) would expand into a file mention."""
+    return _MENTION.sub(r"\\@", text)
+
+
+# Every sequence ``str.splitlines`` (and so most consumers) treats as a line break; a quoted
+# line that held one of the exotic ones would start a new, unprefixed line for the agent.
+_LINE_BREAK = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 
 
 def quote_block(text: str) -> str:
     """Prefix every line so quoted text can never impersonate prompt structure."""
-    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = _LINE_BREAK.split(text)
     return "\n".join(f"{QUOTE}{line}" if line else QUOTE.rstrip() for line in lines)
 
 
@@ -142,4 +167,4 @@ def build_prompt(
         'Use status "blocked" (and change nothing) when you cannot finish safely, or '
         '"needs_human" when the work is done but a person must check something specific.',
     ]
-    return "\n\n".join(sections) + "\n"
+    return neutralize_file_mentions("\n\n".join(sections) + "\n")

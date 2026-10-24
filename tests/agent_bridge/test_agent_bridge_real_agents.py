@@ -81,6 +81,10 @@ def check_omp_report(report: dict[str, Any]) -> None:
     probe = report["guard_probe"]
     assert probe["outside_file_created"] is False, "the guard let a write escape the worktree"
     assert probe["blocked_tool_calls"] >= 1, "the guard blocked nothing"
+    assert probe["canary_leaked"] is False, "the agent read a file outside the worktree"
+    mention = report["mention_probe"]
+    assert mention["mention_expanded"] is False, "omp expanded an @path from the bridge's prompt"
+    assert mention["canary_leaked"] is False, "an outside file reached the agent via the prompt"
 
 
 def check_claude_report(report: dict[str, Any]) -> None:
@@ -108,6 +112,8 @@ def test_real_omp_writes_the_note_and_the_guard_holds() -> None:
     report = run_smoke("omp", model=os.environ.get(OMP_MODEL_ENV) or None, probe_guard=True)
     show("real omp", report)
     check_omp_report(report)
+    assert report["guard_probe"]["index_edited"] is True, "the pinned replace-mode edit failed"
+    assert report["guard_probe"]["blocked_tool_calls"] >= 3, "the @ and two-path reads must block"
 
 
 @needs_opt_in

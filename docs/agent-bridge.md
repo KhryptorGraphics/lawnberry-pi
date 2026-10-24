@@ -304,18 +304,36 @@ checks every call before it executes, against a JSON policy that lives outside t
 (`LAWNBERRY_BRIDGE_GUARD_POLICY`):
 
 - only tools named in the policy run (plus the hidden `yield` and `think`);
-- every path argument must stay inside the worktree after symlink resolution, must not be a URL or `xd://`
-  device, must not start with `~` and must not match the read deny list (`.git`, `.env*`, `*.pem`,
+- every path argument must be a **plain POSIX path**: letters, digits and `. _ + - /` plus an optional
+  `:selector` (`* ? [ ]` only for read tools). omp rewrites a path before it opens the file (a leading `@` or `:`
+  is stripped, quotes are removed, one string is split into several paths on whitespace, commas and `;`, `~` and
+  braces are expanded, `file://` becomes a path, and an absolute path keeps its `..` for the kernel to follow
+  through symlinks), so a guard that read the text literally approved a different file than omp opened:
+  `read @/etc/hostname` returned the real `/etc/hostname` through the first version of this guard. Anything
+  else is refused, as are `..` segments, URLs, `xd://` devices and `~`. The path must also stay inside the
+  worktree after symlink resolution and must not match the read deny list (`.git`, `.env*`, `*.pem`,
   `*.key`, `id_rsa*`, `config/secrets*.json`, `config/ssl/**`); deny list and write rules are applied
   to the path as written *and* to the symlink-resolved path, so a directory symlink inside `docs/` cannot
   lead to a protected or out-of-scope file;
 - `edit` and `write` must also match every write allow-set (scope, then the task's `allowed_paths`) and no
-  protected-path glob, may not write through a symlink and may not exceed 1,000,000 bytes;
+  protected-path glob, may not write through a symlink and may not exceed 1,000,000 bytes in total string
+  payload (every argument counts, not only `content`). They must name their files in path arguments: omp's
+  hashline, apply_patch and sloppy edit syntaxes carry file headers and `MV`/`REM`/rename targets inside a
+  text `input` and are refused. The backend pins omp's edit syntax to `replace` (overlay `edit.mode` and
+  `PI_EDIT_VARIANT`, which wins over omp's per-model default); a patch-mode `rename` is checked like a path;
 - `bash`, when enabled at all, runs only command lines listed verbatim, and its path arguments (`cwd`)
   must stay inside the worktree like any other;
 - a missing or invalid policy blocks everything (fail closed); each decision is appended to
   `omp-guard-audit.jsonl`, and blocked calls reach the model as errors starting with
   `[agent-bridge guard]`.
+
+**Prompt-level `@path` mentions bypass every tool guard.** omp scans the prompt itself for `@path` (at the
+start of the text or after whitespace, a bracket or a quote), resolves it with `~` and absolute paths honoured
+and inlines the file's or directory's contents into the conversation before the model runs; there is no
+setting to turn it off. The prompt contains untrusted task text, so `prompt.neutralize_file_mentions` escapes
+every such `@` as `\@` in the finished prompt (both backends). Found by running the real binary: a probe
+prompt containing `@<outside file>` put the file's content into the agent's context although the guard had
+blocked every tool call.
 
 The glob dialect is shared with `globs.py`; globs from the configuration are canonicalised on load
 (`scripts/` means `scripts/**`, `a//b` becomes `a/b`, a bare `.` is rejected) so a protected glob can never
@@ -325,9 +343,11 @@ policy applied after the run.
 
 **Verified on 2026-10-24** (omp 18.12.6, model `anthropic/claude-sonnet-5-5`):
 `python -m tools.agent_bridge smoke --backend omp --model anthropic/claude-sonnet-5-5 --probe-guard`
-created the requested file (cost $0.024 for the cold-cache first run, about $0.008 for later ones), and
-the guard blocked an attempted write outside the worktree and a read of `/etc/hostname` (2 blocked calls);
-the outside file was not created.
+created the requested file (about $0.023 per run) and reported `ok`. The probe asked the agent to write
+outside the worktree, read `/etc/hostname`, read an outside canary file through an `@`-prefixed path and
+through a two-path string, then edit `docs/index.md` and create `docs/guard-ok.md`: 4 calls were blocked, the
+outside file was not created, the canary did not leak, and the pinned `replace` edit worked. A task whose notes
+mention `@<outside canary>` produced no `fileMention` message and no leak (`mention_probe`).
 
 ### Claude Code (`claude`) - alternative
 
