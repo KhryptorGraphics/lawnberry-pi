@@ -12,18 +12,23 @@ with ``-e/--extension/--hook``)::
 ``--mode json`` streams one JSON event per line.  The bridge parses the stream as it arrives to
 track cost (omp has no native spend cap, so the budget is enforced here between model calls),
 count tool calls, and read the final assistant message.  The guard extension confines every tool
-call to the task worktree and the task's allowed paths.
+call to the task worktree and the task's allowed paths.  A run that used tools only counts as
+succeeded when the guard's own audit log holds a row for every call (``guard_inactive`` if not).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from ..process import ProcessOutcome
+from ..redact import strip_control_chars
 from .base import (
     AgentBackend,
     AgentRequest,
@@ -37,8 +42,11 @@ from .base import (
 
 __all__ = [
     "EDIT_MODE",
+    "GUARD_AUDIT_MAX_ROWS",
+    "GUARD_AUDIT_NAME",
     "GUARD_PATH",
     "GUARD_PREFIX",
+    "GuardAudit",
     "OmpBackend",
     "OmpStreamHandler",
     "hermetic_overlay",
@@ -47,6 +55,14 @@ __all__ = [
 GUARD_PATH = Path(__file__).resolve().parent.parent / "omp_guard.mjs"
 GUARD_PREFIX = "[agent-bridge guard]"
 FINAL_TEXT_STORE_CHARS = 20_000
+
+# The guard appends one JSON row per tool-call decision to this file of the run directory and
+# stops after GUARD_AUDIT_MAX_ROWS rows (omp_guard.mjs: MAX_AUDIT_LINES).  The reader looks at
+# no more than that many lines of at most GUARD_AUDIT_MAX_LINE characters each: the file lives
+# next to code the agent may have run, so its size is not trusted.
+GUARD_AUDIT_NAME = "omp-guard-audit.jsonl"
+GUARD_AUDIT_MAX_ROWS = 5000
+GUARD_AUDIT_MAX_LINE = 65_536
 
 # omp's `edit` tool has five syntaxes and picks one per model (default: hashline).  Only
 # `replace` takes its target in a `path` argument; hashline, apply_patch and sloppy put file
@@ -119,6 +135,30 @@ def _result_text(result: Any) -> str:
         for part in result.get("content", [])
         if isinstance(part, dict) and part.get("type") == "text"
     )
+
+
+@dataclass(frozen=True)
+class GuardAudit:
+    """What the guard's own audit log says about one run."""
+
+    rows: int | None  # decisions recorded; None when the log is missing or unreadable
+    blocked: int  # tool calls the guard refused
+    samples: list[str]  # cleaned "<tool>: <reason>" lines of the first refused calls
+
+
+def _audit_row(line: str) -> dict[str, Any] | None:
+    """One audit line as a row, or ``None`` when it is not a well-formed guard decision."""
+    try:
+        row = json.loads(line)
+    except (ValueError, RecursionError):
+        return None
+    if (
+        isinstance(row, dict)
+        and isinstance(row.get("tool"), str)
+        and isinstance(row.get("allow"), bool)
+    ):
+        return row
+    return None
 
 
 class OmpStreamHandler(StreamHandler):
@@ -231,6 +271,11 @@ class OmpBackend(AgentBackend):
     def _write_run_files(self, req: AgentRequest, tools: list[str]) -> Path:
         overlay = req.run_dir / "omp-overlay.yml"
         overlay.write_text(yaml.safe_dump(hermetic_overlay(), sort_keys=True), encoding="utf-8")
+        audit = req.run_dir / GUARD_AUDIT_NAME
+        # A retried run reuses its directory and the guard only appends: rows an earlier attempt
+        # left behind must not vouch for this one.
+        with contextlib.suppress(OSError):
+            audit.unlink(missing_ok=True)
         policy = req.run_dir / "omp-guard-policy.json"
         policy.write_text(
             json.dumps(
@@ -242,7 +287,7 @@ class OmpBackend(AgentBackend):
                     "write_deny": list(req.write_deny),
                     "read_deny": list(READ_DENY),
                     "bash_exact": list(req.bash_allowlist),
-                    "audit_log": str(req.run_dir / "omp-guard-audit.jsonl"),
+                    "audit_log": str(audit),
                     "max_write_bytes": MAX_WRITE_BYTES,
                 },
                 indent=2,
@@ -303,7 +348,7 @@ class OmpBackend(AgentBackend):
         self, outcome: ProcessOutcome, req: AgentRequest, handler: StreamHandler | None
     ) -> AgentResult:
         assert isinstance(handler, OmpStreamHandler)
-        blocked, blocked_samples = self._guard_audit(req, handler)
+        audit = self._guard_audit(req, handler)
         full_text = self._finalize_text(handler.final_text, 400_000)
         common: dict[str, Any] = {
             "cost_usd": round(handler.cost_usd, 6) if handler.assistant_messages else None,
@@ -313,8 +358,8 @@ class OmpBackend(AgentBackend):
             "stop_reason": handler.stop_reason,
             "num_turns": handler.assistant_messages or None,
             "tool_calls": handler.tool_calls,
-            "blocked_tool_calls": blocked,
-            "blocked_samples": blocked_samples,
+            "blocked_tool_calls": audit.blocked,
+            "blocked_samples": audit.samples,
             "report": extract_report(full_text),
             "final_text": full_text[-FINAL_TEXT_STORE_CHARS:],
         }
@@ -357,24 +402,80 @@ class OmpBackend(AgentBackend):
                 error=stderr_tail or "omp ended without a terminal result event",
                 **common,
             )
+        gap = self._guard_gap(audit, handler)
+        if gap is not None:
+            return AgentResult(
+                backend=self.name,
+                status=AgentStatus.FAILED,
+                failure_kind=FailureKind.GUARD_INACTIVE,
+                error=gap,
+                **common,
+            )
         return AgentResult(backend=self.name, status=AgentStatus.SUCCEEDED, **common)
 
     @staticmethod
-    def _guard_audit(req: AgentRequest, handler: OmpStreamHandler) -> tuple[int, list[str]]:
-        """Blocked-call count and samples, preferring the guard's own audit log."""
-        audit = req.run_dir / "omp-guard-audit.jsonl"
+    def _guard_gap(audit: GuardAudit, handler: OmpStreamHandler) -> str | None:
+        """Why the guard cannot be shown to have seen every tool call (``None``: it can).
+
+        The guard is the only control for reads, URL fetches and writes outside the worktree.  An
+        omp that loads it without ever firing ``tool_call`` would leave every call unguarded, so a
+        run that used tools must leave one audit row per call (the guard stops at the cap).
+        """
+        calls = handler.tool_calls
+        if calls <= 0:
+            return None
+        required = min(calls, GUARD_AUDIT_MAX_ROWS)
+        if audit.rows is None:
+            return (
+                f"omp ran {calls} tool call(s) but the guard audit log ({GUARD_AUDIT_NAME}) is "
+                "missing or unreadable (0 row(s) recorded); the guard extension did not confine "
+                "them"
+            )
+        if audit.rows < required:
+            return (
+                f"omp ran {calls} tool call(s) but the guard audit log ({GUARD_AUDIT_NAME}) has "
+                f"only {audit.rows} row(s), at least {required} expected; the guard extension "
+                "did not see every call"
+            )
+        return None
+
+    def _guard_audit(self, req: AgentRequest, handler: OmpStreamHandler) -> GuardAudit:
+        """What the guard's own audit log says: rows recorded, blocked calls and samples.
+
+        Guard blocks that the stream reported count too (the larger number wins) and supply the
+        samples when the log has none.  Everything copied out of either source is agent-controlled
+        text (the guard echoes the raw path argument), so it is cleaned before it is stored.
+        """
+        rows = 0
         blocked = 0
         samples: list[str] = []
         try:
-            for raw in audit.read_text(encoding="utf-8", errors="replace").splitlines()[:5000]:
-                try:
-                    row = json.loads(raw)
-                except ValueError:
-                    continue
-                if row.get("allow") is False:
-                    blocked += 1
-                    if len(samples) < 8:
-                        samples.append(f"{row.get('tool')}: {str(row.get('reason'))[:160]}")
+            with (req.run_dir / GUARD_AUDIT_NAME).open(encoding="utf-8", errors="replace") as log:
+                for _ in range(GUARD_AUDIT_MAX_ROWS):
+                    line = log.readline(GUARD_AUDIT_MAX_LINE)
+                    if not line:
+                        break
+                    row = _audit_row(line)
+                    if row is None:
+                        continue
+                    rows += 1
+                    if row["allow"] is False:
+                        blocked += 1
+                        if len(samples) < 8:
+                            samples.append(self._clean(f"{row['tool']}: {row.get('reason')}", 160))
         except OSError:
-            return handler.blocked_count, list(handler.blocked)
-        return max(blocked, handler.blocked_count), samples or list(handler.blocked)
+            return GuardAudit(None, handler.blocked_count, self._clean_all(handler.blocked))
+        return GuardAudit(
+            rows, max(blocked, handler.blocked_count), samples or self._clean_all(handler.blocked)
+        )
+
+    def _clean(self, text: str, limit: int) -> str:
+        """``text`` without control characters or secrets, cut to ``limit`` characters.
+
+        Control characters go first so that none can split a secret and dodge the redactor;
+        the cut comes last so that it cannot leave half of a token behind.
+        """
+        return self.redactor.redact(strip_control_chars(text[:2000]))[:limit]
+
+    def _clean_all(self, samples: Sequence[str]) -> list[str]:
+        return [self._clean(sample, 200) for sample in samples]

@@ -97,6 +97,12 @@ HINTS: dict[str, list[str]] = {
     "nonzero_exit": ["The agent CLI exited abnormally; see the run logs on the workstation."],
     "no_result": ["The agent CLI produced no result; see the run logs on the workstation."],
     "unavailable": ["Install the agent CLI on the workstation or choose the other backend."],
+    "guard_inactive": [
+        "The omp guard extension did not record every tool call, so the run's tool calls cannot "
+        "be shown to have stayed inside the worktree. Upgrade or downgrade omp, or run "
+        "`python -m tools.agent_bridge smoke --backend omp --probe-guard` to check the guard. "
+        "Nothing was published."
+    ],
 }
 
 

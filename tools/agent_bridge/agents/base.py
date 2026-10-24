@@ -98,6 +98,7 @@ class FailureKind(StrEnum):
     UNAVAILABLE = "unavailable"
     CANCELLED = "cancelled"
     HOOK = "hook"
+    GUARD_INACTIVE = "guard_inactive"
 
 
 class AgentReport(BaseModel):

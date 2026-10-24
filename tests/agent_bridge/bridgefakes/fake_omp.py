@@ -12,6 +12,17 @@ Environment
                          ``--cwd``), ``env_keys`` (sorted names only), ``env`` (values of the
                          scenario's ``log_env`` names), ``prompt``, ``stdin_was_tty`` and
                          ``parsed`` (``{"flags": {...}, "positional": [...]}``).
+    LAWNBERRY_BRIDGE_GUARD_POLICY
+                         the bridge's guard policy (JSON file).  Like the real guard extension
+                         (``tools/agent_bridge/omp_guard.mjs``) the emulator appends one audit
+                         row ``{ts, tool, allow, reason, paths}`` to the policy's ``audit_log``
+                         for every ``tool_call`` step - ``yield``/``think`` included, the real
+                         guard audits every decision - and stops after 5000 rows.  A call is a
+                         guard block (``allow`` false, ``reason`` = the text after the
+                         ``[agent-bridge guard]`` prefix) when the step is ``blocked`` and its
+                         ``result`` starts with that prefix; any other error is omp's own and
+                         the guard allowed the call.  Without a readable policy no row is
+                         written.
 
 Prompt: the positional arguments joined by a space (``@file`` arguments are read, like the real
 CLI) or, with no positional argument, stdin read to EOF when stdin is not a TTY.
@@ -21,8 +32,8 @@ executed).  Steps that only touch the filesystem emit no output.
     write_file{path,content,abs?}  append_file{path,content,abs?}  delete_file{path,abs?}
     symlink{path,target,abs?}  chmod_exec{path,abs?}   relative paths must stay inside the cwd
         unless ``abs`` is true (simulates a misbehaving agent)
-    tool_call{tool,args,blocked?,result?,intent?,partial?}  tool_execution events (isError when
-        blocked)
+    tool_call{tool,args,blocked?,result?,intent?,partial?,guard?}  tool_execution events (isError
+        when blocked); ``"guard": "off"`` skips this call's audit row
     cost{usd}  a new assistant message whose usage.cost.total is ``usd``, flushed immediately
     sleep{seconds}  hang  (``--max-time N`` ends the run with an ``aborted`` message and exit 1)
     spawn_child{pid_file}  ``sleep 300`` in the same process group; its pid goes to pid_file
@@ -31,6 +42,10 @@ executed).  Steps that only touch the filesystem emit no output.
     fail{kind,message?}  kind: auth | credit | rate_limit | api_error | crash (traceback, exit 3)
     exit{code?,stdout?,stderr?}  abrupt exit without any result
 A run that ends without ``final``/``fail``/``exit`` finishes with the text ``ok``.
+
+Scenario option ``"guard": "off"`` (top level of the scenario file, default ``"on"``): the guard
+extension never fires, so no audit row is written (a guard that silently does nothing).  Only this
+emulator reads it; the shared scenario normaliser drops unknown top-level keys.
 
 In ``--mode json`` the ``session`` header and the user message are emitted lazily, just before
 the first step that produces events, so ``exit``, ``garbage_stdout`` and ``fail crash`` leave
@@ -57,6 +72,9 @@ HARNESS_EXIT = 99  # scenario or harness misuse
 CRASH_EXIT = 3
 STARTED = time.monotonic()
 ERROR_ID = 135168  # opaque id carried by real stopReason "error" messages
+GUARD_POLICY_ENV = "LAWNBERRY_BRIDGE_GUARD_POLICY"
+GUARD_PREFIX = "[agent-bridge guard]"  # starts every guard block's tool result (omp_guard.mjs)
+GUARD_MAX_AUDIT_ROWS = 5000  # omp_guard.mjs MAX_AUDIT_LINES
 
 # >>> shared plumbing (kept identical in fake_omp.py and fake_claude.py: standalone scripts)
 
@@ -656,6 +674,40 @@ def timed(message: dict[str, Any], started: float) -> dict[str, Any]:
     return dict(message, duration=round(elapsed, 3), ttft=round(elapsed / 2, 3))
 
 
+def load_guard_mode() -> str:
+    """The scenario's top-level ``guard`` option (``"on"`` or ``"off"``), read from the raw file.
+
+    The normaliser shared with the Claude emulator keeps only the keys both emulators know, so
+    this omp-only option is read from the scenario file separately.
+    """
+    path = os.environ.get(SCENARIO_ENV)
+    if not path:
+        return "on"
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        return "on"  # load_scenario() already reported the unreadable scenario
+    mode = document.get("guard", "on") if isinstance(document, dict) else "on"
+    if mode not in ("on", "off"):
+        raise HarnessError(f'scenario "guard" must be "on" or "off", not {mode!r}')
+    return str(mode)
+
+
+def guard_audit_path() -> str | None:
+    """The ``audit_log`` of the guard policy the bridge points omp at (None: nothing is audited)."""
+    policy_file = os.environ.get(GUARD_POLICY_ENV)
+    if not policy_file:
+        return None
+    try:
+        with open(policy_file, encoding="utf-8") as handle:
+            policy = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    audit_log = policy.get("audit_log") if isinstance(policy, dict) else None
+    return audit_log if isinstance(audit_log, str) and audit_log else None
+
+
 class OmpRun:
     """One emulated omp run: executes the scenario steps and emits the event stream."""
 
@@ -677,6 +729,9 @@ class OmpRun:
         self.pending_notices: list[dict[str, Any]] = []
         self.responses = 0
         self.calls = 0
+        self.guard_on = load_guard_mode() == "on"
+        self.audit_log = guard_audit_path() if self.guard_on else None
+        self.audited = 0
 
     # -- plumbing ---------------------------------------------------------------------------
 
@@ -874,6 +929,35 @@ class OmpRun:
         self.stream_assistant([{"type": "text", "text": ""}], "toolUse", usage)
         return None
 
+    def audit_row(
+        self, step: dict[str, Any], tool: str, args: dict[str, Any], blocked: bool, text: str
+    ) -> dict[str, Any] | None:
+        """The row the guard extension writes for this call, or None when it stays silent."""
+        per_call = step.get("guard", "on")
+        if per_call not in ("on", "off"):
+            raise HarnessError(f'tool_call "guard" must be "on" or "off", not {per_call!r}')
+        if self.audit_log is None or per_call == "off" or self.audited >= GUARD_MAX_AUDIT_ROWS:
+            return None
+        self.audited += 1
+        guard_block = blocked and text.startswith(GUARD_PREFIX)
+        path = args.get("path")
+        return {
+            "ts": iso_now(),
+            "tool": tool,
+            "allow": not guard_block,
+            "reason": text[len(GUARD_PREFIX) :].strip() if guard_block else None,
+            "paths": [path] if isinstance(path, str) and not guard_block else [],
+        }
+
+    def write_audit(self, row: dict[str, Any] | None) -> None:
+        if row is None or self.audit_log is None:
+            return
+        try:
+            with open(self.audit_log, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row) + "\n")
+        except OSError:
+            pass  # like the real guard, auditing never breaks the run
+
     def op_tool_call(self, step: dict[str, Any]) -> int | None:
         self.ensure_header()
         self.calls += 1
@@ -883,6 +967,7 @@ class OmpRun:
         blocked = bool(step.get("blocked", False))
         intent = str(step.get("intent") or f"Calling {tool}")
         text = str(step.get("result") or ("blocked by policy" if blocked else "ok"))
+        row = self.audit_row(step, tool, args, blocked, text)
         call_args = dict(args, i=intent)
         details: dict[str, Any] = {}
         if not blocked and "path" in args:
@@ -927,6 +1012,7 @@ class OmpRun:
                 "intent": intent,
             }
         )
+        self.write_audit(row)
         if step.get("partial"):
             partial = {
                 "content": [{"type": "text", "text": str(step["partial"])}],

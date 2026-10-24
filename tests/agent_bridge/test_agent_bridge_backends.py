@@ -153,15 +153,33 @@ def make_script(path: Path, *lines: str) -> Path:
     return path
 
 
-def install_replay_cli(directory: Path, stdout: str, stderr: str, exit_code: int) -> Path:
-    """A CLI that drains stdin, prints canned output and exits with ``exit_code``."""
+def install_replay_cli(
+    directory: Path,
+    stdout: str,
+    stderr: str,
+    exit_code: int,
+    *,
+    guard_log: tuple[Path, int] | None = None,
+) -> Path:
+    """A CLI that drains stdin, prints canned output and exits with ``exit_code``.
+
+    ``guard_log`` = ``(path, rows)``: a recorded omp stream carries no guard, so the CLI stands
+    in for the guard extension and appends that many allowed-call rows to ``path``.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     out, err = directory / "replay.stdout", directory / "replay.stderr"
     out.write_text(stdout, encoding="utf-8")
     err.write_text(stderr, encoding="utf-8")
+    lines = ["cat > /dev/null"]
+    if guard_log is not None:
+        log, rows = guard_log
+        rows_file = directory / "replay.guard"
+        row = {"ts": "t", "tool": "read", "allow": True, "reason": None, "paths": []}
+        rows_file.write_text((json.dumps(row) + "\n") * rows, encoding="utf-8")
+        lines.append(f"cat {shlex.quote(str(rows_file))} >> {shlex.quote(str(log))}")
     return make_script(
         directory / "replay-cli",
-        "cat > /dev/null",
+        *lines,
         f"cat {shlex.quote(str(out))}",
         f"cat {shlex.quote(str(err))} >&2",
         f"exit {int(exit_code)}",
@@ -222,6 +240,7 @@ class Harness:
         redactor: Redactor | None = None,
         max_log_bytes: int = 4_000_000,
         replay: tuple[str, str, int] | None = None,
+        replay_guard_rows: int = 0,
     ) -> None:
         self.root = root
         self.kind = kind
@@ -230,7 +249,10 @@ class Harness:
         if replay is None:
             self.binary = install_fake_cli(root / "bin", kind)
         else:
-            self.binary = install_replay_cli(root / "bin", *replay)
+            guard_log = (root / "run" / "omp-guard-audit.jsonl", replay_guard_rows)
+            self.binary = install_replay_cli(
+                root / "bin", *replay, guard_log=guard_log if replay_guard_rows else None
+            )
         self.scenario = root / "scenario.json"
         self.log = root / "invocations.jsonl"
         self.cwd = root / "worktree"
@@ -420,6 +442,12 @@ def omp_tool_end(text: str, *, error: bool) -> str:
             "result": {"content": [{"type": "text", "text": text}], "details": {}},
             "isError": error,
         }
+    )
+
+
+def omp_tool_start() -> str:
+    return omp_line(
+        {"type": "tool_execution_start", "toolCallId": "toolu_1", "toolName": "write", "args": {}}
     )
 
 
@@ -1051,8 +1079,11 @@ def test_blocked_tool_calls_are_counted(h: Harness) -> None:
     assert result.blocked_tool_calls == 2 and len(result.blocked_samples) == 2
     if h.kind == "omp":
         assert result.tool_calls == 3
-        assert all(s.startswith(GUARD_PREFIX) for s in result.blocked_samples)
-        assert "/etc/passwd" in result.blocked_samples[0]
+        # the samples come from the guard's own audit log: "<tool>: <the guard's reason>"
+        assert result.blocked_samples == [
+            "write: path escapes the task worktree: /etc/passwd",
+            "write: path is protected and needs a human change: .github/ci.yml",
+        ]
     else:
         assert result.tool_calls is None
         assert result.blocked_samples == ["Write: denied by permission policy"] * 2
@@ -1387,25 +1418,27 @@ def test_omp_stops_a_run_whose_stream_handler_breaks(new_harness: Callable[..., 
     assert result.duration_s < 20
 
 
-def test_omp_guard_audit_log_is_preferred_over_the_stream(
-    new_harness: Callable[..., Harness],
-) -> None:
-    h = new_harness("omp")
-    h.run_dir.mkdir(parents=True)
+def test_omp_guard_audit_log_is_preferred_over_the_stream(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
     rows = [
         {"ts": "t", "tool": "write", "allow": False, "reason": "path escapes: /etc/passwd"},
         "this line is not json",
         {"ts": "t", "tool": "edit", "allow": False, "reason": "path is protected: .github/ci.yml"},
         {"ts": "t", "tool": "read", "allow": True, "reason": None},
     ]
-    (h.run_dir / "omp-guard-audit.jsonl").write_text(
+    (run_dir / "omp-guard-audit.jsonl").write_text(
         "\n".join(r if isinstance(r, str) else json.dumps(r) for r in rows) + "\n",
         encoding="utf-8",
     )
-    blocked = tool_step(
-        "omp", "write", {"path": "/etc/passwd"}, blocked=True, result=f"{GUARD_PREFIX} nope"
+    stream = (
+        omp_session()
+        + omp_tool_start()
+        + omp_tool_end(f"{GUARD_PREFIX} nope", error=True)
+        + omp_assistant(text="done")
+        + omp_agent_end()
     )
-    result = h.run([blocked, {"op": "final", "text": "done"}])
+    result = parse_omp(stream, run_dir=run_dir)
     assert result.ok
     assert result.blocked_tool_calls == 2
     assert result.blocked_samples == [
@@ -1414,15 +1447,20 @@ def test_omp_guard_audit_log_is_preferred_over_the_stream(
     ]
 
 
-def test_omp_stream_blocks_win_when_the_audit_log_saw_fewer(
-    new_harness: Callable[..., Harness],
+def test_omp_audit_log_with_fewer_rows_than_calls_fails_but_the_stream_counts_stay(
+    tmp_path: Path,
 ) -> None:
-    h = new_harness("omp")
-    h.run_dir.mkdir(parents=True)
+    # The guard's log is how the bridge knows the guard ran at all: one row for two calls means
+    # it did not see them all.  The stream's own count of guard blocks is still reported.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
     audit = {"ts": "t", "tool": "write", "allow": False, "reason": "outside"}
-    (h.run_dir / "omp-guard-audit.jsonl").write_text(json.dumps(audit) + "\n", encoding="utf-8")
-    blocked = tool_step("omp", "write", {"path": "x"}, blocked=True, result=f"{GUARD_PREFIX} a")
-    result = h.run([blocked, blocked, {"op": "final", "text": "done"}])
+    (run_dir / "omp-guard-audit.jsonl").write_text(json.dumps(audit) + "\n", encoding="utf-8")
+    blocked = omp_tool_start() + omp_tool_end(f"{GUARD_PREFIX} a", error=True)
+    stream = omp_session() + blocked + blocked + omp_assistant(text="done") + omp_agent_end()
+    result = parse_omp(stream, run_dir=run_dir)
+    assert result.status is AgentStatus.FAILED
+    assert result.failure_kind is FailureKind.GUARD_INACTIVE
     assert result.blocked_tool_calls == 2
 
 
@@ -1524,7 +1562,12 @@ def test_omp_real_captures_run_end_to_end(
     text: str,
 ) -> None:
     stream = (FIXTURES / fixture).read_text(encoding="utf-8")
-    h = new_harness("omp", replay=(with_unique_response_ids(stream) if unique else stream, "", 0))
+    # A recorded run has no guard extension: the replay CLI stands in for it, one row per call.
+    h = new_harness(
+        "omp",
+        replay=(with_unique_response_ids(stream) if unique else stream, "", 0),
+        replay_guard_rows=calls,
+    )
     result = h.run()
     assert result.status is AgentStatus.SUCCEEDED
     assert result.cost_usd == pytest.approx(cost)
