@@ -139,6 +139,12 @@ class VL53L0XDriver(HardwareDriver):
             "timing_budget_us": self._timing_budget_us,
         }
 
+    @property
+    def last_read_ok(self) -> bool:
+        """False when the most recent read failed and ``read_distance_mm`` replayed the
+        previous value: that value is old, whatever timestamp the caller puts on it."""
+        return self._fail_count == 0
+
     async def read_distance_mm(self) -> int | None:
         """Return latest distance in millimeters.
 

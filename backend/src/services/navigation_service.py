@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -22,6 +23,7 @@ from ..models import (
 )
 from ..nav.location_features import CoverageMap
 from ..nav.path_planner import PathPlanner
+from ..safety.obstacle_stop import ObstacleStatus, limit_pair
 from .robohat_service import get_robohat_service
 
 logger = logging.getLogger(__name__)
@@ -128,6 +130,27 @@ class DeadReckoningSystem:
         return self.estimated_position
 
 
+NAV_SOURCE = "navigation"  # command-source label for the tractor service (autonomous)
+AI_SOURCE = "ai"
+AUTONOMOUS_MODES = frozenset(
+    {
+        NavigationMode.AUTO,
+        NavigationMode.AI,
+        NavigationMode.AI_ASSISTED,
+        NavigationMode.RETURN_HOME,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class MotionGate:
+    """The combined safety verdict autonomous motion must obey this tick."""
+
+    hold: bool  # levers neutral, blade off
+    speed_cap_mps: float | None  # forward ground-speed cap; None = no guard attached
+    reasons: tuple[str, ...]
+
+
 class NavigationService:
     """Main navigation service with sensor fusion and path planning"""
 
@@ -158,6 +181,16 @@ class NavigationService:
         self._ai_datum: tuple[float, float] | None = None
         self._ai_loop_hz = 5.0  # inference cadence (Hz)
 
+        # Safety inputs, attached by the lifespan (see attach_safety). None = not gated:
+        # unit/bench configuration only; main.py never serves a mission without them.
+        self.obstacle_guard: Any | None = None  # safety.obstacle_stop.ObstacleGuard
+        # Control-loop period of go_to_waypoint (5 Hz); a knob so tests can run the loop fast.
+        self.control_period_s = 0.2
+        self._hold_reasons: tuple[str, ...] | None = None  # set while motion is held
+        self._hold_dropped_blade = False  # differential platform: blade dropped by a hold
+        self._hold_error_logged = False
+        self._last_hold_assert = 0.0
+
     _instance: Optional["NavigationService"] = None
 
     @classmethod
@@ -171,6 +204,125 @@ class NavigationService:
         logger.info("Initializing navigation service")
         self.navigation_state.navigation_mode = NavigationMode.IDLE
         return True
+
+    # ------------------------------ safety gate ------------------------------
+
+    def attach_safety(self, *, obstacle_guard: Any | None = None) -> None:
+        """Attach the safety inputs every autonomous motion path consults.
+
+        ``obstacle_guard`` is a ``safety.obstacle_stop.ObstacleGuard``. Without it nothing is
+        gated: that is the unit/bench configuration only, the lifespan always attaches it.
+        """
+        self.obstacle_guard = obstacle_guard
+
+    def _motion_gate(self) -> "MotionGate":
+        """One verdict from every safety input; a check that cannot run is a hold."""
+        hold = False
+        cap: float | None = None
+        reasons: list[str] = []
+        guard = self.obstacle_guard
+        if guard is not None:
+            try:
+                assessment = guard.assess()
+            except Exception as exc:
+                logger.exception("Obstacle guard failed: holding autonomous motion")
+                hold, cap = True, 0.0
+                reasons.append(f"obstacle guard failed: {exc!r}")
+            else:
+                cap = assessment.speed_cap_mps
+                hold = assessment.hold
+                if assessment.status is not ObstacleStatus.CLEAR:
+                    reasons.extend(assessment.reasons)
+        return MotionGate(hold, cap, tuple(reasons))
+
+    async def _robohat_blade(self, on: bool) -> bool:
+        """Command the differential platform's blade; False if there is no controller."""
+        if os.getenv("SIM_MODE", "0") != "0":
+            return False
+        robohat = get_robohat_service()
+        if robohat is not None and robohat.running and robohat.status.serial_connected:
+            await robohat.send_blade_command(bool(on))
+            return True
+        return False
+
+    async def _neutral_drive(self) -> None:
+        """``set_speed(0, 0)`` that leaves ``target_velocity`` (the AI loop's scale) alone."""
+        target = self.navigation_state.target_velocity
+        try:
+            await self.set_speed(0.0, 0.0)
+        finally:
+            self.navigation_state.target_velocity = target
+
+    async def _hold_motion(self, gate: "MotionGate") -> None:
+        """Stop autonomous motion and keep it stopped: blade off first, then levers neutral.
+
+        Level-triggered: called every control tick while the gate holds, so a failed stop
+        is retried, never assumed. Both stops are always attempted. Errors are logged (once
+        per hold) and never raised: the speed cap in the actuation chokepoints and the
+        obstacle monitor still apply.
+        """
+        from .tractor_service import get_tractor_service
+
+        if self._hold_reasons is None:  # entering a hold (the reason text changes every tick)
+            logger.warning("Autonomous motion HELD: %s", "; ".join(gate.reasons) or "hold")
+            self._hold_error_logged = False
+        self._hold_reasons = gate.reasons
+        tractor = get_tractor_service()
+        failures: list[str] = []
+        if tractor.enabled:
+            steps = (
+                ("blade off", lambda: tractor.engage_blade(False, source=NAV_SOURCE)),
+                ("levers neutral", lambda: tractor.set_levers(0.0, 0.0, source=NAV_SOURCE)),
+            )
+        else:
+            steps = (("drive neutral", self._neutral_drive),)
+        for name, step in steps:
+            try:
+                await step()
+            except Exception as exc:
+                failures.append(f"{name}: {exc!r}")
+        if not tractor.enabled:
+            try:
+                if await self._robohat_blade(False):
+                    self._hold_dropped_blade = True
+            except Exception as exc:
+                failures.append(f"blade off: {exc!r}")
+        if failures and not self._hold_error_logged:
+            self._hold_error_logged = True
+            logger.error("Could not confirm the motion hold (retrying every tick): %s", failures)
+
+    async def _release_hold(self, waypoint: Any | None = None) -> None:
+        """End a hold; the differential platform's blade is restored for the current leg."""
+        if self._hold_reasons is not None:
+            logger.info("Autonomous motion released")
+            self._hold_reasons = None
+        if self._hold_dropped_blade:
+            self._hold_dropped_blade = False
+            if waypoint is not None and getattr(waypoint, "blade_on", False):
+                try:
+                    await self._robohat_blade(True)
+                except Exception:
+                    logger.warning("Blade command failed after hold release", exc_info=True)
+
+    async def enforce_motion_hold(self, assessment: Any | None = None) -> None:
+        """Obstacle monitor hold handler for the differential platform.
+
+        Stops whatever autonomy has moving the moment a hold begins, without waiting for the
+        planner's next tick. The tractor platform has its own handler on the tractor service.
+        """
+        from .tractor_service import get_tractor_service
+
+        if get_tractor_service().enabled:
+            return
+        if self.navigation_state.navigation_mode not in AUTONOMOUS_MODES:
+            return
+        now = time.monotonic()
+        if now - self._last_hold_assert < 0.25:
+            return
+        self._last_hold_assert = now
+        await self._neutral_drive()
+        if await self._robohat_blade(False):
+            self._hold_dropped_blade = True
 
     async def execute_mission(self, mission: "Mission"):  # noqa: F821
         """Execute a mission by navigating to each waypoint."""
@@ -298,6 +450,16 @@ class NavigationService:
                     logger.info("Final waypoint in path reached.")
                 break
 
+            # Safety gate (obstacle guard): hold or cap before anything is commanded. A hold
+            # keeps the mission alive -- the loop keeps polling the mission status above, so
+            # pause/abort still work -- and resumes by itself once the path has stayed clear.
+            gate = self._motion_gate()
+            if gate.hold:
+                await self._hold_motion(gate)
+                await asyncio.sleep(self.control_period_s)
+                continue
+            await self._release_hold(waypoint)
+
             # Calculate heading and apply motor commands
             heading_to_target = self.path_planner.calculate_bearing(
                 self.navigation_state.current_position, target_pos
@@ -345,6 +507,11 @@ class NavigationService:
             left_speed = max(-self.max_speed, min(self.max_speed, left_speed))
             right_speed = max(-self.max_speed, min(self.max_speed, right_speed))
 
+            # Obstacle guard: never faster than the stopping-distance model allows for the
+            # range the sensors prove free (the actuation chokepoints enforce it again).
+            if gate.speed_cap_mps is not None:
+                left_speed, right_speed = limit_pair(left_speed, right_speed, gate.speed_cap_mps)
+
             if tractor.enabled:
                 # TractorCommand's ge=/le= fields reject out-of-range values
                 # instead of clamping, so normalize onto the lever range and
@@ -358,7 +525,7 @@ class NavigationService:
                     blade_engaged=bool(waypoint.blade_on),
                 )
                 try:
-                    await tractor.apply(cmd)
+                    await tractor.apply(cmd, source=NAV_SOURCE)
                 except Exception as e:
                     logger.error(f"Failed to apply tractor command: {e}")
                     try:
@@ -368,7 +535,7 @@ class NavigationService:
                     return
 
                 # Simulation of movement
-                await asyncio.sleep(0.2)  # Control loop at 5Hz
+                await asyncio.sleep(self.control_period_s)  # Control loop at 5Hz
                 continue
 
             try:
@@ -382,7 +549,7 @@ class NavigationService:
                 return
 
             # Simulation of movement
-            await asyncio.sleep(0.2)  # Control loop at 5Hz
+            await asyncio.sleep(self.control_period_s)  # Control loop at 5Hz
 
     async def set_speed(self, left_speed: float, right_speed: float) -> None:
         """Drive command helper integrating with the RoboHAT controller.
@@ -393,6 +560,15 @@ class NavigationService:
         # Clamp inputs for safety
         ls = max(-self.max_speed, min(self.max_speed, float(left_speed)))
         rs = max(-self.max_speed, min(self.max_speed, float(right_speed)))
+
+        # Differential platform's chokepoint (the tractor has its own, in
+        # TractorControlService.set_levers): never faster than the obstacle guard allows,
+        # and neutral while it holds. Stops (0, 0) pass through untouched.
+        gate = self._motion_gate()
+        if gate.hold:
+            ls = rs = 0.0
+        elif gate.speed_cap_mps is not None:
+            ls, rs = limit_pair(ls, rs, gate.speed_cap_mps)
 
         # Update desired velocity estimate (magnitude)
         try:
@@ -435,7 +611,7 @@ class NavigationService:
 
         tractor = get_tractor_service()
         if tractor.enabled:
-            await tractor.set_levers(0.0, 0.0)
+            await tractor.set_levers(0.0, 0.0, source=NAV_SOURCE)
         else:
             await self.set_speed(0.0, 0.0)
 
@@ -456,7 +632,8 @@ class NavigationService:
         self.navigation_state.obstacle_map = obstacles
 
         # Check if obstacle avoidance is needed
-        self.navigation_state.obstacle_avoidance_active = len(obstacles) > 0
+        gate = self._motion_gate()
+        self.navigation_state.obstacle_avoidance_active = len(obstacles) > 0 or bool(gate.reasons)
 
         # Update path execution if in auto mode
         if self.navigation_state.navigation_mode == NavigationMode.AUTO:
@@ -851,6 +1028,13 @@ class NavigationService:
                 await self.set_speed(0.0, 0.0)
             return True
 
+        # Obstacle guard: a hold stops the machine whatever the model predicts; a cap is
+        # enforced again in the actuation chokepoints (tractor.set_levers / set_speed).
+        gate = self._motion_gate()
+        if gate.hold:
+            await self._hold_motion(gate)
+            return False
+        await self._release_hold()
         if tractor.enabled:
             # Zero-turn mower: twin drive levers + blade PTO. Interlocks (engine
             # running, authorized) in the service gate actual motion.
@@ -860,7 +1044,7 @@ class NavigationService:
             # of clamping, and assignment isn't re-validated, so clamp by hand.
             cmd.left_lever = max(-1.0, min(1.0, cmd.left_lever * scale))
             cmd.right_lever = max(-1.0, min(1.0, cmd.right_lever * scale))
-            await tractor.apply(cmd)
+            await tractor.apply(cmd, source=AI_SOURCE)
             return True
 
         # Differential-drive path: convert prediction to left/right motor speeds.
@@ -964,4 +1148,6 @@ class NavigationService:
             "obstacles_detected": len(self.navigation_state.obstacle_map),
             "dead_reckoning_active": self.navigation_state.dead_reckoning_active,
             "path_confidence": self.navigation_state.path_confidence,
+            "motion_hold": self._hold_reasons is not None,
+            "motion_gate_reasons": list(self._motion_gate().reasons),
         }

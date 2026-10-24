@@ -22,6 +22,14 @@ the standard interlocks:
   the configured maximum). Unless it is refreshed the levers return to neutral
   and the throttle to idle. The blade is deliberately *not* touched by the
   deadman; it follows the interlocks above.
+- **Motion limit** (obstacle stop, ``safety/obstacle_stop.py``): when a ``motion_limiter``
+  is attached, forward lever demand from any *autonomous* source is scaled down to the
+  speed the stopping-distance model allows for the range the sensors prove free, and
+  forced to neutral (blade off too) while the guard holds. This sits in ``set_levers`` /
+  ``engage_blade`` so every caller reaches it -- navigation, the AI, a Thor plan driven
+  through this interface. Only a caller that labels itself ``operator``/``teleop`` is a
+  human in control; an unlabeled caller is treated as autonomous. It only ever reduces
+  motion: neutral, reverse, blade-off and the E-stop are never limited.
 - **Actuator health**: when the PCA9685 (or a relay GPIO) is absent or failed,
   commands are *refused* with the reason and the fault is exposed on
   ``TractorState`` -- never a silent no-op "ok". SIM_MODE is the exception: the
@@ -39,7 +47,7 @@ import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -52,6 +60,10 @@ from ..models.tractor_control import (
     TractorCommand,
     TractorState,
 )
+from ..safety.obstacle_stop import limit_pair
+
+if TYPE_CHECKING:
+    from ..safety.obstacle_stop import ObstacleAssessment, ObstacleGuard
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +72,11 @@ logger = logging.getLogger(__name__)
 # (navigation 5 Hz, scripts/teleop.py 20 Hz). Field values are a bench decision.
 DEFAULT_COMMAND_HOLD_MS = 500
 DEFAULT_MAX_COMMAND_HOLD_MS = 2000
+
+# Command-source labels. ``operator``/``teleop`` are a human in direct control; everything
+# else (including this default) is autonomous and subject to the motion limit.
+DEFAULT_SOURCE = "unspecified"
+OBSTACLE_SOURCE = "obstacle_stop"
 
 
 def _load_tractor_config() -> dict[str, Any]:
@@ -167,6 +184,13 @@ class TractorControlService:
         # accepted actuation. None when nothing subscribed.
         self.on_change: Callable[[str, dict[str, Any], str], None] | None = None
         self.initialized = False
+        # Obstacle stop (safety/obstacle_stop.py): attached by the lifespan. None = no limit
+        # (bench/unit configuration); main.py never starts the tractor without it.
+        self.motion_limiter: ObstacleGuard | None = None
+        # Label of the last accepted lever / blade-on command: lets the hold handler act only
+        # on motion an autonomous source has in force, never on a human's manual drive.
+        self._lever_source: str | None = None
+        self._blade_source: str | None = None
         self._sync_hardware_state()
 
     def _notify(self, kind: str, source: str, **values: Any) -> None:
@@ -412,25 +436,33 @@ class TractorControlService:
         self,
         left: float,
         right: float,
-        source: str = "operator",
+        source: str = DEFAULT_SOURCE,
         duration_ms: int | None = None,
     ) -> dict[str, Any]:
         """Command both drive levers together, for a bounded hold.
 
         The single chokepoint for lever commands: ``set_left_lever``,
         ``set_right_lever`` and ``apply()`` all funnel through here, so the
-        e-stop guard, the actuator-health guard, the deadman and the
-        reverse-entry blade auto-disengage exist in exactly one place instead
+        e-stop guard, the actuator-health guard, the motion limit, the deadman and
+        the reverse-entry blade auto-disengage exist in exactly one place instead
         of being duplicated per entry point.
 
         A non-neutral command is held for ``duration_ms`` (clamped to the
         configured maximum; default: the configured default hold), after which
         the levers return to neutral unless the command is refreshed.
+
+        ``source`` labels who is asking. ``operator``/``teleop`` are a human in
+        direct control; any other label (including the default) is autonomous and,
+        while a ``motion_limiter`` is attached, has its forward demand scaled down to
+        the limiter's cap -- to neutral during a hold. The reply says so
+        (``limited``/``speed_cap_mps``/``limit_reason``); neutral, reverse and the
+        E-stop are never limited.
         """
         if self.state.emergency_stop_active:
             return self._reject("emergency stop active")
         if (rejection := self._guard_actuation()) is not None:
             return rejection
+        left, right, limit = self._limit_levers(left, right, source)
         # Reverse Operation System: if this command would put both levers back
         # (reverse) while the blade is engaged, drop the blade first -- before
         # moving the levers. A single lever going negative is a pivot turn,
@@ -438,7 +470,7 @@ class TractorControlService:
         would_reverse = left < -LEVER_NEUTRAL_EPS and right < -LEVER_NEUTRAL_EPS
         if would_reverse and self.state.blade_engaged and self.disengage_blade_in_reverse:
             logger.info("ROS: disengaging blade before entering reverse")
-            await self.engage_blade(False)
+            await self.engage_blade(False, source=source)
         neutral = abs(left) <= LEVER_NEUTRAL_EPS and abs(right) <= LEVER_NEUTRAL_EPS
         hold_s = self._hold_s(duration_ms)
         async with self._act_lock:
@@ -452,30 +484,34 @@ class TractorControlService:
             await self._apply_servo(self.right_lever, right, "right_lever")
             if neutral:
                 self._lever_deadline = None
+        self._lever_source = source
         self._notify("levers", source, left=self.state.left_lever, right=self.state.right_lever)
         return self._ok(
             left_lever=self.state.left_lever,
             right_lever=self.state.right_lever,
             moving=self.state.moving,
             hold_ms=None if neutral else round(hold_s * 1000),
+            limited=bool(limit and limit["limited"]),
+            speed_cap_mps=None if limit is None else limit["speed_cap_mps"],
+            limit_reason=None if limit is None else limit["reason"],
         )
 
     async def set_left_lever(
-        self, value: float, source: str = "operator", duration_ms: int | None = None
+        self, value: float, source: str = DEFAULT_SOURCE, duration_ms: int | None = None
     ) -> dict[str, Any]:
         return await self.set_levers(
             value, self.state.right_lever, source=source, duration_ms=duration_ms
         )
 
     async def set_right_lever(
-        self, value: float, source: str = "operator", duration_ms: int | None = None
+        self, value: float, source: str = DEFAULT_SOURCE, duration_ms: int | None = None
     ) -> dict[str, Any]:
         return await self.set_levers(
             self.state.left_lever, value, source=source, duration_ms=duration_ms
         )
 
     async def set_throttle(
-        self, value: float, source: str = "operator", duration_ms: int | None = None
+        self, value: float, source: str = DEFAULT_SOURCE, duration_ms: int | None = None
     ) -> dict[str, Any]:
         """Command the engine throttle for a bounded hold, then back to idle."""
         if self.state.emergency_stop_active:
@@ -497,12 +533,117 @@ class TractorControlService:
             throttle=self.state.throttle, hold_ms=None if idle else round(hold_s * 1000)
         )
 
+    # -- motion limit (obstacle stop) ------------------------------------------
+
+    def _assess_limit(self, source: str | None) -> tuple[float, str | None, float | None] | None:
+        """``(lever_cap, reason, speed_cap_mps)`` for ``source``, or None if not limited.
+
+        A limiter that raises is a hold, never a free pass: the machine is not allowed to
+        move on the strength of a safety check that could not be evaluated.
+        """
+        limiter = self.motion_limiter
+        if limiter is None or not limiter.applies_to(source):
+            return None
+        try:
+            a = limiter.assess()
+        except Exception as exc:
+            logger.exception("Motion limiter failed: holding autonomous motion")
+            return 0.0, f"motion limiter failed: {exc!r}", 0.0
+        reason = "; ".join(a.reasons) if a.reasons else None
+        return a.lever_cap, reason, a.speed_cap_mps
+
+    def _limit_levers(
+        self, left: float, right: float, source: str
+    ) -> tuple[float, float, dict[str, Any] | None]:
+        """Scale a forward lever demand to the motion limit (``None`` info = not limited)."""
+        assessed = self._assess_limit(source)
+        if assessed is None:
+            return left, right, None
+        lever_cap, reason, speed_cap = assessed
+        new_left, new_right = limit_pair(left, right, lever_cap)
+        limited = (new_left, new_right) != (left, right)
+        if limited:
+            logger.debug(
+                "Motion limit (%s): levers (%.2f, %.2f) -> (%.2f, %.2f), cap %.2f: %s",
+                source,
+                left,
+                right,
+                new_left,
+                new_right,
+                lever_cap,
+                reason,
+            )
+        info = {
+            "limited": limited,
+            "speed_cap_mps": speed_cap,
+            "reason": reason if limited else None,
+        }
+        return new_left, new_right, info
+
+    def _motion_hold(self, source: str) -> str | None:
+        """Why a command from ``source`` is held right now, or None (the blade path)."""
+        assessed = self._assess_limit(source)
+        if assessed is None or assessed[0] > 0.0:
+            return None
+        return assessed[1] or "motion held"
+
+    def _sync_limit_state(self) -> None:
+        """Publish the limiter's current verdict on ``TractorState`` (visible at /tractor/state)."""
+        limiter = self.motion_limiter
+        if limiter is None:
+            self.state.speed_cap_mps = None
+            self.state.motion_limited = False
+            self.state.motion_limit_reason = None
+            return
+        try:
+            a = limiter.assess()
+        except Exception as exc:
+            self.state.speed_cap_mps = 0.0
+            self.state.motion_limited = True
+            self.state.motion_limit_reason = f"motion limiter failed: {exc!r}"
+            return
+        self.state.speed_cap_mps = a.speed_cap_mps
+        self.state.motion_limited = a.status.value != "clear"
+        self.state.motion_limit_reason = "; ".join(a.reasons) if self.state.motion_limited else None
+
+    async def enforce_motion_hold(self, assessment: ObstacleAssessment | None = None) -> None:
+        """Stop the motion an autonomous source has in force: blade off, levers neutral.
+
+        The obstacle monitor's hold handler. It acts the moment a hold begins instead of
+        waiting for the planner's next command, and only on motion that came from a limited
+        (autonomous) source: a human's manual drive is left alone. Blade first (pure GPIO,
+        independent of the I2C bus), then the levers; both are always attempted, and the
+        first failure is raised afterwards so the monitor reports it and retries next cycle.
+        """
+        limiter = self.motion_limiter
+        if limiter is None:
+            return
+        errors: list[str] = []
+        if self.state.blade_engaged and (
+            self._blade_source is None or limiter.applies_to(self._blade_source)
+        ):
+            try:
+                await self.engage_blade(False, source=OBSTACLE_SOURCE)
+            except Exception as exc:
+                errors.append(f"blade off: {_err(exc)}")
+        levers_out = (
+            abs(self.state.left_lever) > LEVER_NEUTRAL_EPS
+            or abs(self.state.right_lever) > LEVER_NEUTRAL_EPS
+        )
+        if levers_out and (self._lever_source is None or limiter.applies_to(self._lever_source)):
+            try:
+                await self.set_levers(0.0, 0.0, source=OBSTACLE_SOURCE)
+            except Exception as exc:
+                errors.append(f"levers neutral: {_err(exc)}")
+        if errors:
+            raise RuntimeError("; ".join(errors))
+
     def _set_blade_relay(self, on: bool) -> None:
         """Drive the PTO relay; ``blade_engaged`` only follows a successful write."""
         self.blade_pto.set(on)
         self.state.blade_engaged = bool(on)
 
-    async def engage_blade(self, on: bool, source: str = "operator") -> dict[str, Any]:
+    async def engage_blade(self, on: bool, source: str = DEFAULT_SOURCE) -> dict[str, Any]:
         if on:
             if self.state.emergency_stop_active:
                 return self._reject("emergency stop active")
@@ -510,6 +651,9 @@ class TractorControlService:
                 # Navigation re-sends blade_engaged=True every tick: this is the
                 # latch that stops it re-engaging after a tilt cutoff.
                 return self._reject(self._latched_text() or "blade interlock latched")
+            if (hold := self._motion_hold(source)) is not None:
+                # Refuse AND drop: an obstacle can appear while the blade already turns.
+                return self._refuse_blade(f"obstacle hold: {hold}", source)
             if (rejection := self._guard_actuation()) is not None:
                 return rejection
             if not self.state.authorized:
@@ -521,8 +665,21 @@ class TractorControlService:
         # A relay that cannot be driven raises (RelayUnavailableError) rather
         # than reporting a switch that did not happen.
         self._set_blade_relay(on)
+        if on:
+            self._blade_source = source
         self._notify("blade", source, blade=self.state.blade_engaged)
         return self._ok(blade_engaged=self.state.blade_engaged)
+
+    def _refuse_blade(self, reason: str, source: str) -> dict[str, Any]:
+        """Reject a blade-on request and make sure the blade is off (never raises)."""
+        if self.state.blade_engaged:
+            try:
+                self._set_blade_relay(False)
+                self._notify("blade", source, blade=False)
+            except Exception as exc:
+                logger.critical("Blade refusal (%s): relay off FAILED: %s", reason, _err(exc))
+                return self._reject(f"{reason}; blade relay off FAILED: {_err(exc)}")
+        return self._reject(reason)
 
     async def latch_interlock(self, reason: str, source: str = "safety") -> dict[str, Any]:
         """Drop the blade and latch it off until ``clear_emergency()``.
@@ -734,8 +891,12 @@ class TractorControlService:
         self.state.interlock_reason = None
         return self._ok()
 
-    async def apply(self, command: TractorCommand, source: str = "operator") -> dict[str, Any]:
-        """Apply a full command, honoring interlocks (rejections are collected)."""
+    async def apply(self, command: TractorCommand, source: str = DEFAULT_SOURCE) -> dict[str, Any]:
+        """Apply a full command, honoring interlocks (rejections are collected).
+
+        ``source`` is the label of the caller (see ``set_levers``): the REST router passes
+        ``operator``; autonomous callers pass their own name or are treated as autonomous.
+        """
         results: dict[str, Any] = {}
         results["throttle"] = await self.set_throttle(
             command.throttle, source=source, duration_ms=command.duration_ms
@@ -760,6 +921,7 @@ class TractorControlService:
 
     def get_state(self) -> TractorState:
         self._sync_hardware_state()
+        self._sync_limit_state()
         return self.state.model_copy()
 
 

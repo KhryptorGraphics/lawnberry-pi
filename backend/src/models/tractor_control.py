@@ -79,6 +79,14 @@ class TractorState(BaseModel):
     interlock_latched: bool = False
     latch_reason: str | None = None
 
+    # Obstacle stop (safety/obstacle_stop.py). ``speed_cap_mps`` is the forward ground speed
+    # autonomous sources may currently command (None when no limiter is attached); 0 = hold.
+    # ``motion_limited`` is true while the guard is not CLEAR (an obstacle in view, a hold, or
+    # a failed/stale sensor), with the reasons in ``motion_limit_reason``.
+    speed_cap_mps: float | None = None
+    motion_limited: bool = False
+    motion_limit_reason: str | None = None
+
     last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @computed_field  # type: ignore[prop-decorator]

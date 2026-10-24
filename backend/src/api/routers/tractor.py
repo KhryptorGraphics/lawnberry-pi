@@ -43,22 +43,28 @@ async def tractor_state() -> dict[str, Any]:
 
 @router.post("/tractor/left-lever", dependencies=[Depends(require_operator_auth)])
 async def tractor_left_lever(body: ValueBody) -> dict[str, Any]:
-    return await get_tractor_service().set_left_lever(body.value, duration_ms=body.duration_ms)
+    return await get_tractor_service().set_left_lever(
+        body.value, source="operator", duration_ms=body.duration_ms
+    )
 
 
 @router.post("/tractor/right-lever", dependencies=[Depends(require_operator_auth)])
 async def tractor_right_lever(body: ValueBody) -> dict[str, Any]:
-    return await get_tractor_service().set_right_lever(body.value, duration_ms=body.duration_ms)
+    return await get_tractor_service().set_right_lever(
+        body.value, source="operator", duration_ms=body.duration_ms
+    )
 
 
 @router.post("/tractor/throttle", dependencies=[Depends(require_operator_auth)])
 async def tractor_throttle(body: ValueBody) -> dict[str, Any]:
-    return await get_tractor_service().set_throttle(body.value, duration_ms=body.duration_ms)
+    return await get_tractor_service().set_throttle(
+        body.value, source="operator", duration_ms=body.duration_ms
+    )
 
 
 @router.post("/tractor/blade", dependencies=[Depends(require_operator_auth)])
 async def tractor_blade(body: BladeBody) -> dict[str, Any]:
-    return await get_tractor_service().engage_blade(body.engaged)
+    return await get_tractor_service().engage_blade(body.engaged, source="operator")
 
 
 @router.post("/tractor/starter", dependencies=[Depends(require_operator_auth)])
@@ -75,7 +81,7 @@ async def tractor_stop_engine() -> dict[str, Any]:
 @router.post("/tractor/command", dependencies=[Depends(require_operator_auth)])
 async def tractor_command(command: TractorCommand) -> dict[str, Any]:
     """Apply a full actuation command, honoring interlocks."""
-    return await get_tractor_service().apply(command)
+    return await get_tractor_service().apply(command, source="operator")
 
 
 @router.post("/tractor/authorize", dependencies=[Depends(require_operator_auth)])

@@ -41,6 +41,7 @@ from .middleware.security import register_security_middleware
 from .nav.gps_degradation import GPSDegradationMonitor
 from .safety.estop_handler import EstopHandler
 from .safety.motor_authorization import MotorAuthorization
+from .safety.obstacle_stop import ObstacleStopMonitor, configure_obstacle_guard
 from .safety.safety_monitor import get_safety_monitor
 from .safety.safety_triggers import set_safety_event_handler
 from .safety.safety_validator import validate_on_start
@@ -48,6 +49,7 @@ from .safety.tractor_safety_monitor import TractorSafetyMonitor
 from .safety.watchdog import Watchdog
 from .services.camera_stream_service import camera_service
 from .services.emergency_stop_service import park_actuators
+from .services.navigation_service import NavigationService
 from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
 from .services.tractor_service import get_tractor_service
 from .services.websocket_hub import websocket_hub
@@ -137,6 +139,25 @@ async def lifespan(app: FastAPI):
             _asyncio.run(monitor.handle_interlock_event(action, interlock))
 
     set_safety_event_handler(_handler)
+
+    # Obstacle stop (audit N-11, WP-P4-01/02): ONE guard, read by the navigation loops and by
+    # the tractor's actuation chokepoint, fed by a fixed-rate monitor from the real ToF /
+    # ultrasonic readings. It is wired before anything can actuate. Fail-closed: a required
+    # sensor that is stale or missing holds autonomous motion (manual operator drive is not
+    # limited), and if the monitor dies the readings age out and the guard holds by itself.
+    obstacle_guard = configure_obstacle_guard(safety_limits)
+    nav_service = NavigationService.get_instance()
+    guard_tractor = get_tractor_service()
+    nav_service.attach_safety(obstacle_guard=obstacle_guard)
+    guard_tractor.motion_limiter = obstacle_guard
+    obstacle_monitor = ObstacleStopMonitor(
+        obstacle_guard,
+        sensor_provider=lambda: getattr(app.state, "sensor_manager", None),
+        hold_handlers=(nav_service.enforce_motion_hold, guard_tractor.enforce_motion_hold),
+    )
+    await obstacle_monitor.start()
+    app.state.obstacle_guard = obstacle_guard
+    app.state.obstacle_monitor = obstacle_monitor
     # Initialize hardware services (best-effort; keep SIM-safe)
     try:
         await initialize_robohat_service()
@@ -195,6 +216,12 @@ async def lifespan(app: FastAPI):
     except Exception:
         _log.exception("Actuator park on shutdown failed")
     set_safety_event_handler(None)
+    # Detach the guard so a later lifespan (or any code reusing these singletons) can never
+    # inherit a monitor-less guard that would hold motion for ever.
+    if getattr(app.state, "obstacle_monitor", None):
+        await app.state.obstacle_monitor.stop()
+        NavigationService.get_instance().attach_safety(obstacle_guard=None)
+        guard_tractor.motion_limiter = None
     if getattr(app.state, "gps_deg_monitor", None):
         await app.state.gps_deg_monitor.stop()
     if getattr(app.state, "tractor_safety_monitor", None):
