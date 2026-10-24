@@ -104,3 +104,27 @@ def assess_signing_secret(value: str | None) -> list[str]:
     if default:
         problems.append(default)
     return problems
+
+
+# ---- OPERATOR_AUTH_REQUIRED: one parser for the backend and the installer ---------------------
+
+AUTH_FLAG_FALSE_TOKENS = frozenset({"0", "false", "no", "off"})
+AUTH_FLAG_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+
+
+def parse_operator_auth_flag(value: str | None) -> tuple[bool, bool]:
+    """``(required, recognised)`` for an ``OPERATOR_AUTH_REQUIRED`` value (``None`` = unset).
+
+    Fail closed: only ``0``, ``false``, ``no`` and ``off`` (any case, surrounding blanks ignored)
+    disable operator authentication. Unset, ``1``, ``true``, ``yes``, ``on`` and every other
+    value (an empty ``OPERATOR_AUTH_REQUIRED=`` line, ``2``, ``disabled``, a typo) keep it
+    required; ``recognised`` is ``False`` for those other values. The backend
+    (``core/auth_posture.py``) and ``scripts/provision_env.py`` both read the flag through this
+    function, so the installer's warning can never disagree with what the backend enforces.
+    """
+    if value is None:
+        return True, True
+    token = value.strip().lower()
+    if token in AUTH_FLAG_FALSE_TOKENS:
+        return False, True
+    return True, token in AUTH_FLAG_TRUE_TOKENS

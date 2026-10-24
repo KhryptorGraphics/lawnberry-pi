@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
-from ..core.auth_posture import operator_auth_required
+from ..core.auth_posture import debug_routes_enabled, operator_auth_required
 from ..services.auth_service import primary_auth_service
 
 
@@ -14,6 +14,18 @@ def _bearer_token(request: Request) -> str | None:
         token = auth.split(" ", 1)[1].strip()
         return token or None
     return None
+
+
+async def require_debug_routes(request: Request) -> None:
+    """404 unless the debug injectors are on (``SIM_MODE=1`` or the debug-routes flag).
+
+    Listed BEFORE ``require_operator_auth`` on the ``/debug/*`` routes, so with the injectors off
+    every caller gets the same 404 whether or not it is logged in (the route does not exist), and
+    with them on operator authentication is still required. The unit ships ``SIM_MODE=0`` and no
+    flag: bench use on the mower needs ``LAWNBERRY_ENABLE_DEBUG_ROUTES=1`` in ``<root>/.env``.
+    """
+    if not debug_routes_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
 
 
 async def require_operator_auth(request: Request) -> None:

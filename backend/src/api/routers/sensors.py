@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from ...core.globals import _debug_overrides
 from ...services.websocket_hub import websocket_hub
-from ..deps import require_operator_auth
+from ..deps import require_debug_routes, require_operator_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -452,7 +452,10 @@ class InjectToFRequest(BaseModel):
     distance_m: float
 
 
-@router.post("/debug/sensors/inject-tof", dependencies=[Depends(require_operator_auth)])
+@router.post(
+    "/debug/sensors/inject-tof",
+    dependencies=[Depends(require_debug_routes), Depends(require_operator_auth)],
+)
 async def inject_tof(req: InjectToFRequest):
     """Debug-only: inject a ToF distance reading (simulation/testing only).
 
@@ -492,7 +495,10 @@ class InjectTiltRequest(BaseModel):
     pitch_deg: float | None = None
 
 
-@router.post("/debug/sensors/inject-tilt", dependencies=[Depends(require_operator_auth)])
+@router.post(
+    "/debug/sensors/inject-tilt",
+    dependencies=[Depends(require_debug_routes), Depends(require_operator_auth)],
+)
 async def inject_tilt(req: InjectTiltRequest):
     """Debug-only: inject tilt (roll/pitch) to simulate IMU tilt event."""
     if req.roll_deg is not None:

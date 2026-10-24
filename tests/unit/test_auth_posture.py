@@ -92,6 +92,7 @@ async def test_health_reports_the_auth_state(monkeypatch):
         "operator_auth_flag_ambiguous",
         "operator_login_available",
         "simulation_open_auth",
+        "debug_routes_enabled",
     }
 
 

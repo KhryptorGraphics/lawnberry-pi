@@ -1,14 +1,16 @@
 """Which authentication relaxations are active, parsed strictly, and said out loud at start-up.
 
-Two switches decide whether the backend asks for credentials at all:
+Switches that decide whether the backend asks for credentials, or exposes test hooks, at all:
 
 ``OPERATOR_AUTH_REQUIRED``
-    Fail-closed parse. Only the explicit false tokens ``0``, ``false``, ``no`` and ``off`` (any
-    case, surrounding whitespace ignored) disable operator authentication. Unset, an explicit
-    true token (``1``, ``true``, ``yes``, ``on``) and every ambiguous value (empty, ``2``,
-    ``disabled``, a typo) keep it ENFORCED: this used to be ``!= "1"``, so ``true``, ``TRUE``
-    and an empty ``OPERATOR_AUTH_REQUIRED=`` line in ``.env`` (which overrides the unit) silently
-    opened every write route.
+    Fail-closed parse, ONE definition shared with the installer
+    (``credential_policy.parse_operator_auth_flag``, also used by ``scripts/provision_env.py``).
+    Only the explicit false tokens ``0``, ``false``, ``no`` and ``off`` (any case, surrounding
+    whitespace ignored) disable operator authentication. Unset, an explicit true token (``1``,
+    ``true``, ``yes``, ``on``) and every ambiguous value (empty, ``2``, ``disabled``, a typo) keep
+    it ENFORCED: this used to be ``!= "1"``, so ``true``, ``TRUE`` and an empty
+    ``OPERATOR_AUTH_REQUIRED=`` line in ``.env`` (which overrides the unit) silently opened every
+    write route.
 
 ``LAWN_BERRY_SIM_OPEN_AUTH``
     ``SIM_MODE=1`` alone no longer makes the login accept any non-empty credential or admits any
@@ -16,8 +18,12 @@ Two switches decide whether the backend asks for credentials at all:
     never honoured when ``LAWNBERRY_ENV=production``. ``tests/conftest.py`` sets it; a developer
     running a throw-away simulator may.
 
-Standard library only: this module is imported by the auth service, so it must not import any
-of the backend.
+``LAWNBERRY_ENABLE_DEBUG_ROUTES``
+    The ``/api/v2/debug/*`` injectors (GPS position, geofence, ToF distance, tilt) exist only
+    while ``SIM_MODE=1`` or this is set to a true token; otherwise they answer 404, before any
+    authentication check. Default off. Operator authentication is required on top, always.
+
+Imports only the standard library and ``credential_policy`` (itself standard library only).
 """
 
 from __future__ import annotations
@@ -29,13 +35,15 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from .credential_policy import AUTH_FLAG_TRUE_TOKENS, parse_operator_auth_flag
+
 logger = logging.getLogger(__name__)
 
 AUTH_FLAG = "OPERATOR_AUTH_REQUIRED"
 SIM_OPEN_AUTH_FLAG = "LAWN_BERRY_SIM_OPEN_AUTH"
+DEBUG_ROUTES_FLAG = "LAWNBERRY_ENABLE_DEBUG_ROUTES"
 
-FALSE_TOKENS = frozenset({"0", "false", "no", "off"})
-TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+TRUE_TOKENS = AUTH_FLAG_TRUE_TOKENS
 
 
 @dataclass(frozen=True)
@@ -53,12 +61,8 @@ def _env(environ: Mapping[str, str] | None) -> Mapping[str, str]:
 
 def read_operator_auth_flag(environ: Mapping[str, str] | None = None) -> OperatorAuthFlag:
     raw = _env(environ).get(AUTH_FLAG)
-    if raw is None:
-        return OperatorAuthFlag(required=True, raw=None, recognised=True)
-    token = raw.strip().lower()
-    if token in FALSE_TOKENS:
-        return OperatorAuthFlag(required=False, raw=raw, recognised=True)
-    return OperatorAuthFlag(required=True, raw=raw, recognised=token in TRUE_TOKENS)
+    required, recognised = parse_operator_auth_flag(raw)
+    return OperatorAuthFlag(required=required, raw=raw, recognised=recognised)
 
 
 def operator_auth_required(environ: Mapping[str, str] | None = None) -> bool:
@@ -87,6 +91,11 @@ def sim_open_auth_enabled(environ: Mapping[str, str] | None = None) -> bool:
     """Simulated runs may accept any non-empty credential: needs SIM_MODE=1 AND the opt-in,
     and never in a production environment."""
     return sim_mode(environ) and sim_open_auth_requested(environ) and not in_production(environ)
+
+
+def debug_routes_enabled(environ: Mapping[str, str] | None = None) -> bool:
+    """True when the ``/debug/*`` injectors exist: SIM_MODE=1 or the debug-routes flag is set."""
+    return sim_mode(environ) or _truthy(_env(environ).get(DEBUG_ROUTES_FLAG))
 
 
 def under_pytest() -> bool:
@@ -172,6 +181,13 @@ def log_auth_posture(
             flag.raw,
         )
 
+    if _truthy(_env(environ).get(DEBUG_ROUTES_FLAG)) and not simulated:
+        out.warning(
+            "%s is set: the /api/v2/debug/* injectors (GPS, geofence, ToF, tilt) are reachable "
+            "outside SIM_MODE (operator authentication is still required)",
+            DEBUG_ROUTES_FLAG,
+        )
+
     if under_pytest() if pytest_process is None else pytest_process:
         return
 
@@ -225,4 +241,5 @@ def auth_health(*, login_available: bool, environ: Mapping[str, str] | None = No
         "operator_auth_flag_ambiguous": not flag.recognised,
         "operator_login_available": bool(login_available),
         "simulation_open_auth": sim_open_auth_enabled(environ),
+        "debug_routes_enabled": debug_routes_enabled(environ),
     }

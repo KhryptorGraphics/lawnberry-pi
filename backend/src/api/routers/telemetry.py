@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...core.persistence import persistence
 from ...services.websocket_hub import websocket_hub
@@ -26,7 +26,8 @@ router = APIRouter()
 # Telemetry V2 Models
 class TelemetryPingRequest(BaseModel):
     component_id: str
-    sample_count: int = 10
+    # The handler sleeps 1 ms per sample: an unbounded count was a one-request resource hog.
+    sample_count: int = Field(default=10, ge=1, le=100)
 
 
 class TelemetryPingResponse(BaseModel):

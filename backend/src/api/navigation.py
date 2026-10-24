@@ -10,7 +10,7 @@ from ..core.robot_state_manager import get_robot_state_manager
 from ..models.geofence import Geofence, LatLng
 from ..models.robot_state import NavigationMode
 from ..nav.geoutils import haversine_m, point_in_polygon
-from .deps import require_operator_auth
+from .deps import require_debug_routes, require_operator_auth
 
 
 router = APIRouter()
@@ -30,7 +30,10 @@ class GPSInject(BaseModel):
     accuracy_m: float | None = None
 
 
-@router.post("/api/v2/debug/gps/inject", dependencies=[Depends(require_operator_auth)])
+@router.post(
+    "/api/v2/debug/gps/inject",
+    dependencies=[Depends(require_debug_routes), Depends(require_operator_auth)],
+)
 async def debug_gps_inject(pos: GPSInject):
     global _debug_position
     _debug_position = {
@@ -55,7 +58,10 @@ class GeofenceIn(BaseModel):
     buffer_distance_m: float = 0.0
 
 
-@router.post("/api/v2/debug/geofence", dependencies=[Depends(require_operator_auth)])
+@router.post(
+    "/api/v2/debug/geofence",
+    dependencies=[Depends(require_debug_routes), Depends(require_operator_auth)],
+)
 async def debug_geofence_set(f: GeofenceIn):
     global _active_geofence
     _active_geofence = Geofence(
