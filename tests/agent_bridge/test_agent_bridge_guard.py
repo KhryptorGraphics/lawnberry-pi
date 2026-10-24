@@ -231,7 +231,6 @@ ALLOWED = [
     ("write", {"path": "docs/new.md", "content": "x"}, ["docs/new.md"]),
     ("write", {"path": "./docs/new.md"}, ["docs/new.md"]),
     ("write", {"path": "docs//new.md"}, ["docs/new.md"]),
-    ("write", {"path": "docs/./sub/../new.md"}, ["docs/new.md"]),
     ("write", {"path": "{root}/docs/new.md"}, ["docs/new.md"]),
     ("write", {"path": "README.md"}, ["README.md"]),
     ("write", {"path": "docs/api/ref.md"}, ["docs/api/ref.md"]),
@@ -324,7 +323,7 @@ BLOCKED = [
     ("write", {"path": {"nested": "docs/a.md"}}, "without a recognisable path"),
     ("edit", {"edits": [{"old": "a", "new": "b"}]}, "without a recognisable path"),
     ("write", {"path": "."}, "cannot write the repository root"),
-    ("write", {"path": "docs/.."}, "cannot write the repository root"),
+    ("write", {"path": "docs/.."}, "parent-directory segments"),
     # symlinks
     ("read", {"path": "link_out/secret.txt"}, "resolves outside"),
     ("read", {"path": "link_out"}, "resolves outside"),
@@ -375,7 +374,7 @@ BLOCKED = [
     ("write", {"path": "notes.txt"}, "outside the task's allowed scope"),
     ("write", {"path": "sub/README.md"}, "outside the task's allowed scope"),
     ("write", {"path": "backend/src/safety/estop.py"}, "protected"),
-    ("write", {"path": "docs/../backend/src/safety/estop.py"}, "protected"),
+    ("write", {"path": "docs/../backend/src/safety/estop.py"}, "parent-directory segments"),
     ("write", {"path": ".github/workflows/ci.yml"}, "protected"),
     ("edit", {"path": "backend/src/safety/estop.py"}, "protected"),
     # path-bearing arguments of the search tools
@@ -462,13 +461,249 @@ def test_the_policy_root_may_be_given_through_a_symlink(guard: Guard, world: Wor
     assert linked.allow is False and "resolves outside" in (linked.reason or "")
 
 
+# ------------------------------------------------------------ paths omp rewrites before opening
+# omp rewrites a path argument before it opens the file (omp tools/path-utils.ts, expandPath and
+# splitDelimitedPathEntry): it strips a leading "@" or ":", drops surrounding quotes, splits one
+# string into several paths on whitespace, commas and semicolons, expands "~" and braces, maps
+# Unicode spaces to spaces and turns file:// into a path; an absolute path keeps its ".." for the
+# kernel to follow through symlinks.  A guard that read the text literally approved a different
+# file than omp opened: ``read @/etc/hostname`` returned the real /etc/hostname.
+OMP_REWRITES = [
+    ("at-absolute", "@/etc/passwd"),
+    ("at-home", "@~/.omp/agent/agent.db"),
+    ("at-proc", "@/proc/self/environ"),
+    ("at-parent-escape", "@../../x.md"),
+    ("at-relative", "@docs/guide.md"),
+    ("at-url", "@https://example.com/x"),
+    ("colon-absolute", ":/etc/passwd"),
+    ("colon-parent", ":../x.md"),
+    ("double-quoted", '"/etc/hostname"'),
+    ("quoted-padding", '" /etc/hostname"'),
+    ("single-quoted", "'/etc/hostname'"),
+    ("whitespace-list", "docs/guide.md /etc/hostname"),
+    ("comma-list", "docs/guide.md,/etc/hostname"),
+    ("newline-list", "docs/guide.md\n/etc/hostname"),
+    ("tab-list", "docs/guide.md\t/etc/hostname"),
+    ("brace-expansion", "{docs,..}/guide.md"),
+    ("brace-synthesised-parent", ".{.,}/outside/secret.txt"),
+    ("backslash", "docs\\guide.md"),
+    ("environment-variable", "$HOME/.ssh/id_rsa"),
+    ("command-substitution", "$(cat /etc/passwd)"),
+    ("percent-encoding", "%2e%2e/outside/secret.txt"),
+    ("no-break-space", "docs/guide.md\u00a0/etc/hostname"),
+    ("ideographic-space", "docs/guide.md\u3000/etc/hostname"),
+    ("one-dot-leader", "\u2024\u2024/outside/secret.txt"),
+    ("non-ascii-name", "docs/caf\u00e9.md"),
+    ("selector-with-space", "docs/guide.md:1 -5"),
+    ("empty-selector", "docs/guide.md:"),
+    ("selector-then-path", "docs/guide.md:1-5 /etc/hostname"),
+    ("dotdot-through-symlink", "{root}/link_out/../README.md"),
+    ("dotdot-through-symlink-relative", "link_out/../README.md"),
+    ("dotdot-inside", "docs/sub/../guide.md"),
+]
+
+
+@pytest.mark.parametrize("tool", ["read", "grep", "glob", "find", "write", "edit"])
+def test_paths_omp_would_rewrite_are_never_allowed(guard: Guard, tool: str) -> None:
+    policy = guard.world.policy()
+    requests = [
+        {
+            "op": "decide",
+            "policy": policy,
+            "event": {"toolName": tool, "input": guard.world.fill({"path": text})},
+        }
+        for _, text in OMP_REWRITES
+    ]
+
+    results = guard.run(requests)
+
+    allowed = [
+        name for (name, _), r in zip(OMP_REWRITES, results, strict=True) if r["value"]["allow"]
+    ]
+    assert allowed == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "@/etc/passwd",
+        "@~/x",
+        ":/etc/passwd",
+        '"/etc/hostname"',
+        "docs/guide.md /etc/hostname",
+        ".{.,}/outside/secret.txt",
+        "docs/caf\u00e9.md",
+    ],
+)
+def test_the_block_comes_from_the_character_rule_not_from_chance(guard: Guard, text: str) -> None:
+    """Each of these reads as an in-worktree file to a literal reader (the old hole)."""
+    decision = guard.decide("read", {"path": text})
+    assert decision.allow is False
+    assert "cannot verify" in (decision.reason or ""), decision.reason
+
+
+def test_the_exact_probe_of_the_review_is_blocked(guard: Guard) -> None:
+    for tool, tool_input in [
+        ("read", {"path": "@/etc/passwd"}),
+        ("read", {"path": "@~/.omp/agent/agent.db"}),
+        ("read", {"path": "@/proc/self/environ"}),
+        ("grep", {"pattern": "x", "path": "@/home"}),
+        ("glob", {"path": "@/home/*/.ssh/*"}),
+        ("glob", {"pattern": "@/home/*/.ssh/*"}),
+        ("write", {"path": "@../../x.md"}),
+        ("write", {"path": "@../../docs/x.md"}),
+    ]:
+        assert guard.decide(tool, tool_input).allow is False, (tool, tool_input)
+
+
+PLAIN_READS = [
+    "README.md",
+    "docs/guide.md",
+    "docs/api/ref.md",
+    ".github/workflows/ci.yml",
+    "docs/my-file_v2+draft.md",
+    "./docs/guide.md",
+    "docs//guide.md",
+    "{root}/docs/guide.md",
+    "docs/guide.md:10-20",
+    "docs/guide.md:raw:2-4",
+    "docs/guide.md:-60",
+    "docs/guide.md:1-12,-15",
+    "docs/guide.md;README.md",
+    ".",
+    "docs",
+]
+
+
+@pytest.mark.parametrize("text", PLAIN_READS)
+def test_plain_posix_paths_are_still_readable(guard: Guard, text: str) -> None:
+    decision = guard.decide("read", {"path": text})
+    assert decision.allow is True, decision.reason
+
+
+def _search_input(key: str, text: str) -> dict[str, str]:
+    """Arguments of a search call whose path-bearing field is ``key``."""
+    data = {key: text}
+    if key != "pattern":
+        data["pattern"] = "x"  # grep needs its (non-path) pattern; other tools ignore it
+    return data
+
+
+def test_glob_characters_are_only_allowed_for_read_tools(guard: Guard) -> None:
+    for tool, key in [
+        ("glob", "path"),
+        ("glob", "pattern"),
+        ("find", "pattern"),
+        ("grep", "path"),
+        ("read", "path"),
+    ]:
+        for pattern in ["docs/**/*.md", "docs/[ab].md", "docs/?.md", "**"]:
+            decision = guard.decide(tool, _search_input(key, pattern))
+            assert decision.allow is True, (tool, key, pattern, decision.reason)
+    for tool in ("write", "edit"):
+        for pattern in ["docs/*.md", "docs/[ab].md", "docs/?.md"]:
+            decision = guard.decide(tool, {"path": pattern})
+            assert decision.allow is False and "cannot verify" in (decision.reason or "")
+
+
+@pytest.mark.parametrize("tool", ["glob", "find", "grep", "read"])
+def test_brace_patterns_are_refused_because_braces_can_synthesise_parent_segments(
+    guard: Guard, tool: str
+) -> None:
+    for pattern in ["docs/{a,b}.md", "{docs,..}/**", ".{.,}/**", "{}"]:
+        key = "pattern" if tool in ("glob", "find") else "path"
+        decision = guard.decide(tool, _search_input(key, pattern))
+        assert decision.allow is False and "cannot verify" in (decision.reason or ""), pattern
+
+
+def test_a_file_name_with_dots_inside_is_not_a_parent_segment(guard: Guard) -> None:
+    assert guard.decide("read", {"path": "docs/a..b.md"}).allow is True
+    assert guard.decide("read", {"path": "docs/..hidden/x.md"}).allow is True
+    assert guard.decide("read", {"path": "docs/.../x.md"}).allow is True
+
+
+# ------------------------------------------------------------ edit syntaxes and write payloads
+def test_patch_mode_rename_destinations_are_checked_like_any_other_path(guard: Guard) -> None:
+    def rename(target: str) -> Decision:
+        edits = [{"op": "update", "rename": target, "diff": "@@\n x\n"}]
+        return guard.decide("edit", {"path": "docs/guide.md", "edits": edits})
+
+    escaped = rename("../../x.md")
+    assert escaped.allow is False and "escapes" in (escaped.reason or "")
+    assert "escapes" in (rename("/tmp/x.md").reason or "")
+    assert "outside the task's allowed scope" in (rename("src/moved.py").reason or "")
+    assert "protected" in (rename("backend/src/safety/estop.py").reason or "")
+    assert rename("@/etc/cron.d/x").allow is False
+    ok = rename("docs/renamed.md")
+    assert ok.allow is True and ok.paths == ["docs/guide.md", "docs/renamed.md"]
+
+
+INLINE_EDITS = [
+    ("hashline-without-path", {"input": "[docs/guide.md#1A2B]\nPUT 1.=1:\n+x"}),
+    (
+        "hashline-with-decoy-path",
+        {"path": "docs/a.md", "input": "[backend/src/safety/estop.py#1A2B]\nPUT 1.=1:\n+x"},
+    ),
+    ("hashline-move-out", {"path": "docs/a.md", "input": "[docs/a.md#1A2B]\nMV /etc/cron.d/x\n"}),
+    ("hashline-delete", {"path": "docs/a.md", "input": "[docs/guide.md#1A2B]\nREM\n"}),
+    (
+        "apply-patch-outside",
+        {"input": "*** Begin Patch\n*** Add File: ../../x\n+y\n*** End Patch\n"},
+    ),
+    ("nested-input", {"edits": [{"path": "docs/a.md", "input": "[docs/b.md#1A2B]\nREM\n"}]}),
+]
+
+
+@pytest.mark.parametrize("tool", ["edit", "write"])
+@pytest.mark.parametrize(
+    "tool_input", [i for _, i in INLINE_EDITS], ids=[name for name, _ in INLINE_EDITS]
+)
+def test_edit_syntaxes_that_name_files_inside_their_text_are_refused(
+    guard: Guard, tool: str, tool_input: dict[str, Any]
+) -> None:
+    decision = guard.decide(tool, tool_input)
+    assert decision.allow is False
+    assert "names files inside its text" in (decision.reason or "")
+
+
+def test_an_input_field_is_only_a_problem_for_write_class_tools(guard: Guard) -> None:
+    assert guard.decide("read", {"path": "docs/guide.md", "input": "anything"}).allow is True
+
+
+def test_replace_mode_edits_are_accepted(guard: Guard) -> None:
+    decision = guard.decide(
+        "edit",
+        {"path": "docs/guide.md", "old_string": "guide", "new_string": "manual", "i": "Editing"},
+    )
+    assert decision.allow is True, decision.reason
+    assert decision.paths == ["docs/guide.md"]
+
+
+@pytest.mark.parametrize("field", ["new_string", "old_string", "diff", "replacement"])
+def test_every_string_argument_counts_towards_the_write_limit(guard: Guard, field: str) -> None:
+    at_limit = guard.decide("edit", {"path": "docs/a.md", field: "x" * 100})
+    over = guard.decide("edit", {"path": "docs/a.md", field: "x" * 101})
+
+    assert at_limit.allow is True
+    assert over.allow is False and "100 byte limit" in (over.reason or "")
+
+
+def test_the_write_limit_adds_up_the_whole_call_and_looks_into_nested_edits(guard: Guard) -> None:
+    split = {"path": "docs/a.md", "old_string": "a" * 60, "new_string": "b" * 60}
+    assert guard.decide("edit", split).allow is False
+    nested = {"path": "docs/a.md", "edits": [{"new_string": "c" * 60}, {"new_string": "d" * 60}]}
+    assert guard.decide("edit", nested).allow is False
+    long_name = {"path": "docs/" + "n" * 150 + ".md", "content": "x" * 100}
+    assert guard.decide("write", long_name).allow is True  # path text is not payload
+
+
 # --------------------------------------------------------------------------- working directory
 def test_relative_paths_resolve_against_the_tool_call_directory(guard: Guard, world: World) -> None:
     inside = guard.decide("write", {"path": "guide.md"}, cwd=str(world.root / "docs"))
     assert inside.allow is True and inside.paths == ["docs/guide.md"]
 
     parent = guard.decide("write", {"path": "../README.md"}, cwd=str(world.root / "docs"))
-    assert parent.allow is True and parent.paths == ["README.md"]
+    assert parent.allow is False and "parent-directory segments" in (parent.reason or "")
 
 
 @pytest.mark.parametrize("cwd_name", ["outside", "base", "/"])

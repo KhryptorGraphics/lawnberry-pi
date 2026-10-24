@@ -36,6 +36,7 @@ from .base import (
 )
 
 __all__ = [
+    "EDIT_MODE",
     "GUARD_PATH",
     "GUARD_PREFIX",
     "OmpBackend",
@@ -46,6 +47,13 @@ __all__ = [
 GUARD_PATH = Path(__file__).resolve().parent.parent / "omp_guard.mjs"
 GUARD_PREFIX = "[agent-bridge guard]"
 FINAL_TEXT_STORE_CHARS = 20_000
+
+# omp's `edit` tool has five syntaxes and picks one per model (default: hashline).  Only
+# `replace` takes its target in a `path` argument; hashline, apply_patch and sloppy put file
+# headers and MV/REM/rename targets inside a text `input` that the guard refuses to trust.  The
+# mode is pinned both in the settings overlay and with the variant environment variable, which
+# wins over every per-model default.
+EDIT_MODE = "replace"
 
 # Every omp discovery provider except the built-in default rules.  Disabling them removes
 # ambient MCP servers, plugins, skills, hooks, rules and context files; the bridge supplies the
@@ -93,6 +101,7 @@ def hermetic_overlay() -> dict[str, Any]:
         "disabledProviders": list(DISABLED_PROVIDERS),
         "mcp": {"enableProjectConfig": False},
         "tools": {"approvalMode": "write", "xdev": False},
+        "edit": {"mode": EDIT_MODE},
         "retry": {"modelFallback": False},
         "memory": {"backend": "off"},
         "autolearn": {"enabled": False},
@@ -282,6 +291,7 @@ class OmpBackend(AgentBackend):
         env = super().build_env(req)
         env["LAWNBERRY_BRIDGE_GUARD_POLICY"] = str(req.run_dir / "omp-guard-policy.json")
         env["PI_NO_TITLE"] = "1"
+        env["PI_EDIT_VARIANT"] = EDIT_MODE
         env["OMP_MCP_TIMEOUT_MS"] = "2000"
         return env
 

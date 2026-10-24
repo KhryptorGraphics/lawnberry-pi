@@ -54,6 +54,7 @@ from tools.agent_bridge.agents import claude as claude_module
 from tools.agent_bridge.agents.base import classify_error_text
 from tools.agent_bridge.agents.claude import load_messages
 from tools.agent_bridge.agents.omp import (
+    EDIT_MODE,
     GUARD_PATH,
     GUARD_PREFIX,
     OmpStreamHandler,
@@ -114,7 +115,7 @@ BENIGN_ENV = {
     "NODE_EXTRA_CA_CERTS",
 }
 SHELL_ARTIFACTS = {"PWD", "OLDPWD", "SHLVL", "_"}
-OMP_ENV = {"LAWNBERRY_BRIDGE_GUARD_POLICY", "PI_NO_TITLE", "OMP_MCP_TIMEOUT_MS"}
+OMP_ENV = {"LAWNBERRY_BRIDGE_GUARD_POLICY", "PI_NO_TITLE", "PI_EDIT_VARIANT", "OMP_MCP_TIMEOUT_MS"}
 
 # Every discovery provider of omp 18.12.6 that could import ambient configuration.
 OMP_PROVIDERS = {
@@ -1265,6 +1266,7 @@ def test_omp_overlay_is_hermetic(new_harness: Callable[..., Harness]) -> None:
     assert OMP_PROVIDERS <= set(providers) and len(providers) == len(set(providers))
     assert overlay["mcp"]["enableProjectConfig"] is False
     assert overlay["tools"]["approvalMode"] == "write"
+    assert overlay["edit"]["mode"] == EDIT_MODE == "replace"
     assert overlay["retry"]["modelFallback"] is False
     assert overlay["memory"]["backend"] == "off"
     assert overlay["telemetry"]["otlpExportEnabled"] is False
@@ -1370,6 +1372,7 @@ def test_omp_environment_has_the_guard_policy_and_no_ambient_mcp_configuration(
     call = h.invocation()
     assert call["env"]["LAWNBERRY_BRIDGE_GUARD_POLICY"] == str(h.run_dir / "omp-guard-policy.json")
     assert call["env"]["PI_NO_TITLE"] == "1"
+    assert call["env"]["PI_EDIT_VARIANT"] == EDIT_MODE == "replace"
     ambient = {"MCP_SERVERS", "OMP_MCP_CONFIG", "PI_CODING_AGENT_DIR", "ANTHROPIC_API_KEY"}
     assert ambient.isdisjoint(call["env_keys"])
 
