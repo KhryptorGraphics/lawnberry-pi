@@ -277,15 +277,19 @@ curl $API/api/v2/missions/list
 
 ### Emergency stop and recovery
 
-The route the earlier README gave (`POST /api/v2/control/estop`) does not exist. Routes that do exist, and what they
-do at the audit baseline (2026-10-24, commit 765c737; later changes are listed in the audit's "Implemented in this PR"):
+The route the earlier README gave (`POST /api/v2/control/estop`) does not exist. Routes that exist:
 
 | Route | Platform | What it does |
 |---|---|---|
-| `POST /api/v2/tractor/emergency-stop` | Toro | Disengages the PTO relay, commands both levers to neutral and the throttle to idle, revokes authorization; no auth by design (`backend/src/services/tractor_service.py:258-288`). Cleared by `POST /api/v2/tractor/clear-emergency` |
-| `POST /api/v2/control/emergency` | differential-drive | Sets software flags and stops the RoboHAT only if its serial link is up; does not stop the tractor or the IBT-4 blade (`backend/src/api/rest.py:600-673`) |
-| `POST /api/v2/control/emergency-stop` | alias | Sets software flags and replies `motors_stopped: true, blade_disabled: true` but calls neither the RoboHAT, the blade service nor the tractor (`backend/src/api/rest.py:676-692`) |
-| `POST /api/v2/control/emergency_clear` | any | Clears the flag from a body `confirmation`; has no auth dependency (`backend/src/api/safety.py:19`) |
+| `POST /api/v2/tractor/emergency-stop` | Toro | Opens the PTO and starter relays, commands both levers to neutral and the throttle to idle, revokes authorization and latches the tractor E-stop; no auth by design (`TractorControlService.emergency_stop`). Cleared by `POST /api/v2/tractor/clear-emergency` |
+| `POST /api/v2/control/emergency` | any | Latches the software E-stop and fans out through `execute_emergency_stop` (`backend/src/services/emergency_stop_service.py`) to every stop path in the process: the tractor, the RoboHAT drive/blade controller and the IBT-4 blade service, concurrently. The response carries the per-subsystem report (`emergency_stop`, `complete`); never gated on a session |
+| `POST /api/v2/control/emergency-stop` | any (alias) | The same fan-out, always HTTP 200: `emergency_stop_active` is the software latch, `motors_stopped` / `blade_disabled` / `complete` are `true` only for confirmed stops, `subsystems` and `faults` say what each output did |
+| `POST /api/v2/control/emergency_clear` | any | Operator-authenticated (`require_operator_auth`) and needs `confirmation: true`; clears the general latch, the IBT-4 latch and the RoboHAT hold. It does **not** clear a latched tractor E-stop or interlock: those need `POST /api/v2/tractor/clear-emergency` and are listed in `still_latched` |
+
+A subsystem reports one of `stopped`, `simulated` (SIM_MODE), `unconfirmed`, `failed`, `not_present` or
+`not_enabled`; absent or unconfirmed hardware never reads as "stopped" outside SIM_MODE. Outside SIM_MODE the IBT-4
+blade output stays `unconfirmed` while `ibt4.gpio_enabled` is `false`. None of this replaces the hardwired E-stop
+(audit G0).
 
 ---
 

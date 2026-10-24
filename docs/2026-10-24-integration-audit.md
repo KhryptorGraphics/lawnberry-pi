@@ -124,13 +124,13 @@ State of the gates at this baseline: **all three are closed** (see Part F).
 | Subsystem | Status | Evidence | Tests | Gap IDs |
 |---|---|---|---|---|
 | Pin and address conflict checker | PARTIALLY IMPLEMENTED | `scripts/check_hardware_pin_conflicts.py:53-87` compares only `pins.gpio_used[].gpio`, `config/tractor.yaml relays.*.gpio`, `pins.i2c_addresses` and the tractor PCA9685 address. Rows without a `gpio` key are skipped (`:57-59`); the self-test asserts that rxd/txd rows must not collide (`:129-141`). It never reads HaLow, overlays, `config/hardware.yaml`, `limits.yaml` or physical pin numbers. What-if probes by the audit: moving the starter to GPIO17 or GPIO3 reports nothing | inline `--self-test` only; no file in `tests/` references it | H-01, H-02, H-03 |
-| hardware-guard workflow | PARTIALLY IMPLEMENTED; enforces a documented error | `.github/workflows/hardware-guard.yml:14-59`; `:54-59` requires CH1 = Battery and CH3 = Solar, the reverse of the driver | none | N-12, N-22 |
+| hardware-guard workflow | PARTIALLY IMPLEMENTED; enforces a documented error | Baseline `.github/workflows/hardware-guard.yml:14-59`; the INA3221 step (baseline `:54-59`) requires CH1 = Battery and CH3 = Solar, the reverse of the driver. Rewritten after the baseline: it now runs the pin checker, its self-test and the guard tests, and its `! grep` / `&&` lines were fixed so each check really fails the step (review T-02) | `tests/unit/test_hardware_guard_workflow.py` (runs the real steps under `bash -e` against crafted bad manifests) | N-12, N-22 |
 | Header I2C1 on the deployed Pi | **MISSING (disabled)** | LIVE `dtparam=i2c_arm=off`; `/dev/i2c-1` absent (only `i2c-11` = RP1 CSI bus with the imx219 at 0x10, `i2c-13`, `i2c-14` = HDMI DDC) | none | H-02, H-17, H-25 |
 | UART0 (GNSS) | IMPLEMENTED (device present) | LIVE `/dev/ttyAMA0`, GPIO14/15 alt4 `uart0`; receiver behind it unverified | `tests/unit/test_gps_driver.py` (SIM) | H-09 |
 | UART4 (BNO085) | **MISSING** | LIVE no `uart4-pi5` overlay and no `/dev/ttyAMA4`. `docs/hardware-integration.md` (baseline line 116) says `dtoverlay=uart4`; the Pi's overlay README documents `uart4` as BCM2711-only (GPIO8-11) and `uart4-pi5` as GPIO12-13 (N-13) | none | H-03, N-13 |
 | SPI0 and the HaLow radio | IMPLEMENTED (live) | LIVE `halow-dw` + `spi0-1cs`; GPIO8-11 SPI0, GPIO25 IRQ, GPIO5 RESET, GPIO3 WAKE, GPIO7 BUSY | none | H-02, H-17 |
 | ToF XSHUT (GPIO22/23) | PARTIALLY IMPLEMENTED | LIVE `lgpio` holds GPIO22 LOW and GPIO23 HIGH; the addressing sequence cannot reach the sensors without an I2C bus | none | H-17 |
-| HaLow claims in the pin registry | MISSING | HaLow is absent from `spec/hardware.yaml` | none | H-02, H-17 |
+| HaLow claims in the pin registry | Baseline **MISSING**; now PARTIALLY IMPLEMENTED | HaLow was absent from `spec/hardware.yaml` at the baseline. The checker branch added 15 `HaLow HAT ...` rows to `pins.gpio_used` (RESET_N, SPI_INT, SPI0 CS0/MISO/MOSI/SCLK, WAKE, BUSY, TRST, RGB x3, UART TX/RX, BUTTON): 6 `verified`, 2 `documented`, 7 `unverified` (the unverified ones only warn, M-02) | `tests/unit/test_hardware_pin_conflicts.py` | H-02, H-17 |
 | Hardware self-test | PARTIALLY IMPLEMENTED; unsafe on this Pi | `backend/src/services/hw_selftest.py:36-41,192-255`, route `backend/src/api/routers/maintenance.py:62-69` (N-18) | none | H-02 |
 
 ### A.5 Electrical and power
@@ -237,7 +237,7 @@ Summary of the safety audit; the full traces are in Part D.
 | Full suite | PASS in SIM | `SIM_MODE=1 pytest tests --ignore=tests/soak -p no:cacheprovider`: **530 passed, 69 skipped, 0 failed**, 68.8 s, 2 warnings (httpx deprecation). HIL and soak were not run |
 | Skipped tests | UNVERIFIED paths | 29 + 1 "Placeholder integration test" and 10 "Placeholder contract test" (`RUN_PLACEHOLDER_*`); 15 + 1 perf tests (`RUN_PERF_TESTS`); `_require_bearer_auth` TODO(v3) skips and a legacy `/ws/telemetry` skip (`tests/unit/test_websocket_auth.py:20,27,35,58`; the stated reason is stale because `/ws/telemetry` is registered at `backend/src/api/rest.py:35`); "Auth enforcement not yet implemented - TDD test" (`tests/integration/test_manual_control_auth.py:23,69,119`); hardware self-test (`RUN_HW_TESTS`), 8-hour soak (`RUN_8H_SOAK`), quick soak (`RUN_SOAK_CI`); one test needing `cv2` (`tests/unit/test_yolo26_decode.py:185`) |
 | HIL | **MISSING** | `tests/hil/test_hil_probe.py` runs `scripts/hil_probe.py` under `SIM_MODE` and parses a CSV; it is not a hardware test. `pyproject.toml:60` sets `testpaths = ["tests"]`, so the CI `pytest -q` collects `tests/hil` (the SIM probe) and `tests/soak` (skipped without its `RUN_*` flag); no job touches hardware |
-| Pin checker | UNTESTED | No file in `tests/` references `scripts/check_hardware_pin_conflicts.py`; none loads `spec/hardware.yaml` |
+| Pin checker | Baseline **UNTESTED**; now TESTED on copies | `tests/unit/test_hardware_pin_conflicts.py` (mutation tests on copies of the registry, config and backend sources, plus CLI tests), `tests/unit/test_hardware_guard_workflow.py`, `tests/unit/test_docs_drift_script.py` and the inline `--self-test`. All run on copies and fakes; none shows the pin state of a real Pi |
 | Areas with **no test at all** | MISSING | Stop-distance logic, comms-loss behaviour, shutdown parking, PCA9685-absent reporting in production, tilt re-engagement by navigation, IBT-4 e-stop, PTO momentary behaviour, Thor link authentication |
 
 What the passing safety tests prove and do not prove:
@@ -282,8 +282,8 @@ What the passing safety tests prove and do not prove:
 |---|---|---|---|
 | `sim-tests.yml` | push, PR | `uv sync --frozen`, `SIM_MODE=1 LBY_ACCEL=cpu uv run pytest -q`, an API smoke on port 8000 (`:16-26`) | Includes the 69 skips (auth TDD tests never run); collects the SIM-only `tests/hil` probe and the skipped soak test (`pyproject.toml:60`); no hardware job and no dedicated safety job; port 8000 vs the deployed 8081 |
 | `lint.yml` | push, PR | `ruff@0.15.19 check .` and `format --check .` (`:17-19`) | Not run by the audit |
-| `hardware-guard.yml` | PR | the pin checker, then `grep` presence checks on `spec/hardware.yaml` (`:14-59`) | Checks the manifest, not reality; `:54-59` enforces CH1 battery / CH3 solar (N-12); `:39-44` blocks the strings "soil", "weather station", "jetson", "movidius" |
-| `docs-drift.yml` | PR, push to main | `scripts/check_docs_drift.sh` | Path-regex only (`:40`); passes if any `docs/**` file changed; locally `git fetch --depth=0` errors and is swallowed (`:18`), so a local run on an unchanged branch is vacuous; does not look at `config/*.yaml`, `hardware/` or `robohat-rp2040-code/` |
+| `hardware-guard.yml` | PR | the pin checker (self-test and real run), the guard tests, then `grep` presence checks on `spec/hardware.yaml` | Checks the manifest, not reality; the INA3221 step enforces CH1 battery / CH3 solar (N-12). Baseline `:39-44` listed the strings "soil", "weather station", "jetson", "movidius", but under `bash -e` the `! grep` lines cannot fail a step, so only the last string ("movidius") blocked; fixed (loop with an explicit `exit 1`, review T-02/D-08) |
+| `docs-drift.yml` | PR, push to main | `scripts/check_docs_drift.sh` | Path-regex only; passes if any `docs/**` file changed; does not look at `config/*.yaml`, `hardware/` or `robohat-rp2040-code/`. Baseline: locally `git fetch --depth=0` errored and was swallowed (`:18`), so a local run on an unchanged branch was vacuous. Rewritten: shallow clones are deepened, the base is fetched by explicit refspec, and an unresolvable base, a history too shallow for a merge-base, a failed `git diff` or a push event with nothing to compare exits 2 (never 0); pushes to main pass `github.event.before` (review T-01) |
 | `config-lint.yml` | PR | yamllint, dotenv-linter, shellcheck via `ludeeus/action-shellcheck@master` (unpinned, `:14`), `systemd-analyze verify` with ExecStart-missing errors filtered | Does not compare units with the deployed Pi |
 | `dep-audit.yml` | PR | `pip-audit` and `npm audit` | Both commands end in `\|\| true` (`:18,28`), so they never fail the job |
 | `deps-lock.yml` | PR | `uv.lock` present and locked; forbids `pycoral`/`edgetpu` in `pyproject.toml` (`:22`) | none |
@@ -604,14 +604,14 @@ configuration expects.
 | Address | Device | Configured in | LIVE |
 |---|---|---|---|
 | 0x10 | imx219 (Pi Camera Module 2) | n/a | present on `i2c-11` (RP1 CSI bus), **not the header** |
-| 0x29 | VL53L0X left | `spec/hardware.yaml:22,148`, `config/hardware.yaml:22` | header bus absent |
-| 0x30 | VL53L0X right (reprogrammed at runtime, `vl53l0x_driver.py:297`) | `spec/hardware.yaml:23,149` | header bus absent |
-| 0x3C | SSD1306 OLED (no driver, A.1) | `spec/hardware.yaml:27,150` | header bus absent |
-| 0x40 | INA3221 | `spec/hardware.yaml:60,151`, `ina3221_driver.py:26` | header bus absent |
+| 0x29 | VL53L0X left | `spec/hardware.yaml:22,147`, `config/hardware.yaml:22` | header bus absent |
+| 0x30 | VL53L0X right (reprogrammed at runtime, `vl53l0x_driver.py:297`) | `spec/hardware.yaml:23,148` | header bus absent |
+| 0x3C | SSD1306 OLED (no driver, A.1) | `spec/hardware.yaml:27,149` | header bus absent |
+| 0x40 | INA3221 | `spec/hardware.yaml:60,150`, `ina3221_driver.py:26` | header bus absent |
 | 0x41 | PCA9685 (A0 bridged) | `config/tractor.yaml:17` | header bus absent; not in the registry |
 | 0x70 | PCA9685 all-call (power-on default [DS]; the driver clears ALLCALL in `MODE1`) | not documented | TBD |
 | 0x4A, 0x4B | BNO085 if on I2C | `sensor_manager.py:186-188` | header bus absent |
-| 0x76 | BME280 | `spec/hardware.yaml:25,152` | header bus absent |
+| 0x76 | BME280 | `spec/hardware.yaml:25,151` | header bus absent |
 
 **UART.**
 
@@ -1499,7 +1499,7 @@ a configured pin, an actuator calibration or `tractor.enabled`.
 | ID | Conflict | State after this PR | Closes with |
 |---|---|---|---|
 | C-01 | Legacy ultrasonic GPIO9/10/11 are the HaLow SPI0 lines | open; the guide is marked legacy and do-not-wire; the self-test still drives the pins (N-18) | WP-P0-01, WP-P0-03, M-02 |
-| C-02 | Starter relay GPIO5 is the HaLow RESET line | open; `config/tractor.yaml` unchanged; documents warn; no relay may be attached (M-03) | WP-P0-01 |
+| C-02 | Starter relay GPIO5 is the HaLow RESET line | open; `config/tractor.yaml` pin values unchanged (comment blocks and the `command_deadman` block were added); documents warn; the pin checker allow-lists it and rejects `enabled: true` while it stands; no relay may be attached (M-03) | WP-P0-01 |
 | C-03 | Blade IN2 GPIO25 is the HaLow IRQ line | open (mower variant, driver stub) | WP-P0-01 |
 | C-04 | GPIO12 is both the ToF-R interrupt and BNO085 TXD4 | open | D-4, WP-P0-01 |
 | C-05 | Header I2C is disabled and GPIO3 is the HaLow WAKE line; the actuator bus has no route | open; this blocks the whole actuator bus | D-1, M-04 |
@@ -1597,7 +1597,7 @@ H-02c are sub-findings of H-02 introduced by this audit.
 | H-08 | P0 | PCA9685 holds the last PWM; no independent failsafe | unresolved; Part D is the safety case | Part D, F.2, WP-P0-05, WP-P1-01 to WP-P1-13 |
 | H-09 | P1 | GPS receiver mismatch (ZED-F9P versus LC29H) | annotated as unreconciled in this PR; owner decision and physical check open | A.7, B.6, D.9, WP-P2-04 |
 | H-10 | P1 | Three sensors in the guide, four required | guide marked legacy; the four-sensor model is missing | A.1, B.5, WP-P2-02 |
-| H-11 | P1 | Differential-drive and Toro variants mixed | platform tags added in README, matrix, overview, servo-hat-pins and hardware.md; `spec/` and `docs/hardware-integration.md` are on the checker branch | A.3, A.12, WP-P0-01 |
+| H-11 | P1 | Differential-drive and Toro variants mixed | platform tags added in README, matrix, overview, servo-hat-pins and hardware.md; `docs/hardware-integration.md` carries the platform note on its first lines; `spec/hardware.yaml` still has no per-row platform tag (WP-P0-01), the checker only gates by owner (`tractor`, `ibt4`) | A.3, A.12, WP-P0-01 |
 | H-12 | P1 | `enabled: false` default | confirmed in the repository and live | A.3 |
 | H-13 | P1 | Thor link documented | exists as a library, unwired and unauthenticated (the register's direction is corrected) | A.8, C.3, D.6, WP-P3-01 to WP-P3-03 |
 | H-14 | P1 | Authentication off by decision | confirmed; more unauthenticated routes found | A.9, D.5, WP-P1-11, SD-8 |
@@ -1626,7 +1626,7 @@ unverified (gates G0-G1).
 | Branch | Commits | What changed | Gaps advanced or closed |
 |---|---|---|---|
 | `audit/docs` | `f4a7c52` `9371078` `79a545a` `81fe90b` `302a867` `45c2e1b` `3883f36` `17d4378` | Ultrasonic guide marked legacy / DO NOT WIRE, pin 17 = 3.3 V, divider fixed; PCA9685 `OE` active-low corrected; 24 V servo rail superseded (12 V-class pending label); feature matrix and README corrected; platform tags; this document | H-01, H-04, H-05, H-18 (documentation); H-10/H-19 (documented, not designed); H-11 |
-| `audit/checker` | `65a189c` `bb2edda` `4c6de02` | `spec/hardware.yaml` gains HaLow HAT, UART0/UART4, ultrasonic and I2C1 claims, each with evidence and status, plus a `deployment` block from the live Pi; checker rewritten (txd/rxd, tractor relays, ultrasonic only when enabled, I2C availability); reviewed allow-list `spec/known_conflicts.yaml` that fails on new or stale entries and on tractor conflicts once `enabled: true`; `check_docs_drift.sh` no longer vacuous; guard workflow runs checker and tests | H-02, H-03, H-17, H-25 now **detected and gated** (not resolved) |
+| `audit/checker` | `65a189c` `bb2edda` `4c6de02` | `spec/hardware.yaml` gains HaLow HAT, UART0/UART4, ultrasonic and I2C1 claims, each with evidence and status, plus a `deployment` block from the live Pi; checker rewritten (txd/rxd, tractor relays, ultrasonic only when enabled, I2C availability); reviewed allow-list `spec/known_conflicts.yaml` that fails on new or stale entries and on tractor conflicts once `enabled: true`; `check_docs_drift.sh` no longer fails on `fetch --depth=0` (it still passed on an unresolvable base and on a push to main until review T-01, fixed in "Review-fix track tooling"); guard workflow runs checker and tests | H-02, H-03, H-17, H-25 now **detected** (not resolved). Gated: GPIO5 (tractor relay) and the actuator bus (header I2C1/GPIO3) while `enabled: true`, GPIO25 while `ibt4.gpio_enabled: true`; GPIO12 (H-03) is detected and allow-listed only (review T-03) |
 | `audit/safety` | `3a9dfdf` `fe3ea6d` `f70d315` `615bb90` `2095702` | Truthful per-subsystem E-stop on `/control/emergency*` (`services/emergency_stop_service.py`); authenticated `emergency_clear`; PCA9685 absent/failed raises and tractor motion commands are rejected; tractor command deadman (`command_deadman` in `config/tractor.yaml`, 500 ms default, 2 s ceiling) returns levers to neutral and throttle to idle; RoboHAT commands expire, no blind PWM resend; tilt/E-stop latch blocks blade re-engagement until an authenticated clear; shutdown parks actuators; repo unit sets `OPERATOR_AUTH_REQUIRED=1`, `admin/admin` alias removed | H-08 (software side), H-14, loss-of-comms, false-assurance E-stop |
 | `audit/thorlink` | `6cc2076` `2deae0f` `dc3941f` | HMAC-SHA256 datagrams (`THOR_LINK_KEY`, refuses to start without a key outside SIM); Pi session id + uplink echo replaces `seq`, so replays and seq poisoning are rejected and Thor restarts are accepted; 1.0 s plan age; bounded size and waypoint count; optional geofence; failed safe-hold neutral surfaced as `hold_fault`. Still **not wired** into `main.py` | H-13 (protocol hardened), H-23 (unchanged: not live) |
 
@@ -1634,7 +1634,7 @@ unverified (gates G0-G1).
 
 | Part A row | Baseline | After this PR |
 |---|---|---|
-| General E-stop routes | STUBBED / false assurance | PARTIALLY IMPLEMENTED: invokes tractor, RoboHAT and blade service; reports `stopped/simulated/unconfirmed/failed/not_present`; IBT-4 GPIO is still a stub so blade reports `unconfirmed` outside SIM |
+| General E-stop routes | STUBBED / false assurance | PARTIALLY IMPLEMENTED: invokes tractor, RoboHAT and blade service; reports `stopped/simulated/unconfirmed/failed/not_present/not_enabled`; IBT-4 GPIO is still a stub so blade reports `unconfirmed` outside SIM |
 | Independent hardwired E-stop | MISSING | MISSING (hardware work, G0) |
 | PCA9685 `OE` / servo-power cut | MISSING | MISSING in hardware; absent-PCA9685 is now reported instead of silent success |
 | Loss of comms (operator) | MISSING | SIMULATED: tractor deadman and RoboHAT command expiry, tested with fakes |
@@ -1933,3 +1933,50 @@ Measured SDG throughput: 108 frames from the four shards in the first 28 minutes
 the ~3 min start-up); an earlier sample at 11:08 gave 11.3 s/frame and did not hold. The cause was not investigated.
 Owner actions still open for this track: **O-4** (3080 Ti), **O-8** (Pi reachable for the HEF gate); the live
 `detector.hef` is untouched.
+
+### Review-fix track tooling
+
+Branch `fix/tool` (worktree `lr-tool`), 2026-10-24: the tooling, CI and documentation findings of the independent review of
+PR #19 (`T-01`..`T-12`, `D-01`..`D-12`; the review's line numbers are at `d85d4fc`). Each finding was re-located and
+re-verified on the finish-merged tree before it was fixed. Regression tests were proven against the old code: the old
+script or workflow was restored over the fix and the new tests failed; for the checker the same crafted trees were run
+through the old and the new CLI (old exit 0 where the new one exits 1).
+
+| ID | Result | Evidence | Test |
+|---|---|---|---|
+| T-01 | FIXED | Reproduced: no `origin/main` and a push to main (HEAD == `origin/main`) both printed "No changed files detected", exit 0. `check_docs_drift.sh` now exits 2 for an unresolvable base or head, a shallow history without a merge-base, a failed `git diff` and a push event whose base is the pushed commit; `origin/<branch>` is fetched by explicit refspec; `docs-drift.yml` passes `github.event.before` on pushes | `test_docs_drift_script.py::{test_unresolvable_base_is_a_hard_failure, test_a_base_that_only_exists_on_origin_is_fetched, test_push_event_without_a_pre_push_base_is_an_error_not_a_pass, test_push_to_main_compares_the_pushed_commits}` (5 of the new tests fail on the old script) |
+| T-01 (extra, was the review's S-3) | FIXED | Confirmed: a code-only `backend/é.py` passed (git quotes non-ASCII paths, so neither regex matched). `git diff -z` now; `--no-renames` so a move out of `backend/` is a code change | `test_non_ascii_paths_are_classified`, `test_moving_code_out_of_backend_is_a_code_change` |
+| T-02 | FIXED | Reproduced under `bash -e`: soil / weather station / jetson present, or `channel_1` / `channel_2` missing, passed every step (only the last line of a step gated); actionlint's shellcheck pass flags the old lines (SC2251). Loop with an explicit `exit 1`, INA3221 lines through a function with an explicit exit | `test_hardware_guard_workflow.py` (34 tests; 7 fail on the old workflow: `test_each_forbidden_term_fails_the_block_step[...]`, `test_several_forbidden_terms_fail_the_block_step`, `test_a_missing_ina3221_channel_key_fails_its_step[channel_1\|channel_2]`) |
+| T-03 | FIXED | Claims carry an `owner` (`tractor`: everything read from `config/tractor.yaml`; `ibt4`: spec rows tagged `owner: ibt4`); a known conflict is BLOCKED while a claimant's owner is armed (`enabled: true`, `ibt4.gpio_enabled: true`), whatever the claim's label says. An enabled tractor whose PCA9685 bus does not exist on the deployed Pi is BLOCKED too (no claim can express that). Old CLI: starter moved + `enabled: true` + GPIO5 entry dropped exit 0; new exit 1. GPIO25 is the IBT-4's (differential-drive mower), not the tractor's: its owner action said otherwise | `TestOwnerGating::*`, `TestCheckerMutations::{test_enabled_tractor_with_the_starter_moved_is_still_blocked, test_ibt4_armed_blocks_the_blade_in2_conflict, test_a_bus_the_pi_does_not_have_blocks_an_enabled_tractor, test_the_tractor_being_enabled_does_not_block_the_ibt4_conflict}` |
+| T-04 | FIXED | Relay on GPIO 31 / 99 / 0 / 1 / `true`, two servos on one channel, channel 99 and a deleted `pca9685` address or section all exited 0 on the old CLI; now exit 1 (omitted keys mean the runtime default: a deleted address is the driver's 0x40 and collides with the INA3221). An empty registry no longer passes | `TestTractorValidation::*` (relay GPIO / channel / address parametrisations, `test_a_deleted_pca9685_address_is_the_driver_default_that_collides`, `test_an_empty_registry_does_not_pass`) |
+| T-05 | FIXED | The registry is hand-maintained; the module docstring and `hardware-integration.md` now say so. The promised cross-validation exists (`uart_overlays` pin <-> GPIO, txd/rxd rows <-> overlays, ultrasonic `pin_trig`/`pin_echo`), and the registry is compared with `config/hardware.yaml` (IBT-4 pins, ToF XSHUT/address/bus) and the pins hard-coded in `ultrasonic_driver.py`, `hw_selftest.py`, `motor_service.py` and `ibt4_gpio.py` (a changed value is an error, a moved file or symbol a warning). Old CLI: each of these mutations exit 0 | `TestRegistryValidation::*`, `TestRegistryDrift::*`, `test_real_repo_every_source_is_found_and_cross_checked` |
+| T-06 | FIXED | The ToF bus is read from `config/hardware.yaml` (the spec has no `sensors.tof_config`), and `deployment.uart_overlays_enabled` is compared by UART name (`uart4`), not the overlay string (an overlay name there is now an error) | `TestDeploymentChecks::*` |
+| T-07 | FIXED | `--self-test` asserted `13 in detected or 12 in detected or not detected`; it now asserts the two GPIOs and no collision, and fails when `HEADER_PIN_TO_GPIO[33]` is made 12 | `test_the_self_test_fails_when_the_header_map_collides_rx_and_tx` |
+| T-08 | FIXED | `test_shallow_clone_is_deepened_not_vacuous` now starts from a depth-1 checkout without `origin/main` and a main that moved on with a docs-only commit; it fails when the unshallow block is deleted (new script: exit 2; old script: tip-to-tip fallback), both shown | `test_docs_drift_script.py::test_shallow_clone_is_deepened_not_vacuous` |
+| T-09 | FIXED | I2C claims are keyed by bus (`bus1:0x40`); registry rows sit on `deployment.header_i2c_bus` unless they name a `bus`; allow-list `i2c_address` entries need a `bus`. Old CLI: the PCA9685 on bus 13 at 0x40 against the INA3221 on bus 1 was a NEW CONFLICT | `TestBusAwareI2C::*` |
+| T-10 | FIXED | The owner actions no longer name GPIO26/12/13/17/27; the checker rejects an `owner_action` that names a claimed GPIO and its report lists the header GPIOs no row claims (18, 19, 20 today, each still needs M-02) | `TestOwnerActions::*` |
+| T-11 | FIXED | `spec/hardware.yaml` note and `hardware-integration.md`: the Pi 4B `uart4` pins are GPIO 8/9 (physical pins 24/21); the checker validates the Pi 4 entry and `rpi4_alt_pin` | `TestRegistryValidation::{test_the_pi4_pins_are_checked_too, test_an_rpi4_alt_pin_that_is_not_the_pi4_uart_pin_is_rejected}` |
+| T-12 | FIXED | The CLI tests spawn `sys.executable` | `TestCheckerCLI::*` |
+| D-01 | ALREADY-FIXED | `README.md` "API Reference" says operator authentication is enforced; `systemd/lawnberry-backend.service:33` sets `OPERATOR_AUTH_REQUIRED=1` (finish/deploy, `e4fdc75`) | n/a (documentation) |
+| D-02 | FIXED | README E-stop table rewritten for the routes as they are (fan-out through `execute_emergency_stop`, six statuses incl. `not_enabled`, authenticated `emergency_clear`); no line numbers | n/a |
+| D-03 | FIXED | Feature-matrix cites that moved or were wrong (`hardware-guard.yml:54-59`, `config/tractor.yaml:31` x2, `spec/hardware.yaml:142,144`, `hardware-integration.md:54-57`, `sensor_manager.py:197-200`, `navigation_service.py:33-82,354-361`, `ibt4_gpio.py:25-50`, `tractor_actuators.py:80-125`) now name the step, key, row or class. Claims behind them that were false at HEAD were corrected: the IBT-4 driver is a flag-only stub only as shipped (an `lgpio` adapter exists behind `ibt4.gpio_enabled`), `ObstacleGuard` (not `ObstacleDetector`) stops the mission loop, `test_sensor_fusion.py` is no longer a skipped placeholder, the pin checker's registry includes the HaLow HAT | n/a |
+| D-04 | FIXED | Audit A.4 row "HaLow claims in the pin registry": 15 HaLow rows exist (6 verified, 2 documented, 7 unverified) | n/a |
+| D-05 | FIXED | Audit A.11 row "Pin checker": tested (see T-01..T-12) | n/a |
+| D-06 | FIXED | Audit F.1 C-02: pin values in `config/tractor.yaml` are unchanged, comment blocks and `command_deadman` were added | n/a |
+| D-07 | FIXED | Audit A.4 hardware-guard row, A.13 `docs-drift.yml` row and H-11 row now say the workflow and script were rewritten and `spec/` and `docs/hardware-integration.md` are merged | n/a |
+| D-08 | FIXED | Audit A.13 `hardware-guard.yml` row: only the last forbidden string blocked at the baseline (T-02) | n/a |
+| D-09 | FIXED | Implemented-table `audit/checker` row: the drift script still passed on an unresolvable base and on pushes until T-01; gating is per owner (GPIO5, the actuator bus, GPIO25), GPIO12 is only detected | n/a |
+| D-10 | FIXED | Part A comparison row lists all six statuses (`NOT_ENABLED = 'not_enabled'`, `emergency_stop_service.py:57`) | n/a |
+| D-11 | FIXED | Audit B.4: the `i2c_addresses` cites were each +1 against baseline `765c737` (`147`/`148`/`149`/`150`/`151`) | n/a |
+| D-12 | FIXED (text); depends on fix/act | `known_conflicts.yaml`: GPIO25 no longer says the tractor must stay disabled (it is the IBT-4's, gated by `ibt4.gpio_enabled`); GPIO5 says `enabled: false` keeps the tractor off the pin because the tractor service claims no GPIO while disabled (audit SF-05, fix on `fix/act`: `tests/unit/test_tractor_disabled_platform.py`, confirmed by FixActuation). The `config/tractor.yaml` comment (the checker rejects `enabled: true`) was accurate | `test_enabled_tractor_blocks_listed_tractor_conflict`, `test_ibt4_armed_blocks_the_blade_in2_conflict` |
+
+Full suite on this branch: 1831 collected, **1802 passed, 29 skipped, 0 failed, 0 errors** (baseline at the start of the branch:
+1688 collected, 1659 passed, 29 skipped); `ruff check` and `ruff@0.15.19 format --check .` clean; `actionlint` clean on both workflows.
+
+Left and why:
+
+- **A.4 row "Pin and address conflict checker"** still reads as the baseline ("never reads HaLow, overlays, `config/hardware.yaml`...", "no file in `tests/` references it"): it is not named in D-01..D-12, so it is left for the integration owner to consolidate (T-05 and D-05 above give the current state).
+- **Review S-1** (`uart1` recorded on GPIO14/15 with `dtoverlay=uart1`, the same pins as `uart0`; `serial_uart_used` says UART1 = RoboHAT): not changed. It needs the Pi 5 overlay README on the mower Pi (`uart1` versus `uart1-pi5`) and that Pi is unreachable (O-8); the registry value is untouched.
+- **Review S-4** (the tests hard-code `starter.gpio == 5`, `enabled is False`, `known_gpios == {3, 5, 12, 25}`): intended. Moving a pin (owner action O-5) must update those tests and the allow-list together; the checker now also names that in its BLOCKED/STALE output.
+- **Not mine, stale:** `docs/tractor-platform.md` still says the pin checker's registry omits the HaLow HAT and header-I2C availability (it now includes both): FixActuation's file.
+- **Owner actions unchanged:** O-5 (pin moves: starter off GPIO5, blade IN2 off GPIO25, an I2C route) and the audit M-02 continuity check for every GPIO the report lists as unclaimed.
