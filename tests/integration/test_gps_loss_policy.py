@@ -83,7 +83,7 @@ async def client(production_auth):
 
 
 @pytest.mark.asyncio
-async def test_manual_override_during_gps_loss(client, sensors):
+async def test_manual_override_during_gps_loss(client, sensors, operator_credential):
     """With the fix lost: nav falls back to dead reckoning and the operator can still drive."""
     manager, nav = sensors
 
@@ -104,13 +104,21 @@ async def test_manual_override_during_gps_loss(client, sensors):
     assert nav.navigation_state.dead_reckoning_active is True
     assert nav.navigation_state.current_position is not None, "dead reckoning keeps a position"
 
-    # The operator unlocks manual control (wrong password refused) and drives.
+    # The operator logs in, unlocks manual control (wrong password refused) and drives. The
+    # unlock is a step-up: it needs the login's bearer token as well as the password.
+    login = await client.post("/api/v2/auth/login", json={"credential": operator_credential})
+    assert login.status_code == 200, login.text
+    auth = {"Authorization": f"Bearer {login.json()['access_token']}"}
     wrong = await client.post(
-        "/api/v2/control/manual-unlock", json={"method": "password", "password": "not-it"}
+        "/api/v2/control/manual-unlock",
+        json={"method": "password", "password": "not-it"},
+        headers=auth,
     )
     assert wrong.status_code == 401
     unlock = await client.post(
-        "/api/v2/control/manual-unlock", json={"method": "password", "password": MANUAL_PASSWORD}
+        "/api/v2/control/manual-unlock",
+        json={"method": "password", "password": MANUAL_PASSWORD},
+        headers=auth,
     )
     assert unlock.status_code == 200 and unlock.json()["authorized"] is True
     session_id = unlock.json()["session_id"]
@@ -122,7 +130,7 @@ async def test_manual_override_during_gps_loss(client, sensors):
         "duration_ms": 500,
         "reason": reason,
     }
-    drive = await client.post("/api/v2/control/drive", json=command)
+    drive = await client.post("/api/v2/control/drive", json=command, headers=auth)
 
     assert drive.status_code == 202, drive.text
     body = drive.json()
@@ -145,8 +153,12 @@ async def test_manual_override_during_gps_loss(client, sensors):
     assert audited["response"]["accepted"] is True
 
     # Losing GPS does not open the control path: no/invalid session is still refused.
-    refused = await client.post("/api/v2/control/drive", json={**command, "session_id": "forged"})
+    refused = await client.post(
+        "/api/v2/control/drive", json={**command, "session_id": "forged"}, headers=auth
+    )
     assert refused.status_code == 401
+    # ... and a valid manual session without the operator's login is refused as well.
+    assert (await client.post("/api/v2/control/drive", json=command)).status_code == 401
 
     # The fix returns: dead reckoning stops and the dashboard shows the fix again.
     manager.gps = StubSensorManager.with_fix()

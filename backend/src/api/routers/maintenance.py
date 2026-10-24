@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...core.persistence import persistence
@@ -14,6 +14,7 @@ from ...services.calibration_service import (
 from ...services.hw_selftest import run_selftest
 from ...services.timezone_service import detect_system_timezone
 from ...services.websocket_hub import websocket_hub
+from ..deps import require_operator_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -124,7 +125,11 @@ def get_system_timezone() -> TimezoneResponse:
 # -------------------- IMU Calibration --------------------
 
 
-@router.post("/maintenance/imu/calibrate", response_model=IMUCalibrationResultPayload)
+@router.post(
+    "/maintenance/imu/calibrate",
+    response_model=IMUCalibrationResultPayload,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def post_calibrate_imu(request: Request) -> IMUCalibrationResultPayload:
     """Execute the IMU calibration routine and return the resulting summary."""
     hub = getattr(request.app.state, "websocket_hub", websocket_hub)

@@ -1,11 +1,23 @@
 from fastapi import APIRouter
 
+from ..core.auth_posture import auth_health
 from ..core.health import HealthService
+from ..services.auth_service import primary_auth_service
 
 router = APIRouter()
 
 
 health_service = HealthService()
+
+
+def _report() -> dict:
+    """The health report plus the authentication state (is operator auth enforced at all).
+
+    The key is ``operator_auth``, not ``auth``: the response sanitizer redacts any ``auth`` key.
+    """
+    report = health_service.evaluate()
+    report["operator_auth"] = auth_health(login_available=primary_auth_service.login_available())
+    return report
 
 
 @router.get("/health")
@@ -16,14 +28,14 @@ def health_root() -> dict:
     drivers, persistence, safety) used by platform monitors.
     """
 
-    return health_service.evaluate()
+    return _report()
 
 
 @router.get("/api/v2/health")
 def health_api_v2() -> dict:
     """Expose health report under the versioned API namespace."""
 
-    return health_service.evaluate()
+    return _report()
 
 
 @router.get("/api/v2/health/liveness")

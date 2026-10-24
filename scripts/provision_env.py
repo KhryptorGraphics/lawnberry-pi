@@ -363,11 +363,18 @@ def make_plan(
 
     # ---- a loud line, not a refusal --------------------------------------------------
     flag = last_entry(entries, AUTH_FLAG_KEY)
-    if flag is not None and flag.value != "1":
-        plan.warnings.append(
-            f"{AUTH_FLAG_KEY} is not 1 in {env_path}: it overrides the unit and operator "
-            "authentication is DISABLED"
-        )
+    if flag is not None:
+        required, recognised = policy.parse_operator_auth_flag(flag.value)
+        if not required:
+            plan.warnings.append(
+                f"{AUTH_FLAG_KEY}={flag.value!r} in {env_path}: it overrides the unit and "
+                "operator authentication is DISABLED"
+            )
+        elif not recognised:
+            plan.warnings.append(
+                f"{AUTH_FLAG_KEY}={flag.value!r} in {env_path} is not a recognised boolean: "
+                "operator authentication stays ENFORCED (only 0, false, no or off disable it)"
+            )
     return plan
 
 

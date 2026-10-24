@@ -2,40 +2,117 @@
 
 > **Authentication is ENFORCED by the repo unit (`OPERATOR_AUTH_REQUIRED=1`).**
 >
-> `systemd/lawnberry-backend.service` now ships `OPERATOR_AUTH_REQUIRED=1`
-> (2026-10-24 safety audit; it was `0`). Login, operator-auth-gated writes
-> (tractor, control, missions) and the manual-control unlock step are required.
-> The E-stop endpoints stay unauthenticated by design; clearing an E-stop or a
-> blade latch (`/tractor/clear-emergency`, `/control/emergency_clear`) requires
-> authentication. The code default of `api/deps.py::require_operator_auth` is
-> unchanged (`"1"` when unset).
+> `systemd/lawnberry-backend.service` ships `OPERATOR_AUTH_REQUIRED=1` (2026-10-24 safety
+> audit; it was `0`). Every state-changing route needs the operator's bearer token except the
+> three E-stop POSTs and the login/refresh/logout routes (below). The default of
+> `api/deps.py::require_operator_auth` is enforced when the variable is unset.
 >
-> **Before restarting the unit set the operator credential.** There is no built-in default
-> any more. Run `systemd/install_services.sh`: it refuses to finish (exit 3, nothing changed)
-> until `LAWN_BERRY_OPERATOR_CREDENTIAL` is a credential of at least 12 characters that is not
-> a published default (`operator123`, `admin`, `password`, ...), stores it in
-> `<root>/.env` (mode 0600) and generates the persistent `LAWN_BERRY_AUTH_SECRET` there. With
-> no usable credential the backend still starts but **nobody can log in** (fail closed); the
-> E-stop routes stay open. The web UI login form posts `{username, password}`; the password
-> is that credential (any username), and there is no `admin/admin` alias. Scripts pass a
-> bearer token (`scripts/teleop.py --token`). To run a LAN bench without auth, set the
-> unit's `OPERATOR_AUTH_REQUIRED` value back to `0`.
+> **How the flag is read (fail closed).** Only `0`, `false`, `no` or `off` (any case, surrounding
+> blanks ignored) disable operator authentication. Unset, `1`, `true`, `yes`, `on` and every
+> ambiguous value (an empty `OPERATOR_AUTH_REQUIRED=` line, `2`, `disabled`, a typo) keep it
+> enforced; an ambiguous value is logged as a WARNING. `<root>/.env` (the unit's
+> `EnvironmentFile`) overrides the unit, so a `0` there silently turns authentication off: the
+> backend therefore logs **CRITICAL at start-up whenever it is disabled outside `SIM_MODE`**,
+> and `GET /health` (and `/api/v2/health`) report the state under `operator_auth`
+> (`operator_auth_required`, `operator_auth_flag_ambiguous`, `operator_login_available`,
+> `simulation_open_auth`). Enforcement points: `core/auth_posture.py::operator_auth_required`,
+> read by `api/deps.py::require_operator_auth` and `api/routers/auth.py`
+> (`_resolve_manual_session`, `manual_unlock`, `manual_unlock_status`).
+>
+> **The one operator credential.** There is no built-in default. Run
+> `systemd/install_services.sh`: it refuses to finish (exit 3, nothing changed) until
+> `LAWN_BERRY_OPERATOR_CREDENTIAL` is a credential of at least 12 characters that is not a
+> published default (`operator123`, `admin`, `password`, ...), stores it in `<root>/.env`
+> (mode 0600) and generates the persistent `LAWN_BERRY_AUTH_SECRET` there. With no usable
+> credential the backend still starts but **nobody can log in** (fail closed); the E-stop routes
+> stay open. The web UI login form posts `{username, password}`; the password is that credential
+> (any username), and there is no `admin/admin` alias. Scripts pass a bearer token
+> (`scripts/teleop.py --token`). To run a LAN bench without auth, set `OPERATOR_AUTH_REQUIRED=0`
+> (a CRITICAL line is logged at every start).
+>
+> **What is open, and why** (pinned by `tests/integration/test_operator_auth_coverage.py`, which
+> enumerates every POST/PUT/PATCH/DELETE route of the app and fails on an unreviewed one):
+> `POST /api/v2/control/emergency`, `/api/v2/control/emergency-stop` and
+> `/api/v2/tractor/emergency-stop` (an E-stop must work with no credential; they are also exempt
+> from every rate limiter and from request validation, by exact path, see
+> `middleware/emergency_paths.py`); the two login routes (they are the login); `/auth/logout` and
+> `/auth/refresh` (they verify the bearer themselves). **Everything else needs
+> `Authorization: Bearer <token>`**, including missions, `/maintenance/imu/calibrate`, `/ai/*`
+> writes, `/nav/*`, the `/debug/*` injectors, `/control/drive`, `/control/blade`, the map, recording
+> and `/api/v1` writes, and clearing an E-stop or latch (`/tractor/clear-emergency`,
+> `/control/emergency_clear`). A manual-control session id is **not** a credential and
+> `X-Session-Id` is no longer read. The `/debug/*` injectors (GPS, geofence, ToF and tilt) answer
+> 404 unless `SIM_MODE=1` or `LAWNBERRY_ENABLE_DEBUG_ROUTES=1` (bench use on the mower needs that
+> flag in `<root>/.env`; `/health` reports it as `debug_routes_enabled`), and need the bearer
+> token on top.
+>
+> **WebSockets.** A browser cannot set an `Authorization` header on a WebSocket handshake, and the
+> login token must not travel in a URL (uvicorn logs the query string; `?access_token=` is no
+> longer read). It therefore trades its bearer token for a 30 s, single-use ticket
+> (`POST /api/v2/auth/ws-ticket`, bearer required; a ticket dies with the login session it was
+> minted for; the route is outside the `/api/*/auth` attempt limiter, see below) and connects with
+> `?ticket=...`. Non-browser clients may send `Authorization: Bearer <token>` on the handshake.
+> A presented but invalid credential is always refused. With no credential:
+> `/api/v2/ws/control` (the command-capable socket) is refused whenever operator auth is on,
+> whoever the peer is; `/ws/telemetry` and `/api/v2/ws/status` (read-only streams of what the open
+> GET routes carry; `/ws/status` used to check nothing) admit a loopback peer or the explicit
+> simulator opt-in, and refuse everyone else. "Peer" is the connection's address as the app sees
+> it: uvicorn's proxy-headers handling (on by default, trusting `FORWARDED_ALLOW_IPS`, default
+> `127.0.0.1`) replaces the UI server's loopback address with the browser's, so **a LAN browser
+> behind the UI server is refused without a ticket** (the UI falls back to REST polling) and only
+> a browser on the mower itself counts as loopback. Checked end to end with the real UI server and
+> backend: anonymous LAN browser 401, loopback browser 101, LAN browser with a ticket 101. No
+> WebSocket handler changes mower state today (`/ws/control` only acknowledges).
+>
+> **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate) is a
+> step-up for a logged-in operator: it needs the bearer token AND the credential again in the
+> body (`{"method": "password", "password": ...}`; the shape the UI already sends). The password
+> is checked against the bcrypt `password_hash` of the security settings, else
+> `MANUAL_CONTROL_PASSWORD`, else the operator credential, and against nothing if none is usable:
+> the unlock is refused (401; 400 for a blank password). Wrong passwords are throttled per TCP
+> peer like the login (`AUTH_LOCKOUT_FAILURES`, 429 + `Retry-After`). The session id it returns
+> is random (it used to be derived from the password) and is only the extra factor
+> `/control/drive` and `/control/blade` check in the request body, together with the bearer token.
+> **Cloudflare Access is not accepted**: the `CF-Access-Jwt-Assertion` header and the
+> `CF_Authorization` cookie were decoded but never verified, so any value unlocked control (and
+> the session was accepted as an operator login). `method: cloudflare` is now 501 and
+> `GET /control/manual-unlock/status` answers `authorized: false` while auth is enforced. Verifying
+> Cloudflare Access needs the Access issuer, audience and signing keys plus RS256 support
+> (`cryptography`, not installed here): owner decision, see the audit.
+>
+> **Limits are per client address, not per `X-Client-Id`.** The login lockout, the unlock
+> throttle, the `/api/*/auth` limiter and the global limiter count the client's address (IPv6
+> per /64), never a header the client writes, and every table is bounded. The shipped web UI
+> server (`frontend/server.mjs`) proxies to the backend from 127.0.0.1. Two layers believe
+> `X-Forwarded-For` only from a trusted peer and then take the LAST hop that is not itself a
+> trusted proxy (the address the proxy recorded from its own socket; whatever the client wrote to
+> the left of it is never read): uvicorn first (`--proxy-headers`, on by default, trusting
+> `FORWARDED_ALLOW_IPS`, default `127.0.0.1`; it replaces `request.client`), then the backend's
+> `core/peer_address.py` (`LAWN_BERRY_TRUSTED_PROXIES`: comma-separated addresses or networks,
+> default `127.0.0.0/8,::1`; an empty value trusts none). From any other peer the header is
+> ignored entirely. The UI server deletes inbound `X-Forwarded-For`/`Forwarded`/`X-Real-IP` and
+> sets the header itself (`xfwd: true`), so each browser has its own lockout and its own
+> rate-limit bucket. A proxy that passes a client-supplied `X-Forwarded-For` through unchanged
+> would let that client pick its own bucket: never list such a proxy in
+> `LAWN_BERRY_TRUSTED_PROXIES` or `FORWARDED_ALLOW_IPS`, and never set `FORWARDED_ALLOW_IPS=*`
+> (uvicorn then takes the FIRST hop, which the client wrote). With no header at all, every client
+> behind a proxy shares the proxy's one budget and one lockout. `POST /auth/ws-ticket` (the UI
+> calls it before every WebSocket (re)connect, with a token that may have expired) is exempt from
+> the `/api/*/auth` attempt limiter and lockout (`middleware/security.py::UNLIMITED_AUTH_PATHS`):
+> it only redeems a live bearer, and counting it would block the login after a few reconnects.
+> Tractor command POSTs and `/control/drive|blade` have their own buckets so UI polling cannot
+> starve them. Password checks (bcrypt, ~270 ms) run on a small dedicated thread pool, never on
+> the event loop that carries the deadman and the E-stop handlers.
+>
+> **`SIM_MODE` is not a credential.** `SIM_MODE=1` alone no longer makes the login accept any
+> credential or admits any WebSocket client as an operator: that needs `LAWN_BERRY_SIM_OPEN_AUTH=1`
+> as well (the test suite sets it) and is ignored when `LAWNBERRY_ENV=production`. Start-up logs
+> CRITICAL for `SIM_MODE=1` in a production environment or on a non-loopback bind
+> (`--host 0.0.0.0`, `UVICORN_HOST`), and for the opt-in on such a process.
 >
 > The `lawnberry-pi ...` command examples further down describe a CLI that is not shipped (no
 > console entry point in `pyproject.toml`); the supported configuration is the environment
 > and `.env` described here.
->
-> **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate): the
-> password is checked against the bcrypt `password_hash` of the security settings, else
-> `MANUAL_CONTROL_PASSWORD`, else the operator credential above, and against nothing if none is
-> usable (no credential configured, or a published default): the unlock is refused. It used to
-> accept any non-empty password in that case, and the session it returned is accepted by every
-> operator-gated write. A blank password is a 400 at every security level.
->
-> Enforcement points that honour the flag: `api/deps.py::require_operator_auth`,
-> and in `api/routers/auth.py` `_resolve_manual_session`, `manual_unlock`, and
-> `manual_unlock_status`. The fail-closed contract is unchanged when auth is
-> required: an unlock error never grants control.
 
 This guide covers setting up and configuring the multi-level authentication system in LawnBerry Pi v2, from basic password authentication to enterprise-grade security.
 
@@ -633,13 +710,19 @@ Notes:
 
 4. **WebSocket 401 Unauthorized (remote access)**:
 
-When accessing the UI through a tunnel/proxy, browsers cannot set custom headers on WebSocket upgrades. The backend now supports passing the session token via query params. Ensure:
+Browsers cannot set custom headers on WebSocket upgrades, so the UI trades its bearer token for a
+single-use ticket and connects with `?ticket=<ticket>`. Ensure:
 
-- You are logged in to the UI (a valid token is stored in localStorage).
-- The frontend will automatically append `?access_token=<token>` to the telemetry/control WS URLs.
-- If using Cloudflare Access, the `CF-Access-Jwt-Assertion` header is accepted for WS authorization when Access policy already authenticated the user.
+- You are logged in to the UI (a valid token is stored in localStorage); the UI then calls
+  `POST /api/v2/auth/ws-ticket` before every (re)connect. The login token itself is no longer
+  accepted in a WebSocket URL.
+- A ticket lives 30 s and works once; a retry needs a fresh one (the UI fetches one per attempt).
+- A `CF-Access-Jwt-Assertion` header is not a credential on any route (it was never verified), so
+  a Cloudflare Access policy does not authorize a WebSocket: log in to the mower UI as well.
 
-If you still see WS failures, live telemetry will fall back to REST polling. Check the browser console network tab for 401/403 responses on `/api/v2/ws/telemetry` or `/ws/telemetry` and adjust Access policies accordingly.
+If you still see WS failures, live telemetry will fall back to REST polling. Check the browser
+console network tab for 401/403 responses on `/api/v2/ws/telemetry` or `/ws/telemetry`, and for
+the `POST /api/v2/auth/ws-ticket` request that precedes them.
 
 ### Debug Commands
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
+
+from .deps import require_operator_auth
 
 router = APIRouter()
 
@@ -22,7 +24,7 @@ def _clamp_pwm(v: int) -> int:
     return max(-255, min(255, v))
 
 
-@router.post("/motors/drive")
+@router.post("/motors/drive", dependencies=[Depends(require_operator_auth)])
 def drive(cmd: DriveCommand) -> dict[str, dict[str, int]]:
     # Compute left/right PWM using arcade mix (dry-run, no hardware)
     left = _clamp_pwm(int((cmd.throttle + cmd.turn) * 255))

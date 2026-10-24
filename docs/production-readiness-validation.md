@@ -95,8 +95,9 @@ Planning jobs (a saved job = an autonomous run over its zones):
 - [ ] `npm run build` artifact served by `lawnberry-frontend`; dashboard loads.
 - [ ] **Login issues a usable bearer token** (the sanitization exemption is in place) that the
       API client attaches; protected writes succeed authenticated and 401 without.
-- [ ] **Telemetry WebSocket authenticates remotely**: the client appends `?access_token=` and
-      `/api/v2/ws/telemetry` upgrades (101) from a non-loopback origin.
+- [ ] **Telemetry WebSocket authenticates remotely**: the client trades its bearer token for a
+      single-use ticket (`POST /api/v2/auth/ws-ticket`), appends `?ticket=`, and
+      `/api/v2/ws/telemetry` upgrades (101); a reused or unknown ticket is refused (401).
 - [ ] Control view drives manually (auto manual-unlock session); Planning "Quick Mow" / job
       Start triggers an autonomous run and progress is visible.
 - [ ] Map planner reads/writes `/api/v2/map/configuration`; settings, weather, planning, and

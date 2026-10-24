@@ -2,15 +2,15 @@
 
 import hashlib
 import json
-import os
 from datetime import UTC, datetime
 from email.utils import format_datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..services.auth_service import AuthenticationError, primary_auth_service
+from .deps import require_operator_auth
 
 router = APIRouter()
 
@@ -104,24 +104,25 @@ def get_status():
 
 @router.post("/auth/login", response_model=AuthResponse)
 async def auth_login(payload: AuthLoginRequest, request: Request):
-    """Start login flow (MFA compatible)."""
-    # No built-in default: with no credential configured nothing matches (fail closed).
-    expected_secret = os.getenv("LAWN_BERRY_OPERATOR_CREDENTIAL")
+    """Start login flow (MFA compatible).
+
+    Same throttling as ``/api/v2/auth/login`` (one limiter, keyed on the TCP peer, so a wrong
+    guess here counts against the v2 login too), constant-time bcrypt verification off the event
+    loop, and no built-in default: with no credential configured nothing matches. Unlike v2 it
+    never accepts the simulator's any-credential opt-in (``accept_simulated=False``).
+    """
     credential = payload.credential
     if credential is None and payload.username and payload.password:
         # username/password form: the password IS the single shared operator
         # credential (username is informational). No hard-wired admin/admin alias.
         credential = payload.password
 
-    if not expected_secret or credential != expected_secret:
-        raise HTTPException(status_code=401, detail="Authentication failed")
-
     try:
         result = await _auth_service.authenticate(
             credential or "",
-            client_identifier=request.headers.get("X-Client-Id"),
             client_ip=request.client.host if request.client else None,
             user_agent=request.headers.get("User-Agent"),
+            accept_simulated=False,
         )
     except AuthenticationError as exc:
         raise HTTPException(
@@ -158,7 +159,9 @@ def get_zones(request: Request):
     return JSONResponse(content=data, headers=headers)
 
 
-@router.post("/maps/zones", response_model=list[Zone])
+@router.post(
+    "/maps/zones", response_model=list[Zone], dependencies=[Depends(require_operator_auth)]
+)
 def create_zones(zones: list[Zone]):
     """Create or update zones."""
     global _zones_store
@@ -180,7 +183,12 @@ def get_jobs():
     return _jobs_store
 
 
-@router.post("/mow/jobs", response_model=Job, status_code=201)
+@router.post(
+    "/mow/jobs",
+    response_model=Job,
+    status_code=201,
+    dependencies=[Depends(require_operator_auth)],
+)
 def create_job(job_data: dict):
     """Queue a new mowing job."""
     global _job_counter, _jobs_store

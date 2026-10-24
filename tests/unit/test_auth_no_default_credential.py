@@ -88,13 +88,47 @@ async def test_an_explicit_argument_beats_the_environment(real_auth):
     assert (await service.authenticate("another-strong-credential-7")).token
 
 
-async def test_sim_mode_keeps_accepting_any_non_empty_credential(monkeypatch):
-    """Simulated runs and the test suite need no credential (unchanged behaviour)."""
+async def test_sim_mode_alone_does_not_accept_any_credential(monkeypatch):
+    """SIM_MODE=1 is not an authentication bypass (SEC-10): it needs the explicit opt-in too."""
     monkeypatch.setenv("SIM_MODE", "1")
+    monkeypatch.delenv("LAWN_BERRY_SIM_OPEN_AUTH", raising=False)
+    monkeypatch.setenv("LAWN_BERRY_OPERATOR_CREDENTIAL", STRONG)
+    service = AuthService()
+    assert await _rejected(service, "whatever")
+    assert await _rejected(service, REMOVED_PUBLIC_DEFAULT)
+    assert (await service.authenticate(STRONG)).token, "the configured credential still works"
+    monkeypatch.delenv("LAWN_BERRY_OPERATOR_CREDENTIAL")
+    assert await _rejected(AuthService(), "whatever"), "and with none configured nobody logs in"
+
+
+async def test_the_simulator_opt_in_accepts_any_non_empty_credential(monkeypatch):
+    """Simulated runs that opt in (SIM_MODE=1 and LAWN_BERRY_SIM_OPEN_AUTH=1) need no credential."""
+    monkeypatch.setenv("SIM_MODE", "1")
+    monkeypatch.setenv("LAWN_BERRY_SIM_OPEN_AUTH", "1")
     monkeypatch.delenv("LAWN_BERRY_OPERATOR_CREDENTIAL", raising=False)
     service = AuthService()
+    assert service.login_available() is True
     assert (await service.authenticate("whatever")).token
     assert await _rejected(service, "")
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"SIM_MODE": "0", "LAWN_BERRY_SIM_OPEN_AUTH": "1"},  # the opt-in needs SIM_MODE
+        {"SIM_MODE": "1", "LAWN_BERRY_SIM_OPEN_AUTH": "1", "LAWNBERRY_ENV": "production"},
+        {"SIM_MODE": "1", "LAWN_BERRY_SIM_OPEN_AUTH": "maybe"},  # not a true token
+        {"SIM_MODE": "true", "LAWN_BERRY_SIM_OPEN_AUTH": "1"},  # SIM_MODE is exactly "1"
+    ],
+)
+async def test_the_simulator_opt_in_has_no_effect_unless_every_condition_holds(monkeypatch, env):
+    monkeypatch.delenv("LAWNBERRY_ENV", raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("LAWN_BERRY_OPERATOR_CREDENTIAL", raising=False)
+    service = AuthService()
+    assert service.login_available() is False
+    assert await _rejected(service, "whatever")
 
 
 async def test_the_credential_cannot_be_set_over_the_api_when_none_is_configured(real_auth):
@@ -119,8 +153,21 @@ def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
+def _install_v1_service(monkeypatch, credential: str | None) -> AuthService:
+    """A strict service for the v1 login (it logs in through the service, like v2)."""
+    monkeypatch.setenv("SIM_MODE", "0")
+    if credential is None:
+        monkeypatch.delenv("LAWN_BERRY_OPERATOR_CREDENTIAL", raising=False)
+    else:
+        monkeypatch.setenv("LAWN_BERRY_OPERATOR_CREDENTIAL", credential)
+    service = AuthService()
+    monkeypatch.setenv("SIM_MODE", "1")
+    monkeypatch.setattr("backend.src.api.rest_v1._auth_service", service)
+    return service
+
+
 async def test_v1_login_has_no_default_credential(monkeypatch):
-    monkeypatch.delenv("LAWN_BERRY_OPERATOR_CREDENTIAL", raising=False)
+    _install_v1_service(monkeypatch, None)
     async with _client() as client:
         for body in (
             {"credential": REMOVED_PUBLIC_DEFAULT},
@@ -132,12 +179,25 @@ async def test_v1_login_has_no_default_credential(monkeypatch):
 
 
 async def test_v1_login_accepts_exactly_the_configured_credential(monkeypatch):
-    monkeypatch.setenv("LAWN_BERRY_OPERATOR_CREDENTIAL", STRONG)
+    _install_v1_service(monkeypatch, STRONG)
     async with _client() as client:
         ok = await client.post("/api/v1/auth/login", json={"credential": STRONG})
         old = await client.post("/api/v1/auth/login", json={"credential": REMOVED_PUBLIC_DEFAULT})
     assert ok.status_code == 200, ok.text
     assert old.status_code == 401
+
+
+async def test_v1_login_ignores_the_simulator_opt_in(monkeypatch):
+    """v2 login honours SIM_MODE + LAWN_BERRY_SIM_OPEN_AUTH; the v1 contract never does."""
+    monkeypatch.setenv("SIM_MODE", "1")
+    monkeypatch.setenv("LAWN_BERRY_SIM_OPEN_AUTH", "1")
+    monkeypatch.delenv("LAWN_BERRY_OPERATOR_CREDENTIAL", raising=False)
+    service = AuthService()
+    assert service.login_available() is True  # the opt-in is on...
+    monkeypatch.setattr("backend.src.api.rest_v1._auth_service", service)
+    async with _client() as client:
+        resp = await client.post("/api/v1/auth/login", json={"credential": "whatever"})
+    assert resp.status_code == 401  # ...and v1 still refuses an unconfigured credential
 
 
 # ---- the signing key -----------------------------------------------------------------------

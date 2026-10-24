@@ -10,12 +10,13 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...core.persistence import persistence
 from ...services.websocket_hub import websocket_hub
+from ..deps import require_operator_auth
 from .auth import _authorize_websocket, _extract_bearer_token
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,8 @@ router = APIRouter()
 # Telemetry V2 Models
 class TelemetryPingRequest(BaseModel):
     component_id: str
-    sample_count: int = 10
+    # The handler sleeps 1 ms per sample: an unbounded count was a one-request resource hog.
+    sample_count: int = Field(default=10, ge=1, le=100)
 
 
 class TelemetryPingResponse(BaseModel):
@@ -175,7 +177,7 @@ async def ws_telemetry(websocket: WebSocket):
 @router.websocket("/ws/control")
 async def ws_control(websocket: WebSocket):
     """Secondary WebSocket endpoint for control channel events."""
-    session = await _authorize_websocket(websocket)
+    session = await _authorize_websocket(websocket, command_capable=True)
     client_id = "ctrl-" + uuid.uuid4().hex
     session.add_websocket_connection(client_id, endpoint="/api/v2/ws/control")
     try:
@@ -384,7 +386,7 @@ async def export_telemetry_diagnostic(
         )
 
 
-@router.post("/telemetry/ping")
+@router.post("/telemetry/ping", dependencies=[Depends(require_operator_auth)])
 async def telemetry_ping(request: TelemetryPingRequest):
     """Return latency percentiles and samples to meet contract tests"""
     samples = []
