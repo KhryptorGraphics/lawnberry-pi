@@ -2,6 +2,10 @@
 
 Bill of materials for the autonomous zero-turn mower build, with buy links.
 
+> **Platform tag (H-11): Toro TimeCutter zero-turn variant only** (PCA9685 lever servos, starter and PTO relays).
+> It is not the wiring list for the differential-drive mower (RoboHAT / Cytron MDDRC10 / IBT-4), and it is a
+> shopping list, not an as-built record.
+
 > Prices are **live from Amazon** via the `amazon` MCP scraper, rounded to the
 > dollar. Listings change often — **re-check before ordering.**
 
@@ -9,6 +13,14 @@ Bill of materials for the autonomous zero-turn mower build, with buy links.
 - Raspberry Pi 5
 - RTK GPS (u-blox ZED-F9P), BNO085 IMU, ToF sensors, camera, INA3221
 - Hailo-8L AI accelerator
+
+> **Audit note (2026-10-24).** This inventory is the owner's earlier list, not a verified as-built record. The GNSS
+> receiver is unreconciled across documents: u-blox ZED-F9P here and in `spec/hardware.yaml:9`, versus Quectel
+> LC29H-DA (rover) with an LC29H-BS base per the owner's 2026-10-24 requirements and `config/hardware.yaml:9-11`
+> (H-09). The Hailo part is recorded as "8L" here, but `lspci` on the deployed Pi shows "Hailo-8" (same PCI ID;
+> verify with `hailortcli fw-control identify`). The HaLow radio, the four JSN-SR04T ultrasonic modules, the
+> BNO085/ToF wiring and the Pi Zero / Orange Pi house nodes are not itemised. The HaLow HAT (Heltec HT-HC01P /
+> MM6108 per the live `config.txt`) is a different product from the Heltec WiFi LoRa 32 in section 1.
 
 ## Need to buy
 
