@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate a YOLO26 detector (compiled HEF on the Hailo, or the end2end ONNX on CPU).
+"""Evaluate a YOLO26 detector: HEF on the Hailo, ONNX on CPU, or DFC emulation of the HAR.
 
 Run with the repo on PYTHONPATH:
 
@@ -8,13 +8,16 @@ Run with the repo on PYTHONPATH:
         [--expect ref.json --min-iou 0.8]
 
     # per-class recall/precision over a YOLO-format split
-    eval_detector.py --backend hef|onnx --model P [--spec J] --images DIR --labels DIR \
+    eval_detector.py --backend hef|onnx|har --model P [--spec J] --images DIR --labels DIR \
         [--conf 0.25] [--iou 0.5] [--gate] \
         [--baseline REPORT.json --max-recall-drop 0.10 --min-gt 20] --out REPORT.json
 
 ``hef`` needs /dev/hailo0 free (``pi_detector_ctl.py release`` first); its spec
-defaults to the HEF sidecar. ``onnx`` needs ``--spec`` for class names. Both use
-the same letterbox, so their boxes are directly comparable. Exit codes: 0 ok,
+defaults to the HEF sidecar. ``onnx`` and ``har`` need ``--spec`` for class names. All use
+the same letterbox, so their boxes are directly comparable. ``har`` runs the Dataflow Compiler's
+fixed-point emulation of the quantized model (``--har-context quantized|bit-exact``) in the DFC
+env (``hailo_sdk_client``; pick the GPU with ``CUDA_VISIBLE_DEVICES``): what the HEF computes,
+but NOT a device measurement (the report says ``"kind": "dfc-emulation"``). Exit codes: 0 ok,
 1 gate/baseline/expect failure, 2 setup error.
 """
 
@@ -93,6 +96,43 @@ class HefBackend:
         return decode_yolo26(result.outputs, self.spec, lb), ms
 
 
+class HarBackend:
+    """DFC emulation of the quantized (or compiled) HAR; not the device."""
+
+    CONTEXTS = {"quantized": "SDK_QUANTIZED", "bit-exact": "SDK_BIT_EXACT"}
+
+    def __init__(self, model: Path, spec: DetectorSpec, context: str = "quantized"):
+        self.model = model
+        self.spec = spec
+        self.context = context
+        self.runner = None
+        self._cm = None
+        self._ctx = None
+
+    async def __aenter__(self):
+        try:
+            from hailo_sdk_client import ClientRunner, InferenceContext
+        except ImportError as exc:
+            raise SetupError(f"--backend har needs the DFC env (hailo_sdk_client): {exc}") from exc
+        self.runner = ClientRunner(har=str(self.model))
+        self._cm = self.runner.infer_context(getattr(InferenceContext, self.CONTEXTS[self.context]))
+        self._ctx = self._cm.__enter__()
+        return self
+
+    async def __aexit__(self, *exc):
+        if self._cm is not None:
+            self._cm.__exit__(*exc)
+
+    async def predict(self, rgb: np.ndarray) -> tuple[list[dict], float]:
+        tensor, lb = letterbox(rgb, self.spec.input_size)
+        t0 = time.perf_counter()
+        raw = self.runner.infer(self._ctx, tensor.astype(np.float32))
+        ms = (time.perf_counter() - t0) * 1000
+        items = raw.items() if isinstance(raw, dict) else enumerate(raw)
+        outputs = {f"out{k}": np.asarray(v) for k, v in items}
+        return decode_yolo26(outputs, self.spec, lb), ms
+
+
 class OnnxBackend:
     def __init__(self, model: Path, spec: DetectorSpec):
         import onnxruntime as ort
@@ -144,8 +184,8 @@ class OnnxBackend:
 
 
 def _load_spec(a) -> DetectorSpec:
-    if a.backend == "onnx" and not a.spec:
-        raise SetupError("--backend onnx needs --spec (class names come from it)")
+    if a.backend in ("onnx", "har") and not a.spec:
+        raise SetupError(f"--backend {a.backend} needs --spec (class names come from it)")
     try:
         spec = load_spec_file(a.spec) if a.spec else load_detector_spec(a.model)
     except (FileNotFoundError, ValueError) as exc:
@@ -159,7 +199,11 @@ def _backend(a, spec: DetectorSpec):
     model = Path(a.model)
     if not model.exists():
         raise SetupError(f"model not found: {model}")
-    return HefBackend(model, spec) if a.backend == "hef" else OnnxBackend(model, spec)
+    if a.backend == "hef":
+        return HefBackend(model, spec)
+    if a.backend == "har":
+        return HarBackend(model, spec, a.har_context)
+    return OnnxBackend(model, spec)
 
 
 async def run_predict(a, spec: DetectorSpec) -> int:
@@ -239,6 +283,7 @@ async def run_eval(a, spec: DetectorSpec) -> int:
     report = {
         "schema": "detector-eval/1",
         "backend": a.backend,
+        "kind": {"hef": "device", "har": "dfc-emulation", "onnx": "float-cpu"}[a.backend],
         "model": str(a.model),
         "model_sha256": _sha256(Path(a.model)),
         "images": len(images),
@@ -275,7 +320,8 @@ async def run_eval(a, spec: DetectorSpec) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--backend", choices=("hef", "onnx"), required=True)
+    ap.add_argument("--backend", choices=("hef", "onnx", "har"), required=True)
+    ap.add_argument("--har-context", choices=("quantized", "bit-exact"), default="quantized")
     ap.add_argument("--model", required=True)
     ap.add_argument("--spec")
     ap.add_argument("--conf", type=float, help="override the spec confidence threshold")
