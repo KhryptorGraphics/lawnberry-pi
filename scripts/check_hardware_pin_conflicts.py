@@ -27,7 +27,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import ast
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,13 +40,14 @@ ROOT = Path(__file__).resolve().parents[1]
 @dataclass(frozen=True, order=True)
 class Claim:
     """A single claim on a GPIO pin or I2C address."""
-    kind: str                 # "gpio" or "i2c"
-    key: int | str            # GPIO number (int) or I2C address (canonical "0xNN" str)
-    label: str                # human-readable claimant identifier
-    source: str               # source file path relative to root
-    detail: str               # role description
+
+    kind: str  # "gpio" or "i2c"
+    key: int | str  # GPIO number (int) or I2C address (canonical "0xNN" str)
+    label: str  # human-readable claimant identifier
+    source: str  # source file path relative to root
+    detail: str  # role description
     status: str = "verified"  # verified | documented | unverified
-    pin: int | None = None    # physical header pin (for gpio kind)
+    pin: int | None = None  # physical header pin (for gpio kind)
 
 
 @dataclass
@@ -81,6 +81,7 @@ class Report:
 
 class RegistryError(Exception):
     """Raised for malformed registry/spec/allow-list entries."""
+
     pass
 
 
@@ -92,9 +93,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
                 raise RegistryError(f"{path}: YAML root must be a mapping")
             return data
     except yaml.YAMLError as e:
-        raise RegistryError(f"{path}: YAML parse error: {e}")
+        raise RegistryError(f"{path}: YAML parse error: {e}") from e
     except OSError as e:
-        raise RegistryError(f"{path}: {e}")
+        raise RegistryError(f"{path}: {e}") from e
 
 
 def _normalize_i2c_addr(value: Any) -> str | None:
@@ -110,13 +111,46 @@ def _normalize_i2c_addr(value: Any) -> str | None:
 
 # Pi 5 40-pin header: physical pin -> BCM GPIO
 HEADER_PIN_TO_GPIO = {
-    1: None, 2: None, 3: 2, 4: None, 5: 3, 6: None,
-    7: 4, 8: 14, 9: None, 10: 15, 11: 17, 12: 18,
-    13: 27, 14: None, 15: 22, 16: 23, 17: None, 18: 24,
-    19: 10, 20: None, 21: 9, 22: 25, 23: 11, 24: 8,
-    25: None, 26: 7, 27: 0, 28: 1, 29: 5, 30: None,
-    31: 6, 32: 12, 33: 13, 34: None, 35: 19, 36: 16,
-    37: 26, 38: 20, 39: None, 40: 21,
+    1: None,
+    2: None,
+    3: 2,
+    4: None,
+    5: 3,
+    6: None,
+    7: 4,
+    8: 14,
+    9: None,
+    10: 15,
+    11: 17,
+    12: 18,
+    13: 27,
+    14: None,
+    15: 22,
+    16: 23,
+    17: None,
+    18: 24,
+    19: 10,
+    20: None,
+    21: 9,
+    22: 25,
+    23: 11,
+    24: 8,
+    25: None,
+    26: 7,
+    27: 0,
+    28: 1,
+    29: 5,
+    30: None,
+    31: 6,
+    32: 12,
+    33: 13,
+    34: None,
+    35: 19,
+    36: 16,
+    37: 26,
+    38: 20,
+    39: None,
+    40: 21,
 }
 GPIO_TO_PIN = {g: p for p, g in HEADER_PIN_TO_GPIO.items() if g is not None}
 
@@ -143,9 +177,9 @@ def _load_ultrasonic_pins(hw: dict) -> dict[str, dict[str, int]] | None:
     return result if result else None
 
 
-
-def collect_gpio_claims(root: Path, hw: dict, tractor: dict, limits: dict,
-                         ultrasonic_pins: dict | None) -> tuple[list[Claim], list[str]]:
+def collect_gpio_claims(
+    root: Path, hw: dict, tractor: dict, limits: dict, ultrasonic_pins: dict | None
+) -> tuple[list[Claim], list[str]]:
     """Collect all GPIO claims from registry, tractor, ultrasonic, and I2C bus pins.
     Returns (claims, warnings)."""
     claims: list[Claim] = []
@@ -161,38 +195,70 @@ def collect_gpio_claims(root: Path, hw: dict, tractor: dict, limits: dict,
         if "gpio" in entry:
             gpio = entry["gpio"]
             if not isinstance(gpio, int):
-                raise RegistryError(f"spec/hardware.yaml: gpio_used entry role={role}: gpio must be int")
+                raise RegistryError(
+                    f"spec/hardware.yaml: gpio_used entry role={role}: gpio must be int"
+                )
             if pin is not None and _gpio_from_pin(pin) != gpio:
-                raise RegistryError(f"spec/hardware.yaml: gpio_used entry role={role}: pin {pin} -> GPIO {_gpio_from_pin(pin)}, but gpio={gpio}")
-            claims.append(Claim(kind="gpio", key=gpio,
-                              label=f"spec/hardware.yaml: {role}",
-                              source="spec/hardware.yaml", detail=role,
-                              status=status, pin=pin))
+                raise RegistryError(
+                    f"spec/hardware.yaml: gpio_used entry role={role}: pin {pin} -> GPIO {_gpio_from_pin(pin)}, but gpio={gpio}"  # noqa: E501
+                )
+            claims.append(
+                Claim(
+                    kind="gpio",
+                    key=gpio,
+                    label=f"spec/hardware.yaml: {role}",
+                    source="spec/hardware.yaml",
+                    detail=role,
+                    status=status,
+                    pin=pin,
+                )
+            )
         elif "txd" in entry or "rxd" in entry:
             # UART pin claim: derive GPIO from physical pin via header map
             if pin is None:
-                raise RegistryError(f"spec/hardware.yaml: gpio_used entry role={role}: txd/rxd row requires 'pin'")
+                raise RegistryError(
+                    f"spec/hardware.yaml: gpio_used entry role={role}: txd/rxd row requires 'pin'"
+                )
             gpio = _gpio_from_pin(pin)
             if gpio is None:
-                raise RegistryError(f"spec/hardware.yaml: gpio_used entry role={role}: pin {pin} not in header map")
-            claims.append(Claim(kind="gpio", key=gpio,
-                              label=f"spec/hardware.yaml: {role}",
-                              source="spec/hardware.yaml", detail=role,
-                              status=status, pin=pin))
+                raise RegistryError(
+                    f"spec/hardware.yaml: gpio_used entry role={role}: pin {pin} not in header map"
+                )
+            claims.append(
+                Claim(
+                    kind="gpio",
+                    key=gpio,
+                    label=f"spec/hardware.yaml: {role}",
+                    source="spec/hardware.yaml",
+                    detail=role,
+                    status=status,
+                    pin=pin,
+                )
+            )
         else:
-            raise RegistryError(f"spec/hardware.yaml: gpio_used entry role={role}: must have 'gpio' or 'txd'/'rxd'")
+            raise RegistryError(
+                f"spec/hardware.yaml: gpio_used entry role={role}: must have 'gpio' or 'txd'/'rxd'"
+            )
 
         # Validate status/evidence discipline
         if status == "unverified":
             if not entry.get("measure"):
-                warnings.append(f"spec/hardware.yaml: {role} (GPIO{claims[-1].key}): unverified claim missing 'measure' field")
+                warnings.append(
+                    f"spec/hardware.yaml: {role} (GPIO{claims[-1].key}): unverified claim missing 'measure' field"  # noqa: E501
+                )
             if not evidence:
-                warnings.append(f"spec/hardware.yaml: {role} (GPIO{claims[-1].key}): unverified claim missing 'evidence' field")
+                warnings.append(
+                    f"spec/hardware.yaml: {role} (GPIO{claims[-1].key}): unverified claim missing 'evidence' field"  # noqa: E501
+                )
         elif status in ("verified", "documented"):
             if not evidence:
-                warnings.append(f"spec/hardware.yaml: {role} (GPIO{claims[-1].key}): {status} claim missing 'evidence' field")
+                warnings.append(
+                    f"spec/hardware.yaml: {role} (GPIO{claims[-1].key}): {status} claim missing 'evidence' field"  # noqa: E501
+                )
         elif status:
-            warnings.append(f"spec/hardware.yaml: {role} (GPIO{claims[-1].key}): unknown status '{status}' (expected verified|documented|unverified)")
+            warnings.append(
+                f"spec/hardware.yaml: {role} (GPIO{claims[-1].key}): unknown status '{status}' (expected verified|documented|unverified)"  # noqa: E501
+            )
 
     # 2. config/tractor.yaml relays (always claim, even if enabled: false)
     for relay_name, relay in (tractor.get("relays", {}) or {}).items():
@@ -202,31 +268,20 @@ def collect_gpio_claims(root: Path, hw: dict, tractor: dict, limits: dict,
         if not isinstance(gpio, int):
             raise RegistryError(f"config/tractor.yaml relays.{relay_name}: gpio must be int")
         pin = _pin_from_gpio(gpio)
-        claims.append(Claim(kind="gpio", key=gpio,
-                          label=f"config/tractor.yaml relays.{relay_name}",
-                          source="config/tractor.yaml", detail=f"relay {relay_name}",
-                          status="verified", pin=pin))
+        claims.append(
+            Claim(
+                kind="gpio",
+                key=gpio,
+                label=f"config/tractor.yaml relays.{relay_name}",
+                source="config/tractor.yaml",
+                detail=f"relay {relay_name}",
+                status="verified",
+                pin=pin,
+            )
+        )
 
-    # 3. I2C header bus pins (GPIO2=SDA, GPIO3=SCL) if any device uses header bus 1
-    header_bus_claimed = False
-    pca_bus = (tractor.get("pca9685", {}) or {}).get("bus")
-    if pca_bus == 1:
-        header_bus_claimed = True
-    tof_cfg = hw.get("sensors", {}).get("tof_config", {})
-    if isinstance(tof_cfg, dict) and tof_cfg.get("bus") == 1:
-        header_bus_claimed = True
-    if hw.get("pins", {}).get("i2c_addresses"):
-        header_bus_claimed = True
-
-    if header_bus_claimed:
-        claims.append(Claim(kind="gpio", key=2,
-                          label="spec/hardware.yaml: I2C1 SDA (header bus 1)",
-                          source="spec/hardware.yaml", detail="I2C1 SDA",
-                          status="documented", pin=3))
-        claims.append(Claim(kind="gpio", key=3,
-                          label="spec/hardware.yaml: I2C1 SCL (header bus 1)",
-                          source="spec/hardware.yaml", detail="I2C1 SCL",
-                          status="documented", pin=5))
+    # 3. Header I2C1 SDA/SCL (GPIO2/GPIO3) are claimed by explicit gpio_used rows in the spec;
+    #    bus availability on the deployed Pi is reported from the `deployment` block.
 
     # 4. Ultrasonic driver pins (only if limits.yaml ultrasonic_enabled)
     ul_enabled = True  # default matches SafetyLimits default
@@ -236,11 +291,17 @@ def collect_gpio_claims(root: Path, hw: dict, tractor: dict, limits: dict,
         for sensor_name, pins in ultrasonic_pins.items():
             for pin_type, gpio in (("trig", pins["trig"]), ("echo", pins["echo"])):
                 pin = _pin_from_gpio(gpio)
-                claims.append(Claim(kind="gpio", key=gpio,
-                                  label=f"backend/src/drivers/sensors/ultrasonic_driver.py: {sensor_name} {pin_type}",
-                                  source="backend/src/drivers/sensors/ultrasonic_driver.py",
-                                  detail=f"ultrasonic {sensor_name} {pin_type}",
-                                  status="verified", pin=pin))
+                claims.append(
+                    Claim(
+                        kind="gpio",
+                        key=gpio,
+                        label=f"backend/src/drivers/sensors/ultrasonic_driver.py: {sensor_name} {pin_type}",  # noqa: E501
+                        source="backend/src/drivers/sensors/ultrasonic_driver.py",
+                        detail=f"ultrasonic {sensor_name} {pin_type}",
+                        status="verified",
+                        pin=pin,
+                    )
+                )
 
     return claims, warnings
 
@@ -255,21 +316,35 @@ def collect_i2c_claims(root: Path, hw: dict, tractor: dict) -> tuple[list[Claim]
         norm = _normalize_i2c_addr(addr)
         if norm is None:
             continue
-        claims.append(Claim(kind="i2c", key=norm,
-                          label=f"spec/hardware.yaml: {device}",
-                          source="spec/hardware.yaml", detail=device,
-                          status="verified"))
+        claims.append(
+            Claim(
+                kind="i2c",
+                key=norm,
+                label=f"spec/hardware.yaml: {device}",
+                source="spec/hardware.yaml",
+                detail=device,
+                status="verified",
+            )
+        )
 
     # config/tractor.yaml pca9685.address
     pca9685_addr = (tractor.get("pca9685", {}) or {}).get("address")
     norm = _normalize_i2c_addr(pca9685_addr)
     if norm is not None:
-        claims.append(Claim(kind="i2c", key=norm,
-                          label="config/tractor.yaml pca9685.address",
-                          source="config/tractor.yaml", detail="PCA9685",
-                          status="verified"))
+        claims.append(
+            Claim(
+                kind="i2c",
+                key=norm,
+                label="config/tractor.yaml pca9685.address",
+                source="config/tractor.yaml",
+                detail="PCA9685",
+                status="verified",
+            )
+        )
     else:
-        warnings.append("config/tractor.yaml pca9685.address not set; driver default 0x40 collides with INA3221 at 0x40")
+        warnings.append(
+            "config/tractor.yaml pca9685.address not set; driver default 0x40 collides with INA3221 at 0x40"  # noqa: E501
+        )
 
     return claims, warnings
 
@@ -313,7 +388,9 @@ def load_allow_list(root: Path) -> list[AllowEntry]:
 
         claimants = e.get("claimants", [])
         if not isinstance(claimants, list) or len(claimants) < 2:
-            raise RegistryError(f"{path}: entry {i}: claimants must be list with >=2 unique strings")
+            raise RegistryError(
+                f"{path}: entry {i}: claimants must be list with >=2 unique strings"
+            )
         if len(set(claimants)) != len(claimants):
             raise RegistryError(f"{path}: entry {i}: claimants must be unique")
 
@@ -335,14 +412,25 @@ def load_allow_list(root: Path) -> list[AllowEntry]:
             if k not in allowed:
                 raise RegistryError(f"{path}: entry {i}: unknown key '{k}'")
 
-        entries.append(AllowEntry(kind=kind, pin=pin, i2c_address=norm if kind == "i2c_address" else None,
-                                claimants=claimants, gap=gap, reason=reason, owner_action=owner_action))
+        entries.append(
+            AllowEntry(
+                kind=kind,
+                pin=pin,
+                i2c_address=norm if kind == "i2c_address" else None,
+                claimants=claimants,
+                gap=gap,
+                reason=reason,
+                owner_action=owner_action,
+            )
+        )
     return entries
 
 
-def reconcile(detected: dict[tuple[str, int | str], list[Claim]],
-              allowed: list[AllowEntry],
-              tractor_enabled: bool) -> Report:
+def reconcile(
+    detected: dict[tuple[str, int | str], list[Claim]],
+    allowed: list[AllowEntry],
+    tractor_enabled: bool,
+) -> Report:
     """Match detected conflicts against allow-list; classify as known/new/stale/blocked."""
     report = Report()
     report.conflicts = [Conflict(kind=k[0], key=k[1], claimants=v) for k, v in detected.items()]
@@ -428,8 +516,8 @@ def check_deployment_warnings(root: Path, hw: dict, tractor: dict, limits: dict)
             for entry in hw.get("pins", {}).get("gpio_used", []):
                 if "BNO085" in entry.get("role", "") and ("txd" in entry or "rxd" in entry):
                     warnings.append(
-                        f"DEPLOYMENT WARNING: UART4 overlay '{overlay}' not enabled on deployed Pi. "
-                        f"BNO085 IMU claims UART4 TX/RX (GPIO{pi5.get('txd_gpio')}/GPIO{pi5.get('rxd_gpio')}). "
+                        f"DEPLOYMENT WARNING: UART4 overlay '{overlay}' not enabled on deployed Pi. "  # noqa: E501
+                        f"BNO085 IMU claims UART4 TX/RX (GPIO{pi5.get('txd_gpio')}/GPIO{pi5.get('rxd_gpio')}). "  # noqa: E501
                         f"Add 'dtoverlay={overlay}' to /boot/firmware/config.txt to enable."
                     )
                     break
@@ -481,7 +569,9 @@ def run_check(root: Path) -> Report:
         if c.kind == "gpio" and c.source == "spec/hardware.yaml":
             key = (c.key, c.detail)
             if key in seen_gpio_role:
-                warnings.append(f"SPEC ERROR: Duplicate claim on GPIO{c.key} for role '{c.detail}' in spec/hardware.yaml")
+                warnings.append(
+                    f"SPEC ERROR: Duplicate claim on GPIO{c.key} for role '{c.detail}' in spec/hardware.yaml"  # noqa: E501
+                )
             seen_gpio_role.add(key)
 
     # Deployment warnings
@@ -518,19 +608,28 @@ def print_report(report: Report, verbose: bool = False) -> int:
     if report.blocked:
         for c in report.blocked:
             labels = ", ".join(sorted({cl.label for cl in c.claimants}))
-            print(f"BLOCKED (tractor enabled): {c.kind.upper()} {c.key} claimed by: {labels}", file=sys.stderr)
+            print(
+                f"BLOCKED (tractor enabled): {c.kind.upper()} {c.key} claimed by: {labels}",
+                file=sys.stderr,
+            )
         has_fail = True
 
     if report.new:
         for c in report.new:
             labels = ", ".join(sorted({cl.label for cl in c.claimants}))
-            print(f"NEW CONFLICT (not in allow-list): {c.kind.upper()} {c.key} claimed by: {labels}", file=sys.stderr)
+            print(
+                f"NEW CONFLICT (not in allow-list): {c.kind.upper()} {c.key} claimed by: {labels}",
+                file=sys.stderr,
+            )
         has_fail = True
 
     if report.stale:
         for a in report.stale:
             key = f"GPIO{a.pin}" if a.kind == "gpio" else a.i2c_address
-            print(f"STALE ALLOW-LIST ENTRY: {key} (claimants: {', '.join(a.claimants)}) no longer conflicts", file=sys.stderr)
+            print(
+                f"STALE ALLOW-LIST ENTRY: {key} (claimants: {', '.join(a.claimants)}) no longer conflicts",  # noqa: E501
+                file=sys.stderr,
+            )
         has_fail = True
 
     if report.known:
@@ -567,10 +666,14 @@ def self_test() -> int:
     # Test 2: rxd/txd rows map to GPIO via header map
     gpio_claims2, _ = collect_gpio_claims(
         Path("."),
-        {"pins": {"gpio_used": [
-            {"pin": 33, "rxd": 4, "role": "RX"},
-            {"pin": 32, "txd": 4, "role": "TX"},
-        ]}},
+        {
+            "pins": {
+                "gpio_used": [
+                    {"pin": 33, "rxd": 4, "role": "RX"},
+                    {"pin": 32, "txd": 4, "role": "TX"},
+                ]
+            }
+        },
         {},
         {},
         None,
@@ -581,10 +684,14 @@ def self_test() -> int:
     # Test 3: txd on pin 32 collides with gpio=12 row
     gpio_claims3, _ = collect_gpio_claims(
         Path("."),
-        {"pins": {"gpio_used": [
-            {"pin": 32, "gpio": 12, "role": "ToF IRQ"},
-            {"pin": 32, "txd": 4, "role": "UART4 TX"},
-        ]}},
+        {
+            "pins": {
+                "gpio_used": [
+                    {"pin": 32, "gpio": 12, "role": "ToF IRQ"},
+                    {"pin": 32, "txd": 4, "role": "UART4 TX"},
+                ]
+            }
+        },
         {},
         {},
         None,
@@ -594,7 +701,8 @@ def self_test() -> int:
     assert len(detected3[("gpio", 12)]) == 2
 
     # Test 4: I2C string vs int normalization
-    i2c_claims = collect_i2c_claims(Path("."),
+    i2c_claims = collect_i2c_claims(
+        Path("."),
         {"pins": {"i2c_addresses": {"0x40": "INA3221"}}},
         {"pca9685": {"address": 0x40}},
     )
@@ -603,18 +711,27 @@ def self_test() -> int:
 
     # Test 5: allow-list reconciliation
     allowed = [
-        AllowEntry(kind="gpio", pin=6, claimants=["A", "B"], gap=["H-01"],
-                  reason="test", owner_action="test"),
+        AllowEntry(
+            kind="gpio",
+            pin=6,
+            claimants=["A", "B"],
+            gap=["H-01"],
+            reason="test",
+            owner_action="test",
+        ),
     ]
     # matching
-    detected = {("gpio", 6): [Claim("gpio", 6, "A", "s", "A"),
-                                Claim("gpio", 6, "B", "s", "B")]}
+    detected = {("gpio", 6): [Claim("gpio", 6, "A", "s", "A"), Claim("gpio", 6, "B", "s", "B")]}
     r = reconcile(detected, allowed, False)
     assert len(r.known) == 1
     # changed claimants
-    detected = {("gpio", 6): [Claim("gpio", 6, "A", "s", "A"),
-                                Claim("gpio", 6, "B", "s", "B"),
-                                Claim("gpio", 6, "C", "s", "C")]}
+    detected = {
+        ("gpio", 6): [
+            Claim("gpio", 6, "A", "s", "A"),
+            Claim("gpio", 6, "B", "s", "B"),
+            Claim("gpio", 6, "C", "s", "C"),
+        ]
+    }
     r = reconcile(detected, allowed, False)
     assert len(r.new) == 1 and len(r.stale) == 1
     # stale
@@ -623,10 +740,22 @@ def self_test() -> int:
     assert len(r.stale) == 1
 
     # Test 6: tractor enabled blocks allow-listed tractor conflict
-    allowed = [AllowEntry(kind="gpio", pin=5, claimants=["HaLow", "config/tractor.yaml relays.starter"],
-                         gap=["H-02b"], reason="test", owner_action="test")]
-    detected = {("gpio", 5): [Claim("gpio", 5, "HaLow", "s", "H"),
-                                Claim("gpio", 5, "config/tractor.yaml relays.starter", "s", "T")]}
+    allowed = [
+        AllowEntry(
+            kind="gpio",
+            pin=5,
+            claimants=["HaLow", "config/tractor.yaml relays.starter"],
+            gap=["H-02b"],
+            reason="test",
+            owner_action="test",
+        )
+    ]
+    detected = {
+        ("gpio", 5): [
+            Claim("gpio", 5, "HaLow", "s", "H"),
+            Claim("gpio", 5, "config/tractor.yaml relays.starter", "s", "T"),
+        ]
+    }
     r = reconcile(detected, allowed, True)
     assert len(r.blocked) == 1
     r = reconcile(detected, allowed, False)

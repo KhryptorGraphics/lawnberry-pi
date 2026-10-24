@@ -72,7 +72,7 @@ power:
 # The driver (backend/src/drivers/sensors/ina3221_driver.py) and config/hardware.yaml
 # document the opposite assignment (ch1=Solar 0.0025 ohm, ch3=Battery 0.0015 ohm)
 # reflecting a deployed wiring revision. No physical measurement has confirmed which
-# shunt carries which current. See spec/known_conflicts.yaml contradiction entry.
+# shunt carries which current (open item; .github/workflows/hardware-guard.yml documents it).
 
 drive_system:
   preferred:
@@ -131,14 +131,14 @@ tractor:
 
 pins:
   gpio_used:
-    - { pin: 15, gpio: 22, role: "ToF Left Shutdown" }
-    - { pin: 16, gpio: 23, role: "ToF Right Shutdown" }
-    - { pin: 18, gpio: 24, role: "Blade IN1" }
-    - { pin: 22, gpio: 25, role: "Blade IN2" }
-    - { pin: 31, gpio: 6,  role: "ToF Left Interrupt" }
-    - { pin: 32, gpio: 12, role: "ToF Right Interrupt" }
-    - { pin: 33, rxd: 4,  role: "BNO085 RX", rpi4_alt_pin: 21 }
-    - { pin: 32, txd: 4,  role: "BNO085 TX", rpi4_alt_pin: 24 }
+    - { pin: 15, gpio: 22, role: "ToF Left Shutdown", status: "documented", evidence: ["docs/hardware-integration.md ToF XSHUT GPIO22; config/hardware.yaml tof_config left_shutdown_gpio; gpioinfo line 22 held by lg"] }
+    - { pin: 16, gpio: 23, role: "ToF Right Shutdown", status: "documented", evidence: ["docs/hardware-integration.md ToF XSHUT GPIO23; config/hardware.yaml tof_config right_shutdown_gpio; gpioinfo line 23 held by lg"] }
+    - { pin: 18, gpio: 24, role: "Blade IN1", status: "documented", evidence: ["docs/hardware-integration.md IBT-4 IN1 GPIO24; driver is a stub (ibt4_gpio.py), no electrical measurement"] }
+    - { pin: 22, gpio: 25, role: "Blade IN2", status: "documented", evidence: ["docs/hardware-integration.md IBT-4 IN2 GPIO25; driver is a stub (ibt4_gpio.py), no electrical measurement"] }
+    - { pin: 31, gpio: 6,  role: "ToF Left Interrupt", status: "documented", evidence: ["docs/hardware-integration.md optional ToF IRQ GPIO6; no driver code reads it"] }
+    - { pin: 32, gpio: 12, role: "ToF Right Interrupt", status: "documented", evidence: ["docs/hardware-integration.md optional ToF IRQ GPIO12; no driver code reads it"] }
+    - { pin: 33, rxd: 4,  role: "BNO085 RX", rpi4_alt_pin: 21, status: "documented", evidence: ["docs/hardware-integration.md UART4 RXD GPIO13; uart4-pi5 overlay not loaded on deployed Pi; driver is a sim stub"] }
+    - { pin: 32, txd: 4,  role: "BNO085 TX", rpi4_alt_pin: 24, status: "documented", evidence: ["docs/hardware-integration.md UART4 TXD GPIO12; uart4-pi5 overlay not loaded on deployed Pi; driver is a sim stub"] }
     - { pin: 29, gpio: 5,  role: "HaLow HAT RESET_N", status: "verified", evidence: ["runtime DT reset-gpios=<5 0>", "config.txt comment: Reset=GPIO5"] }
     - { pin: 22, gpio: 25, role: "HaLow HAT SPI_INT", status: "verified", evidence: ["runtime DT spi-irq-gpios=<25 0>", "gpioinfo line 25 mm610x_spi_irq_gpio irq 170"] }
     - { pin: 24, gpio: 8,  role: "HaLow HAT SPI0 CS0", status: "verified", evidence: ["pinctrl pinmux GPIO8=spi0 CS0", "config.txt dtoverlay=spi0-1cs"] }
