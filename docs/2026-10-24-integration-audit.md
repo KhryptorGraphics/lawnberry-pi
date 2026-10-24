@@ -1656,3 +1656,34 @@ unverified (gates G0-G1).
 
 The suite rewrites the tracked `verification_artifacts/001-integrate-hardware-and/telemetry_integration_evidence.json`
 on every run; it was restored and is not part of this PR.
+
+### Finish track detector
+
+Goal T5 (`docs/GOAL-2026-10-24-finish.md`), workshop box `kp@192.168.1.53`, 2026-10-24. Branch `finish/detector`.
+The run is **in flight, not finished**: the SDG shards, training and the full-level DALI compile are detached jobs
+(table below); the Pi gate is blocked on owner action O-8. Every number here was read from a command on that box.
+
+| Item | Commit | What changed or was measured | Evidence |
+|---|---|---|---|
+| Box health (T5.1) | n/a | RTX 3080 Ti still unusable (O-4): 415.2-415.5 W at 0 % utilisation in 5 samples, `clocks_event_reasons 0x4` (SW power cap), PCIe Gen3 **x4** (LnkCap x16, `lspci` "downgraded"), 11617 of 12288 MiB held by another user's PID 62466 (`drama3-offload-studio ... serve.py 7860`). P100 26 W, V100 25 W, both x16. The box rebooted at 06:50 | `nvidia-smi --query-gpu`, `lspci -vv` |
+| Isaac launcher after the reboot | `6ac2869` | `$LB` is on ntfs-3g (`uid=1000,umask=002`); the image user uid 1234 is "other" there, and the image's `/tmp` is `ubuntu(1000):775`, so every SDG job died with `PermissionError: /data/...` and `No usable temporary directory`. `ISAACSIM_USER=1000:1000` passes `docker --user`; default unchanged | smoke log before/after |
+| Isaac on the P100 | n/a | Cannot render: `Raytracing is not supported on GPU: 0`, `No device could be created`, `Minimum GPU compute capability 7.0 is required` (PhysX). Container hangs, no frames | `logs/t5/sdg-scale-p100.log` |
+| SDG on the V100 (T5.3) | n/a | `rtxRequired=false`, RT 2.0, accum 16, ID-pass labels: 4-frame smoke 4/4 labelled; single process ~20 s/frame warm (15 s beauty + 4.8 s ID pass); 4 concurrent shards keep the card at 100 % and finish ~11-13 s/frame aggregate. Production run (4 shards x 550 frames, seeds 101-104, `/data/sdg/v2-full-s0..3`) started 10:58:08 CDT. Image quality: visibly grainy (16-sample average, no denoiser; noise proxy 8.1 on the smoke vs 0.17 on the 3080 Ti v1); overlay check of the smoke frames showed boxes on shed, ladder, bed, driveway, drop-off | `logs/t5/sdg-smoke-v100.log`, overlays |
+| Exposure aborts | n/a | `isaac_sdg.py` aborts a shard (no manifest) when more than 10 % of its first 30+ frames are rejected; procedural houses/walls swallow the camera more often than the asset classes did. `post_sdg2.sh` relaunches replacement shards (new seed) and tops up to 2000 images | `logs/t5/post_sdg.log` |
+| `stage_dataset` dropped frames | `84f3b4b` | Every SDG run names frames `000000.jpg` upward; the old staging skipped an existing destination yet counted the file, so training on v1 + v2 silently used only v1's frames for shared names. Staged files are prefixed `s<i>_` and the staged counts are verified. 4 of the 5 new tests fail on the old code | `tests/unit/test_train_detector_stage.py` |
+| Per-class recall always null | `84f3b4b` | `metrics.box.recall` does not exist in Ultralytics (it is `.r`), and `ap50` was indexed by class id although it is compact over `ap_class_index`. `per_class_metrics` fixes both; verified on a real 1-epoch run (recalls populated, manifest `per_class_val_error: null`) | `tests/unit/test_train_detector_metrics.py`, `logs/t5/train-t5smoke.log` |
+| `merge_sdg`, `make_calib` | `69920e9` | Shard merge (manifests must agree, label counts must equal the manifest) and an exactly-1024-image calibration folder: the zoo's `ImageFeed` sorts the folder and keeps the first `calibset_size` files, so one big folder calibrates on v1 only and v1 has no house, wall or drop-off | 16 tests |
+| Gate and baseline verdicts | `aff2e08` | `run_eval` tested end to end with a scripted backend: tier gates, `--baseline` drop, `--min-gt` | `tests/unit/test_eval_detector_gate.py` |
+| `--backend har` | `d8c43a3` | DFC fixed-point emulation of the quantized HAR through the same decode/gate/baseline code; the report says `kind: dfc-emulation`. Not a device measurement; it is the substitute evidence while the Pi is unreachable | `tests/unit/test_eval_detector_har.py` |
+| Pi reachability (T5.5) | n/a | **Blocked, O-8.** `ssh kp@10.8.0.2`: `Connection timed out`; `ssh kp@192.168.50.20`: `No route to host` (Thor routes the /24 via 192.168.1.140, whose ARP for the Pi fails: the Pi is not associated on HaLow, as in the 2026-10-22 journal entry). From the workshop both pings lose 100 %. `192.168.1.140:2222` is `No route to host`; the AP's `:22` wants a key | exact errors, `ip route get` |
+
+Detached chain on the box (`$LB/logs/t5/`): `post_sdg2.sh` (supervise shards, merge, `dataset_stats`, train `yolo26s`
+on v1 + v2-full with `--smoke-sdg-val`, V100) then `post_train.sh` (ONNX baseline eval, calibration folder, DALI check,
+`hailo_compile.sh --tag sdgv1v2 --gpu 2` at the zoo default opt level 4 + adaround, HEF/sidecar sha256, HAR emulation
+eval on the P100, Pi bundle `data/hailo/pi-bundle-sdgv1v2.tar` with `RUN_ON_PI.md`). Prior adaround rate on this box
+without DALI is 33.5-34 min/block over 116 blocks (57-62 h); DALI measured 15 to 21 batches/s, so about 24 min/block
+(about 46 h) is expected. The SDG-only validation split makes every recall figure a recipe check, not a recall gate.
+Measured SDG throughput: 108 frames from the four shards in the first 28 minutes (about 13.9 s/frame aggregate including
+the ~3 min start-up); an earlier sample at 11:08 gave 11.3 s/frame and did not hold. The cause was not investigated.
+Owner actions still open for this track: **O-4** (3080 Ti), **O-8** (Pi reachable for the HEF gate); the live
+`detector.hef` is untouched.
