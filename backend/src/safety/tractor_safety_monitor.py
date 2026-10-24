@@ -2,9 +2,15 @@
 
 Two gaps the tractor platform inherited from the mower platform's safety
 system but never had wired to it: IMU tilt-cutoff (<200ms, blade/PTO) and a
-software watchdog heartbeat. Both close here in one small periodic task
-rather than inside ``TractorControlService`` itself, so actuation stays a
+software watchdog heartbeat. The tilt-cutoff closes here in one small periodic
+task rather than inside ``TractorControlService`` itself, so actuation stays a
 pure actuation/interlock concern and sensor fusion stays out of it.
+
+This task feeds the watchdog's ``safety_monitor`` source only after a *completed*
+tilt cycle (a hung or failing check is not a heartbeat). It is **not** the
+actuation heartbeat: that one comes from the tractor service's own self-check of
+its outputs (``TractorControlService.supervise_once``), so a healthy monitor loop
+can no longer vouch for a broken command path (audit N-04).
 
 Polls at 50ms (20Hz) -- 4x margin under the 200ms constitutional tilt-cutoff
 deadline, since that deadline is threshold-breach-to-blade-stop, not
@@ -32,7 +38,7 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from .safety_triggers import SafetyTriggerManager, get_safety_trigger_manager
-from .watchdog import Watchdog
+from .watchdog import SAFETY_MONITOR_SOURCE, Watchdog
 
 if TYPE_CHECKING:
     from ..services.tractor_service import TractorControlService
@@ -40,6 +46,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ImuReader = Callable[[], Awaitable[tuple[float, float] | None]]
+
+#: How long ``stop()`` waits for the loop (a possibly hung tilt check) before cancelling it.
+_STOP_GRACE_S = 1.0
 
 
 async def _default_imu_reader() -> tuple[float, float] | None:
@@ -56,7 +65,7 @@ async def _default_imu_reader() -> tuple[float, float] | None:
 
 
 class TractorSafetyMonitor:
-    """Periodic tilt-cutoff + watchdog-heartbeat task for the tractor platform."""
+    """Periodic tilt-cutoff task for the tractor platform; feeds the watchdog's monitor source."""
 
     def __init__(
         self,
@@ -67,6 +76,11 @@ class TractorSafetyMonitor:
         imu_reader: ImuReader = _default_imu_reader,
         poll_interval_s: float = 0.05,
     ) -> None:
+        if SAFETY_MONITOR_SOURCE not in watchdog.required_sources:
+            # Fail at start-up, not by raising inside the loop that protects the blade.
+            raise ValueError(
+                f"the watchdog does not require the {SAFETY_MONITOR_SOURCE!r} heartbeat source"
+            )
         self._tractor = tractor
         self._watchdog = watchdog
         self._threshold = float(tilt_threshold_degrees)
@@ -84,19 +98,24 @@ class TractorSafetyMonitor:
 
     async def stop(self) -> None:
         self._stop_evt.set()
-        if self._task:
-            await self._task
+        task, self._task = self._task, None
+        if task is not None:
+            try:
+                await asyncio.wait_for(task, timeout=_STOP_GRACE_S)
+            except TimeoutError:
+                # A hung IMU read must not hang shutdown; wait_for cancelled the task.
+                logger.warning("Tilt monitor did not stop within %.1f s; cancelled", _STOP_GRACE_S)
 
     async def _run(self) -> None:
         while not self._stop_evt.is_set():
-            # This task's own liveness IS the control-loop heartbeat: it runs
-            # continuously whenever the tractor platform is armed, independent
-            # of whether any drive/blade command happens to be in flight.
-            self._watchdog.heartbeat()
             try:
                 await self._check_tilt()
             except Exception:
+                # No heartbeat: a tilt check that keeps failing is a dead blade protection,
+                # and the watchdog must see that rather than a loop that merely turns.
                 logger.exception("Tractor tilt-cutoff check failed")
+            else:
+                self._watchdog.heartbeat(SAFETY_MONITOR_SOURCE)
             try:
                 await asyncio.wait_for(self._stop_evt.wait(), timeout=self._poll_interval_s)
             except TimeoutError:

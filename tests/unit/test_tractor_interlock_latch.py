@@ -19,7 +19,7 @@ from backend.src.safety.estop_handler import EstopHandler
 from backend.src.safety.motor_authorization import MotorAuthorization
 from backend.src.safety.safety_triggers import SafetyTriggerManager
 from backend.src.safety.tractor_safety_monitor import TractorSafetyMonitor
-from backend.src.safety.watchdog import Watchdog
+from backend.src.safety.watchdog import SAFETY_MONITOR_SOURCE, Watchdog
 from backend.src.services.navigation_service import NavigationService
 from backend.src.services.tractor_service import TractorControlService
 
@@ -46,7 +46,11 @@ class Imu:
 
 
 def _monitor(tractor: TractorControlService, imu: Imu) -> TractorSafetyMonitor:
-    wd = Watchdog(EstopHandler(MotorAuthorization()), timeout_ms=60_000)
+    wd = Watchdog(
+        EstopHandler(MotorAuthorization()),
+        timeout_ms=60_000,
+        required_sources=(SAFETY_MONITOR_SOURCE,),
+    )
     return TractorSafetyMonitor(
         tractor,
         wd,

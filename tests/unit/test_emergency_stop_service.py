@@ -50,6 +50,10 @@ class Pca:
             raise OSError("bus fault")
         self.writes.append((channel, us))
 
+    async def verify_pwm_us(self, channel: int, us: int) -> None:
+        if self.last_us(channel) != us:
+            raise OSError("read-back mismatch")
+
     def last_us(self, channel: int):
         return next((us for ch, us in reversed(self.writes) if ch == channel), None)
 
@@ -471,8 +475,10 @@ async def test_lifespan_shutdown_parks_the_actuators_before_tearing_services_dow
     async with main.lifespan(main.app):
         tractor.authorize()
         tractor.state.engine = EngineState.RUNNING
-        await tractor.engage_blade(True)
-        await tractor.set_levers(0.9, 0.9, duration_ms=2000)  # mowing at shutdown time
+        # A human at the machine (source "operator"): not limited by the obstacle guard that
+        # the real lifespan attaches (no sensors in this test, so autonomy would be held).
+        await tractor.engage_blade(True, source="operator")
+        await tractor.set_levers(0.9, 0.9, source="operator", duration_ms=2000)
         assert tractor.state.blade_engaged is True
         assert pca.last_us(0) == 1950
 

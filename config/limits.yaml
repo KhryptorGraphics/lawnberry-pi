@@ -13,5 +13,45 @@ high_temperature_celsius: 80.0
 tof_obstacle_distance_meters: 0.2
 
 # Ultrasonic sensor safety thresholds (HC-SR04)
-ultrasonic_obstacle_distance_cm: 30.0  # Trigger e-stop if any sensor reads below this
+# A reading at or below this raises the ultrasonic obstacle interlock and HOLDS autonomous
+# motion (levers neutral, blade off; see obstacle_stop below). It is a hold, not an E-stop.
+ultrasonic_obstacle_distance_cm: 30.0
 ultrasonic_enabled: false  # Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi
+
+# Obstacle stop + stopping-distance model (backend/src/safety/obstacle_stop.py,
+# backend/src/safety/stopping_distance.py). Autonomous motion (missions, AI, Thor plans) is
+# limited to the speed whose stopping distance fits in the free range the sensors prove, and
+# held when a required sensor is stale, blind or unknown, or an obstacle is inside the envelope:
+#   stop_distance(v) = v*(reaction + sensor_age + actuation) + v^2/(2*deceleration)
+#                      + sensor_uncertainty + margin
+#
+# !!! EVERY VALUE IN THIS BLOCK IS UNVALIDATED (validated: false). They are conservative
+# !!! engineering guesses, not measurements. They are replaced only from the measured stopping
+# !!! distance at several speeds and slopes (audit M-43) with an independent reviewer's
+# !!! signature, and `validated` flips to true in that same change.
+obstacle_stop:
+  validated: false
+  full_lever_speed_mps: 0.8   # ground speed at lever 1.0 (== NavigationService.max_speed) UNMEASURED
+  reaction_latency_s: 0.3     # compute + command issue; reading age is added on top at run time
+  actuation_latency_s: 0.5    # command issued -> levers neutral (acceptance criteria s.2: 500 ms)
+  deceleration_mps2: 0.5      # after neutral; hydrostatic self-braking only; use the worst slope
+  sensor_uncertainty_m: 0.10  # range error + mount offset
+  margin_m: 0.20
+  slow_zone_m: 0.30           # speed is tapered over this band beyond the stop distance
+  min_motion_speed_mps: 0.10  # below this the machine is held rather than allowed to creep
+  detection_range_m: 1.0      # reach beyond which a sensor proves nothing; caps speed when clear
+  max_reading_age_s: 1.0      # older than this = unusable = blocked
+  clear_dwell_s: 2.0          # continuously clear this long before a hold is released
+  apply_to_manual: false      # manual operator/teleop commands are NOT limited unless true
+  ignored_sources: []         # e.g. [tof_left]; REMOVES a safety input and is logged CRITICAL
+
+# GNSS-quality hold (backend/src/nav/gps_degradation.py). A fix that is missing, older than
+# max_fix_age_s, or less accurate than max_accuracy_m holds autonomous motion until it has been
+# healthy for resume_dwell_s. UNVALIDATED: the bound is the owner's and the reviewer's
+# decision (audit SD-4) from the geofence margin and the measured position error (M-50/M-51).
+gps_degradation:
+  validated: false
+  max_accuracy_m: 1.0
+  max_fix_age_s: 2.0
+  resume_dwell_s: 3.0
+  check_interval_s: 0.2

@@ -225,6 +225,13 @@ class IMUSensorInterface:
             return None
 
 
+def _tof_range_status(distance_mm: Any, last_read_ok: bool) -> str:
+    """``valid`` only for a fresh, non-zero measurement; ``stale`` for a replayed one."""
+    if not distance_mm:
+        return "unknown"
+    return "valid" if last_read_ok else "stale"
+
+
 class ToFSensorInterface:
     """VL53L0X Time-of-Flight sensor interface"""
 
@@ -290,16 +297,21 @@ class ToFSensorInterface:
                 async with self.coordinator.acquire_i2c("vl53l0x_pair"):
                     dl = await self._left.read_distance_mm()
                     dr = await self._right.read_distance_mm()
+                # The driver replays its previous value when a read fails. That value is
+                # old, so it must not be stamped "valid" (the obstacle guard trusts the
+                # status): "stale" keeps the number visible and tells consumers not to use it.
+                left_status = _tof_range_status(dl, getattr(self._left, "last_read_ok", True))
+                right_status = _tof_range_status(dr, getattr(self._right, "last_read_ok", True))
                 left_reading = TofReading(
                     distance=float(dl) if dl is not None else None,
                     signal_strength=None,
-                    range_status="valid" if dl else "unknown",
+                    range_status=left_status,
                     sensor_side="left",
                 )
                 right_reading = TofReading(
                     distance=float(dr) if dr is not None else None,
                     signal_strength=None,
-                    range_status="valid" if dr else "unknown",
+                    range_status=right_status,
                     sensor_side="right",
                 )
                 self.left_reading = left_reading

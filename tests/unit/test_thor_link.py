@@ -1005,3 +1005,60 @@ async def test_udp_round_trip_on_loopback():
             spoofer.close()
         await link.stop()
         thor_t.close()
+
+
+# ------------------- N-30: the hold retries blade-off until it is confirmed -------------------
+
+
+async def test_blade_off_failure_is_retried_every_tick_until_the_relay_confirms():
+    rig = Rig()
+    await rig.run_to_neutral_failure()  # engine running, levers out, blade on
+    real_set = rig.tractor.blade_pto.set
+    attempts = 0
+
+    def flaky_relay(on):
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 4:
+            raise OSError("gpio busy")
+        real_set(on)
+
+    rig.tractor.blade_pto.set = flaky_relay
+    link, state = rig.link, rig.tractor.state
+
+    rig.clock.t += 0.6  # the Thor goes silent: hold entered
+    await rig.tick()
+    assert attempts == 1 and link.safe_hold and link.hold_fault
+    assert state.blade_engaged is True  # still on, and the uplink says so ...
+    assert rig.uplinks[-1].hold_fault and rig.uplinks[-1].safe_hold and rig.uplinks[-1].blade
+    assert state.left_lever == 0.0  # ... while the levers were still neutralised
+    assert "blade_off" in link.hold_error
+
+    await rig.tick()
+    assert attempts == 2  # retried, not forgotten
+    rig.deliver(rig.answer())  # the Thor is back with a perfectly good plan
+    await rig.tick()
+    assert attempts == 3
+    assert link.safe_hold and link.current_plan() is None  # no resume with the blade unconfirmed
+    assert link.hold_reason is HoldReason.NEUTRAL_UNCONFIRMED
+    await rig.tick()
+    assert attempts == 4 and link.hold_fault
+
+    await rig.tick()  # the relay finally answers
+    assert attempts == 5 and state.blade_engaged is False
+    assert not link.hold_fault and link.hold_error is None
+    assert not link.safe_hold and link.current_plan() is not None
+    assert rig.uplinks[-1].hold_fault is False
+
+
+async def test_a_held_mower_whose_engine_flag_reads_off_is_still_reneutralised():
+    rig = Rig()  # engine flag OFF, as after any backend restart; state.moving is False
+    await rig.connect()
+    rig.clock.t += 0.6
+    await rig.tick()  # hold entered and confirmed
+    assert rig.link.safe_hold and not rig.link.hold_fault
+
+    rig.tractor.state.left_lever = 0.6  # something moves a lever while the Thor is gone
+    assert not rig.tractor.state.moving
+    await rig.tick()
+    assert rig.tractor.state.left_lever == 0.0
