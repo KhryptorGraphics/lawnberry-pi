@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -86,6 +87,52 @@ async def _fail_closed(app: FastAPI, tractor) -> None:
             _log.critical("Start-up fail-closed stop NOT confirmed: %s", report.get("faults"))
     except Exception:
         _log.exception("Start-up fail-closed stop failed")
+
+
+#: How long shutdown waits for cancelled mission/navigation tasks to finish before it parks.
+AUTONOMY_STOP_TIMEOUT_S = 3.0
+
+
+async def _stop_autonomy() -> None:
+    """Stop every loop that commands the actuators, before they are parked (audit SF-06, SEC-08).
+
+    A mission or the AI loop is a plain background task that re-commands levers and throttle
+    every few hundred ms. Parking while one still runs let its next command land after the
+    park, and the PCA9685 then holds that pulse after the process exits. The services' park
+    latches refuse non-neutral commands from anything this misses (e.g. a ``return_home`` job
+    task, which nothing tracks); stopping the known loops first keeps them from spinning
+    against that refusal. Never raises; bounded by ``AUTONOMY_STOP_TIMEOUT_S``.
+    """
+    from .models import NavigationMode
+    from .services.mission_service import current_mission_service
+
+    nav = NavigationService.get_instance()
+    mission_tasks: list[asyncio.Task] = []
+    service = current_mission_service()
+    if service is not None:
+        # Cancel the tasks themselves: MissionService's own done-callback records "aborted".
+        mission_tasks = list(service.mission_tasks.values())
+        for task in mission_tasks:
+            task.cancel()
+    try:
+        async with asyncio.timeout(AUTONOMY_STOP_TIMEOUT_S):
+            if nav.navigation_state.navigation_mode in (
+                NavigationMode.AI,
+                NavigationMode.AI_ASSISTED,
+            ):
+                await nav.stop_ai_navigation()
+            await nav.stop_navigation()
+    except Exception:
+        _log.exception("Stopping navigation on shutdown failed")
+    pending = [t for t in mission_tasks if not t.done()]
+    if pending:
+        _done, still_running = await asyncio.wait(pending, timeout=AUTONOMY_STOP_TIMEOUT_S)
+        if still_running:
+            _log.critical(
+                "%d mission task(s) still running after cancellation; the actuator park latches "
+                "will refuse their commands",
+                len(still_running),
+            )
 
 
 @asynccontextmanager
@@ -273,10 +320,11 @@ async def lifespan(app: FastAPI):
     await websocket_hub.start_telemetry_loop()
     yield
     # Shutdown
-    # The only service stopped ahead of the park is the Thor link: it can command motion, so
-    # it must be gone before the park or it could undo it. Its stop is bounded by the actuator
-    # timeouts, a few seconds at worst.
+    # Everything that can command motion is stopped ahead of the park, or it could undo it: the
+    # Thor link first (bounded by the actuator timeouts, a few seconds at worst), then the
+    # mission and navigation loops.
     await stop_thor_link(getattr(app.state, "thor_link", None))
+    await _stop_autonomy()
     # Park the actuators FIRST, before any monitor/service is torn down: blade off,
     # levers neutral, throttle idle, RoboHAT neutral + blade off. The PCA9685 holds
     # its last pulse and a GPIO relay pin's state at process exit is unspecified, so

@@ -10,13 +10,27 @@ the standard interlocks:
   commanding both levers back into reverse auto-disengages the blade (Reverse
   Operation System). Reverse is deliberately both levers back together -- a
   single lever back is a routine pivot turn, not reverse.
-- **E-stop**: blade off first, then both levers to neutral and throttle to
-  idle -- the engine keeps running (per configuration). The result reports
-  every subsystem's *actual* outcome (``complete``/``subsystems``/``faults``);
-  a latched E-stop with a failed output is never reported as a clean stop.
+- **E-stop**: the blade PTO and starter relays open FIRST (pure GPIO: independent of the
+  PCA9685 and of the actuation lock), then both levers go to neutral and the throttle to
+  idle -- the engine keeps running (per configuration). A stop wins durably (audit SF-01):
+  it bumps a *stop generation* that every non-neutral lever/throttle command captured before
+  it began and re-checks around each write, so a command that started before the stop never
+  writes after it; if an in-flight write still held the actuation lock when the stop wrote
+  its neutral pulses, the stop waits (bounded) for that write to release the lock and
+  re-asserts neutral after it, and reports ``complete`` only when those final writes were
+  confirmed. The result reports every subsystem's *actual* outcome
+  (``complete``/``subsystems``/``faults``); a latched E-stop with a failed output is never
+  reported as a clean stop.
 - **Interlock latch** (tilt, ...): the blade is dropped and stays off --
   ``engage_blade(True)``, including from navigation, is refused -- until an
-  explicit ``clear_emergency()`` (operator-authenticated at the API).
+  explicit ``clear_emergency()`` (operator-authenticated at the API). A clear never releases
+  a latch whose cause may still hold: the tilt monitor vetoes the release while the latest
+  tilt reading is over the limit or the tilt sensor is unavailable (audit SEC-06).
+- **Park** (``park``, shutdown): safes every output like the E-stop but latches no E-stop;
+  instead a park latch makes the service accept only neutral / idle / blade-off commands, so
+  a mission or navigation loop that is still running cannot re-command the machine while the
+  process exits and the PCA9685 keeps its last pulse (audit SF-06, SEC-08). ``initialize()``
+  clears it.
 - **Command deadman**: a lever/throttle command is only in force for a bounded
   hold (the command's ``duration_ms``, else the configured default, clamped to
   the configured maximum). Unless it is refreshed the levers return to neutral
@@ -43,6 +57,13 @@ the standard interlocks:
   event loop.
 - **Lock-out** (``lock_out``): when a safety function failed to start, every actuation is
   refused until the process restarts; ``clear_emergency`` cannot lift it.
+- **Disabled platform** (``enabled: false``): outside SIM_MODE the service never claims or
+  drives a GPIO or PWM output -- E-stop and park answer ``not_enabled`` and the relays are
+  built unarmed (audit SF-05; the conservative default pending owner decision O-5).
+- **Strict configuration** (``tractor_config.py``): wrong types, NaN/inf and out-of-range
+  values in ``config/tractor.yaml`` are explicit errors. ``get_tractor_service()`` turns them
+  into a disabled, locked-out service (``misconfigured``) so the E-stop route keeps answering
+  (audit SF-11).
 
 SIM-safe: positional commands degrade to state-tracking in SIM_MODE, and relays
 only touch GPIO on real hardware.
@@ -52,6 +73,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import time
 from collections.abc import Callable
@@ -70,17 +92,12 @@ from ..models.tractor_control import (
     TractorState,
 )
 from ..safety.obstacle_stop import limit_pair
+from .tractor_config import ServoSettings, TractorConfigError, validate_tractor_config
 
 if TYPE_CHECKING:
     from ..safety.obstacle_stop import ObstacleAssessment, ObstacleGuard
 
 logger = logging.getLogger(__name__)
-
-# Command-deadman defaults; ``config/tractor.yaml`` ``command_deadman`` overrides.
-# Conservative on purpose: the shipped clients re-send well above 2 Hz
-# (navigation 5 Hz, scripts/teleop.py 20 Hz). Field values are a bench decision.
-DEFAULT_COMMAND_HOLD_MS = 500
-DEFAULT_MAX_COMMAND_HOLD_MS = 2000
 
 # Command-source labels. ``operator``/``teleop`` are a human in direct control; everything
 # else (including this default) is autonomous and subject to the motion limit.
@@ -88,33 +105,55 @@ DEFAULT_SOURCE = "unspecified"
 OBSTACLE_SOURCE = "obstacle_stop"
 
 
+def _err(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
 def _load_tractor_config() -> dict[str, Any]:
-    """Load ``config/tractor.yaml`` if present; otherwise return {} (use defaults)."""
+    """Load ``config/tractor.yaml``; ``{}`` (all defaults, platform disabled) when it is absent.
+
+    A file that exists but cannot be parsed, or is not a mapping, raises
+    ``TractorConfigError``: a mower whose owner edited the file must not silently come up
+    disabled (or with half of it applied).
+    """
     config_dir = os.getenv("LAWNBERRY_CONFIG_DIR", "config")
     path = os.path.join(config_dir, "tractor.yaml")
     try:
         with open(path) as fh:
-            return yaml.safe_load(fh) or {}
+            data = yaml.safe_load(fh)
     except FileNotFoundError:
         return {}
-    except Exception as exc:  # pragma: no cover - malformed config
-        logger.warning("Failed to load %s: %s; using defaults", path, exc)
+    except Exception as exc:
+        raise TractorConfigError([f"{path} cannot be read or parsed: {_err(exc)}"]) from exc
+    if data is None:
         return {}
+    if not isinstance(data, dict):
+        raise TractorConfigError(
+            [f"{path}: the top level must be a mapping, got {type(data).__name__}"]
+        )
+    return data
 
 
-def _servo_cal(raw: dict | None, channel: int, bidirectional: bool) -> ServoCalibration:
-    raw = raw or {}
+def _servo_cal(settings: ServoSettings) -> ServoCalibration:
     return ServoCalibration(
-        channel=int(raw.get("channel", channel)),
-        us_min=int(raw.get("us_min", 1000)),
-        us_center=int(raw.get("us_center", 1500)),
-        us_max=int(raw.get("us_max", 2000)),
-        bidirectional=bool(raw.get("bidirectional", bidirectional)),
+        channel=settings.channel,
+        us_min=settings.us_min,
+        us_center=settings.us_center,
+        us_max=settings.us_max,
+        bidirectional=settings.bidirectional,
     )
 
 
-def _err(exc: BaseException) -> str:
-    return f"{type(exc).__name__}: {exc}"
+def _first_non_finite(*values: float | None) -> float | None:
+    """The first NaN/inf among ``values`` (``None`` entries are skipped), else ``None``."""
+    for value in values:
+        if value is not None and not math.isfinite(value):
+            return value
+    return None
+
+
+class _StopSuperseded(Exception):
+    """A stop landed while a command was being written (internal: never reaches a caller)."""
 
 
 class TractorControlService:
@@ -128,52 +167,49 @@ class TractorControlService:
 
     #: A single PCA9685 write must finish within this, or it counts as a fault.
     ACTUATION_TIMEOUT_S = 1.0
-    #: How long an E-stop waits for an in-flight actuation to land before it
-    #: writes neutral anyway (so a slow write cannot overwrite the stop).
-    ESTOP_LOCK_WAIT_S = 0.25
+    #: How long an E-stop waits for an in-flight actuation to release the actuation lock
+    #: before it writes neutral anyway. Short on purpose (the acceptance criteria want each
+    #: safe-value command issued within 100 ms of the signal): a write that still holds the
+    #: lock after this is dealt with by the re-assert (``ESTOP_REASSERT_MARGIN_S``), not by
+    #: waiting for it.
+    ESTOP_LOCK_WAIT_S = 0.05
+    #: Beyond ``ACTUATION_TIMEOUT_S`` (the longest one in-flight write can hold the lock),
+    #: how much longer a stop that had to write without the lock waits for it, to re-assert
+    #: neutral after the in-flight write.
+    ESTOP_REASSERT_MARGIN_S = 0.25
     #: Period of the actuation self-check whose success is the watchdog's actuation heartbeat.
     SUPERVISE_INTERVAL_S = 0.25
 
     def __init__(self, config: dict[str, Any] | None = None):
         cfg = config if config is not None else _load_tractor_config()
-        self.enabled = bool(cfg.get("enabled", False))
-        self._pca9685 = PCA9685Driver(cfg.get("pca9685", {}) or {})
+        # Raises TractorConfigError (every problem listed) for a wrong type, NaN/inf or an
+        # out-of-range value; get_tractor_service() turns that into misconfigured().
+        settings = validate_tractor_config(cfg)
+        self.enabled = settings.enabled
+        self._pca9685 = PCA9685Driver(settings.pca9685)
 
         # PCA9685 channels are 0-indexed.
-        act = cfg.get("actuators", {}) or {}
-        self.left_lever = ServoActuator("left_lever", _servo_cal(act.get("left_lever"), 0, True))
-        self.throttle = ServoActuator("throttle", _servo_cal(act.get("throttle"), 1, False))
-        self.right_lever = ServoActuator("right_lever", _servo_cal(act.get("right_lever"), 2, True))
+        self.left_lever = ServoActuator("left_lever", _servo_cal(settings.left_lever))
+        self.throttle = ServoActuator("throttle", _servo_cal(settings.throttle))
+        self.right_lever = ServoActuator("right_lever", _servo_cal(settings.right_lever))
 
-        relays = cfg.get("relays", {}) or {}
-        starter_cfg = relays.get("starter", {}) or {}
-        blade_cfg = relays.get("blade_pto", {}) or {}
+        # Relays are armed only on an enabled platform: a disabled one never claims its pins
+        # (outside SIM_MODE), which may belong to something else on the header (audit SF-05).
         self.starter = RelayActuator(
-            "starter", int(starter_cfg.get("gpio", 5)), bool(starter_cfg.get("active_high", True))
+            "starter", settings.starter_gpio, settings.starter_active_high, armed=self.enabled
         )
         self.blade_pto = RelayActuator(
-            # Default moved off GPIO 6 (spec/hardware.yaml: ToF Left Interrupt) to GPIO 26.
-            "blade_pto",
-            int(blade_cfg.get("gpio", 26)),
-            bool(blade_cfg.get("active_high", True)),
+            "blade_pto", settings.blade_gpio, settings.blade_active_high, armed=self.enabled
         )
-        self.starter_pulse_ms = int(starter_cfg.get("pulse_ms", 800))
+        self.starter_pulse_ms = settings.starter_pulse_ms
 
-        il = cfg.get("interlocks", {}) or {}
-        self.require_levers_neutral_to_start = bool(il.get("require_levers_neutral_to_start", True))
-        self.require_blade_off_to_start = bool(il.get("require_blade_off_to_start", True))
-        self.require_engine_running_for_blade = bool(
-            il.get("require_engine_running_for_blade", True)
-        )
-        self.disengage_blade_in_reverse = bool(il.get("disengage_blade_in_reverse", True))
+        self.require_levers_neutral_to_start = settings.require_levers_neutral_to_start
+        self.require_blade_off_to_start = settings.require_blade_off_to_start
+        self.require_engine_running_for_blade = settings.require_engine_running_for_blade
+        self.disengage_blade_in_reverse = settings.disengage_blade_in_reverse
 
-        dm = cfg.get("command_deadman", {}) or {}
-        self.default_hold_s = max(
-            0.01, float(dm.get("default_hold_ms", DEFAULT_COMMAND_HOLD_MS)) / 1000.0
-        )
-        self.max_hold_s = max(
-            self.default_hold_s, float(dm.get("max_hold_ms", DEFAULT_MAX_COMMAND_HOLD_MS)) / 1000.0
-        )
+        self.default_hold_s = settings.default_hold_s
+        self.max_hold_s = settings.max_hold_s
         # Monotonic deadlines after which the levers/throttle return to neutral/idle.
         self._lever_deadline: float | None = None
         self._throttle_deadline: float | None = None
@@ -182,9 +218,24 @@ class TractorControlService:
         # while it sleeps towards a later one. Created with the task so it is
         # bound to the running loop.
         self._deadman_wake: asyncio.Event | None = None
-        # Serialises lever/throttle writes (commands vs. deadman expiry). The
-        # E-stop does not queue behind it indefinitely: see _acquire_for_estop().
+        # Serialises lever/throttle writes (commands vs. deadman expiry). A stop does not
+        # queue behind it: see _drive_to_safe_state().
         self._act_lock = asyncio.Lock()
+        # Bumped by every stop, park and lock-out. A lever/throttle command captures it before
+        # it waits for the actuation lock and each non-neutral write re-checks it, so a command
+        # that began before a stop can never put its pulse on the chip after the stop's neutral
+        # (audit SF-01).
+        self._stop_generation = 0
+        # emergency_stop() calls currently running: a clear is refused while one is, so a clear
+        # cannot undo a stop that is still driving the outputs (audit SEC-12).
+        self._stops_in_flight = 0
+        # park() latch: only neutral / idle / blade-off commands pass until initialize().
+        self._parked: str | None = None
+        # Optional veto on releasing the blade interlock latch; the tilt monitor attaches one
+        # (audit SEC-06). Called with the latch reason, returns why it must stay, else None.
+        self._interlock_clear_gate: Callable[[str | None], str | None] | None = None
+        # Set by misconfigured(): the validation error that keeps this service disabled.
+        self._config_error: str | None = None
         # Last servo write fault per PCA9685 channel (incl. timeouts), each
         # cleared by that channel's next successful write.
         self._write_faults: dict[int, str] = {}
@@ -204,9 +255,10 @@ class TractorControlService:
         self._blade_source: str | None = None
         # Actuation self-check (watchdog heartbeat). ``config/tractor.yaml`` may set
         # ``actuation_supervision.interval_ms``; the default is far under the watchdog window.
-        sup = cfg.get("actuation_supervision", {}) or {}
-        self.supervise_interval_s = max(
-            0.005, float(sup.get("interval_ms", self.SUPERVISE_INTERVAL_S * 1000)) / 1000.0
+        self.supervise_interval_s = (
+            self.SUPERVISE_INTERVAL_S
+            if settings.supervise_interval_s is None
+            else settings.supervise_interval_s
         )
         self._heartbeat: Callable[[], None] | None = None
         self._supervise_task: asyncio.Task | None = None
@@ -214,6 +266,91 @@ class TractorControlService:
         # Set by lock_out(): every actuation is refused until the process restarts.
         self._lockout: str | None = None
         self._sync_hardware_state()
+
+    @classmethod
+    def misconfigured(cls, error: BaseException | str) -> TractorControlService:
+        """The service for a ``config/tractor.yaml`` that failed validation (audit SF-11).
+
+        Disabled (all defaults) and locked out until the process restarts: every actuation is
+        refused with the reason, the E-stop route keeps answering (``not_enabled``, naming the
+        error) instead of returning 500, and no GPIO or PWM output is claimed or driven,
+        because a pin read from a file that cannot be trusted must not be driven. The error is
+        also on ``TractorState.actuator_fault``.
+        """
+        service = cls(config={})
+        service._config_error = str(error)
+        service.lock_out(f"invalid config/tractor.yaml: {error}")
+        return service
+
+    @property
+    def config_error(self) -> str | None:
+        """The ``config/tractor.yaml`` validation error that disabled this service, else None."""
+        return self._config_error
+
+    @property
+    def lockout_reason(self) -> str | None:
+        """Why every actuation is refused until restart (``lock_out``), else ``None``."""
+        return self._lockout
+
+    @property
+    def parked(self) -> bool:
+        """Is the park latch set (only neutral / idle / blade-off commands are accepted)?"""
+        return self._parked is not None
+
+    @property
+    def stop_in_flight(self) -> bool:
+        """Is an ``emergency_stop`` still driving the outputs? (A clear is refused meanwhile.)"""
+        return self._stops_in_flight > 0
+
+    def attach_interlock_clear_gate(self, gate: Callable[[str | None], str | None] | None) -> None:
+        """Set the veto ``clear_emergency`` consults before releasing the blade interlock latch.
+
+        ``gate(latch_reason)`` returns the reason the latch must stay (or ``None``). The tilt
+        monitor attaches one while it runs; ``None`` detaches. A gate that raises keeps the
+        latch (fail closed).
+        """
+        self._interlock_clear_gate = gate
+
+    def detach_interlock_clear_gate(self, gate: Callable[[str | None], str | None]) -> None:
+        """Remove ``gate`` if it is the one attached (a stopped monitor must not veto for ever)."""
+        if self._interlock_clear_gate == gate:
+            self._interlock_clear_gate = None
+
+    def _hardware_off_limits(self) -> bool:
+        """True when this service must not touch real hardware at all (disabled, not SIM)."""
+        return not self.enabled and not is_simulation_mode()
+
+    def platform_refusal(self) -> str | None:
+        """Why the HTTP write routes must not drive this service at all, else ``None``.
+
+        Set for a platform that is disabled (or misconfigured) outside SIM_MODE: its pins are
+        not ours to claim (audit SF-05).
+        """
+        return self.not_enabled_text() if self._hardware_off_limits() else None
+
+    def not_enabled_text(self) -> str:
+        """What a stop/park report says when it leaves the hardware alone (``not_enabled``)."""
+        if self._config_error is not None:
+            return (
+                f"tractor config invalid ({self._config_error}): no GPIO or PWM output was "
+                "claimed or driven"
+            )
+        return (
+            "tractor platform not enabled in config/tractor.yaml: no GPIO or PWM output was "
+            "claimed or driven"
+        )
+
+    def _not_enabled_report(self) -> dict[str, Any]:
+        text = self.not_enabled_text()
+        logger.warning("Tractor stop/park skipped: %s", text)
+        return {
+            "status": "not_enabled",
+            "engine": self.state.engine.value,
+            "complete": False,
+            "subsystems": {},
+            "faults": [text],
+            "detail": text,
+        }
 
     def _notify(self, kind: str, source: str, **values: Any) -> None:
         """Fire the capture hook. Logging must never break actuation."""
@@ -227,6 +364,8 @@ class TractorControlService:
     # ----------------------------- lifecycle -----------------------------
 
     async def initialize(self) -> None:
+        # A fresh bring-up re-arms a service that was parked (the shutdown latch).
+        self._parked = None
         # Bring the PCA9685 up first so the parking commands below actually reach it.
         await self._pca9685.initialize()
         self._sync_hardware_state()
@@ -281,6 +420,15 @@ class TractorControlService:
             return None
         return f"blade interlock latched ({self.state.latch_reason}): operator clear required"
 
+    def _parked_text(self) -> str | None:
+        if self._parked is None:
+            return None
+        return f"parked ({self._parked}): only neutral/idle/blade-off commands until initialize()"
+
+    def _standing_reason(self) -> str | None:
+        """What stays visible on every accepted command: the park latch, else the interlock."""
+        return self._parked_text() or self._latched_text()
+
     def _reject(self, reason: str) -> dict[str, Any]:
         self.state.interlock_reason = reason
         self.state.last_updated = datetime.now(UTC)
@@ -288,8 +436,8 @@ class TractorControlService:
         return {"status": "rejected", "reason": reason}
 
     def _ok(self, **extra: Any) -> dict[str, Any]:
-        # A latched interlock stays visible on every accepted command.
-        self.state.interlock_reason = self._latched_text()
+        # A latched interlock (or the park latch) stays visible on every accepted command.
+        self.state.interlock_reason = self._standing_reason()
         self.state.last_updated = datetime.now(UTC)
         return {"status": "ok", **extra}
 
@@ -319,8 +467,9 @@ class TractorControlService:
 
     def _current_fault(self) -> str | None:
         # The self-check's verdict is reported too, but it is deliberately not an input to
-        # the self-check itself (that would latch a stale verdict).
-        return self._hardware_fault() or self._supervision_fault
+        # the self-check itself (that would latch a stale verdict). A configuration error is
+        # the root cause of everything else a misconfigured service reports, so it comes first.
+        return self._config_error or self._hardware_fault() or self._supervision_fault
 
     def _sync_hardware_state(self) -> None:
         ready, _ = self.actuators_ready()
@@ -347,6 +496,7 @@ class TractorControlService:
         not move an actuator; the caller drives the safe state (``emergency_stop``).
         """
         self._lockout = reason
+        self._stop_generation += 1  # an in-flight command must not land after a lock-out
         self.revoke()
         self.state.interlock_reason = f"locked out: {reason}"
         self.state.last_updated = datetime.now(UTC)
@@ -513,13 +663,30 @@ class TractorControlService:
             raise
         self._write_faults.pop(channel, None)
 
-    async def _apply_servo(self, actuator: ServoActuator, value: float, field: str) -> None:
-        # State follows the output: the actuator/state only change after the
-        # write went through, so a failed write never reads as a moved lever.
+    async def _apply_servo(
+        self, actuator: ServoActuator, value: float, field: str, gen: int | None = None
+    ) -> None:
+        """Write one servo and record it; state follows the output.
+
+        ``gen`` is the stop generation a lever/throttle *command* captured before it began (a
+        stop's own neutral writes and the deadman pass none). A non-neutral write is refused
+        before it starts when a stop has landed since, and, because an I2C write cannot be
+        cancelled once it is on the bus, a write that was already in flight when the stop
+        landed is recorded (it IS the output now) and then raises ``_StopSuperseded`` so the
+        command writes nothing further; the stop re-asserts neutral once this write releases
+        the actuation lock (audit SF-01).
+        """
+        guarded = gen is not None and value != 0.0
+        if guarded and gen != self._stop_generation:
+            raise _StopSuperseded(field)
+        # The actuator/state only change after the write went through, so a failed write
+        # never reads as a moved lever.
         us = actuator.microseconds(value)
         await self._send_pwm(actuator.cal.channel, us)
         actuator.command(value)
         setattr(self.state, field, actuator.value)
+        if guarded and gen != self._stop_generation:
+            raise _StopSuperseded(field)
 
     # -- command deadman -------------------------------------------------------
 
@@ -614,8 +781,8 @@ class TractorControlService:
 
     async def set_levers(
         self,
-        left: float,
-        right: float,
+        left: float | None,
+        right: float | None,
         source: str = DEFAULT_SOURCE,
         duration_ms: int | None = None,
     ) -> dict[str, Any]:
@@ -627,6 +794,10 @@ class TractorControlService:
         the reverse-entry blade auto-disengage exist in exactly one place instead
         of being duplicated per entry point.
 
+        ``None`` for a lever means "leave it where it is": its *current* value is read under
+        the actuation lock, so two concurrent single-lever requests cannot overwrite each other
+        with stale readings (one request's write would otherwise undo the other's).
+
         A non-neutral command is held for ``duration_ms`` (clamped to the
         configured maximum; default: the configured default hold), after which
         the levers return to neutral unless the command is refreshed.
@@ -637,31 +808,45 @@ class TractorControlService:
         the limiter's cap -- to neutral during a hold. The reply says so
         (``limited``/``speed_cap_mps``/``limit_reason``); neutral, reverse and the
         E-stop are never limited.
+
+        A non-finite lever value (NaN/inf) is refused: it would clamp to full scale. A
+        command that started before a stop never writes after it (``_stop_generation``), and
+        once the service is parked only neutral commands are accepted.
         """
+        if (bad := _first_non_finite(left, right)) is not None:
+            return self._reject(f"non-finite lever command {bad!r} refused")
+        gen = self._stop_generation  # captured before anything can wait
         if self.state.emergency_stop_active:
             return self._reject("emergency stop active")
         if (rejection := self._guard_actuation()) is not None:
             return rejection
-        left, right, limit = self._limit_levers(left, right, source)
-        # Reverse Operation System: if this command would put both levers back
-        # (reverse) while the blade is engaged, drop the blade first -- before
-        # moving the levers. A single lever going negative is a pivot turn,
-        # not reverse; see TractorState.reversing.
-        would_reverse = left < -LEVER_NEUTRAL_EPS and right < -LEVER_NEUTRAL_EPS
-        if would_reverse and self.state.blade_engaged and self.disengage_blade_in_reverse:
-            logger.info("ROS: disengaging blade before entering reverse")
-            await self.engage_blade(False, source=source)
-        neutral = abs(left) <= LEVER_NEUTRAL_EPS and abs(right) <= LEVER_NEUTRAL_EPS
         hold_s = self._hold_s(duration_ms)
         async with self._act_lock:
-            if self.state.emergency_stop_active:  # E-stop landed while we waited
-                return self._reject("emergency stop active")
+            if gen != self._stop_generation or self.state.emergency_stop_active:
+                return self._reject("emergency stop active")  # a stop landed while we waited
+            left_v = self.state.left_lever if left is None else left
+            right_v = self.state.right_lever if right is None else right
+            left_v, right_v, limit = self._limit_levers(left_v, right_v, source)
+            neutral = abs(left_v) <= LEVER_NEUTRAL_EPS and abs(right_v) <= LEVER_NEUTRAL_EPS
+            if self._parked is not None and not neutral:
+                return self._reject(self._parked_text() or "parked")
+            # Reverse Operation System: if this command would put both levers back
+            # (reverse) while the blade is engaged, drop the blade first -- before
+            # moving the levers. A single lever going negative is a pivot turn,
+            # not reverse; see TractorState.reversing.
+            would_reverse = left_v < -LEVER_NEUTRAL_EPS and right_v < -LEVER_NEUTRAL_EPS
+            if would_reverse and self.state.blade_engaged and self.disengage_blade_in_reverse:
+                logger.info("ROS: disengaging blade before entering reverse")
+                await self.engage_blade(False, source=source)
             if not neutral:
                 # Arm BEFORE writing: if the second lever write fails the first
                 # may already have moved, and the deadman must still bring it back.
                 self._arm_levers(hold_s)
-            await self._apply_servo(self.left_lever, left, "left_lever")
-            await self._apply_servo(self.right_lever, right, "right_lever")
+            try:
+                await self._apply_servo(self.left_lever, left_v, "left_lever", gen)
+                await self._apply_servo(self.right_lever, right_v, "right_lever", gen)
+            except _StopSuperseded:
+                return self._reject("emergency stop landed during the command")
             if neutral:
                 self._lever_deadline = None
         self._lever_source = source
@@ -679,21 +864,24 @@ class TractorControlService:
     async def set_left_lever(
         self, value: float, source: str = DEFAULT_SOURCE, duration_ms: int | None = None
     ) -> dict[str, Any]:
-        return await self.set_levers(
-            value, self.state.right_lever, source=source, duration_ms=duration_ms
-        )
+        return await self.set_levers(value, None, source=source, duration_ms=duration_ms)
 
     async def set_right_lever(
         self, value: float, source: str = DEFAULT_SOURCE, duration_ms: int | None = None
     ) -> dict[str, Any]:
-        return await self.set_levers(
-            self.state.left_lever, value, source=source, duration_ms=duration_ms
-        )
+        return await self.set_levers(None, value, source=source, duration_ms=duration_ms)
 
     async def set_throttle(
         self, value: float, source: str = DEFAULT_SOURCE, duration_ms: int | None = None
     ) -> dict[str, Any]:
-        """Command the engine throttle for a bounded hold, then back to idle."""
+        """Command the engine throttle for a bounded hold, then back to idle.
+
+        Same stop rules as ``set_levers``: NaN/inf is refused, a command that began before a
+        stop never writes after it, and a parked service accepts only idle.
+        """
+        if (bad := _first_non_finite(value)) is not None:
+            return self._reject(f"non-finite throttle command {bad!r} refused")
+        gen = self._stop_generation
         if self.state.emergency_stop_active:
             return self._reject("emergency stop active")
         if (rejection := self._guard_actuation()) is not None:
@@ -701,11 +889,16 @@ class TractorControlService:
         idle = value <= 0.0
         hold_s = self._hold_s(duration_ms)
         async with self._act_lock:
-            if self.state.emergency_stop_active:
+            if gen != self._stop_generation or self.state.emergency_stop_active:
                 return self._reject("emergency stop active")
+            if self._parked is not None and not idle:
+                return self._reject(self._parked_text() or "parked")
             if not idle:
                 self._arm_throttle(hold_s)
-            await self._apply_servo(self.throttle, value, "throttle")
+            try:
+                await self._apply_servo(self.throttle, value, "throttle", gen)
+            except _StopSuperseded:
+                return self._reject("emergency stop landed during the command")
             if idle:
                 self._throttle_deadline = None
         self._notify("throttle", source, throttle=self.state.throttle)
@@ -827,6 +1020,8 @@ class TractorControlService:
         if on:
             if self.state.emergency_stop_active:
                 return self._reject("emergency stop active")
+            if self._parked is not None:
+                return self._reject(self._parked_text() or "parked")
             if self.state.interlock_latched:
                 # Navigation re-sends blade_engaged=True every tick: this is the
                 # latch that stops it re-engaging after a tilt cutoff.
@@ -896,6 +1091,8 @@ class TractorControlService:
     async def start_engine(self) -> dict[str, Any]:
         if self.state.emergency_stop_active:
             return self._reject("emergency stop active")
+        if self._parked is not None:
+            return self._reject(self._parked_text() or "parked")
         if (rejection := self._guard_actuation()) is not None:
             return rejection
         if not self.state.authorized:
@@ -908,6 +1105,7 @@ class TractorControlService:
         ):
             return self._reject("drive levers must be neutral to start")
 
+        gen = self._stop_generation
         self.state.engine = EngineState.STARTING
         try:
             await self.starter.pulse(self.starter_pulse_ms)
@@ -915,6 +1113,14 @@ class TractorControlService:
             self.state.engine = EngineState.OFF
             logger.critical("Starter relay fault: %s", _err(exc))
             return self._reject(f"starter relay fault (may still be energised): {_err(exc)}")
+        if gen != self._stop_generation:
+            # A stop opened the starter relay mid-crank (audit SF-09): nothing observed this
+            # engine run, so it is not "running". Left OFF, the blade interlock keeps refusing
+            # until a start that was not interrupted completes.
+            self.state.engine = EngineState.OFF
+            return self._reject(
+                "stop during the start: the crank was cut short, engine not running"
+            )
         # No engine-run sensor on the conversion: assume a successful crank.
         self.state.engine = EngineState.RUNNING
         return self._ok(engine=self.state.engine.value)
@@ -928,12 +1134,20 @@ class TractorControlService:
     # ------------------------------ safing ------------------------------
 
     async def _acquire_for_estop(self) -> bool:
-        """Wait (briefly) for an in-flight actuation so it cannot land after the stop."""
+        """Take the actuation lock if an in-flight actuation releases it within a moment.
+
+        A stop never waits longer than ``ESTOP_LOCK_WAIT_S``: its neutral commands must reach
+        the bus within the 100 ms acceptance limit even while a stalled write holds the lock.
+        Returns ``False`` when it could not; the caller then writes without the lock and
+        re-asserts neutral once the lock frees (``_reassert_neutral``).
+        """
         try:
-            await asyncio.wait_for(self._act_lock.acquire(), timeout=self.ESTOP_LOCK_WAIT_S)
+            async with asyncio.timeout(self.ESTOP_LOCK_WAIT_S):
+                await self._act_lock.acquire()
         except TimeoutError:
             logger.warning(
-                "Safing: an in-flight actuation did not finish within %.2fs; stopping anyway",
+                "Safing: an in-flight actuation still held the actuation lock after %.2fs; "
+                "writing neutral without it and re-asserting after it",
                 self.ESTOP_LOCK_WAIT_S,
             )
             return False
@@ -955,24 +1169,79 @@ class TractorControlService:
             return {"ok": False, "simulated": is_simulation_mode(), "error": _err(exc)}
         return {"ok": True, "simulated": is_simulation_mode(), "error": None}
 
-    async def _drive_to_safe_state(self) -> dict[str, dict[str, Any]]:
+    _SERVO_FIELDS = ("left_lever", "right_lever", "throttle")
+
+    async def _servos_to_neutral(self) -> dict[str, dict[str, Any]]:
+        """One pass: every servo channel to neutral/idle, issued together. Never raises.
+
+        The three writes are issued concurrently so the last channel does not wait for the
+        others (a slow bus would otherwise push the throttle past the 100 ms limit).
+        """
+        servos = (self.left_lever, self.right_lever, self.throttle)
+        results = await asyncio.gather(
+            *(self._servo_safe(a, f) for a, f in zip(servos, self._SERVO_FIELDS, strict=True))
+        )
+        return dict(zip(self._SERVO_FIELDS, results, strict=True))
+
+    async def _reassert_neutral(self) -> dict[str, dict[str, Any]]:
+        """Neutral once more, under the lock, after the write that was in flight released it.
+
+        The stop wrote neutral without the lock because a command's write was still in
+        flight; that write cannot be cancelled and may reach the chip after the stop's neutral.
+        Waiting (bounded: a write holds the lock at most ``ACTUATION_TIMEOUT_S``) and writing
+        neutral again makes the stop's neutral the last word on every channel. If the lock
+        never frees, nothing is confirmed: every servo is reported failed so ``complete`` stays
+        False, and the supervision loop's read-back keeps the watchdog repeating the stop.
+        """
+        wait_s = self.ACTUATION_TIMEOUT_S + self.ESTOP_REASSERT_MARGIN_S
+        try:
+            async with asyncio.timeout(wait_s):
+                await self._act_lock.acquire()
+        except TimeoutError:
+            error = (
+                f"an in-flight actuation still held the actuation lock after {wait_s:.2f}s: "
+                "neutral could not be re-asserted after it"
+            )
+            logger.critical("Safing: %s", error)
+            return {
+                field: {"ok": False, "simulated": is_simulation_mode(), "error": error}
+                for field in self._SERVO_FIELDS
+            }
+        try:
+            return await self._servos_to_neutral()
+        finally:
+            self._act_lock.release()
+
+    async def _drive_to_safe_state(self) -> tuple[dict[str, dict[str, Any]], bool]:
         """Blade/starter relays off, then levers neutral and throttle idle.
 
         Each subsystem is attempted independently (one bad channel must not
         abort the rest) and reported with its actual outcome. State fields only
         follow outputs that really changed: a failed channel keeps its last
         known value.
+
+        The relays go first, in the same event-loop turn as the call and before anything can
+        wait: they are pure GPIO and need neither the PCA9685 nor the actuation lock (audit
+        SF-04: waiting for the lock first delayed the PTO cut by 250 ms). The servos follow;
+        if the lock was busy the neutral pulses go out without it and are re-asserted once it
+        frees. Returns ``(subsystems, contended)``; ``contended`` says an in-flight write held
+        the lock past the stop.
         """
         subsystems: dict[str, dict[str, Any]] = {}
-        # Blade PTO first and unconditionally: pure GPIO, independent of I2C.
         subsystems["blade_pto"] = self._relay_off(self.blade_pto)
         if subsystems["blade_pto"]["ok"]:
             self.state.blade_engaged = False
         subsystems["starter"] = self._relay_off(self.starter)
-        subsystems["left_lever"] = await self._servo_safe(self.left_lever, "left_lever")
-        subsystems["right_lever"] = await self._servo_safe(self.right_lever, "right_lever")
-        subsystems["throttle"] = await self._servo_safe(self.throttle, "throttle")  # idle engine
-        return subsystems
+        got_lock = await self._acquire_for_estop()
+        try:
+            subsystems.update(await self._servos_to_neutral())
+        finally:
+            if got_lock:
+                self._act_lock.release()
+        if got_lock:
+            return subsystems, False
+        subsystems.update(await self._reassert_neutral())
+        return subsystems, True
 
     async def emergency_stop(self, source: str = "operator") -> dict[str, Any]:
         """Disengage the blade and center/idle the drive; leave the engine running.
@@ -982,20 +1251,27 @@ class TractorControlService:
         PCA9685 bus fault on one channel must not abort the rest of the safing
         sequence, and the result says exactly which outputs were confirmed:
 
-        ``{"status": "emergency_stop", "complete": bool, "subsystems": {...},
-        "faults": [...]}`` -- ``complete`` is ``True`` only when every output
-        was driven (or simulated in SIM_MODE).
+        ``{"status": "emergency_stop", "complete": bool, "inflight_write": bool,
+        "subsystems": {...}, "faults": [...]}`` -- ``complete`` is ``True`` only when every
+        output was driven (or simulated in SIM_MODE); ``inflight_write`` says a command's
+        write was still in flight when the stop began, so the servos were driven again after
+        it released the lock.
+
+        A disabled platform outside SIM_MODE is not touched at all (``status:
+        "not_enabled"``): no GPIO is claimed and nothing is driven.
         """
-        self.state.emergency_stop_active = True
-        self.state.last_updated = datetime.now(UTC)
-        self.revoke()
-        self._cancel_deadman()
-        got_lock = await self._acquire_for_estop()
+        if self._hardware_off_limits():
+            return self._not_enabled_report()
+        self._stops_in_flight += 1
         try:
-            subsystems = await self._drive_to_safe_state()
+            self.state.emergency_stop_active = True
+            self._stop_generation += 1
+            self.state.last_updated = datetime.now(UTC)
+            self.revoke()
+            self._cancel_deadman()
+            subsystems, contended = await self._drive_to_safe_state()
         finally:
-            if got_lock:
-                self._act_lock.release()
+            self._stops_in_flight -= 1
 
         faults = [f"{name}: {info['error']}" for name, info in subsystems.items() if not info["ok"]]
         complete = not faults
@@ -1017,6 +1293,7 @@ class TractorControlService:
             "status": "emergency_stop",
             "engine": self.state.engine.value,
             "complete": complete,
+            "inflight_write": contended,
             "subsystems": subsystems,
             "faults": faults,
         }
@@ -1028,15 +1305,20 @@ class TractorControlService:
         blade/starter relays go off and levers/throttle go neutral/idle, with the
         same per-subsystem reporting as ``emergency_stop``. The engine is left
         alone (there is no ignition-kill actuator).
+
+        Parking *latches*: until ``initialize()`` only neutral, idle and blade-off commands are
+        accepted, and a command that began before the park never writes after it. A mission or
+        navigation loop still running during shutdown therefore cannot re-command the machine
+        after the park, while the PCA9685 holds the last pulse past process exit (audit SF-06,
+        SEC-08). A disabled platform outside SIM_MODE is not touched (``not_enabled``).
         """
+        if self._hardware_off_limits():
+            return self._not_enabled_report()
+        self._parked = source
+        self._stop_generation += 1
         self.revoke()
         self._cancel_deadman()
-        got_lock = await self._acquire_for_estop()
-        try:
-            subsystems = await self._drive_to_safe_state()
-        finally:
-            if got_lock:
-                self._act_lock.release()
+        subsystems, contended = await self._drive_to_safe_state()
         faults = [f"{name}: {info['error']}" for name, info in subsystems.items() if not info["ok"]]
         self._notify(
             "park",
@@ -1054,25 +1336,67 @@ class TractorControlService:
         return {
             "status": "parked",
             "complete": not faults,
+            "inflight_write": contended,
             "subsystems": subsystems,
             "faults": faults,
         }
 
+    def _interlock_clear_veto(self, reason: str | None) -> str | None:
+        """Why the blade interlock latch must stay now (the attached gate), else ``None``."""
+        gate = self._interlock_clear_gate
+        if gate is None:
+            return None
+        try:
+            return gate(reason)
+        except Exception as exc:
+            logger.exception("Blade interlock clear gate failed: keeping the latch")
+            return f"clear gate failed: {_err(exc)}"
+
     async def clear_emergency(self) -> dict[str, Any]:
-        """Explicit operator clear of the E-stop latch *and* any blade interlock latch.
+        """Explicit operator clear of the E-stop latch and, when it is safe, the blade latch.
 
         Does not re-authorize and does not re-engage anything: the operator must
-        ``authorize()`` and command the blade again. A latch whose cause persists
-        (e.g. still tilted) is re-asserted by its monitor on its next tick. Refused while the
-        tractor is locked out (``lock_out``): that needs a restart.
+        ``authorize()`` and command the blade again. Refused while the tractor is locked out
+        (``lock_out``: that needs a restart) and while a stop is still driving the outputs
+        (a clear must not undo it, audit SEC-12).
+
+        The blade interlock latch is released only if the attached gate (the tilt monitor)
+        agrees: while the latest tilt reading is over the limit, or the tilt sensor is
+        unavailable, the latch stays and the reply says so (``status: "partial"``,
+        ``still_latched``) -- the E-stop latch is still released, since the blade path stays
+        closed (audit SEC-06). The park latch is not released here (only ``initialize()``).
         """
         if self._lockout is not None:
             return self._reject(f"locked out: {self._lockout}")
+        if self._stops_in_flight:
+            return self._reject("emergency stop in progress: clear refused until its result is out")
+        cleared: list[str] = []
+        still_latched: list[str] = []
+        veto: str | None = None
+        if self.state.emergency_stop_active:
+            cleared.append("emergency_stop")
         self.state.emergency_stop_active = False
-        self.state.interlock_latched = False
-        self.state.latch_reason = None
+        if self.state.interlock_latched:
+            latch = f"blade_interlock:{self.state.latch_reason}"
+            veto = self._interlock_clear_veto(self.state.latch_reason)
+            if veto is None:
+                cleared.append(latch)
+                self.state.interlock_latched = False
+                self.state.latch_reason = None
+            else:
+                still_latched.append(latch)
+                logger.warning("Blade interlock NOT released by the clear (%s): %s", latch, veto)
         self.state.interlock_reason = None
-        return self._ok()
+        if not still_latched:
+            return self._ok(cleared=cleared)
+        self.state.interlock_reason = self._standing_reason()
+        self.state.last_updated = datetime.now(UTC)
+        return {
+            "status": "partial",
+            "cleared": cleared,
+            "still_latched": still_latched,
+            "reason": veto,
+        }
 
     async def apply(self, command: TractorCommand, source: str = DEFAULT_SOURCE) -> dict[str, Any]:
         """Apply a full command, honoring interlocks (rejections are collected).
@@ -1112,7 +1436,26 @@ _tractor_service: TractorControlService | None = None
 
 
 def get_tractor_service() -> TractorControlService:
+    """The process-wide tractor service.
+
+    A ``config/tractor.yaml`` that fails validation (or any constructor failure) must not make
+    this raise: it is on the path of the unauthenticated E-stop route, which would then answer
+    500 on every call (audit SF-11). The service is built ``misconfigured`` instead: disabled,
+    locked out, naming the error, touching no hardware.
+    """
     global _tractor_service
     if _tractor_service is None:
-        _tractor_service = TractorControlService()
+        try:
+            _tractor_service = TractorControlService()
+        except TractorConfigError as exc:
+            logger.critical(
+                "Tractor config invalid -> platform held disabled and locked out: %s", exc
+            )
+            _tractor_service = TractorControlService.misconfigured(exc)
+        except Exception as exc:
+            logger.critical(
+                "Tractor service could not be built -> platform held disabled and locked out",
+                exc_info=True,
+            )
+            _tractor_service = TractorControlService.misconfigured(exc)
     return _tractor_service

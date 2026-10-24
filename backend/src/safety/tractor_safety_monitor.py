@@ -21,8 +21,12 @@ A tilt trip *latches* the blade interlock on the tractor
 ``blade_engaged=True`` every tick, so merely switching the blade off once would
 have it re-engaged ~200ms later while still tilted. The latch is released only
 by an explicit authenticated ``clear_emergency()``, never by the tilt returning
-to normal, and it is re-asserted every tick while the machine is still over the
-threshold, so clearing it on a tilted machine cannot reopen the blade path.
+to normal. While the monitor runs it is also the tractor's *clear gate*
+(``interlock_clear_veto``, audit SEC-06): ``clear_emergency()`` keeps the latch while the
+latest tilt reading is over the threshold and while the tilt sensor is unavailable (no valid
+reading within ``TILT_READING_MAX_AGE_S``), so a clear on a tilted machine cannot reopen the
+blade path even for the one poll that remains before this loop would re-latch it. The loop
+still re-latches every tick while tilted (a clear that landed before the first tick).
 
 SIM-safe: the default IMU reader lazily reaches into the sensor manager the
 same way the rest of the backend does (``websocket_hub._ensure_sensor_manager``)
@@ -34,6 +38,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -49,6 +55,9 @@ ImuReader = Callable[[], Awaitable[tuple[float, float] | None]]
 
 #: How long ``stop()`` waits for the loop (a possibly hung tilt check) before cancelling it.
 _STOP_GRACE_S = 1.0
+#: A tilt reading older than this no longer shows the machine is level: the clear gate then
+#: treats the tilt sensor as unavailable and keeps the latch (the loop polls every 50 ms).
+TILT_READING_MAX_AGE_S = 1.0
 
 
 async def _default_imu_reader() -> tuple[float, float] | None:
@@ -75,6 +84,7 @@ class TractorSafetyMonitor:
         trigger_manager: SafetyTriggerManager | None = None,
         imu_reader: ImuReader = _default_imu_reader,
         poll_interval_s: float = 0.05,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if SAFETY_MONITOR_SOURCE not in watchdog.required_sources:
             # Fail at start-up, not by raising inside the loop that protects the blade.
@@ -87,17 +97,49 @@ class TractorSafetyMonitor:
         self._triggers = trigger_manager or get_safety_trigger_manager()
         self._imu_reader = imu_reader
         self._poll_interval_s = poll_interval_s
+        self._clock = clock
         self._task: asyncio.Task | None = None
         self._stop_evt = asyncio.Event()
         self._tilted = False
+        # The latest valid (finite) reading and when it arrived; None until the first one.
+        self._last_reading: tuple[float, float] | None = None
+        self._last_reading_at: float | None = None
 
     async def start(self) -> None:
         if self._task is None or self._task.done():
             self._stop_evt.clear()
+            self._tractor.attach_interlock_clear_gate(self.interlock_clear_veto)
             self._task = asyncio.create_task(self._run())
+
+    def interlock_clear_veto(self, latch_reason: str | None) -> str | None:
+        """Why the tractor must keep its blade interlock latch now, else ``None``.
+
+        Only the tilt latch is this monitor's to veto. It stays while the latest valid
+        reading is over the threshold, and while there is no valid reading younger than
+        ``TILT_READING_MAX_AGE_S`` (sensor missing, failing or this loop dead): a machine that
+        cannot be shown to be level is treated as tilted.
+        """
+        if latch_reason != "tilt":
+            return None
+        if self._tilted and self._last_reading is not None:
+            roll, pitch = self._last_reading
+            return (
+                f"the latest tilt reading (roll {roll:.1f}, pitch {pitch:.1f} deg) is over "
+                f"the {self._threshold:.1f} deg limit"
+            )
+        if self._last_reading_at is None:
+            return "the tilt sensor has not produced a valid reading yet"
+        age = self._clock() - self._last_reading_at
+        if age > TILT_READING_MAX_AGE_S:
+            return (
+                f"the tilt sensor is unavailable: its last valid reading is {age:.1f} s old "
+                f"(limit {TILT_READING_MAX_AGE_S:.1f} s)"
+            )
+        return None
 
     async def stop(self) -> None:
         self._stop_evt.set()
+        self._tractor.detach_interlock_clear_gate(self.interlock_clear_veto)
         task, self._task = self._task, None
         if task is not None:
             try:
@@ -126,6 +168,12 @@ class TractorSafetyMonitor:
         if reading is None:
             return
         roll_deg, pitch_deg = reading
+        if not (math.isfinite(roll_deg) and math.isfinite(pitch_deg)):
+            # A NaN/inf reading is no reading: it must neither latch nor release anything, and
+            # it does not count as proof that the machine is level (see interlock_clear_veto).
+            return
+        self._last_reading = (roll_deg, pitch_deg)
+        self._last_reading_at = self._clock()
         triggered = self._triggers.trigger_tilt(roll_deg, pitch_deg, self._threshold)
         if triggered:
             state = self._tractor.state

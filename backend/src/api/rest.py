@@ -400,6 +400,14 @@ async def control_drive_v2(cmd: dict, request: Request):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail="max_speed_limit must be numeric"
         )
+    import math
+
+    if not all(math.isfinite(v) for v in (throttle, turn, speed_limit)):
+        # NaN would clamp to full speed below (min/max return the other operand): refuse it.
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="vector.linear, vector.angular and max_speed_limit must be finite numbers",
+        )
     speed_limit = max(0.0, min(1.0, speed_limit))
 
     # Send command to RoboHAT
@@ -694,9 +702,11 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
         return JSONResponse(status_code=200, content=legacy_payload)
 
     response = ControlResponseV2(
-        accepted=True,
+        # "accepted" only when the stop was confirmed: a client keying on accepted/result must
+        # not read success off a stop that left an output unconfirmed (audit SEC-13).
+        accepted=report["complete"],
         audit_id=audit_id,
-        result="accepted",
+        result="accepted" if report["complete"] else "incomplete",
         status_reason=(
             "EMERGENCY_STOP_TRIGGERED" if report["complete"] else "EMERGENCY_STOP_INCOMPLETE"
         ),
