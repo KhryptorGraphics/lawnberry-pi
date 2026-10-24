@@ -88,3 +88,43 @@ def test_picamera_rgb888_frames_encode_with_true_colours(monkeypatch):
     assert size == (8, 8)
     r, g, b = Image.open(io.BytesIO(encoded)).convert("RGB").getpixel((4, 4))
     assert abs(r - 200) <= 3 and abs(g - 30) <= 3 and abs(b - 20) <= 3
+
+
+@pytest.mark.asyncio
+async def test_second_instance_cannot_steal_a_live_socket(tmp_path):
+    """A CLI or test that starts a second service must not unlink the live socket."""
+    path = tmp_path / "camera.sock"
+
+    owner = CameraStreamService(sim_mode=True)
+    owner.socket_path = str(path)
+    await owner._setup_ipc_server()
+    assert path.exists()
+
+    intruder = CameraStreamService(sim_mode=True)
+    intruder.socket_path = str(path)
+    with pytest.raises(RuntimeError, match="another live camera service"):
+        await intruder._setup_ipc_server()
+
+    # The intruder shutting down must leave the owner's socket alone.
+    await intruder.shutdown()
+    assert path.exists()
+
+    await owner.shutdown()
+    assert not path.exists()
+
+
+@pytest.mark.asyncio
+async def test_stale_socket_is_replaced(tmp_path):
+    """A leftover socket file with no listener is stale and may be replaced."""
+    path = tmp_path / "stale.sock"
+    path.write_text("")
+
+    service = CameraStreamService(sim_mode=True)
+    service.socket_path = str(path)
+    await service._setup_ipc_server()
+
+    assert service._socket_owned is True
+    assert service._socket_is_live()
+
+    await service.shutdown()
+    assert not path.exists()

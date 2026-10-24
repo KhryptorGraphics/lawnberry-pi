@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import signal
+import socket
 import stat
 import threading
 import time
@@ -98,6 +99,7 @@ class CameraStreamService:
 
         # IPC server
         self.ipc_server: asyncio.Server | None = None
+        self._socket_owned = False
         self.running = False
 
         # Camera backend
@@ -286,10 +288,19 @@ class CameraStreamService:
             return False
 
     async def _setup_ipc_server(self):
-        """Set up Unix socket IPC server."""
+        """Set up Unix socket IPC server.
+
+        A socket path that another live instance is already serving must not be
+        unlinked: doing so leaves that instance unreachable while it keeps holding
+        the old inode, which is exactly how a second CameraStreamService (a CLI or
+        a test) silently broke the running service. Only a stale path is removed.
+        """
         try:
-            # Clean up existing socket
             if os.path.exists(self.socket_path):
+                if self._socket_is_live():
+                    raise RuntimeError(
+                        f"{self.socket_path} is served by another live camera service"
+                    )
                 os.unlink(self.socket_path)
 
             # Create IPC server
@@ -299,12 +310,25 @@ class CameraStreamService:
 
             # Set socket permissions
             os.chmod(self.socket_path, 0o666)
+            self._socket_owned = True
 
             logger.info(f"IPC server listening on {self.socket_path}")
 
         except Exception as e:
             logger.error(f"Failed to setup IPC server: {e}")
             raise
+
+    def _socket_is_live(self, timeout: float = 0.5) -> bool:
+        """True when something is accepting connections on ``self.socket_path``."""
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        probe.settimeout(timeout)
+        try:
+            probe.connect(self.socket_path)
+            return True
+        except OSError:
+            return False
+        finally:
+            probe.close()
 
     async def _handle_client_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -1230,9 +1254,10 @@ class CameraStreamService:
             self.ipc_server.close()
             await self.ipc_server.wait_closed()
 
-        # Clean up socket
-        if os.path.exists(self.socket_path):
+        # Clean up only a socket this instance created
+        if self._socket_owned and os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
+        self._socket_owned = False
 
         # Shutdown executor
         self.executor.shutdown(wait=True)
