@@ -35,7 +35,8 @@ global rate limit → input_validation → security → api_key_auth → correla
 | camera_stream_service | 1250 | camera + drivers/ai/{hailo_driver,yolo26} (detector IPC: status/release/reload) |
 | ai_inference_service | – | drivers/ai/hailo_driver (HailoRT 4.24, hailo8l HEFs) |
 | capture_service + capture_integrity | 470 / 78 | gps/imu/commands/camera JSONL sessions, integrity gate |
-| thor_link_service | 172 | Pi↔Thor UDP protocol (models/thor_link.py); not yet wired into main.py |
+| thor_link_service | 520 | Pi↔Thor UDP protocol (models/thor_link.py): auth, freshness, safe hold |
+| thor_plan_follower, thor_link_wiring | 580 / 330 | the plan's only consumer (drives legs through `go_to_waypoint` behind a local gate) and its `main.py` start-up; off unless `config/thor_link.yaml` enables it |
 | maps, mission, jobs, settings, weather, ntrip_client, acme, remote_access, perimeter_recorder, timezone, hw_selftest, calibration | – | domain logic |
 
 ## Safety (`safety/`, high-risk)

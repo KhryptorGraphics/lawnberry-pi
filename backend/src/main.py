@@ -50,6 +50,8 @@ from .services.camera_stream_service import camera_service
 from .services.emergency_stop_service import park_actuators
 from .services.navigation_service import NavigationService
 from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
+from .services.thor_link_wiring import start_thor_link, stop_thor_link
+from .services.thor_plan_follower import gnss_from_sensor_manager
 from .services.tractor_service import get_tractor_service
 from .services.websocket_hub import websocket_hub
 
@@ -236,6 +238,21 @@ async def lifespan(app: FastAPI):
         _log.exception("Tractor service initialization failed")
         if tractor is not None and tractor.enabled:
             await _fail_closed(app, tractor)
+    # Thor link (default OFF, config/thor_link.yaml). Needs the tractor platform and its safety
+    # monitor up first: plans from the Thor go only through the local navigation path and the
+    # tractor interlocks, and never start unless tilt cutoff and the watchdog are running.
+    # Any failure leaves the mower on local control only; it never starts a weaker link.
+    app.state.thor_link = None
+    app.state.thor_link_error = None
+    try:
+        app.state.thor_link = await start_thor_link(
+            get_tractor_service(),
+            safety_monitor_running=getattr(app.state, "tractor_safety_monitor", None) is not None,
+            gnss=lambda: gnss_from_sensor_manager(getattr(app.state, "sensor_manager", None)),
+        )
+    except Exception as exc:
+        app.state.thor_link_error = str(exc)
+        _log.critical("Thor link NOT started, the mower stays on local control only: %s", exc)
     # camera-stream.service is the sole camera owner in production (the
     # constitution reserves the camera to it; the backend consumes frames
     # over its IPC socket, see api/routers/camera.py). Only embed a camera
@@ -250,6 +267,10 @@ async def lifespan(app: FastAPI):
     await websocket_hub.start_telemetry_loop()
     yield
     # Shutdown
+    # The only service stopped ahead of the park is the Thor link: it can command motion, so
+    # it must be gone before the park or it could undo it. Its stop is bounded by the actuator
+    # timeouts, a few seconds at worst.
+    await stop_thor_link(getattr(app.state, "thor_link", None))
     # Park the actuators FIRST, before any monitor/service is torn down: blade off,
     # levers neutral, throttle idle, RoboHAT neutral + blade off. The PCA9685 holds
     # its last pulse and a GPIO relay pin's state at process exit is unspecified, so
