@@ -45,9 +45,12 @@ ThorLinkClient = client_mod.ThorLinkClient
 StaticPlanner = client_mod.StaticPlanner
 load_key = client_mod.load_key
 
-KEY_HEX = "3e" * 40
+# Keys as `openssl rand -hex 40` writes them: a repeated byte or pattern is refused as weak.
+KEY_HEX = "4c8cee25469121adbee6af9d9284b55bbd87702b8d31ee8dfeda66b642c931a91be99a9bc149b72e"
 KEY = bytes.fromhex(KEY_HEX)
-OTHER_KEY = bytes.fromhex("c1" * 40)
+OTHER_HEX = "5107a3fa1409dcb6a6f6cf74ff4328efe45b06b8be014cb2218121bc848f79d1a3cb033745e067b0"
+OTHER_KEY = bytes.fromhex(OTHER_HEX)
+ALT_HEX = "fbffbff535260005607532dfe9caa7323d255ebb4a6f4ec54776453ac47d1a64d4f9a45496efb901"
 PI = ("10.0.0.7", 47101)
 
 
@@ -78,7 +81,7 @@ def test_the_key_comes_from_a_private_file_or_the_environment(tmp_path):
     assert load_key(key_file=_key_file(tmp_path), env={}) == KEY
     assert load_key(env={"THOR_LINK_KEY": KEY_HEX}) == KEY
     # an explicit file wins over whatever the environment holds
-    assert load_key(key_file=_key_file(tmp_path), env={"THOR_LINK_KEY": "ab" * 40}) == KEY
+    assert load_key(key_file=_key_file(tmp_path), env={"THOR_LINK_KEY": ALT_HEX}) == KEY
 
 
 @pytest.mark.parametrize("mode", [0o644, 0o640, 0o604, 0o666])
@@ -492,3 +495,110 @@ async def test_the_endpoint_answers_over_a_real_udp_socket():
         transport.close()
     finally:
         c.close()
+
+
+# ------------- key policy, strict addresses, flood and log bounds (review fixes) -------------
+
+
+def test_a_weak_key_and_the_published_key_are_refused_wherever_they_come_from(tmp_path):
+    published = SIM_LINK_KEY.hex()
+    for weak in ("00" * 40, "aa" * 40, "70617373776f7264" * 5):  # zero, one byte, a repeated word
+        with pytest.raises(LinkKeyError) as err:
+            load_key(env={"THOR_LINK_KEY": weak})
+        assert weak not in str(err.value)
+        with pytest.raises(LinkKeyError):
+            load_key(key_file=_key_file(tmp_path, weak), env={})
+    with pytest.raises(LinkKeyError, match="SIM_MODE=1"):
+        load_key(env={"THOR_LINK_KEY": published})
+    with pytest.raises(LinkKeyError, match="SIM_MODE=1"):
+        load_key(key_file=_key_file(tmp_path, published), env={"SIM_MODE": "0"})
+    assert load_key(env={"THOR_LINK_KEY": published, "SIM_MODE": "1"}) == SIM_LINK_KEY
+
+
+def test_pi_addresses_are_single_ip_addresses_or_an_error():
+    assert client_mod.parse_pi_addresses(None) is None and client_mod.parse_pi_addresses([]) is None
+    assert client_mod.parse_pi_addresses(["10.0.0.7", "::1"]) == ["10.0.0.7", "::1"]
+    for bad in ("10.0.0.5x", "10.0.0.0/24", "pi.local", ""):
+        with pytest.raises(ValueError, match="--pi"):
+            client_mod.parse_pi_addresses([bad])
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "message"),
+    [
+        (["--pi", "10.0.0.5x"], {"THOR_LINK_KEY": KEY_HEX}, "--pi"),
+        (["--listen", "not-a-port"], {"THOR_LINK_KEY": KEY_HEX}, "--listen"),
+        ([], {"THOR_LINK_KEY": "00" * 40}, "all zero"),
+        ([], {"THOR_LINK_KEY": SIM_LINK_KEY.hex()}, "SIM_MODE=1"),
+    ],
+)
+def test_the_command_line_refuses_a_mistyped_address_a_weak_key_and_the_public_key(
+    tmp_path, args, env, message
+):
+    (tmp_path / "plan.json").write_text(json.dumps([{"lat": 45.0, "lon": -93.0}]))
+    done = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--plan",
+            str(tmp_path / "plan.json"),
+            "--listen",
+            f"127.0.0.1:{_free_port()}",
+            *args,
+        ],
+        env=_env(**env),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode == 2 and message in done.stderr
+    assert env["THOR_LINK_KEY"] not in done.stderr, "a key is never echoed"
+
+
+def test_a_flood_reaches_the_hmac_only_up_to_the_budget_and_the_known_pi_is_not_starved(
+    monkeypatch,
+):
+    calls: list[int] = []
+    real = client_mod.decode_uplink
+    monkeypatch.setattr(client_mod, "decode_uplink", lambda d, k: (calls.append(1), real(d, k))[1])
+    c = ThorLinkClient(KEY, StaticPlanner(wps(3)).on_uplink, clock=lambda: 0.0)
+    assert c.handle(datagram(0, sid=5), PI) is not None  # the Pi is answered: now it is known
+    calls.clear()
+    for _ in range(5000):
+        c.handle(b"\x5a" * 1200, ("203.0.113.9", 4000))
+    assert 0 < len(calls) <= client_mod.RX_BURST, (
+        "5000 junk datagrams, one HMAC each (the old code)"
+    )
+    assert c.counters["rate"] == 5000 - len(calls)
+    for i in range(5000):  # and a flood that rotates its source drains the port's bucket
+        c.handle(b"\x5a" * 1200, (f"198.51.{i >> 8 & 255}.{i & 255}", 4000))
+    assert c.handle(datagram(1, sid=5), PI) is not None, "the Pi it already answers still gets in"
+    assert c.handle(datagram(2, sid=5), ("10.9.9.9", 1)) is None, "a stranger is shed unread"
+    assert c.counters["answered"] == 2
+
+
+def test_a_planner_that_fails_on_every_uplink_logs_once_per_interval(caplog):
+    now = [0.0]
+
+    def broken(_up):
+        raise RuntimeError("planner bug")
+
+    c = ThorLinkClient(KEY, broken, clock=lambda: now[0])
+    with caplog.at_level("ERROR"):
+        for i in range(200):  # 4 s of a 50 Hz Pi
+            assert decode_downlink(c.handle(datagram(i, sid=5), PI), KEY).pause
+            now[0] += 0.02
+    assert c.counters["planner_error"] == 200 and c.counters["rate"] == 0
+    assert len([r for r in caplog.records if "planner failed" in r.getMessage()]) == 1
+
+
+def test_a_planner_answer_that_does_not_echo_the_uplink_becomes_a_pause_that_does():
+    """The Pi ignores an unechoed answer, so a planner that echoes the wrong number is silence."""
+
+    def wrong_ack(u):
+        return Downlink(sid=u.sid, ack=u.waypoint_index or 0, plan_id="p", waypoints=wps(2))
+
+    c = ThorLinkClient(KEY, wrong_ack)
+    down = decode_downlink(c.handle(datagram(41, sid=9, waypoint_index=3), PI), KEY)
+    assert down.pause and (down.sid, down.ack) == (9, 41) and down.plan_id == "error"
+    assert c.counters["planner_error"] == 1 and c.counters["answered"] == 1
