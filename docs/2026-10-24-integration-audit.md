@@ -14,6 +14,7 @@ owner's requirement documents. Anything that is none of those is marked `TBD` (n
 - [Part D. Phase 5 safety review](#part-d-phase-5-safety-review)
 - [Part E. Prioritised development plan (P0 to P6)](#part-e-prioritised-development-plan-p0-to-p6)
 - [Part F. Remaining hardware conflicts and unresolved safety requirements](#part-f-remaining-hardware-conflicts-and-unresolved-safety-requirements)
+- [Appendix. Gap register index (H-01 to H-28)](#appendix-gap-register-index-h-01-to-h-28)
 - [Implemented in this PR](#implemented-in-this-pr) (placeholder: the integrator fills it)
 
 ## 0. Scope, baseline and conventions
@@ -25,7 +26,7 @@ owner's requirement documents. Anything that is none of those is marked `TBD` (n
 | Repository baseline | `origin/main` at `765c737` (branch `audit/docs` adds documentation only) |
 | Deployed Pi | host `pi5`, checkout `/apps/lawnberry-pi` at `23a6e4d`, kernel `6.12.21-morse+`; **read-only inspection on 2026-10-24**, nothing written, no actuator driven, no hardware config changed |
 | Requirement documents | draft PR #18, branch `docs/2026-10-24-hardware-architecture-audit`: `docs/OMP-THOR-HANDOFF-2026-10-24.md`, `docs/2026-10-24-physical-integration-plan.md`, `docs/2026-10-24-development-roadmap.md`, `docs/2026-10-24-compatibility-gap-register.md`. They are **not on this branch**; they are cited by file name and treated as proposed requirements, not as evidence of implementation |
-| Gap IDs | **H-01 … H-28** are the register's IDs. Findings the register does not contain carry **N-01 … N-31** (section A.15); they are proposed additions to the register. Conflicts are **C-xx** (B.1), measurements **M-xx** (B.7), owner decisions **D-n** (B.1.4), requirements **R-Pnn** (B.3), work packages **WP-Pn-nn** and sign-off gates **G0 … G6** (Part E) |
+| Gap IDs | **H-01 … H-28** are the register's IDs; **H-02b** and **H-02c** are sub-findings of H-02 introduced here (C-02, C-03). Findings the register does not contain carry **N-01 … N-31** (section A.15); they are proposed additions to the register. Conflicts are **C-xx** (B.1), measurements **M-xx** (B.7), owner decisions **D-n** and safety decisions **SD-n** (B.1.4, F.3), requirements **R-Pnn** (B.3), work packages **WP-Pn-nn** and sign-off gates **G0 … G6** (Part E). The gap register index is in the [Appendix](#appendix-gap-register-index-h-01-to-h-28) |
 | Test baseline | `SIM_MODE=1 pytest tests --ignore=tests/soak -p no:cacheprovider`: **530 passed, 69 skipped, 0 failed** (collection: 600 items including 1 soak test). Parallel implementation branches (`audit/checker`, `audit/safety`, `audit/thorlink`) are **not** reflected in the statuses below; the integrator records what landed under [Implemented in this PR](#implemented-in-this-pr) |
 
 ### 0.2 Status vocabulary
@@ -235,7 +236,7 @@ Summary of the safety audit; the full traces are in Part D.
 |---|---|---|
 | Full suite | PASS in SIM | `SIM_MODE=1 pytest tests --ignore=tests/soak -p no:cacheprovider`: **530 passed, 69 skipped, 0 failed**, 68.8 s, 2 warnings (httpx deprecation). HIL and soak were not run |
 | Skipped tests | UNVERIFIED paths | 29 + 1 "Placeholder integration test" and 10 "Placeholder contract test" (`RUN_PLACEHOLDER_*`); 15 + 1 perf tests (`RUN_PERF_TESTS`); `_require_bearer_auth` TODO(v3) skips and a legacy `/ws/telemetry` skip (`tests/unit/test_websocket_auth.py:20,27,35,58`; the stated reason is stale because `/ws/telemetry` is registered at `backend/src/api/rest.py:35`); "Auth enforcement not yet implemented - TDD test" (`tests/integration/test_manual_control_auth.py:23,69,119`); hardware self-test (`RUN_HW_TESTS`), 8-hour soak (`RUN_8H_SOAK`), quick soak (`RUN_SOAK_CI`); one test needing `cv2` (`tests/unit/test_yolo26_decode.py:185`) |
-| HIL | **MISSING** | `tests/hil/test_hil_probe.py` runs `scripts/hil_probe.py` under `SIM_MODE` and parses a CSV; it is not a hardware test, and no CI job runs `tests/hil` or `tests/soak` |
+| HIL | **MISSING** | `tests/hil/test_hil_probe.py` runs `scripts/hil_probe.py` under `SIM_MODE` and parses a CSV; it is not a hardware test. `pyproject.toml:60` sets `testpaths = ["tests"]`, so the CI `pytest -q` collects `tests/hil` (the SIM probe) and `tests/soak` (skipped without its `RUN_*` flag); no job touches hardware |
 | Pin checker | UNTESTED | No file in `tests/` references `scripts/check_hardware_pin_conflicts.py`; none loads `spec/hardware.yaml` |
 | Areas with **no test at all** | MISSING | Stop-distance logic, comms-loss behaviour, shutdown parking, PCA9685-absent reporting in production, tilt re-engagement by navigation, IBT-4 e-stop, PTO momentary behaviour, Thor link authentication |
 
@@ -279,7 +280,7 @@ What the passing safety tests prove and do not prove:
 
 | Workflow | Trigger | What it runs | Gap |
 |---|---|---|---|
-| `sim-tests.yml` | push, PR | `uv sync --frozen`, `SIM_MODE=1 LBY_ACCEL=cpu uv run pytest -q`, an API smoke on port 8000 (`:16-26`) | Includes the 69 skips (auth TDD tests never run); no HIL, soak or dedicated safety job; port 8000 vs the deployed 8081 |
+| `sim-tests.yml` | push, PR | `uv sync --frozen`, `SIM_MODE=1 LBY_ACCEL=cpu uv run pytest -q`, an API smoke on port 8000 (`:16-26`) | Includes the 69 skips (auth TDD tests never run); collects the SIM-only `tests/hil` probe and the skipped soak test (`pyproject.toml:60`); no hardware job and no dedicated safety job; port 8000 vs the deployed 8081 |
 | `lint.yml` | push, PR | `ruff@0.15.19 check .` and `format --check .` (`:17-19`) | Not run by the audit |
 | `hardware-guard.yml` | PR | the pin checker, then `grep` presence checks on `spec/hardware.yaml` (`:14-59`) | Checks the manifest, not reality; `:54-59` enforces CH1 battery / CH3 solar (N-12); `:39-44` blocks the strings "soil", "weather station", "jetson", "movidius" |
 | `docs-drift.yml` | PR, push to main | `scripts/check_docs_drift.sh` | Path-regex only (`:40`); passes if any `docs/**` file changed; locally `git fetch --depth=0` errors and is swallowed (`:18`), so a local run on an unchanged branch is vacuous; does not look at `config/*.yaml`, `hardware/` or `robohat-rp2040-code/` |
@@ -288,7 +289,7 @@ What the passing safety tests prove and do not prove:
 | `deps-lock.yml` | PR | `uv.lock` present and locked; forbids `pycoral`/`edgetpu` in `pyproject.toml` (`:22`) | none |
 | `webui-build.yml` | PR | `npm run build` and Playwright e2e against a mocked backend (`:16-28`) | vitest unit tests are not run in CI |
 | `codeql.yml`, `pr-hygiene.yml`, `todo-policy-check.yml` | various | not individually audited | UNVERIFIED |
-| **Absent** | n/a | HIL, soak, secret scanning, a check that `systemd/` matches the deployed units, any deploy workflow | N-22 |
+| **Absent** | n/a | A hardware-in-the-loop or scheduled soak job that touches hardware, secret scanning, a check that `systemd/` matches the deployed units, any deploy workflow | N-22 |
 
 ### A.14 Deployment
 
@@ -331,7 +332,7 @@ These are proposed additions to the gap register. Each cites the file and line (
 | N-19 | `limits.yaml` says an ultrasonic reading "triggers e-stop" and no code does that; `SafetyLimits.ultrasonic_enabled` defaults to True | `config/limits.yaml:16-17`, `models/safety_limits.py:20` | H-02 |
 | N-20 | The sensor-manager systemd unit is a placeholder (`sleep infinity`) and reports active | `systemd/lawnberry-sensors.service:16-17` | none |
 | N-21 | Deployment drift: undocumented drop-in, unversioned HaLow units, `User=pi` vs `kp`, no `.env` (random JWT secret per restart), CORS defaults exclude the LAN origin | A.9, A.14 | H-11 |
-| N-22 | CI blind spots: manifest-only hardware guard, path-regex docs drift, audits that cannot fail, no HIL, soak, safety or secret-scan job | A.13 | H-11 |
+| N-22 | CI blind spots: manifest-only hardware guard, path-regex docs drift, audits that cannot fail, no hardware-in-the-loop, scheduled soak, dedicated safety or secret-scan job | A.13 | H-11 |
 | N-23 | Documentation defects beyond those corrected here (A.12 "Open" rows) | A.12 | H-11 |
 | N-24 | Unmeasured safety claims: "e-stop latency under 100 ms" times a flag flip; "tilt cutoff under 200 ms" times a function call | `tests/integration/test_safety_systems.py:14-45` | H-08 |
 | N-25 | A frame with no ultrasonic data reads as an obstacle at 0 cm, which stops the AI path by accident rather than by design [INF] | `mower_data_frame.py:104-110`, `ai_inference_service.py:494-502`, `navigation_service.py:845-849` | H-26 |
@@ -767,6 +768,8 @@ commissioning step explicitly says otherwise.
 | M-25 | Servo neutral and limit pulse widths per channel, travel stops, linkage geometry | bench calibration | H-20 |
 | M-26 | Relay pin state at process exit and at SIGKILL | scope with the backend stopped and killed | N-09 |
 | M-27 | Stuck-output behaviour: PWM held with the lever blocked; servo behaviour with no pulse | bench | Part D.8 |
+| M-28 | Fault-to-safe-state time per fault class: backend `SIGSTOP`, `SIGKILL`, host hang, heartbeat wire cut, USB or serial loss, SDA or SCL held low during a write (kernel timeout, PCA9685 output, recovery); servo-power cut and lever neutral each timed | scope, high-speed video, position sensor | N-28, Parts D.4 and D.7 |
+| M-29 | Hardwired E-stop chain: acts with the Pi unpowered, hung and unplugged; an open wire reads as a stop; release does not re-energise; relay coil-supply and contact states at each step | meter, scope | R-P09, Part D.1 |
 | M-30 | Trace the OEM PTO circuit: is a momentary press latched by an OEM controller; how is OFF guaranteed on fault | meter, schematic, engine off, blade disconnected | H-21 |
 | M-31 | Observe the seat-switch 1 s engine cutoff on the actual machine (measure it, do not defeat it) | stopwatch, supervised | acceptance section 8 |
 | M-32 | Does the OEM Reverse Operation System cut the blade in reverse independently | supervised bench | acceptance section 9 |
@@ -968,3 +971,661 @@ Pi orchestration until it is tested. Agents work in separate Git worktrees, exch
 human review, and no agent drives mower hardware because it read a handoff. The HPE server migration (H-28) is a
 future optional deployment: it needs containerised services and hardware-agnostic interfaces defined first, and it
 must not be confused with the Thor's role.
+
+## Part D. Phase 5 safety review
+
+The review covers the ten topics the owner's handoff names for the safety case (`OMP-THOR-HANDOFF-2026-10-24.md`,
+deliverable 3): independent hardwired E-stop, blade/PTO disable, neutral-on-fault, watchdog, loss-of-link,
+loss-of-Thor, I2C bus hang, servo stuck-output, GPS/RTK loss and physical bench acceptance. It reads the source at
+baseline and the repository's own acceptance criteria; nothing was run against hardware. It does not recommend
+bypassing any OEM interlock (seat or presence switch, PARK, Reverse Operation System, PTO switch).
+
+### D.0 Ground rules, target safe-state model and summary
+
+1. **Authority order.** Independent hardware, then a hardware watchdog or coprocessor, then the Pi's safety code, then
+   navigation, then the Thor. A higher layer can always stop the machine. A lower layer can never prevent that stop
+   or clear it.
+2. **Fail-safe direction.** Loss of power, signal, heartbeat or a wire leaves the machine in the safe state: servo
+   power off, PTO supply off, every relay output defaulting OFF (R-P10).
+3. **Software states are not physical states.** `state.blade_engaged`, the lever values and `engine` are commanded
+   values (N-26). A safety property is shown by a physical observation (`docs/tractor-acceptance-criteria.md`,
+   preamble); a passing unit test is necessary and never sufficient.
+4. **Hold is not E-stop.** Hold: PTO off, levers neutral, authorisation kept, left on a fresh good input. E-stop:
+   energy removed, latched across restarts, cleared only by a local act.
+5. **Numbers come from measurement.** The only numeric limits used are those the repository already states: relay
+   within 100 ms, lever safe-value command within 100 ms, lever physical settle within 500 ms (acceptance criteria
+   sections 2 and 4), tilt cutoff within 200 ms (section 7) and the shipped `config/limits.yaml`. Nothing electrical
+   or temporal is invented here.
+
+Target safe-state model (**not implemented**: the baseline has only the flags `authorized` and
+`emergency_stop_active` in `tractor_service.py:109-110,266-268`, and `safe_hold` in the unwired `ThorLinkService`):
+
+```mermaid
+stateDiagram-v2
+  [*] --> SAFE_OFF
+  SAFE_OFF --> ARMED : local arm, attestation, self-checks pass
+  ARMED --> RUN : valid command lease
+  RUN --> HOLD : lease or link expired, Thor lost, fix degraded, sensor stale, obstacle
+  HOLD --> RUN : fresh authenticated input and conditions healthy
+  RUN --> ESTOP : E-stop, watchdog, tilt, actuator fault
+  HOLD --> ESTOP : E-stop, watchdog, tilt, actuator fault
+  ARMED --> ESTOP : E-stop, watchdog, actuator fault
+  ESTOP --> SAFE_OFF : local acknowledgement only
+```
+
+`SAFE_OFF`: actuator power off, outputs default OFF. `HOLD`: PTO off, levers neutral. `ESTOP`: servo power and PTO
+supply removed by hardware, latched across restarts.
+
+| # | Topic | Status at baseline | Principal reason | Work packages | Physical evidence |
+|---|---|---|---|---|---|
+| D.1 | Independent hardwired E-stop | **MISSING** | no input, circuit or GPIO; the software routes do not all actuate (N-01 to N-03) | WP-P0-05, WP-P1-01, WP-P1-05, WP-P0-08 | M-24, M-29; acceptance 2, 4 |
+| D.2 | Blade/PTO disable | PARTIALLY IMPLEMENTED; contradicted by the momentary-PTO report | software relay, no feedback, unguarded `set`, tilt defeated by the mission loop | WP-P0-06, WP-P1-07, WP-P1-04, WP-P1-10 | M-17, M-24, M-30, M-32, M-42; acceptance 2, 7, 9 |
+| D.3 | Neutral-on-fault | PARTIALLY IMPLEMENTED (command only) | neutral is a number; self-centring unknown; `OE` gives no pulse | WP-P0-05, WP-P1-01, WP-P1-02, WP-P1-09 | M-21, M-22, M-24, M-25, M-27; acceptance 1, 4, 10 |
+| D.4 | Watchdog | PARTIALLY IMPLEMENTED (software liveness) | in-process, one-shot, fed unconditionally; circuit values inconsistent (N-29) | WP-P0-05, WP-P1-08, WP-P1-02 | M-23, M-26, M-28; acceptance 1, 7 |
+| D.5 | Loss of link (operator, VR, network) | **MISSING** for the operator | commands persist; dead-man only in the client; the host refresh defeats the firmware failsafe | WP-P1-09, WP-P1-11, WP-P5-01, WP-P3-06 | M-52, M-24 |
+| D.6 | Loss of Thor | PARTIALLY IMPLEMENTED (library, unwired) | not wired; no authentication; hold retry gap (N-30) | WP-P3-01 to WP-P3-03, WP-P3-06 | M-52, M-51 |
+| D.7 | I2C bus hang | PARTIALLY IMPLEMENTED | error propagation only; absent chip is silent; no timeout; no header bus on the deployed Pi | WP-P0-01, WP-P1-03, WP-P1-04, WP-P1-08 | M-20, M-21, M-28; acceptance 3 |
+| D.8 | Servo stuck-output | **MISSING** | no feedback, stall detection or per-servo power cut; linkage unqualified for powered use | WP-P0-04, WP-P0-07, WP-P1-01, WP-P1-12 | M-10, M-11, M-22, M-25, M-27 |
+| D.9 | GPS/RTK loss | PARTIALLY IMPLEMENTED | the monitor does not see real missions (N-31); no start precondition; no correction age; no local base | WP-P2-04, WP-P2-05, WP-P4-03, WP-P3-06 | M-50, M-51 |
+| D.10 | Physical bench acceptance | **MISSING** | procedure written, nothing measured; no harness; no hardware test in CI | WP-P0-07, WP-P1-13, WP-P6-03 | M-10 to M-32; the sign-off table |
+
+### D.1 Independent hardwired E-stop (MISSING)
+
+**Requirement.** A mushroom E-stop whose action does not pass through the Pi, the backend, the I2C bus, a network or
+any firmware. It removes the energy that moves the actuators (servo power, the PTO relay coil supply) and is
+demonstrated with the Pi powered off, hung and unplugged. It is a normally-closed loop, so a broken wire reads as a
+stop [DS: common practice, for the reviewer to confirm]. Releasing it re-energises nothing by itself. Whether it also
+stops the engine or applies a brake is a safety-engineering decision (SD-1), not a software one.
+
+**Baseline.** No input, pin or circuit exists: `backend/src/safety/estop_handler.py:5-7` says GPIO integration "will
+be added later"; `spec/hardware.yaml:87` is a flag with no pin; `hardware.md` (Safety) lists a mushroom button and
+`hardware/mounts/README.md:44-45,100-101` prints a bracket for it (rail dimensions unverified) but no circuit is
+defined. The RC channel-5 stop on the RP2040 is evaluated only while `rc_enabled`
+(`robohat-rp2040-code/code.py:312,328-336`), shares the MCU with the drive output and does not exist on the PCA9685
+Toro platform. `TractorControlService.emergency_stop` (`tractor_service.py:258-288`) is a function in the process it
+is meant to supervise; the general routes do not actuate the tractor or the IBT-4 and reply that they did (N-01 to
+N-03); the "E-stop latency under 100 ms" test times a flag flip (N-24).
+
+| Event | Baseline behaviour | Required behaviour |
+|---|---|---|
+| Button pressed | no input | servo-power relay and PTO supply open whatever the Pi is doing; times per actuator measured (M-24) |
+| Pi off, hung, backend killed | the PCA9685 holds its last pulse [DS]; relay pin state unknown (M-26); the software e-stop is unreachable | the hardwired path acts as above; the hardware watchdog (D.4) opens the same relays |
+| Wire to the button breaks | not applicable | reads as a stop |
+| Button released | not applicable | nothing re-energises; re-arm is a local act (WP-P1-05); the software latch survives a restart (N-10) |
+| Relay contact welds or its driver fails | not considered | in the hazard analysis (WP-P0-07); monitoring or redundancy is the reviewer's decision |
+| Engine keeps running after the stop | by design (`tractor_service.py:259`); no brake reachable by the fore/aft linkage (`docs/tractor-platform.md`, Physical integration decisions 2); coast unmeasured (M-43) | decided by SD-1 and the measured stopping distance |
+
+**Required work:** WP-P0-05 (design, SD-1), WP-P1-01 (build and bench), WP-P1-05 (latch), WP-P0-08 (truthful
+routes). **Physical evidence:** M-24, M-29; acceptance sections 2 and 4.
+
+### D.2 Blade/PTO disable (PARTIALLY IMPLEMENTED; contradicted)
+
+**Requirement.** Every stop condition (E-stop, tilt, reverse, loss of link or Thor, watchdog, backend death, power
+loss) ends with the PTO off by a path that does not depend on the software state, and the real PTO state is observed.
+Engagement needs the engine sensed running, an operator attestation, not-reverse and not-tilted (acceptance
+sections 6 and 9). OEM seat, PARK and PTO-switch interlocks stay in force.
+
+**Baseline.** `blade_pto` is modelled as a latching relay on GPIO26 (`config/tractor.yaml:32-36`,
+`tractor_service.py:218-231`) and is switched off first and unconditionally in the e-stop (`:269`). But
+`RelayActuator.set` is unguarded (`tractor_actuators.py:111-115`), so a GPIO error raises before the servos are safed
+(N-27); a failed `OutputDevice` construction falls back silently to a simulated relay while the state still reads off
+(`:104-108`); the owner reports a momentary OEM PTO toggle (H-21), and if an OEM controller latches it, dropping the
+relay does not disengage the PTO (N-26: no pulse-to-toggle logic, no feedback); the tilt cutoff fires once on the
+edge and the mission loop re-engages the blade within about 200 ms (N-06 [INF]) on top of an IMU stub; relay pin
+state at process exit and `SIGKILL` is unknown and the `finally` in `pulse` does not run on `SIGKILL` (N-09); the
+mower variant's IBT-4 blade driver is a stub that is never e-stopped (N-03); the software reverse interlock exists,
+but whether the OEM Reverse Operation System also cuts the blade is unverified (acceptance section 9).
+
+| Event | Baseline behaviour | Required behaviour |
+|---|---|---|
+| E-stop and the GPIO raises | exception before servo safing (N-27); state may disagree with the pin | each safing step independent and reported; the hardwired chain also removes the PTO supply |
+| Relay driver missing or failing in production | silent simulation fallback | fault; arming refused |
+| Tilt over the threshold | one-shot blade-off, re-engaged by the mission loop | latched until a local clear; IMU loss fails closed (WP-P1-10) |
+| The OEM controller latches the PTO | state says off, the PTO may still be on | trace first (M-30); a fail-safe OFF element in the clutch supply, for example a contactor energised only while commanded (design decision, not made here); observed PTO state |
+| Backend killed or Pi power lost | relay pin state unknown | default OFF at power-up, boot and pin release (R-P10); hardwired chain |
+| Reverse entered | software disengage | OEM mechanism characterised (M-32); both documented, neither assumed |
+
+**Required work:** WP-P0-06, WP-P1-07, WP-P1-04, WP-P1-10, WP-P1-05 (shutdown), WP-P1-01. **Physical evidence:**
+M-17, M-24 (PTO drop, relay and clutch), M-26, M-30, M-32, M-42; acceptance sections 2, 7 and 9.
+
+### D.3 Neutral-on-fault (PARTIALLY IMPLEMENTED, command only)
+
+**Requirement.** On any fault or loss of control authority both drive levers reach neutral and the throttle reaches
+idle within the physical settle time the acceptance criteria require (500 ms), by a mechanism that works without
+software. "Neutral" is a lever position, not 1500 µs, and the stopping distance after neutral is known (M-43).
+
+**Baseline.** Neutral is a commanded value (`ServoCalibration`, `tractor_actuators.py:30-39`; endpoints are
+illustrative, `config/tractor.yaml:22-27`). Whether the OEM levers self-centre is unknown (acceptance section 10), and
+the repository itself warns that "a geared servo power cut alone does not prove failsafe return"
+(`hardware/mounts/README.md:415-418`). The `OE` mechanism in the acceptance document was wrong (corrected in this PR,
+H-04): `OE` is active-low [DS]; high disables the outputs and with `MODE2 = 0x04` gives no pulse at all
+(`pca9685_driver.py:57,111`), so it is "stop commanding", and what a servo then does (hold, drift, limp) is
+unmeasured (M-21, M-27). No `OE` GPIO is allocated (C-14). `hardware.md` (Safety) intends a 74HC123 watchdog to cut
+servo power through a spare relay-module channel and calls it an "unproven failsafe"; the circuit is not designed
+(N-29). A parking brake exists only at the outboard PARK position, by hand (`docs/tractor-platform.md`, Physical
+integration decisions 2); neutral gives hydrostatic braking only.
+
+| Option | Safe state comes from | Depends on | Open measurement |
+|---|---|---|---|
+| 1. Servo power cut | servo unpowered; lever return springs or OEM spring return | levers self-centre with the linkage fitted; the servo is back-drivable | M-22; acceptance section 10 |
+| 2. Active neutral from an independent controller | a coprocessor outputs the neutral pulse when the Pi heartbeat stops | coprocessor firmware and its reset state; servo power stays on | M-21, M-27; its reset behaviour |
+| 3. `OE` high | no pulse | servo behaviour with no pulse | M-21, M-27 |
+| 4. Software neutral command | a commanded neutral | the bus, the process and the PCA9685 all alive | none: this is today's behaviour and is not a failsafe |
+
+Options 1 and 2 may be combined. Option 3 alone and option 4 alone are not failsafes. No option is chosen here
+(SD-2). Other faults to cover: a Pi crash or I2C break (the PCA9685 holds its last pulse [DS]); servo power cut with
+levers that do not self-centre (a runaway, which invalidates option 1); an e-stop with a jammed lever (D.8).
+
+**Required work:** WP-P0-05, WP-P1-01, WP-P1-02 (if option 2), WP-P1-03, WP-P1-09. **Physical evidence:** M-21, M-22,
+M-24, M-25, M-27, M-43; acceptance sections 1, 2, 4 and 10.
+
+### D.4 Watchdog (PARTIALLY IMPLEMENTED, software liveness only)
+
+**Requirement.** The watchdog is (a) independent of the supervised process (hardware, or a separate MCU with its own
+reset behaviour); (b) fed only by evidence that the control path works: a valid command lease, a completed
+safety-supervisor cycle, a good PCA9685 read-back, fresh sensors; (c) wired so that its timeout produces the same
+stop as the E-stop; (d) re-armed after a clear; (e) sized from the stopping distance (M-43), not from
+`watchdog >= estop_latency`; (f) started and fail-closed even when tractor initialisation fails; (g) backed by a
+hardware path for a hung host.
+
+**Baseline.** `Watchdog._run` (`watchdog.py:54-69`) runs in the event loop it supervises and is one-shot (`break`
+after the first timeout). `TractorSafetyMonitor` feeds the heartbeat unconditionally every 50 ms
+(`tractor_safety_monitor.py:84-87`), so it proves only that the loop turns. Its `EstopHandler` holds a private
+`MotorAuthorization` that nothing else reads (`main.py:155-158`), so only `on_timeout=tractor.emergency_stop` has an
+effect. `config/limits.yaml:10` sets 1000 ms against `estop_latency_ms: 100`, and the validator checks only
+`watchdog >= estop` (`safety_validator.py:37-38`). Any exception in the tractor block of `main.py:144-170` leaves the
+actuation API live with no watchdog and no tilt monitor (N-05). `systemd/10-watchdog.conf`
+(`RuntimeWatchdogSec=20s`) reboots a hung host and does not neutralise actuators; whether it is installed on the Pi
+was not checked. The RoboHAT firmware watchdog (8 s, `code.py:98-101`) protects the MCU only, and the MDDRC10 input
+state during its reset is unknown (M-23). The 74HC123 design in `hardware.md` uses an unassigned GPIO and values that
+do not agree with their own formula (N-29).
+
+| Event | Baseline behaviour | Required behaviour |
+|---|---|---|
+| Event loop blocked or process hung | the in-process watchdog is in the same loop and cannot fire | the hardware watchdog window expires; servo power and PTO supply open |
+| Process killed | no supervisor | same |
+| Tractor initialisation fails | no watchdog, no tilt monitor, API live (N-05) | fail closed: actuation routes refuse; the un-fed hardware watchdog opens the supply |
+| Watchdog fires once | one-shot; a later hang is unsupervised | re-armed after a local clear |
+| Heartbeat healthy while the command path is broken (hung bus, stuck servo, lost operator) | still fed | not fed |
+| Host kernel hang | actuators hold their last state until a host reboot at 20 s [DS] | the hardware watchdog acts within its window |
+| MCU watchdog reset (RoboHAT) | output states unknown | measured (M-23) |
+
+**Required work:** WP-P0-05 (window, circuit), WP-P1-08, WP-P1-02, WP-P1-01. **Physical evidence:** M-23, M-26, M-28
+(stop the backend with `SIGSTOP`, kill it, hang the host, cut the heartbeat wire; the method is for the reviewer to
+confirm); acceptance sections 1 and 7.
+
+### D.5 Loss of link: operator, teleoperation, VR, network (MISSING for the operator)
+
+**Requirement.** Every source that can move the machine (REST, WebSocket, teleoperation, VR) holds a lease that the
+**server** enforces: a command carries a validity window, only the client can refresh it, expiry puts the machine in
+HOLD, reconnection never resumes motion by itself, and one authenticated controller holds the lease. The window comes
+from the measured stopping distance (M-43, SD-6).
+
+**Baseline.** `POST /api/v2/tractor/command` applies a command that persists until another arrives
+(`backend/src/api/routers/tractor.py:67-70`, `tractor_service.py:176-203`). The only dead-man is in the client:
+`scripts/teleop.py:36-37` stops sending after 0.25 s without a key and does not send neutral, and its exit-time
+neutral does not run if the client crashes. `POST /control/drive` validates `duration_ms` and never uses it
+(`rest.py:378-388`); `MotorService` has a command-timeout handler (`motor_service.py:409-419`) that the REST path
+does not use (`rest.py:310-417`). On the differential-drive platform the host loop re-sends the last PWM about every
+0.9 s (`robohat_service.py:246-269`), which defeats the firmware's fall-back to RC mode after 2 s of USB silence and
+its centring after 1 s of RC loss (`code.py:305-309,111,315-322`). `/ws/control` drains and acknowledges only
+(`routers/telemetry.py:175-206`), so no VR control channel exists. HaLow drop and rejoin were not exercised
+(`docs/autonomy-toolchain-matrix.md:68`).
+
+| Event | Baseline behaviour | Required behaviour |
+|---|---|---|
+| Client dies after a non-neutral command | the lever value persists | the lease expires; HOLD |
+| Network partition, operator to Pi | same | same |
+| HaLow radio reset, power cycle or AP loss | unexercised (A.8) | same as above; recovery tested (M-52) |
+| Reconnect after a loss | no state machine | no automatic resume; a new lease, and a local re-arm if the stop was an E-stop |
+| Late or replayed command | commands carry no sequence or time | sequence and validity window; stale commands dropped |
+| Unauthenticated client | authentication disabled in the shipped unit | only the authenticated lease holder (WP-P1-11) |
+
+**Required work:** WP-P1-09, WP-P1-11, WP-P5-01, WP-P3-06. **Physical evidence:** M-52 (link loss to lever neutral,
+end to end), M-24; the roadmap's P5 acceptance ("no motion on dead-man release").
+
+### D.6 Loss of Thor (PARTIALLY IMPLEMENTED, library only)
+
+**Requirement.** The Thor is never safety authority. Its loss or failure (process, host, AP, radio, an intermediate
+node, a wrong plan) leaves the mower locally safe: HOLD by default, and a pre-validated local continuation only if
+the owner and the reviewer approve one (SD-3). Every plan is re-validated locally (geofence and no-go zones, speed,
+blade permission, plan age, `start_index` against the Pi's waypoint index); datagrams are authenticated; the downlink
+can never arm, clear an E-stop or override an interlock (RS-7).
+
+**Baseline.** The protocol (`models/thor_link.py:22-113`) and the service (`thor_link_service.py:49-172`) exist with
+eight tests on a fake clock plus a loopback round trip (`tests/unit/test_thor_link.py`). Nothing instantiates the
+service outside the tests, nothing consumes `current_plan()`, and `/tractor/*` and `/control/drive` do not consult
+`safe_hold`. Defects: any source address is accepted and the socket binds `0.0.0.0:47101` (`:54,98-110`); no MAC or
+epoch; `seq <= _last_rx_seq` drops the datagram (`:106-107`), so a spoofed large `seq` or a Thor restart that resets
+its counter is dropped until the Pi restarts (N-15); a first `engage_blade(False)` failure skips the lever call and
+is never retried for the blade (N-30); `tick` swallows actuation errors (`:121-130`); freshness means "any valid
+downlink within 0.5 s" (`:112-113`), so a Thor with a broken planner keeps the link fresh. The service starts in hold
+(`:71`), which is the right default. The strategist pauses unless the fix is `rtk_fixed`
+(`backend/src/nav/thor_strategist.py:38`) but runs in simulation only. House-side node failures (base, Pi Zero,
+Orange Pi) were never analysed (H-22).
+
+| Event | Baseline behaviour | Required behaviour |
+|---|---|---|
+| Thor silent for more than 0.5 s | `_evaluate_hold` (library) | hold, wired into the backend, with the effects defined in D.0 |
+| Thor alive, planner wrong | none | local re-validation; hold on disagreement |
+| Spoofed or replayed downlink | accepted by a source-agnostic socket | rejected (MAC, source address, epoch); counters exposed |
+| Thor restart | later datagrams dropped until the Pi restarts [INF] | epoch or boot id: accepted once, replays still rejected |
+| AP, radio or an intermediate node fails | unexercised | same as silent; recovery tested by power cycle and driver reload (M-52) |
+| Link returns | a fresh downlink leaves hold (`:143-145`) | HOLD ends only on a fresh authenticated plan that passes local re-validation (SD-3 decides whether an operator acknowledgement is also needed) |
+| Hold entered while actuation fails | `safe_hold` true, blade not retried | each step reported and retried until the hardware stop acts |
+
+**Required work:** WP-P3-01, WP-P3-02, WP-P3-03, WP-P3-06, WP-P4-01. **Physical evidence:** M-52, M-51; the roadmap's
+P3 acceptance ("unsafe or stale commands never reach the tractor service").
+
+### D.7 I2C bus hang (PARTIALLY IMPLEMENTED)
+
+**Requirement.** A hung, shorted or absent actuator bus is detected in bounded time, never stalls the stop path, is
+reported, and drives the machine to the safe state by a mechanism that does not use that bus. The bus the actuator
+driver uses is not shared with sensors whose faults it cannot tolerate (D-1). Bus recovery happens only in a safe
+state.
+
+**Baseline.** A write fault propagates once the chip was seen (`pca9685_driver.py:170-171`;
+`tests/unit/test_pca9685_driver.py`). But a chip absent at boot degrades to a silent no-op, so every lever command
+and the e-stop reply success (`:117-126,155-156`; N-07); the write runs in `asyncio.to_thread` with no timeout, so a
+hung transaction can stall the e-stop sequence for the kernel's timeout (N-28 [INF, DS]); there is no read-back of
+`MODE1`, `MODE2` or the pulse registers, no retry or re-initialisation, and `hardware_ok` is not surfaced in the
+tractor state; the header I2C bus does not exist on the deployed Pi (`dtparam=i2c_arm=off`, GPIO3 is the HaLow WAKE
+line: C-05); and the configuration puts the PCA9685, INA3221, ToF, BME280 and OLED on one bus
+(`config/tractor.yaml:18`, `spec/hardware.yaml:146-151`), so a sensor fault can wedge the actuator driver.
+
+| Event | Baseline behaviour | Required behaviour |
+|---|---|---|
+| Chip absent at boot (wiring, power, wrong bus) | silent no-op; the API and the e-stop report success | fault state; arming refused; the e-stop reply names the failure |
+| SDA or SCL stuck mid-mission | an exception or an unbounded wait | bounded detection; the hardware path cuts servo power; operator alert |
+| A single failed write | exception to the caller | counted; consecutive failures fault |
+| Another device wedges a shared bus | not considered | separate bus, multiplexer or coprocessor ownership (D-1, D-3) |
+| PCA9685 resets (brown-out) | outputs off until the next write [DS]; unnoticed | a read-back mismatch faults |
+| Pi reboot | outputs undefined during boot | a hardware-defined default (R-P10, M-21) |
+
+**Required work:** WP-P0-01, WP-P1-03, WP-P1-04, WP-P1-08, WP-P1-01. **Physical evidence:** M-20, M-21, M-28;
+acceptance section 3 (physically interrupt the bus during an e-stop).
+
+### D.8 Servo stuck-output (MISSING)
+
+**Requirement.** A servo or channel that does not follow its command is detected by position or current feedback, not
+by a log timestamp (acceptance section 4), and its power can be removed regardless of what the software believes. A
+blocked lever cannot overheat the servo, the harness or the supply (R-P01 to R-P04). The mechanical load path is
+qualified before the servos are ever powered.
+
+**Baseline.** `ServoActuator.command` records the command before the write (`tractor_actuators.py:65-69`) and the
+lever fields of `TractorState` are commanded values. There is no position or current sensing, no stall detection, no
+per-servo power switch and no read-back. What a servo does with no pulse is unmeasured (M-21, M-27). Supply, stall
+current, fuse and gauge are unknown (A.5). Mechanical gate: the mount documents say that no part of the servo
+mounting or adapter is qualified for powered steering, that a single ball-hole bolt does not give positive torque
+restraint, and that powered steering is not approved until an anti-rotation connection and the force path are
+verified (`hardware/mounts/README.md:406-414`, `hardware/mounts/INSTALL.md:240-244`).
+
+| Event | Baseline behaviour | Required behaviour |
+|---|---|---|
+| Servo jammed or stalled | nothing detects it | detected; servo power cut; fault latched; stall current inside the fuse budget |
+| PCA9685 channel stuck at a pulse | no read-back | a mismatch faults and cuts servo power |
+| Servo electronics fail full-travel | not considered | the hardwired chain cuts servo power; travel stops in the linkage |
+| Lever blocked at an e-stop | neutral is commanded anyway | the power cut removes drive force; measured with the lever blocked (M-27) |
+| Linkage or hitch fails | unqualified | engineering qualification before any powered test (WP-P0-07) |
+| PTO or starter relay welds | not considered | PTO state feedback (D.2); a series contactor |
+
+**Required work:** WP-P0-04, WP-P0-07, WP-P1-01, WP-P1-12, WP-P1-03. **Physical evidence:** M-10, M-11, M-22, M-25,
+M-27; acceptance section 4.
+
+### D.9 GPS/RTK loss (PARTIALLY IMPLEMENTED)
+
+**Requirement.** Fix quality, accuracy estimate, correction age and antenna health are evaluated continuously.
+Autonomy needs the fix quality the owner and the reviewer require (SD-4); losing it produces an actuator-level HOLD
+within a bounded time, not a mode flag. Geofence margins are sized from the worst-case measured position error.
+Recovery needs hysteresis and a fresh fix. Base, gateway or link outages have a defined result and a documented
+fallback.
+
+**Baseline.** NMEA parsing exists for four receiver modes including `LC29H_UART` (`gps_driver.py`,
+`models/sensor_data.py:37-43`), the NTRIP client forwards a public caster's RTCM to a serial device
+(`ntrip_client.py`) and `GPSDegradationMonitor` exists. Gaps: the monitor acts only on
+`RobotState.navigation_mode == AUTONOMOUS`, whose only writer is the debug route, while missions and the AI loop use
+another enum and state, and its "fix age" is the age of the whole state (N-31); when it fires it flips an in-memory
+flag and no actuator; mission start has no fix precondition and the waypoint loop does not read GNSS quality
+(`navigation_service.py:175-238`); `MissionService.create_mission` holds the geofence validation as a comment
+(`mission_service.py:19-22`); `config/limits.yaml:11` sets a 0.5 m geofence buffer with no link to measured error; no
+LC29H `PAIR`/`PQTM` configuration, correction-age metric, antenna-fault handling or local base exists (A.7, H-09,
+H-22).
+
+| Event | Baseline behaviour | Required behaviour |
+|---|---|---|
+| Fixed to float | no effect (the monitor needs the debug mode and an accuracy above 5 m) | policy by accuracy against the geofence margin: speed cap or hold |
+| No fix, antenna fault or jamming | no actuator effect | HOLD within a bounded time; alarm |
+| Correction age grows (base, gateway, link) | not measured | a limit from M-51; treated as a degraded fix |
+| Base outage | no local base exists | a documented fallback to the caster and its fix policy (WP-P3-06) |
+| Implausible jump (multipath, survey error) | no check | cross-check against IMU and odometry; speed limit |
+| Mission start without a fix | allowed | refused until the required fix has been held for a period set from field data |
+
+**Required work:** WP-P2-04, WP-P2-05, WP-P4-03, WP-P3-06. **Physical evidence:** M-50, M-51 (time to fix,
+transitions, correction age, base off, poor sky view, antenna failure).
+
+### D.10 Physical bench acceptance (MISSING)
+
+**Requirement.** Before any powered actuation beyond the bench, every item of `docs/tractor-acceptance-criteria.md`
+(sections 1 to 11) is demonstrated on the machine with measured values logged with date, operator and result, and an
+independent reviewer signs; unit tests never stand in. Test conditions: engine off, PTO and blade disconnected,
+machine immobilised with wheels clear, a safety observer present (B.7). The roadmap's P1 says engine-off tests while
+acceptance sections 1 and 2 say engine running; this document reconciles them by ordering: the engine-running steps
+come last and only after the reviewer approves the engine-off results.
+
+**Baseline.** The procedure is written and its 11-row sign-off table is empty. No instrumentation or harness exists;
+the only HIL-named test runs a SIM probe (`tests/hil/test_hil_probe.py`); every passing test runs on fakes (A.11); the
+mount documents' stop-work gates are open (D.8).
+
+| Step | What | Acceptance section | Measurements | Stop criterion |
+|---|---|---|---|---|
+| BA-0 | Inspection and photographs; nothing powered | none | M-01, M-33, M-53 | any unknown label or part |
+| BA-1 | Rail and passive measurements, actuators disconnected | 4 (supply) | M-10 to M-17 (no load), M-20 | a rail outside the design |
+| BA-2 | Servos on a current-limited bench supply, linkage off | 4 | M-10, M-11, M-25 | stall above the fuse budget |
+| BA-3 | Linkage fitted, engine off: self-centring and settle times | 10, 4 | M-22, M-24 | levers do not return; settle time over the requirement |
+| BA-4 | Fault injection with the hardwired chain: Pi off, hung, killed; bus broken; heartbeat cut | 1, 3, 7 | M-21, M-23, M-26, M-28, M-29 | any fault leaves a lever or the PTO driven |
+| BA-5 | PTO relay and clutch circuit, blade disconnected | 2 | M-17, M-24, M-30 | PTO state not observable |
+| BA-6 | Interlocks and sequences: reverse, PARK, seat cutoff observation, manual start | 8, 9, 11 | M-31, M-32 | any OEM protection weakened |
+| BA-7 | Engine running, immobilised: the e-stop's three effects and per-actuator timing | 1, 2, 4 | M-24 | the reviewer has approved BA-0 to BA-6 |
+
+**Required work:** WP-P0-07, WP-P1-13, WP-P6-03. The sign-off table in the acceptance document stays the single
+record.
+
+### D.11 Safety items outside the ten topics
+
+| Item | Status | Where | Required work |
+|---|---|---|---|
+| Operator authentication and authorisation | PARTIALLY IMPLEMENTED; off in the deployed unit | A.9; N-10, N-16, N-17 | WP-P0-03, WP-P1-11 |
+| OEM interlock preservation (seat, PARK, Reverse Operation System, PTO switch) | documentation only | A.10 row 12; H-06, H-07 | SD-5, WP-P0-07 |
+| Safe startup and shutdown | PARTIALLY IMPLEMENTED; shutdown MISSING | A.10 rows 8 and 9; N-08, N-09, N-10 | WP-P1-05, WP-P1-06 |
+| Tilt cutoff | PARTIALLY IMPLEMENTED; defeated by the mission loop | A.10 row 13; N-06 | WP-P1-10, WP-P2-01 |
+| Obstacle stop and stopping distance | MISSING for actuation | A.10 rows 14 and 15; N-11, N-25 | WP-P4-01, WP-P4-02 |
+| False assurance (stop routes, latency tests, comments) | present | A.10 row 3; N-01 to N-03, N-19, N-24 | WP-P0-08 |
+
+## Part E. Prioritised development plan (P0 to P6)
+
+Priorities follow the owner's roadmap (P0 to P6; the sub-workstreams P0a, P2a, P3a, P4a and P5a are folded into the
+work packages that name them). Each work package (WP) names the files it changes, the tests that must exist, the
+observable acceptance and the gaps it closes. The plan is written against baseline `765c737`. Three parallel
+branches (`audit/checker`, `audit/safety`, `audit/thorlink`) implement parts of P0 to P3; this document does not
+claim what they delivered: the integrator records it under [Implemented in this PR](#implemented-in-this-pr) and
+re-marks the affected rows. Paths are existing files unless marked "new". A test addition extends the named existing
+test file where one exists. Nothing in this plan authorises powered actuation.
+
+### E.1 Sign-off gates
+
+```mermaid
+flowchart LR
+  P0["P0 freeze assumptions"] --> G0["G0 design freeze"]
+  G0 --> P1["P1 bench interface"] --> G1["G1 bench sign-off"]
+  G0 --> P2["P2 sensing"] --> G2["G2 sensing"]
+  G0 --> P3["P3 comms"] --> G3["G3 comms"]
+  G1 --> P4["P4 navigation"]
+  G2 --> P4
+  G3 --> P4
+  P4 --> G4["G4 autonomy"]
+  G1 --> P5["P5 optional VR"]
+  G3 --> P5
+  G4 --> P5
+  P5 --> G5["G5 remote driving"]
+  G1 --> P6["P6 field validation"]
+  G4 --> P6
+  P6 --> G6["G6 operations"]
+```
+
+Every gate needs the owner and an **independent** safety reviewer (a qualified person who did not author the change).
+A gate is a human decision on recorded evidence; passing tests never close one.
+
+| Gate | Closes | Evidence required | Signed by | Unlocks |
+|---|---|---|---|---|
+| G0 | P0 | signed netlist and pin matrix; measured supply rails; risk register; independent stop-test procedure; every P0 gap closed or explicitly blocked (roadmap P0 acceptance); a mechanical-qualification statement for the linkage and hitch | owner, independent reviewer | building the P1 stop chain and powering actuators on the bench under the B.7 conditions (engine off, PTO and blade disconnected, machine immobilised, observer). It does not permit machine motion |
+| G1 | P1 | acceptance sections 1 to 4, 7 and 10 demonstrated with measured values in the sign-off table; no unsafe motion on any injected fault; OEM protections functional (roadmap P1 acceptance) | owner, independent reviewer, a second software reviewer for WP-P1-03 to WP-P1-11 | release gate 1 (no live motion) for supervised, restricted tests only, and only for H-01 to H-08 each closed or blocked with evidence |
+| G2 | P2 | recorded datasets, time sync, health alarms, measured detection zones and stop margins; no autonomy on a single unverified sensor (roadmap P2 acceptance) | owner, independent reviewer | contributes to release gate 2 |
+| G3 | P3 | repeated disconnect and reconnect fault tests with logs; unsafe or stale commands never reach the tractor service (roadmap P3 acceptance) | owner, independent reviewer | contributes to release gates 2 and 3 |
+| G4 | P4 | replay and simulation, adversarial sensor loss, manual override, supervised blades-disabled tests (roadmap P4 acceptance); the ROS 2 / Nav2 decision recorded | owner, independent reviewer | contributes to release gate 2 |
+| G5 | P5 (optional) | measured end-to-end latency and jitter, loss-of-video and loss-of-control tests, no motion on dead-man release (roadmap P5 acceptance) | owner, independent reviewer | release gate 3 (remote VR driving) |
+| G6 | P6 | reproducible test records, rollback procedure, maintenance schedule, as-built wiring, operator handbook (roadmap P6 acceptance) | owner, independent reviewer | the only gate that can close release gate 2, and only for the scope the sign-off names |
+
+### E.2 P0 - freeze dangerous assumptions (documents, decisions, guards, measurements)
+
+Goal: nothing is powered until the unknowns that can injure someone or damage the machine are closed or explicitly
+blocked. Rollback: documents and guards only; revert the commits.
+
+| WP | Work | Files | Tests | Acceptance | Closes |
+|---|---|---|---|---|---|
+| WP-P0-01 | Record D-1 to D-5 and SD-1 to SD-8; one platform-tagged pin and bus registry for the Toro build; retire the legacy ultrasonic map from the registry | `spec/hardware.yaml`, `config/hardware.yaml`, `config/tractor.yaml`, `docs/hardware-integration.md` | the checker run (WP-P0-02) | decisions signed; every header pin has one owner; `gpioinfo` with the HAT fitted matches (M-02) | H-02, H-03, H-11, C-01 to C-08, C-14 |
+| WP-P0-02 | Extend the checker: HaLow and overlay awareness, physical pins, boot configuration, `limits.yaml` claims, platform scope; reviewed conflicts in an allow-list. In flight on `audit/checker` | `scripts/check_hardware_pin_conflicts.py`, `spec/known_conflicts.yaml` (new), `.github/workflows/hardware-guard.yml` | new `tests/unit/test_check_hardware_pin_conflicts.py`: the starter on GPIO5, ultrasonics on GPIO9/10/11, a duplicate physical pin and a duplicate I2C address each fail | the B.1.3 what-if probes all report a conflict; CI fails on them | H-01 to H-03 |
+| WP-P0-03 | Gate the hardware self-test (no pin driving by a probe, chip discovery, `ultrasonic_enabled` honoured); disable the injection and debug routes and the default credentials unless `SIM_MODE=1` | `backend/src/services/hw_selftest.py`, `backend/src/api/routers/maintenance.py`, `backend/src/api/navigation.py`, `backend/src/api/routers/sensors.py`, `backend/src/api/routers/auth.py`, `backend/src/api/rest_v1.py`, `backend/src/services/auth_service.py` | new unit tests: the probe claims no GPIO when the flag is false; the injection routes return 404 with `SIM_MODE=0`; no default credential authenticates | `GET /system/selftest` on the Pi leaves SPI0 untouched (scope SCLK) | N-16 (part), N-17, N-18, C-09, C-13 |
+| WP-P0-04 | Power measurements and the signed power tree and fuse schedule | new wiring schedule under `docs/` | none (measurement) | M-10 to M-17 recorded; each branch has a measured stall budget and a fuse and gauge chosen from it; R-P01 to R-P13 each answered | H-05, H-17, H-20 |
+| WP-P0-05 | Stop-mechanism design: E-stop chain, watchdog circuit and window, neutral-on-fault option (SD-1, SD-2) from the measurements | `docs/tractor-acceptance-criteria.md` (independent stop-test procedure), `hardware.md` | none | M-21, M-22, M-27, M-28, M-29 recorded; the reviewer signs the design and the test procedure | H-04, H-07, H-08, N-29 |
+| WP-P0-06 | Trace the OEM PTO circuit and design a fail-safe OFF; decide the `blade_pto` model | `docs/tractor-platform.md`, `config/tractor.yaml` (schema, after the trace) | none (measurement) | M-30 recorded; a drawing the reviewer signs | H-21, N-26 |
+| WP-P0-07 | Hazard analysis and risk register by a qualified person; OEM interlock decision (SD-5); mechanical qualification of the servo linkage and hitch anti-rotation | new risk register under `docs/`; the stop-work gate in `hardware/mounts/INSTALL.md:240-244` is recorded, not edited | none | the register covers every Part D topic; the stop-work gate is closed by an engineering statement, not by a hand fit | H-06, H-07, H-08 |
+| WP-P0-08 | Make the stop API and its tests truthful | `backend/src/api/rest.py`, `backend/src/api/safety.py`, `backend/src/services/blade_service.py`, `config/limits.yaml` (comment), `tests/integration/test_safety_systems.py`, `docs/OPERATIONS.md` | new tests: `/control/emergency-stop` stops the RoboHAT and the IBT-4 and reports what failed; the block is latched, not 0.2 s; the "latency" tests are renamed to what they measure | no route claims an outcome it did not cause | N-01 to N-03, N-19, N-24 |
+| WP-P0-09 | As-built visual package (P0a) and documentation closure | photographs, labelled placement, mount overlay; the A.12 open rows in `docs/deployment-guide.md`, `PRODUCT.md`, `spec/hardware.yaml` | `scripts/check_docs_drift.sh` made meaningful (WP-P6-03) | every visual traceable to a measured part (roadmap P0a gate) | H-24, N-23 |
+
+### E.3 P1 - bench-only tractor interface
+
+Goal: a stop chain that works without the Pi, and a software stack that fails loudly, proven on the bench. Rollback:
+keep `tractor.enabled: false` (shipped default, `config/tractor.yaml:11`); every software change is inert behind
+that flag; hardware: disconnect the actuators and the servo supply; revert the commits.
+
+| WP | Work | Files | Tests | Acceptance | Closes |
+|---|---|---|---|---|---|
+| WP-P1-01 | Build and bench the E-stop chain and the servo-power cut; the PTO coil supply runs through the same chain | the wiring schedule (WP-P0-04); `hardware/mounts/estop_bracket.scad` for fit only | bench: M-24, M-29 | with the Pi off, hung and unplugged, servo power and PTO supply open; times per actuator recorded | H-07, H-08 |
+| WP-P1-02 | Safety coprocessor, only if D-2, D-3 or SD-2 choose it: owns `OE`, the servo-power relay driver, the heartbeat, the e-stop state input, optionally the ultrasonic timing | new firmware directory beside `robohat-rp2040-code/`, new `backend/src/services/safety_coprocessor_service.py`, `backend/src/drivers/actuators/pca9685_driver.py` | host side with a fake serial port: heartbeat loss, protocol errors, reset; bench: reset state of every output | outputs default safe in reset and brown-out; its own watchdog behaviour measured | H-04, H-08, H-19 |
+| WP-P1-03 | PCA9685 driver: `OE` control, `MODE1`/`MODE2` and pulse read-back, bounded I/O, an explicit fault when the chip is absent in production, re-initialisation | `backend/src/drivers/actuators/pca9685_driver.py`, `config/tractor.yaml` | extend `tests/unit/test_pca9685_driver.py`: an absent chip with `SIM_MODE=0` faults; a blocking fake bus times out; a read-back mismatch faults | M-20, M-21; acceptance section 3 on the bench | N-07, N-28, H-04 |
+| WP-P1-04 | Tractor service: a fail-loud stop path (per-step results and a degraded status, guarded relay, state recorded after the write succeeds, lever pair applied with rollback, no silent simulation fallback in production) | `backend/src/services/tractor_service.py`, `backend/src/drivers/actuators/tractor_actuators.py` | extend `tests/unit/test_tractor.py`: a failing relay, a failing channel and both together each produce a failure report and never a false neutral state | acceptance sections 2 and 3 on the bench | N-27, N-07, N-03 |
+| WP-P1-05 | E-stop latched across restarts and cleared only locally; safe shutdown (park, PTO off) and safe boot defaults | `backend/src/services/tractor_service.py`, `backend/src/api/routers/tractor.py`, `backend/src/main.py`, `systemd/lawnberry-backend.service` (`ExecStopPost`) | a restart with the latch set; teardown parks; the `SIGTERM` path; bench M-26 for `SIGKILL` | the machine comes up stopped; relay pins default OFF with the Pi unpowered, booting and killed | N-09, N-10, R-P10 |
+| WP-P1-06 | Remove the mission auto-crank; an operator-confirmed "engine running" input (a human starts the engine with the levers in PARK) | `backend/src/services/navigation_service.py`, `backend/src/services/tractor_service.py` | extend `tests/unit/test_tractor_navigation.py`: a mission start never pulses the starter | acceptance section 11 | N-08, N-26, H-06 |
+| WP-P1-07 | PTO per the traced circuit, with state feedback; momentary or latching selected by configuration | `backend/src/services/tractor_service.py`, `config/tractor.yaml` | fakes for each OEM behaviour: off must be observed, not assumed | acceptance section 2 (PTO drop measured) | H-21, N-26 |
+| WP-P1-08 | Watchdog: fed by end-to-end evidence, re-armed, fail-closed startup, window from M-43; correct the validator | `backend/src/safety/watchdog.py`, `backend/src/safety/tractor_safety_monitor.py`, `backend/src/safety/safety_validator.py`, `backend/src/main.py` | new tests: re-arm after a trigger; a failed tractor initialisation refuses actuation routes; a broken command path stops the heartbeat | acceptance section 7; M-28 | N-04, N-05, N-29 |
+| WP-P1-09 | Server-enforced command lease and expiry for every manual command; the RoboHAT host loop stops refreshing non-neutral commands | `backend/src/api/routers/tractor.py`, `backend/src/services/tractor_service.py`, `backend/src/services/robohat_service.py`, `backend/src/api/rest.py`, `backend/src/services/motor_service.py` | a fake clock: a command expires and the server cannot refresh it | M-52, M-24 | N-14 |
+| WP-P1-10 | Tilt: latched against re-engagement by the mission loop; IMU loss fails closed | `backend/src/safety/tractor_safety_monitor.py`, `backend/src/services/tractor_service.py`, `backend/src/safety/safety_triggers.py` | extend `tests/unit/test_tractor_safety_monitor.py`: the mission loop cannot re-engage while tilted; no IMU reading holds the blade off | M-42 | N-06, N-24 |
+| WP-P1-11 | Operator authentication and a local arming act on every actuating and safety route; WebSocket helpers verify tokens | `backend/src/api/mission.py`, `backend/src/api/routers/ai_control.py`, `backend/src/api/safety.py`, `backend/src/api/deps.py`, `backend/src/api/routers/auth.py`, `backend/src/api/routers/telemetry.py`, `systemd/lawnberry-backend.service` | extend `tests/integration/test_operator_authz.py` to the tractor, mission, AI and clear routes; remove the TDD skips | an unauthenticated client reaches no actuating route | H-14, N-10, N-16 |
+| WP-P1-12 | Actuator feedback and stall detection: lever position and servo-branch current; fault latch and servo-power cut | a new driver under `backend/src/drivers/sensors/`, `backend/src/services/tractor_service.py` | fakes: a stalled or non-following servo faults | M-10, M-25, M-27 | D.8 |
+| WP-P1-13 | Bench harness and HIL tests; execute acceptance sections 1 to 4, 7 and 10 and sign the table | new tests under `tests/hil/` behind `RUN_HIL=1`, the sign-off table in `docs/tractor-acceptance-criteria.md` | the HIL tests skip without the rig and log their results | G1 | H-01 to H-08 |
+
+### E.4 P2 - localisation and obstacle sensing
+
+Goal: every sensor the safety and navigation path will trust exists as a driver with health, timestamps and measured
+coverage. Rollback: new drivers are off by default (the pattern of `ultrasonic_enabled: false`); revert per driver.
+
+| WP | Work | Files | Tests | Acceptance | Closes |
+|---|---|---|---|---|---|
+| WP-P2-01 | BNO085 driver on the chosen transport (D-4); calibration status; mounting frame and axes | `backend/src/drivers/sensors/bno085_driver.py`, `backend/src/services/sensor_manager.py`, boot configuration (`uart4-pi5` if UART) | unit tests on recorded byte streams; the stub's zeros can no longer read as a level machine | M-42 recorded; tilt-to-blade-off latency measured | H-03, N-06, N-13 |
+| WP-P2-02 | JSN-SR04T driver (mode from M-40), four-sensor model, time-division firing, a blind-zone reading means unknown, staleness and outlier handling, health | new `backend/src/drivers/sensors/jsn_sr04t_driver.py`, `backend/src/models/mower_data_frame.py`, `backend/src/services/sensor_manager.py`, `config/hardware.yaml` | new `tests/unit/test_jsn_sr04t_driver.py`: blind zone, crosstalk schedule, stale data fail closed | measured detection zones (WP-P2-08) | H-10, H-19, H-02 |
+| WP-P2-03 | VL53L0X: units fixed against `limits.yaml` (mm versus m), interrupt decision, health | `backend/src/drivers/sensors/vl53l0x_driver.py`, `backend/src/services/navigation_service.py` | a unit test of the unit conversion and the threshold | M-41 | H-03 |
+| WP-P2-04 | LC29H-DA rover and LC29H-BS base: receiver configuration, RTCM source and injection path, correction-age and fix-transition metrics, survey procedure | `backend/src/drivers/sensors/gps_driver.py`, `backend/src/services/ntrip_client.py`, a new base-side script under `scripts/`, `docs/gps-ntrip-setup.md` | recorded NMEA and RTCM replays: transitions, age, antenna fault | M-50, M-51 | H-09, H-22 |
+| WP-P2-05 | Sensor health model and a common time base: timestamp, age, validity and fault code per sensor in telemetry; alarms | `backend/src/services/sensor_manager.py`, `backend/src/services/websocket_hub.py`, `backend/src/models/sensor_data.py` | stale and lost sensor tests | health alarms demonstrated | roadmap P2 |
+| WP-P2-06 | Obstacle data model and fusion contract: extrinsics, confidence, staleness; replaces the placeholder detector | new `backend/src/services/obstacle_fusion.py`, `backend/src/services/navigation_service.py` | replay datasets; `tests/contract/test_sensor_fusion.py` made real | no autonomy on a single unverified sensor | H-26, N-11 |
+| WP-P2-07 | Stereo depth evaluation (P2a), LiDAR selection (H-15) and a ROS 2 / Nav2 spike on recorded data | new scripts under `scripts/`; no safety-path code | an evaluation report with accuracy and latency against measured ranges | documented accuracy and latency; input to G4 | H-15, H-16, H-26 |
+| WP-P2-08 | Hazard-class coverage tests and recorded datasets: children and pets, low objects, negative obstacles, deck overhang, tall grass, rain, sunlight, off-plane objects (B.5) | field data; replay under `tests/` | measured detection zones and stop margins | M-40, M-43, M-44, M-45 | H-10, H-26 |
+
+### E.5 P3 - reliable Pi-to-Thor communications
+
+Goal: an authenticated, bounded, loss-tolerant link whose failure leaves the mower in HOLD. Rollback: the link
+service starts only when configured; revert the commit; the mower stays in safe hold without it.
+
+| WP | Work | Files | Tests | Acceptance | Closes |
+|---|---|---|---|---|---|
+| WP-P3-01 | Authenticated link: an HMAC with a key held outside git, an epoch or boot id, a source check, binding to the HaLow address, bounded rates; an attacker cannot block legitimate datagrams | `backend/src/models/thor_link.py`, `backend/src/services/thor_link_service.py`, a `config/` template | extend `tests/unit/test_thor_link.py`: spoofed source, bad MAC, replay, huge `seq`, Thor restart | RS-2 to RS-5 and RS-8 satisfied | H-13, N-15 |
+| WP-P3-02 | Wire the service into `main.py`; `/tractor/*` and the control routes consult hold; hold reports each step and retries the blade | `backend/src/main.py`, `backend/src/services/thor_link_service.py`, `backend/src/services/tractor_service.py` | new tests for the lifespan wiring and for a failing `engage_blade` during hold | M-52 | H-13, N-30 |
+| WP-P3-03 | Plan validation: age, `plan_id`, `start_index` against the waypoint index, geofence and no-go re-validation, speed and blade permission; only then a consumer of `current_plan()` | `backend/src/nav/geofence_validator.py`, `backend/src/services/navigation_service.py`, `backend/src/services/thor_link_service.py` | adversarial plans never reach `TractorControlService` (roadmap P3 acceptance) | G3 | H-23, RS-6 |
+| WP-P3-04 | Uplink builder (GNSS, detections, battery, e-stop, link counters) inside the bandwidth budget | `backend/src/services/thor_link_service.py`, `backend/src/models/thor_link.py` | a byte-budget test against `worst_case_link_bytes_per_second` | measured at the far yard (M-52) | H-23, H-16 |
+| WP-P3-05 | HaLow identity and encryption on both ends, with versioned units (bring-up, failover, AP side) | `systemd/`, `docs/autonomy-toolchain-matrix.md` | none (configuration review) | identity and encryption verified from both ends | H-22, RS-1 |
+| WP-P3-06 | Loss and rejoin fault tests (radio power cycle, dead link, latency, stale plan) and the failure analysis of base, Pi Zero, Orange Pi, radio and Thor with measured correction age (P3a) | `scripts/`, `docs/` | a fault-injection harness with logs | repeated tests pass; each node failure has a defined result | M-51, M-52, RT-5 |
+
+### E.6 P4 - navigation, autonomy and AI
+
+Goal: a deterministic local stop path that the AI and the Thor cannot lengthen. Rollback: the stop path is additive
+(it only reduces speed or stops); revert the commit.
+
+| WP | Work | Files | Tests | Acceptance | Closes |
+|---|---|---|---|---|---|
+| WP-P4-01 | Deterministic obstacle stop path and a speed cap from detection range and stopping distance; stale or blind readings count as blocked; independent of the AI and the Thor; applied inside `TractorControlService.apply` so the navigation loop cannot bypass it | new `backend/src/safety/obstacle_stop.py`, `backend/src/services/tractor_service.py`, `backend/src/services/navigation_service.py`, `backend/src/safety/safety_triggers.py` | replay per hazard class; adversarial sensor loss; blind-zone and stale cases | M-43; stop margins measured | H-26, N-11, N-25 |
+| WP-P4-02 | Stopping-distance model and limits from measurement | `config/limits.yaml`, `backend/src/models/safety_limits.py`, `backend/src/models/motor_control.py` | monotonicity and boundary tests | M-43 at several speeds and slopes | H-26 |
+| WP-P4-03 | Mission preconditions (fix quality held, geofence validated, sensor health, operator attestation) and a GNSS-quality HOLD at the actuator level; replace the inert monitor | `backend/src/services/navigation_service.py`, `backend/src/services/mission_service.py`, `backend/src/nav/gps_degradation.py`, `backend/src/main.py` | extend `tests/unit/test_gps_degradation.py` and `tests/unit/test_tractor_navigation.py`: a fix loss during a mission holds the levers | M-51 | N-31, H-09 |
+| WP-P4-04 | AI output to twin-lever mapping; Hailo identity; on-device policy throughput and accuracy | `backend/src/services/ai_inference_service.py`, `backend/src/services/navigation_service.py`, `backend/src/models/tractor_control.py` | mapping tests; a hardware measurement | M-54; `hailortcli fw-control identify` | H-17, H-23 |
+| WP-P4-05 | Supervised blades-disabled series, adversarial replay, manual override; the ROS 2 / Nav2 decision (G4); optional containerised portability (P4a) | `docs/field-validation-protocol.md`, `scripts/` | replay and simulation reports | roadmap P4 acceptance | H-26, H-28 |
+
+### E.7 P5 - optional stereo VR and manual driving
+
+Goal: remote driving only behind authentication, a server-enforced dead-man and a local override. Rollback: the
+control channel is disabled by default.
+
+| WP | Work | Files | Tests | Acceptance | Closes |
+|---|---|---|---|---|---|
+| WP-P5-01 | Authenticated control channel with a heartbeat and a server-enforced dead-man; one controller at a time | `backend/src/api/routers/telemetry.py` (`/ws/control`), `backend/src/api/deps.py`, `backend/src/services/tractor_service.py` | dead-man release stops motion; a second controller is refused | roadmap P5 acceptance | H-14, H-16 |
+| WP-P5-02 | Stereo streaming, pan/tilt and head tracking; codec and latency budget from the bandwidth arithmetic (C.5) | `backend/src/services/camera_stream_service.py`, `backend/src/drivers/sensors/stereo_camera_driver.py`, new pan/tilt hardware | measured end-to-end latency and jitter | M-44, M-52 | H-16 |
+| WP-P5-03 | Local obstacle interlocks and loss-of-video and loss-of-control tests in remote mode; video is never the only safety feedback | `backend/src/safety/obstacle_stop.py` | fault tests | no motion on dead-man release | H-14, H-16 |
+| WP-P5-04 | Multi-agent rules (P5a): separate worktrees, draft PRs and review; PR #16 and PR #17 inspected before any use | `tools/agent_bridge/**` exists only on PR #17 (not merged here) | none | no agent drives mower hardware | H-27 |
+
+### E.8 P6 - field validation and operations
+
+| WP | Work | Files | Tests | Acceptance | Closes |
+|---|---|---|---|---|---|
+| WP-P6-01 | Supervised commissioning and the field series (tractor addendum tests 6 and 7, plus new ones) | `docs/field-validation-protocol.md` | recorded runs | reproducible test records | roadmap P6 |
+| WP-P6-02 | Observability: e-stop state, GNSS quality, sensor health, power, network, Thor plan age, actuation faults, authentication events | `backend/src/services/websocket_hub.py`, `backend/src/api/routers/telemetry.py`, `frontend/src/` | alarm tests | alarms demonstrated | roadmap P6 |
+| WP-P6-03 | CI: hardware-in-the-loop (manual, with the rig), a scheduled soak, a safety test job, secret scanning, systemd-versus-deployed drift, a docs-drift check that sees `config/`, `hardware/` and firmware | `.github/workflows/`, `scripts/check_docs_drift.sh` | the jobs themselves | CI fails on the cases in A.13 | N-22 |
+| WP-P6-04 | Deployment hygiene: installer user substitution, versioned drop-ins and HaLow units, `.env`, the CORS origin, a listener audit | `systemd/install_services.sh`, `systemd/`, `backend/src/middleware/security.py` | `systemd-analyze verify` plus a comparison with the deployed units | the repository equals the deployment | N-21 |
+| WP-P6-05 | Rollback procedure, maintenance schedule, as-built wiring update, operator handbook | `docs/` | none | G6 | roadmap P6 |
+
+## Part F. Remaining hardware conflicts and unresolved safety requirements
+
+Everything below is open at this baseline. Documentation corrections made by this PR are noted; none of them changes
+a configured pin, an actuator calibration or `tractor.enabled`.
+
+### F.1 Hardware conflicts that remain (C-01 to C-14)
+
+| ID | Conflict | State after this PR | Closes with |
+|---|---|---|---|
+| C-01 | Legacy ultrasonic GPIO9/10/11 are the HaLow SPI0 lines | open; the guide is marked legacy and do-not-wire; the self-test still drives the pins (N-18) | WP-P0-01, WP-P0-03, M-02 |
+| C-02 | Starter relay GPIO5 is the HaLow RESET line | open; `config/tractor.yaml` unchanged; documents warn; no relay may be attached (M-03) | WP-P0-01 |
+| C-03 | Blade IN2 GPIO25 is the HaLow IRQ line | open (mower variant, driver stub) | WP-P0-01 |
+| C-04 | GPIO12 is both the ToF-R interrupt and BNO085 TXD4 | open | D-4, WP-P0-01 |
+| C-05 | Header I2C is disabled and GPIO3 is the HaLow WAKE line; the actuator bus has no route | open; this blocks the whole actuator bus | D-1, M-04 |
+| C-06 | `uart4` versus `uart4-pi5` | open here; the documentation fix is on `audit/checker` | D-4, WP-P2-01 |
+| C-07 | `rpi4_alt_pin` physical pins read as BCM | open here; documentation fix on `audit/checker` | WP-P0-01 |
+| C-08 | ToF interrupts reserved, no reader | open | WP-P0-01 |
+| C-09 | The self-test drives GPIO4/27/11 regardless of the flag | open code defect | WP-P0-03 |
+| C-10 | Legacy guide: pin 17 is 3V3, not 5 V | documentation corrected in this PR; the physical rail still to be metered | M-02, M-14 |
+| C-11 | The HaLow HAT may occupy more pins (reported, unverified) | open | M-02 |
+| C-12 | PCA9685 0x41 in the INA3221 strap family | open | M-16, M-20 |
+| C-13 | The header GPIO chip is `gpiochip0` here; code assumes 4 | open code defect | WP-P0-03 |
+| C-14 | No GPIO for `OE`, the watchdog heartbeat or the e-stop state input | open | D-3, WP-P0-05 |
+
+### F.2 Unresolved safety requirements
+
+| ID | Requirement | Why it is unmet at the baseline | Closed by | Gate |
+|---|---|---|---|---|
+| S-01 | An independent hardwired E-stop | no circuit, input or GPIO | WP-P0-05, WP-P1-01 | G1 |
+| S-02 | Neutral-on-fault proven physically | self-centring unknown; neutral is a command | WP-P0-05, WP-P1-01, WP-P1-02 | G1 |
+| S-03 | PTO fail-safe OFF with the circuit traced and the state observed | momentary versus latching unresolved; no feedback | WP-P0-06, WP-P1-07 | G1 |
+| S-04 | A watchdog independent of the process and fed by end-to-end evidence | software liveness only | WP-P1-08 | G1 |
+| S-05 | Bounded I2C failure handling | silent no-op; unbounded writes | WP-P1-03 | G1 |
+| S-06 | Stuck-output detection and a servo-power cut | none | WP-P1-12, WP-P1-01 | G1 |
+| S-07 | A server-enforced command lease | commands persist | WP-P1-09 | G1 |
+| S-08 | E-stop cleared and arming done locally and authenticated | remote clear; authentication off | WP-P1-05, WP-P1-11 | G1 |
+| S-09 | A latched e-stop; safe boot and shutdown | none | WP-P1-05 | G1 |
+| S-10 | No auto-crank; a human starts the engine | missions crank | WP-P1-06 | G1 |
+| S-11 | Tilt latched; a real IMU that fails closed | stub; defeated by the mission loop | WP-P1-10, WP-P2-01 | G1, G2 |
+| S-12 | A measured and fused power tree | no ratings anywhere | WP-P0-04 | G0 |
+| S-13 | Relay outputs default OFF at power-up and boot | unknown | WP-P0-04, WP-P1-05 | G0, G1 |
+| S-14 | OEM interlocks preserved; the seat and PARK decision made by a qualified reviewer | SD-5 undecided | WP-P0-07 | G0 |
+| S-15 | Mechanical qualification of the servo linkage and hitch | the stop-work gate is open | WP-P0-07 | G0 |
+| S-16 | An obstacle stop path independent of the AI and the Thor, with a speed cap | advisory only | WP-P4-01, WP-P4-02 | G4 |
+| S-17 | Four-sensor ultrasonic coverage measured | no driver | WP-P2-02, WP-P2-08 | G2 |
+| S-18 | An authenticated Thor link and local plan re-validation | none | WP-P3-01 to WP-P3-03 | G3 |
+| S-19 | A GNSS-quality HOLD at the actuator level | the monitor is inert (N-31) | WP-P4-03, WP-P2-04 | G2, G4 |
+| S-20 | A truthful stop API and honest tests | false assurance (N-01 to N-03, N-24) | WP-P0-08 | G0 |
+| S-21 | Bench acceptance signed | the sign-off table is empty | WP-P1-13 | G1 |
+| S-22 | Remote VR driving behind a dead-man and authentication | no control channel | WP-P5-01 | G5 |
+
+### F.3 Open decisions
+
+| ID | Decision | Decided by | Needed before | Inputs |
+|---|---|---|---|---|
+| D-1 | I2C route for the PCA9685 | owner | any actuator wiring | M-04, B.1.4 |
+| D-2 | Ultrasonic architecture (A, B or C) | owner | the JSN driver | M-40, M-02 |
+| D-3 | Which device owns the relays, `OE` and the watchdog heartbeat | owner and reviewer | WP-P0-05 | M-21 to M-29 |
+| D-4 | BNO085 transport | owner | WP-P2-01 | M-42 |
+| D-5 | HaLow HAT occupancy | owner | any GPIO assignment | M-01, M-02, M-53 |
+| SD-1 | Whether the E-stop also stops the engine; whether a positive parking brake is needed | reviewer | WP-P0-05 | M-43, the hazard analysis |
+| SD-2 | The neutral-on-fault mechanism | reviewer | WP-P0-05 | M-21, M-22, M-27 |
+| SD-3 | Behaviour on loss of Thor or link: hold or a bounded local continuation; the resume rule | owner and reviewer | WP-P3-02 | M-43, M-52 |
+| SD-4 | Required fix quality per phase; geofence margins | owner and reviewer | WP-P4-03 | M-51 |
+| SD-5 | How the seat and presence switch is handled for unoccupied operation | a qualified reviewer | G0 | M-31, the OEM manual |
+| SD-6 | The command-lease window and speed caps | reviewer | WP-P1-09, WP-P4-02 | M-43 |
+| SD-7 | Who may clear an E-stop and how | owner and reviewer | WP-P1-05 | none |
+| SD-8 | The authentication posture per platform (differential-drive LAN-only versus the Toro build) | owner | WP-P1-11 | a threat model |
+
+### F.4 Release gates at this baseline
+
+| Release gate | State | Blocking items |
+|---|---|---|
+| 1. No live motion while H-01 to H-08 are unresolved | **CLOSED** | H-01 documentation corrected, physical rail check open; H-02 open (live SPI0 conflict); H-03 open; H-04 documentation corrected, no `OE` or E-stop design; H-05 24 V text superseded, label and stall unmeasured; H-06 documented, contradicted by the mission auto-crank; H-07 unresolved (SD-5); H-08 unresolved (S-01 to S-06) |
+| 2. No autonomous mowing until sensor and RTK health, a physical fail-safe, operator protections and field acceptance are proven | **CLOSED** | S-01 to S-21; no obstacle stop path; no JSN driver; the BNO085 is a stub; no local base |
+| 3. No remote VR driving until authentication, a dead-man, measured latency and a local override are proven | **CLOSED** | S-07, S-08, S-22; no control channel; no latency measurement (M-52) |
+
+### F.5 Limits of this audit
+
+- The deployed Pi was inspected read-only. `i2cdetect` and the `pinctrl` CLI were not run and most sensors are
+  detached at that site, so absence of a device is not evidence of a design error.
+- No bench instrument was used and no photograph was taken. Owner-reported values (the two 150 kg·cm servos, 10 to
+  12.6 V, 8 A or more stall) are unverified.
+- Only simulation tests were run. Parallel branches are not reflected; line numbers are against baseline `765c737`.
+- Statements tagged [DS] or [INF] are datasheet knowledge or inference from reading code; none was executed.
+- `codeql.yml`, `pr-hygiene.yml`, `todo-policy-check.yml`, the frontend beyond its route usage and the training and
+  workshop code were not audited.
+
+## Appendix. Gap register index (H-01 to H-28)
+
+The register is in draft PR #18 (`https://github.com/khryptorgraphics/lawnberry-pi/pull/18`, branch
+`docs/2026-10-24-hardware-architecture-audit`, file `docs/2026-10-24-compatibility-gap-register.md`). H-02b and
+H-02c are sub-findings of H-02 introduced by this audit.
+
+| ID | P | Register finding | State at this baseline | Where |
+|---|---|---|---|---|
+| H-01 | P0 | Ultrasonic guide says pin 17 is 5 V | documentation corrected in this PR; the rails are still to be metered | A.12, B.1 (C-10), M-02, M-14 |
+| H-02 | P0 | Ultrasonic GPIO10/11/9 collide with the HaLow radio | confirmed live (SPI0 alt0); guide marked legacy; the self-test still drives the pins | A.4, B.1 (C-01, C-09), WP-P0-01 to WP-P0-03 |
+| H-02b | P0 | Starter relay GPIO5 is the HaLow RESET line (sub-finding) | open; no relay may be attached | B.1 (C-02), WP-P0-01 |
+| H-02c | P0 | Blade IN2 GPIO25 is the HaLow IRQ line (sub-finding) | open (mower variant, driver stub) | B.1 (C-03), WP-P0-01 |
+| H-03 | P0 | GPIO12 double booking; UART4 mapping | open; `uart4` versus `uart4-pi5` found (N-13) | A.3, A.4, B.1 (C-04 to C-08), D-4, WP-P2-01 |
+| H-04 | P0 | PCA9685 `OE` polarity | acceptance text corrected in this PR; no `OE` allocated; mechanism undecided | D.3, D.7, WP-P0-05, WP-P1-03 |
+| H-05 | P0 | 12 V versus 24 V servo rail | 24 V text superseded in this PR; label, supply and stall unmeasured | A.5, B.3, M-10, WP-P0-04 |
+| H-06 | P0 | Lever linkage cannot reach PARK; no autonomous start | documented constraint; the mission auto-crank contradicts it (N-08) | A.10, D.11, WP-P1-06 |
+| H-07 | P0 | Seat and presence switch versus unoccupied travel | unresolved; a qualified review is required | D.1, D.11, SD-5, WP-P0-07 |
+| H-08 | P0 | PCA9685 holds the last PWM; no independent failsafe | unresolved; Part D is the safety case | Part D, F.2, WP-P0-05, WP-P1-01 to WP-P1-13 |
+| H-09 | P1 | GPS receiver mismatch (ZED-F9P versus LC29H) | annotated as unreconciled in this PR; owner decision and physical check open | A.7, B.6, D.9, WP-P2-04 |
+| H-10 | P1 | Three sensors in the guide, four required | guide marked legacy; the four-sensor model is missing | A.1, B.5, WP-P2-02 |
+| H-11 | P1 | Differential-drive and Toro variants mixed | platform tags added in README, matrix, overview, servo-hat-pins and hardware.md; `spec/` and `docs/hardware-integration.md` are on the checker branch | A.3, A.12, WP-P0-01 |
+| H-12 | P1 | `enabled: false` default | confirmed in the repository and live | A.3 |
+| H-13 | P1 | Thor link documented | exists as a library, unwired and unauthenticated (the register's direction is corrected) | A.8, C.3, D.6, WP-P3-01 to WP-P3-03 |
+| H-14 | P1 | Authentication off by decision | confirmed; more unauthenticated routes found | A.9, D.5, WP-P1-11, SD-8 |
+| H-15 | P2 | LiDAR unspecified | no model selected | B.6, C.6, WP-P2-07 |
+| H-16 | P2 | Stereo and VR workflow | capture only; bandwidth arithmetic in C.5 | A.6, C.5, C.11, WP-P5-01, WP-P5-02 |
+| H-17 | P1 | The stack competes for header, PCIe, USB and power | inventoried; photographs and measurements open | B.4, B.6, M-01, M-14, M-54 |
+| H-18 | P1 | Divider schematic inconsistent | legacy guide corrected; not a validated divider for the JSN hardware | A.12, M-40 |
+| H-19 | P0 | Four JSN-SR04T required | driver missing; electrical interface unverified | A.1, B.5, WP-P2-02, M-40 |
+| H-20 | P0 | Two 150 kg·cm servos, high stall current, fuse and gauge | unmeasured; no ratings anywhere | A.5, B.3, WP-P0-04 |
+| H-21 | P0 | Momentary PTO versus a latching relay | contradicted in code; trace first; do not wire | D.2, WP-P0-06, WP-P1-07 |
+| H-22 | P1 | Pi Zero base and Orange Pi gateway | unverified in the repository; failure analysis open | A.7, B.2, C.4, WP-P3-05, WP-P3-06 |
+| H-23 | P1 | Thor as primary navigation compute | target; strategist in simulation; link unwired | A.6, C.1, WP-P3-03, WP-P4-04 |
+| H-24 | P1 | Visual package | not produced; it needs photographs and measurements | B.5, WP-P0-09 |
+| H-25 | P1 | HAT stacking blocks signals | unverified | B.1 (C-05, C-11), M-01, M-02 |
+| H-26 | P1 | No measured fused obstacle model | missing | A.6, B.5, C.8, WP-P2-06, WP-P4-01 |
+| H-27 | P2 | Multi-agent automation, PR #16 | PR #16 and PR #17 are drafts, not merged; nothing under `backend/` | A.6, C.12, WP-P5-04 |
+| H-28 | P2 | HPE server migration | future optional deployment | C.12, WP-P4-05 |
+
+## Implemented in this PR
+
+> **Placeholder: the integrator completes this section** after merging the parallel branches. This document is
+> written against baseline `765c737`, so Part A and Part E describe the state **before** those branches. For each
+> merged branch record the commits, what changed, the gaps advanced or closed, and the exact test command and counts;
+> then re-mark the affected rows in Part A, Part E and the Appendix.
+
+| Branch | Commits | What changed | Gaps advanced or closed | Tests (exact command and counts) |
+|---|---|---|---|---|
+| `audit/docs` | see `git log 765c737..audit/docs` | documentation only: this document and the corrections listed in A.12 | H-01, H-04, H-05 (documentation), H-11 (tags) | counts are in the final commit message of the branch |
+| `audit/checker` | to be filled by the integrator | | | |
+| `audit/safety` | to be filled by the integrator | | | |
+| `audit/thorlink` | to be filled by the integrator | | | |
