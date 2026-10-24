@@ -29,6 +29,15 @@ type Actuator = (value: number, options?: api.TractorCommandOptions) => Promise<
 
 const STATE_AT = (second: number) => new Date(2026, 0, 1, 12, 0, second).toISOString()
 
+// Not Promise.withResolvers: CI runs the unit tests on the Playwright image's Node 20, which lacks it.
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
 function baseState(overrides: Partial<TractorState> = {}): TractorState {
   return {
     left_lever: 0,
@@ -66,7 +75,7 @@ function installBackend(options: { holdMs?: number | null; delayMs?: number } = 
     async (value, requestOptions) => {
       calls.push({ t: Date.now(), control, value, options: requestOptions })
       if (options.delayMs) {
-        const { promise, resolve } = Promise.withResolvers<void>()
+        const { promise, resolve } = deferred()
         setTimeout(resolve, options.delayMs)
         await promise
       }
@@ -637,7 +646,7 @@ describe('TractorControlView hold-to-run (SF-08)', () => {
     it('writes left, waits for the reply, then right (concurrent writes each read the other lever stale)', async () => {
       const wrapper = await mountView(baseState({ left_lever: 0.5, right_lever: 0.5 }))
       const order: string[] = []
-      const leftReply = Promise.withResolvers<void>()
+      const leftReply = deferred()
       vi.mocked(api.tractorLeftLever).mockImplementation(async (value) => {
         order.push(`left:start:${value}`)
         await leftReply.promise
