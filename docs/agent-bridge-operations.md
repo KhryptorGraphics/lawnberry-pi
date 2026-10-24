@@ -396,7 +396,7 @@ publication (the commit stays in the kept worktree).
 | `worktree_tampered` | blocked | the worktree's `.git` pointer changed or `HEAD` moved during the agent run | treat the agent as faulty: inspect `worktrees/<run_id>` before re-approving anything |
 | `commit_failed` | blocked | `git commit` failed | read `bridge.log` (disk space, git setup) |
 | `task_changed` | blocked | the issue title or body changed after approval (found at start, during the agent or check poll, or before the push) | review the edit, then remove and re-apply `agent-approved` |
-| `github_permission` | blocked | the token is rejected: at start it cannot update labels/comments, at publish it needs Contents, Pull requests and Issues read/write | fix the token scopes, re-approve |
+| `github_permission` | blocked | the token is rejected: at start it cannot update labels/comments or cannot call `GET /user`, at publish it needs Contents, Pull requests and Issues read/write | fix the token scopes (see [Permissions](#permissions)), re-approve |
 | `git_failed` | blocked | fetch or worktree creation failed for a non-network reason | check `repo_path`, the remote and `git.base_branch` |
 | `push_failed` | blocked | `git push` was refused for a non-network reason | check the remote, branch protection and `git.push_auth` credentials |
 | `github_error` | blocked | GitHub rejected an API call during publication | read `failure_detail` |
@@ -467,6 +467,13 @@ Nothing else: no Actions, Workflows, Administration, Secrets or Deployments. Pre
 dedicated machine account that is **not** in `approvers`, so a bot comment can never be mistaken for an owner
 action and the bridge cannot approve its own work. Protect `main` with required pull-request reviews: the bridge
 only ever pushes its own `agent/issue-N-xxxxxxxx` branch, never forced, but the branch rule is the backstop.
+
+The bridge also calls `GET /user` once per process to learn its own login: a hidden comment marker is only
+trusted on a comment written by that account, because anyone who can comment can copy a marker. A personal
+access token needs no extra permission for this; an installation token of a GitHub App cannot call it. If the
+call is refused, no bot comment can be posted or recognised, so the run ends `github_permission` with a
+`failure_detail` that names `GET /user` (see `status`); the report and labels are delivered by a later poll
+once the token works.
 
 **Operating system:** run as an unprivileged user with no access to mower credentials, SSH keys for the Pi or
 Orange Pi, or other projects. `state_dir` is created 0700, the ledger and logs 0600, and a `github.token_file`

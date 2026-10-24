@@ -770,6 +770,92 @@ def test_find_pull_request_ignores_results_for_other_head_refs(
     assert client.find_pull_request("agent/issue-1-abc") is None
 
 
+# ---------------------------------------------------------------------------- viewer_login
+def test_viewer_login_is_the_token_owners_lowercase_login_and_is_asked_once(
+    fake: FakeGitHub, client: HttpGitHubClient
+) -> None:
+    fake.bot_login = "Agent-Bot"  # GitHub keeps the case of a login; comparisons use lowercase
+
+    assert client.viewer_login() == "agent-bot"
+    assert client.viewer_login() == "agent-bot"
+
+    sent = requests_to(fake, "GET", "/user")
+    assert len(sent) == 1  # cached on the client instance
+    assert sent[0].headers["authorization"] == f"Bearer {TOKEN}"
+
+
+def test_the_fake_user_endpoint_names_the_account_that_posts_comments(
+    fake: FakeGitHub, client: HttpGitHubClient
+) -> None:
+    number = fake.add_issue(title="t")
+
+    comment = client.create_comment(number, "hello")
+    user = fake.client(token=TOKEN).get("/user").json()
+
+    assert user["login"] == comment.author == fake.bot_login
+    assert user["type"] == "User" and isinstance(user["id"], int)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [[], "agent-bot", {}, {"id": 1}, {"login": ""}, {"login": "  "}, {"login": 7}, {"login": None}],
+    ids=["list", "string", "empty", "no-login", "empty-login", "blank-login", "int", "null"],
+)
+def test_viewer_login_rejects_a_malformed_body_and_does_not_cache_it(
+    fake: FakeGitHub, client: HttpGitHubClient, body: Any
+) -> None:
+    fake.inject("GET", r"^/user$", json=body)
+
+    with pytest.raises(GitHubError, match=r"GET /user"):
+        client.viewer_login()
+
+    assert client.viewer_login() == fake.bot_login  # asked again, and now it answers
+    assert len(requests_to(fake, "GET", "/user")) == 2
+
+
+def test_viewer_login_refused_by_a_403_is_a_permission_error_naming_the_endpoint(
+    fake: FakeGitHub, client: HttpGitHubClient
+) -> None:
+    fake.deny("GET", r"^/user$")
+
+    with pytest.raises(GitHubPermissionError, match=r"GET /user") as raised:
+        client.viewer_login()
+
+    assert raised.value.status == 403
+    assert fake.bot_login not in str(raised.value)
+
+
+def test_viewer_login_with_a_rejected_token_is_a_401_permission_error(
+    make_client: ClientFactory,
+) -> None:
+    with pytest.raises(GitHubPermissionError, match=r"GET /user") as raised:
+        make_client(token="not-the-token").viewer_login()
+
+    assert raised.value.status == 401
+
+
+def test_viewer_login_is_a_read_so_a_transient_failure_is_retried(
+    fake: FakeGitHub, client: HttpGitHubClient
+) -> None:
+    fake.inject("GET", r"^/user$", status=503)
+
+    assert client.viewer_login() == fake.bot_login
+    assert len(requests_to(fake, "GET", "/user")) == 2
+
+
+def test_viewer_login_follows_the_configured_api_prefix(make_client: ClientFactory) -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, json={"login": "Octo"})
+
+    ghe = make_client(api_url="https://ghe.example/api/v3", transport=httpx.MockTransport(handler))
+
+    assert ghe.viewer_login() == "octo"
+    assert seen == ["https://ghe.example/api/v3/user"]
+
+
 # -------------------------------------------------------------- the client protocol
 def test_http_client_matches_the_protocol_the_worker_depends_on() -> None:
     methods = [
@@ -789,6 +875,7 @@ def test_http_client_matches_the_protocol_the_worker_depends_on() -> None:
         "create_comment",
         "find_pull_request",
         "create_pull_request",
+        "viewer_login",
         "close",
     }
     for name in methods:

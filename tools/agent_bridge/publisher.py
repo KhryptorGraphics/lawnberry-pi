@@ -336,11 +336,17 @@ class Publisher:
 
     # ---------------------------------------------------------------- comments
     def comment_once(self, issue_number: int, key: str, body: str) -> bool:
-        """Post ``body`` unless a comment with the same marker already exists."""
+        """Post ``body`` unless the bridge's own account already posted a comment with its marker.
+
+        A marker is only trusted on comments written by the account the token belongs to
+        (``GET /user``): the markers are public and guessable from the run id in the "started"
+        comment, so a comment from anyone else must never suppress the bridge's report.
+        """
         tag = marker(key)
         text = body if tag in body else f"{body}\n{tag}"
+        me = self.github.viewer_login()
         existing: list[Comment] = self.github.list_comments(issue_number)
-        if any(tag in c.body for c in existing):
+        if any(tag in c.body and c.author.lower() == me for c in existing):
             return False
         self.github.create_comment(issue_number, self.redactor.redact(text))
         return True

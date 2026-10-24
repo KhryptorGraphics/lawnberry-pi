@@ -13,7 +13,7 @@ import pytest
 from bridgefakes.github_server import API_URL, FakeGitHub
 
 from tools.agent_bridge.config import BridgeConfig, GitHubConfig
-from tools.agent_bridge.errors import BridgeError, GitHubUnavailable
+from tools.agent_bridge.errors import BridgeError, GitHubPermissionError, GitHubUnavailable
 from tools.agent_bridge.github import HttpGitHubClient
 from tools.agent_bridge.ledger import RunRecord
 from tools.agent_bridge.models import RunPhase, RunStatus
@@ -691,7 +691,7 @@ def test_comment_once_keys_that_are_prefixes_of_each_other_do_not_collide(
     fake: FakeGitHub, publisher: Publisher
 ) -> None:
     number = fake.add_issue(title="t")
-    fake.add_comment(number, f"older\n{marker('run-12-done')}")
+    fake.add_comment(number, f"older\n{marker('run-12-done')}", author="agent-bot")
 
     assert publisher.comment_once(number, "run-1-done", "mine") is True
     assert publisher.comment_once(number, "run-12-done", "again") is False
@@ -709,7 +709,76 @@ def test_comment_once_finds_the_marker_on_a_later_comment_page(
     assert publisher.comment_once(number, "run-9-done", "again") is False
 
     assert fake.writes() == []
-    assert len([r for r in fake.requests if r.method == "GET"]) == 2  # both pages were read
+    comment_pages = [r for r in fake.requests if r.method == "GET" and r.path.endswith("/comments")]
+    assert len(comment_pages) == 2  # both pages were read
+
+
+def test_comment_once_ignores_a_marker_planted_by_another_user(
+    fake: FakeGitHub, publisher: Publisher
+) -> None:
+    """The report's repro: anyone can read the run id and pre-post ``...-done`` (F3)."""
+    number = fake.add_issue(title="t")
+    fake.add_comment(number, f"harmless\n{marker('run-1-done')}", author="mallory")
+
+    assert publisher.comment_once(number, "run-1-done", "the real report") is True
+
+    posted = [(c.author, c.body.splitlines()[0]) for c in fake.comments[number]]
+    assert posted == [("mallory", "harmless"), ("agent-bot", "the real report")]
+    assert publisher.comment_once(number, "run-1-done", "the real report") is False
+    assert len(fake.comments[number]) == 2  # its own marker still dedupes the retry
+
+
+def test_a_planted_refusal_marker_cannot_silence_the_refusal_notice(
+    fake: FakeGitHub, publisher: Publisher
+) -> None:
+    number = fake.add_issue(title="t")
+    key = f"refusal-{number}-77-invalid_task"  # predictable from public data
+    fake.add_comment(number, f"nothing to see\n{marker(key)}", author="mallory")
+
+    posted = publisher.comment_once(number, key, render_refusal("invalid_task", ["bad"], key=key))
+
+    assert posted is True
+    assert [c.author for c in fake.comments[number]] == ["mallory", "agent-bot"]
+
+
+@pytest.mark.parametrize(
+    ("bot", "author"),
+    [("Agent-Bot", "agent-bot"), ("agent-bot", "AGENT-BOT"), ("Agent-Bot", "AGENT-bot")],
+)
+def test_comment_once_compares_the_bridge_login_case_insensitively(
+    fake: FakeGitHub, publisher: Publisher, bot: str, author: str
+) -> None:
+    fake.bot_login = bot
+    number = fake.add_issue(title="t")
+    fake.add_comment(number, f"mine\n{marker('run-2-done')}", author=author)
+
+    assert publisher.comment_once(number, "run-2-done", "again") is False
+
+    assert fake.writes() == []
+
+
+def test_comment_once_asks_github_who_it_is_only_once(
+    fake: FakeGitHub, publisher: Publisher
+) -> None:
+    number = fake.add_issue(title="t")
+
+    for key in ("run-1-started", "run-1-done", "run-1-started"):
+        publisher.comment_once(number, key, "x")
+
+    assert len([r for r in fake.requests if r.path == "/user"]) == 1
+
+
+def test_comment_once_posts_nothing_when_the_token_cannot_call_get_user(
+    fake: FakeGitHub, publisher: Publisher
+) -> None:
+    number = fake.add_issue(title="t")
+    fake.deny("GET", r"^/user$")
+    fake.reset_requests()
+
+    with pytest.raises(GitHubPermissionError, match=r"GET /user"):
+        publisher.comment_once(number, "run-1-done", "report")
+
+    assert fake.writes() == [] and fake.comments[number] == []
 
 
 def test_comments_are_redacted_before_they_are_posted(
@@ -861,6 +930,7 @@ READS = {
     "issue_last_edited_at",
     "list_comments",
     "find_pull_request",
+    "viewer_login",
 }
 WRITE_CALLS: dict[str, Callable[[Any], Any]] = {
     "add_labels": lambda g: g.add_labels(1, ["agent-running"]),
@@ -914,6 +984,7 @@ def test_read_only_github_passes_reads_through_unchanged(
     assert dry.issue_last_edited_at(number) == client.issue_last_edited_at(number) is not None
     assert dry.list_comments(number) == client.list_comments(number)
     assert dry.find_pull_request("agent/x") == client.find_pull_request("agent/x") == pull
+    assert dry.viewer_login() == client.viewer_login() == fake.bot_login
 
     assert fake.writes() == []  # reads (even the GraphQL POST) change nothing
 

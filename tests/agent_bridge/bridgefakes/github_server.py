@@ -18,8 +18,10 @@ Fidelity notes (kept on purpose so client bugs surface here and not in productio
 * pull requests are issues: they show up in the issue list with a ``pull_request`` key and
   share the number counter, but GraphQL ``repository.issue`` does not resolve them;
 * ``GET /pulls?head=`` only matches the ``<owner>:<branch>`` form, like GitHub.
+* ``GET /user`` answers with the account that authored every comment, label event and pull
+  request the fake creates (``bot_login``), which is how the bridge recognises its own comments.
 
-Not implemented (404 as unknown routes): ``GET /user`` and ``GET /repos/{owner}/{repo}``.
+Not implemented (404 as unknown routes): ``GET /repos/{owner}/{repo}``.
 """
 
 import json as jsonlib
@@ -319,6 +321,7 @@ class FakeGitHub:
         repo_prefix = ("repos", "{owner}", "{repo}")
         self._routes: list[tuple[tuple[str, ...], dict[str, Callable[[_Call], _Reply]]]] = [
             (("graphql",), {"POST": self._graphql}),
+            (("user",), {"GET": self._get_user}),
             (repo_prefix + ("issues",), {"GET": self._list_issues}),
             (repo_prefix + ("issues", "{n}"), {"GET": self._get_issue}),
             (repo_prefix + ("issues", "{n}", "events"), {"GET": self._list_events}),
@@ -680,6 +683,9 @@ class FakeGitHub:
         return f"{self.api_url}{call.rec.raw_path}?{urlencode(pairs)}"
 
     # ----------------------------------------------------------------- handlers
+
+    def _get_user(self, call: _Call) -> _Reply:
+        return _Reply(200, self._user(self.bot_login))
 
     def _list_issues(self, call: _Call) -> _Reply:
         query = call.rec.query

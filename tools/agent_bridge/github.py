@@ -69,6 +69,8 @@ class GitHubClient(Protocol):
 
     def create_comment(self, number: int, body: str) -> Comment: ...
 
+    def viewer_login(self) -> str: ...
+
     def find_pull_request(self, head_branch: str) -> PullRequest | None: ...
 
     def create_pull_request(
@@ -119,6 +121,7 @@ class HttpGitHubClient:
         self._sleep = sleep
         self._wall = wall_clock
         self._api_url = cfg.api_url.rstrip("/")
+        self._viewer: str | None = None
         self._client = httpx.Client(
             base_url=self._api_url,
             headers={
@@ -370,6 +373,29 @@ class HttpGitHubClient:
             raise GitHubNotFound(f"GraphQL: {errors[0].get('message', 'issue not found')}")
         value = issue.get("lastEditedAt")
         return str(value) if value else None
+
+    # ---------------------------------------------------------------- identity
+    def viewer_login(self) -> str:
+        """Lowercase login of the account the token belongs to (``GET /user``, cached).
+
+        The bridge recognises its own comments by this login: a hidden marker is only trusted
+        when the account that wrote it is this one, because anyone can copy a marker text.
+        """
+        if self._viewer is None:
+            try:
+                data = self._json(self._request("GET", "/user"))
+            except GitHubPermissionError as exc:
+                raise GitHubPermissionError(
+                    f"{exc} (GET /user: the bridge token must be able to read its own account, "
+                    "which any personal access token can, so the bridge can recognise its own "
+                    "comments)",
+                    status=exc.status,
+                ) from exc
+            login = data.get("login") if isinstance(data, dict) else None
+            if not isinstance(login, str) or not login.strip():
+                raise GitHubError("GitHub returned an unexpected body for GET /user")
+            self._viewer = login.strip().lower()
+        return self._viewer
 
     # ---------------------------------------------------------------- labels
     def add_labels(self, number: int, labels: Sequence[str]) -> None:

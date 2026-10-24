@@ -1133,6 +1133,7 @@ ALLOWED_ENDPOINTS = {
     ("GET", "/issues/{n}"),
     ("GET", "/issues/{n}/events"),
     ("GET", "/issues/{n}/comments"),
+    ("GET", "/user"),
     ("POST", "/issues/{n}/comments"),
     ("POST", "/issues/{n}/labels"),
     ("DELETE", "/issues/{n}/labels/{name}"),
@@ -1206,6 +1207,61 @@ def test_repository_hooks_never_run(rig: Rig, tmp_path: Path) -> None:
 # --------------------------------------------------------------------------------------------
 # idempotent GitHub side effects
 # --------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("outcome", ["done", "blocked"])
+def test_a_third_party_cannot_suppress_a_report_by_planting_its_marker(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    """The run id is public in the started comment and the other markers follow from it (F3)."""
+    number = rig.new_task_issue()
+    if outcome == "blocked":
+        rig.set_scenario([final()])  # the agent changes nothing: BLOCKED no_changes
+    real_agent_phase = rig.worker._agent_phase
+
+    def plant_then_run(ctx: Any) -> None:
+        for kind in ("done", "blocked", "cancelled"):
+            text = f"harmless <!-- agent-bridge:run-{ctx.run.run_id}-{kind} -->"
+            rig.fake.add_comment(number, text, author="mallory")
+        real_agent_phase(ctx)
+
+    monkeypatch.setattr(rig.worker, "_agent_phase", plant_then_run)
+
+    run = rig.run_issue(number)
+
+    want = RunStatus.DONE if outcome == "done" else RunStatus.BLOCKED
+    assert run.status is want, (run.failure_kind, run.failure_detail)
+    bridge = [c for c in rig.fake.comments[number] if c.author == rig.fake.bot_login]
+    assert [_MARKER.findall(c.body)[-1] for c in bridge] == [
+        f"run-{run.run_id}-started",
+        f"run-{run.run_id}-{outcome}",
+    ]
+    labels = set(rig.fake.issue_labels(number))
+    assert f"agent-{outcome}" in labels and "agent-running" not in labels
+    assert run.result is not None and run.result["notified"] is True
+
+
+def test_a_token_that_cannot_call_get_user_blocks_the_run_and_heals_when_permitted(
+    rig: Rig,
+) -> None:
+    rig.fake.deny("GET", r"^/user$")
+    number = rig.new_task_issue()
+
+    run = rig.run_issue(number)
+
+    assert run.status is RunStatus.BLOCKED and run.failure_kind == "github_permission"
+    assert "GET /user" in (run.failure_detail or "")
+    assert rig.invocations() == [] and rig.worktrees() == []  # the agent never started
+    assert rig.git_env.origin_branches() == ["main"] and rig.fake.pulls == {}
+    assert rig.comments(number) == []  # nothing can be posted without knowing who we are
+
+    rig.fake.allow("GET", r"^/user$")
+    rig.poll()
+
+    assert bot_comment_keys(rig, number) == [f"run-{run.run_id}-blocked"]
+    labels = set(rig.fake.issue_labels(number))
+    assert "agent-blocked" in labels and "agent-running" not in labels
+    assert rig.invocations() == []
+
+
 def test_run_posts_one_started_and_one_done_comment_and_at_most_one_pull_request(
     rig: Rig,
 ) -> None:
