@@ -45,6 +45,11 @@ class TractorCommand(BaseModel):
     right_lever: float = Field(0.0, ge=-1.0, le=1.0)
     throttle: float = Field(0.0, ge=0.0, le=1.0)
     blade_engaged: bool = False
+    # How long (ms) the lever/throttle values stay in force before the service's
+    # deadman returns levers to neutral and throttle to idle. None = the
+    # service's configured default hold. The service clamps this to its
+    # configured maximum; the effective value is echoed in the response.
+    duration_ms: int | None = Field(None, ge=1, le=60_000)
 
 
 class TractorState(BaseModel):
@@ -61,6 +66,18 @@ class TractorState(BaseModel):
     emergency_stop_active: bool = False
     authorized: bool = False
     interlock_reason: str | None = None
+
+    # Actuator hardware health (PCA9685 + relays). False => lever/throttle/blade/
+    # start commands are refused rather than reported as success.
+    actuator_ok: bool = False
+    actuator_fault: str | None = None
+    simulated: bool = False
+
+    # Blade interlock latch (tilt, ...): the blade stays off, and
+    # engage_blade(True) -- including from navigation -- is refused, until an
+    # authenticated clear (POST /tractor/clear-emergency).
+    interlock_latched: bool = False
+    latch_reason: str | None = None
 
     last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

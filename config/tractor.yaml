@@ -44,3 +44,15 @@ interlocks:
   # Reverse Operation System: reverse is defined as BOTH levers pulled back
   # together (a single lever back is a pivot turn) -- no blade in reverse.
   disengage_blade_in_reverse: true
+
+# Command deadman: a lever/throttle command is only in force for a bounded hold.
+# Unless it is refreshed, the levers return to neutral and the throttle to idle
+# (the blade is NOT touched by the deadman -- it follows the interlocks above and
+# the tilt/E-stop latches). Clients must re-send inside the hold: navigation
+# sends at 5 Hz and scripts/teleop.py at 20 Hz. A client may ask for a shorter or
+# longer hold with `duration_ms`; the service clamps it to max_hold_ms and echoes
+# the effective `hold_ms` in the response. Starting values are conservative and
+# must be validated on the machine (servo settle time, stopping distance).
+command_deadman:
+  default_hold_ms: 500   # hold for a command that carries no duration_ms
+  max_hold_ms: 2000      # ceiling for any client-requested duration_ms

@@ -6,8 +6,10 @@ PCA9685 emits on the corresponding channel. The microsecond mapping is a pure
 function (unit-testable); the actual I2C write is performed by
 ``TractorControlService`` via ``PCA9685Driver``.
 
-The starter and blade-PTO are GPIO relays. ``RelayActuator`` is SIM-safe: it
-only touches GPIO on real hardware (lazy import) and otherwise tracks state.
+The starter and blade-PTO are GPIO relays. ``RelayActuator`` is SIM-safe: in
+SIM_MODE it only tracks state; otherwise it drives the GPIO (lazy import) and
+raises ``RelayUnavailableError`` if the pin cannot be driven -- it never
+degrades silently to a no-op.
 """
 
 from __future__ import annotations
@@ -77,11 +79,23 @@ class ServoActuator:
         return self._us
 
 
+class RelayUnavailableError(RuntimeError):
+    """A GPIO relay could not be driven (no GPIO library, or the pin is unavailable).
+
+    Raised instead of pretending the relay switched: a blade-PTO relay that
+    silently became a no-op would leave ``blade_engaged=False`` reported over a
+    clutch that is still energised.
+    """
+
+
 class RelayActuator:
     """A GPIO relay (latching on/off, with a momentary pulse for the starter).
 
-    SIM-safe: on real hardware it drives the GPIO via ``gpiozero``; off-device it
-    only tracks state so the rest of the stack stays importable and testable.
+    SIM-safe: in SIM_MODE it only tracks state so the rest of the stack stays
+    importable and testable. Outside SIM_MODE it drives the GPIO via
+    ``gpiozero`` and **raises** :class:`RelayUnavailableError` when the pin cannot
+    be claimed -- it does not fall back to simulation. ``state`` only changes
+    after the write succeeded, so it never claims a switch that did not happen.
     """
 
     def __init__(self, name: str, gpio: int, active_high: bool = True):
@@ -91,6 +105,16 @@ class RelayActuator:
         self._on: bool = False
         self._device: Any = None
         self._sim = is_simulation_mode()
+        self._fault: str | None = None
+
+    @property
+    def simulated(self) -> bool:
+        return self._sim
+
+    @property
+    def fault(self) -> str | None:
+        """Last GPIO fault (claim or write), cleared by the next successful write."""
+        return self._fault
 
     def _ensure_device(self) -> Any:
         if self._sim or self._device is not None:
@@ -101,18 +125,27 @@ class RelayActuator:
             self._device = OutputDevice(
                 self.gpio, active_high=self.active_high, initial_value=False
             )
-        except Exception as exc:  # pragma: no cover - hardware/import error path
-            logger.warning(
-                "Relay %s GPIO%s unavailable (%s); running in sim", self.name, self.gpio, exc
+        except Exception as exc:  # hardware/import error path
+            self._fault = (
+                f"relay {self.name} GPIO{self.gpio} unavailable: {type(exc).__name__}: {exc}"
             )
-            self._sim = True
+            logger.error("%s", self._fault)
+            raise RelayUnavailableError(self._fault) from exc
         return self._device
 
     def set(self, on: bool) -> None:
-        self._on = bool(on)
         dev = self._ensure_device()
         if dev is not None:
-            dev.on() if self._on else dev.off()
+            try:
+                dev.on() if on else dev.off()
+            except Exception as exc:
+                self._fault = (
+                    f"relay {self.name} GPIO{self.gpio} write failed: {type(exc).__name__}: {exc}"
+                )
+                logger.error("%s", self._fault)
+                raise RelayUnavailableError(self._fault) from exc
+        self._fault = None
+        self._on = bool(on)
 
     async def pulse(self, ms: int) -> None:
         """Momentarily energize the relay (e.g. crank the starter)."""
