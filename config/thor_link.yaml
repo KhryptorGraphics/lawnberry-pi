@@ -1,0 +1,52 @@
+# Pi <-> Thor link (autonomy W7). OFF by default; see docs/tractor-platform.md,
+# "Enabling the Thor link", for the steps, the preconditions and what the Thor must do.
+#
+# While the link runs it owns the mower's motion: with no usable plan from the Thor
+# (silent, paused, stale, out of sync) it holds, i.e. blade off and levers neutral, and
+# it re-neutralises anything that moves the mower, manual driving included. The switch
+# back is `enabled: false` and a backend restart.
+#
+# Unknown keys are an error and the link then stays off. Every number marked UNVALIDATED
+# is a placeholder to be sized on the bench (audit M-43 stopping distance, M-51 GNSS).
+#
+# Needs, outside SIM_MODE: tractor.enabled (config/tractor.yaml), THOR_LINK_KEY (hex, at
+# least 32 bytes: `openssl rand -hex 32`, same on the Thor; environment or
+# config/secrets.json, never this file) and a geofence below. Without any of them the
+# backend logs the reason and starts without the link.
+enabled: false
+
+# thor_host: 192.168.1.50      # REQUIRED when enabled: the Thor's IPv4 address (uplinks go here)
+# thor_port: 47101
+# bind_host: 192.168.50.20     # the Pi's HaLow address; the default 127.0.0.1 hears nobody
+# bind_port: 47101
+# allowed_sources: any         # default: only thor_host. A list of IPs/CIDRs, or "any".
+
+# Timing. A downlink must echo an uplink sent within plan_max_age_s; no accepted downlink
+# for timeout_s puts the mower in hold. 10 Hz of worst-case 1,200 B uplinks is 12 kB/s.
+# timeout_s: 0.5
+# plan_max_age_s: 1.0
+# uplink_hz: 10                # at most 50
+# neutral_timeout_s: 1.0
+
+# Local policy. The Thor can request the blade but never grant it: it is forced off for
+# every plan leg unless allow_blade is true (blades-disabled bench runs: leave it false).
+# allow_blade: false
+# speed_percent: 50            # UNVALIDATED; share of NavigationService.max_speed
+# require_fix: [rtk_fixed]     # fixes the mower may drive on: gps, dgps, rtk_float, rtk_fixed
+# max_position_age_s: 1.0      # UNVALIDATED; GNSS reading and navigation feed age limit
+
+# The mowing boundary the Pi enforces on every plan: waypoints, the mower's own position
+# and the straight leg between them must lie inside it and clear of the no-go zones.
+# [lat, lon] vertices, first vertex not repeated. It must include where the mower starts.
+# geofence:
+#   margin_m: 0.5              # UNVALIDATED; pulled in from the boundary for every check
+#   boundary:
+#     - [45.00000, -93.00000]
+#     - [45.00000, -92.99900]
+#     - [45.00090, -92.99900]
+#     - [45.00090, -93.00000]
+#   no_go:
+#     - - [45.00030, -92.99960]
+#       - [45.00030, -92.99940]
+#       - [45.00050, -92.99940]
+#       - [45.00050, -92.99960]
