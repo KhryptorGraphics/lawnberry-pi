@@ -2,6 +2,12 @@
 
 This guide covers deploying and running the LawnBerry Pi autonomous mowing system on the Raspberry Pi 5 with Hailo 8L accelerator.
 
+> **Names and versions.** "LawnBerry Pi" is the product. The HTTP API is versioned separately
+> (`/api/v2`, the backend reports `2.0.0`), and the README title carries the project generation
+> ("v3"). systemd unit descriptions and this guide carry no version, so there is nothing to drift.
+> The constitution has its own version (4.0.0). Capability statements follow the 2026-10-24
+> audit, [`2026-10-24-integration-audit.md`](2026-10-24-integration-audit.md).
+
 ## Prerequisites
 
 ### Hardware Requirements
@@ -140,15 +146,15 @@ ai:
   safety_threshold: 0.7
 ```
 
-### NTRIP Configuration (for RTK GPS)
+### Runtime environment (`.env`)
 
-Create `.env` file from template:
+The backend unit loads `<root>/.env` (`EnvironmentFile=`). Start from the template:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your NTRIP credentials:
+Fill in the NTRIP settings if you use RTK corrections:
 
 ```env
 NTRIP_HOST=your_caster.com
@@ -160,7 +166,13 @@ NTRIP_SERIAL_DEVICE=/dev/ttyAMA0
 NTRIP_SERIAL_BAUD=115200
 ```
 
+Do not set the two operator-authentication keys by hand unless you want to: the installer
+(below) generates `LAWN_BERRY_AUTH_SECRET` and validates `LAWN_BERRY_OPERATOR_CREDENTIAL`.
+
 ## Running the System
+
+Ports: the backend listens on **8081** and the web UI (`frontend/server.mjs`, proxying `/api`
+to the backend) on **3000**.
 
 ### Development Mode
 
@@ -169,27 +181,67 @@ NTRIP_SERIAL_BAUD=115200
 source .venv/bin/activate
 
 # Run in simulation mode (for testing)
-SIM_MODE=1 python -m uvicorn backend.src.main:app --host 0.0.0.0 --port 8000
+SIM_MODE=1 python -m uvicorn backend.src.main:app --host 0.0.0.0 --port 8081
 
 # Run with hardware
-python -m uvicorn backend.src.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn backend.src.main:app --host 0.0.0.0 --port 8081
 ```
 
 ### Production Deployment
 
-Use systemd for automatic startup:
+The units in `systemd/` are templates (`@LB_USER@`, `@LB_GROUP@`, `@LB_ROOT@`): do not copy
+them into `/etc/systemd/system` by hand. `systemd/install_services.sh` renders them for the
+real account and checkout, provisions `<root>/.env`, installs and enables them:
 
 ```bash
-# Copy service file
-sudo cp systemd/lawnberry.service /etc/systemd/system/
+# See exactly what would be installed (units rendered for the account and root); writes nothing.
+bash systemd/install_services.sh --dry-run
 
-# Enable and start service
-sudo systemctl enable lawnberry
-sudo systemctl start lawnberry
+# Install. The installer REFUSES (exit 3, nothing changed) without an operator credential of
+# at least 12 characters that is not a known default; give it one without typing it on the
+# command line:
+f=$(mktemp) && ${EDITOR:-nano} "$f"        # one line: the credential
+sudo bash systemd/install_services.sh --operator-credential-file "$f"; shred -u "$f"
 
-# Check status
-sudo systemctl status lawnberry
+# Re-running is safe: LAWN_BERRY_AUTH_SECRET (the token signing key) is generated once and
+# kept, so operator sessions survive an update. --rotate-auth-secret replaces it.
 ```
+
+It defaults to the account in `$SUDO_USER` and to the checkout it lives in
+(`--user`, `--group`, `--root` override). It enables the units and starts nothing:
+
+```bash
+sudo systemctl start lawnberry-database lawnberry-backend lawnberry-health \
+     lawnberry-frontend lawnberry-camera lawnberry-remote-access
+sudo systemctl status lawnberry-backend
+```
+
+**On the shed Pi do not stop or restart `lawnberry-backend` without physical access**: it also
+stops `lawnberry-camera` (`PartOf=`), and on 2026-10-06 the HaLow radio failed about 10 s after
+such a stop and stayed dark until a power cycle (`autonomy-toolchain-matrix.md`).
+
+HaLow units that exist only on the deployed Pi (`halow-bringup`, `halow-failover`,
+`halow-lan-routes.timer`, `wifi-halow-*`, `wificommand`, the `wpa_supplicant@halow0` drop-in and
+`lawnberry-backend.service.d/thor-upload.conf`) are not in the repository yet: the Pi was
+unreachable when this was written (audit, "Finish track: deployment"). Read them read-only
+(`systemctl cat <unit>`; check for credentials before committing) and add them under `systemd/`;
+`<unit>.d/*.conf` drop-ins next to a unit are rendered and installed by the installer.
+
+### Operator authentication
+
+The backend unit sets `OPERATOR_AUTH_REQUIRED=1`. Log in with the credential you installed
+(the web UI form takes any username and that password), then send the bearer token:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8081/api/v2/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"credential": "<your operator credential>"}' | jq -r .access_token)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/v2/auth/profile
+```
+
+There is no built-in credential: with none configured the backend still starts, but nobody can
+log in (the E-stop routes stay open by design). A 401 on every login means the credential in
+`<root>/.env` is missing, a published default, or not what you typed.
 
 ### Enabling AI Control
 
@@ -197,16 +249,16 @@ Via REST API:
 
 ```bash
 # Enable AI autonomous mode
-curl -X POST http://localhost:8000/api/v2/ai/enable \
+curl -X POST http://localhost:8081/api/v2/ai/enable \
   -H "Content-Type: application/json" \
   -d '{"mode": "ai_autonomous"}'
 
 # Check status
-curl http://localhost:8000/api/v2/ai/status
+curl http://localhost:8081/api/v2/ai/status
 ```
 
 Via Web Interface:
-1. Navigate to http://your-pi-ip:8000
+1. Navigate to http://your-pi-ip:3000
 2. Go to Control Panel
 3. Select "AI Autonomous" mode
 4. Click "Start"
@@ -216,13 +268,13 @@ Via Web Interface:
 ### Real-time Telemetry
 
 Access WebSocket telemetry at:
-- `ws://localhost:8000/ws/telemetry`
+- `ws://localhost:8081/api/v2/ws/telemetry`
 
 ### Performance Metrics
 
 ```bash
 # Get AI inference metrics
-curl http://localhost:8000/api/v2/ai/metrics
+curl http://localhost:8081/api/v2/ai/metrics
 ```
 
 Key metrics to monitor:
@@ -235,13 +287,13 @@ Key metrics to monitor:
 
 ```bash
 # Overall system health
-curl http://localhost:8000/api/v2/health
+curl http://localhost:8081/api/v2/health
 
 # AI-specific health
-curl http://localhost:8000/api/v2/ai/health
+curl http://localhost:8081/api/v2/ai/health
 
 # Sensor status
-curl http://localhost:8000/api/v2/sensors/status
+curl http://localhost:8081/api/v2/sensors/health
 ```
 
 ## Troubleshooting
@@ -292,26 +344,30 @@ sudo systemctl status serial-getty@ttyAMA0
 
 1. Verify Hailo hardware is being used:
    ```bash
-   curl http://localhost:8000/api/v2/ai/status | jq .using_hardware
+   curl http://localhost:8081/api/v2/ai/status | jq .using_hardware
    ```
 
 2. Check model is loaded:
    ```bash
-   curl http://localhost:8000/api/v2/ai/status | jq .model_loaded
+   curl http://localhost:8081/api/v2/ai/status | jq .model_loaded
    ```
 
 3. Review metrics:
    ```bash
-   curl http://localhost:8000/api/v2/ai/metrics | jq .avg_inference_time_ms
+   curl http://localhost:8081/api/v2/ai/metrics | jq .avg_inference_time_ms
    ```
 
 ## Safety Considerations
+
+The safety state of this machine is what the 2026-10-24 audit records (A.10 and Part D of
+[`2026-10-24-integration-audit.md`](2026-10-24-integration-audit.md)), not what the lists below
+once promised. Nothing here clears the machine for unattended motion.
 
 ### Pre-flight Checklist
 
 Before autonomous operation:
 
-1. [ ] Emergency stop button accessible
+1. [ ] Emergency stop reachable (see below: there is no hardwired E-stop yet)
 2. [ ] Boundary geofence configured
 3. [ ] Obstacle detection verified
 4. [ ] GPS fix obtained (RTK preferred)
@@ -321,20 +377,28 @@ Before autonomous operation:
 
 ### Safety Interlocks
 
-The system automatically stops if:
-- Ultrasonic detects obstacle < 30cm
-- IMU detects excessive tilt (> 25°)
-- GPS fix lost for > 30 seconds
-- AI confidence drops below threshold
-- Battery voltage critical
+Design intent, not a guarantee: automatic stops on an obstacle under 30 cm, excessive tilt,
+GPS loss, low AI confidence and a critical battery. As of the audit the ultrasonic array is
+disabled in the deployed build (HaLow pin conflict), obstacle triggers are advisory (N-11), the
+tilt cutoff exists on the tractor path only and the BNO085 driver is a stub (N-06), and the GPS
+degradation monitor does not observe real missions (N-31). Verify each one on the machine before
+relying on it.
 
 ### Emergency Stop
 
 Methods to stop the mower:
-1. Physical e-stop button
+1. A hardwired E-stop: **not built** (H-08, audit D.1). Do not assume one exists.
 2. Web interface "Stop" button
-3. API call: `POST /api/v2/control/emergency_stop`
-4. Loss of network connection (failsafe)
+3. API (unauthenticated by design): `POST /api/v2/control/emergency-stop` (alias of
+   `/control/emergency`). It latches the software E-stop and drives every stop path that exists;
+   the response says per subsystem what was actually confirmed
+   (`stopped`/`simulated`/`unconfirmed`/`failed`/`not_present`), so read it. Toro variant:
+   `POST /api/v2/tractor/emergency-stop`.
+4. Loss of the operator link: the tractor command deadman and the RoboHAT command expiry return
+   the drive to neutral/stop, but there is no general operator-link failsafe (audit D.5).
+
+Clearing needs operator authentication: `POST /api/v2/control/emergency_clear`
+(`{"confirmation": true}`) and, for the tractor, `POST /api/v2/tractor/clear-emergency`.
 
 ## Updating the System
 
@@ -348,24 +412,27 @@ git pull
 # Update dependencies
 pip install -e ".[hardware]"
 
-# Restart service
-sudo systemctl restart lawnberry
+# Re-render and install the units (keeps .env and the signing secret)
+sudo bash systemd/install_services.sh
+
+# Restart: on the shed Pi only with physical access (see above)
+sudo systemctl restart lawnberry-backend
 ```
 
 ### Model Updates
 
 ```bash
-# Stop service
-sudo systemctl stop lawnberry
+# Stop service (physical access on the shed Pi, see above)
+sudo systemctl stop lawnberry-backend
 
 # Replace model file
 cp /path/to/new_model.hef /apps/lawnberry-pi/data/models/lawnmower_vla.hef
 
 # Start service
-sudo systemctl start lawnberry
+sudo systemctl start lawnberry-backend
 
 # Verify new model loaded
-curl http://localhost:8000/api/v2/ai/health
+curl http://localhost:8081/api/v2/ai/health
 ```
 
 ## Performance Tuning
@@ -401,7 +468,7 @@ For battery-powered operation:
 
 ### Log Locations
 
-- Application logs: `journalctl -u lawnberry`
+- Application logs: `journalctl -u lawnberry-backend`
 - Hailo logs: `/var/log/hailort.log`
 - System logs: `/var/log/syslog`
 
@@ -409,18 +476,18 @@ For battery-powered operation:
 
 ```bash
 # Run with debug logging
-LOG_LEVEL=DEBUG python -m uvicorn backend.src.main:app --host 0.0.0.0 --port 8000
+LOG_LEVEL=DEBUG python -m uvicorn backend.src.main:app --host 0.0.0.0 --port 8081
 ```
 
 ### Common Log Patterns
 
 ```bash
 # View AI inference logs
-journalctl -u lawnberry | grep -i "ai\|inference\|hailo"
+journalctl -u lawnberry-backend | grep -i "ai\|inference\|hailo"
 
 # View safety events
-journalctl -u lawnberry | grep -i "safety\|emergency\|interlock"
+journalctl -u lawnberry-backend | grep -i "safety\|emergency\|interlock"
 
 # View sensor errors
-journalctl -u lawnberry | grep -i "sensor\|gps\|camera"
+journalctl -u lawnberry-backend | grep -i "sensor\|gps\|camera"
 ```

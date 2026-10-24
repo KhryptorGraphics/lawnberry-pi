@@ -1,5 +1,5 @@
 [Unit]
-Description=LawnBerry Pi v2 Backend API Service
+Description=LawnBerry Pi Backend API Service
 Documentation=https://github.com/acredsfan/lawnberry_pi
 After=network-online.target
 Wants=network-online.target
@@ -7,14 +7,14 @@ Requires=lawnberry-database.service
 
 [Service]
 Type=exec
-User=pi
-Group=pi
-WorkingDirectory=/apps/lawnberry-pi
-Environment=PYTHONPATH=/apps/lawnberry-pi
+User=@LB_USER@
+Group=@LB_GROUP@
+WorkingDirectory=@LB_ROOT@
+Environment=PYTHONPATH=@LB_ROOT@
 Environment=LAWNBERRY_ENV=production
-Environment=LAWNBERRY_CONFIG_DIR=/apps/lawnberry-pi/config
-Environment=LAWNBERRY_LOG_DIR=/apps/lawnberry-pi/logs
-Environment=LAWNBERRY_DATA_DIR=/apps/lawnberry-pi/data
+Environment=LAWNBERRY_CONFIG_DIR=@LB_ROOT@/config
+Environment=LAWNBERRY_LOG_DIR=@LB_ROOT@/logs
+Environment=LAWNBERRY_DATA_DIR=@LB_ROOT@/data
 Environment=SIM_MODE=0
 Environment=PYTHONUNBUFFERED=1
 # Operator auth is ENFORCED (was 0 = disabled, 2026-10-24 safety audit): login,
@@ -22,9 +22,11 @@ Environment=PYTHONUNBUFFERED=1
 # unlock step are required. The E-stop endpoints stay unauthenticated by design
 # (POST /api/v2/control/emergency, /control/emergency-stop, /tractor/emergency-stop);
 # clearing an E-stop or latch is authenticated. See api/deps.py::require_operator_auth.
-# DEPLOYMENT REQUIRES: set LAWN_BERRY_OPERATOR_CREDENTIAL in /apps/lawnberry-pi/.env
-# (EnvironmentFile below) BEFORE restarting this unit. Unset, the shipped default
-# credential ("operator123", public in the repo) is accepted, which is NOT secure.
+# CREDENTIAL: there is no built-in default any more. systemd/install_services.sh refuses to
+# finish until LAWN_BERRY_OPERATOR_CREDENTIAL (>= 12 characters, not a known default) is set
+# in @LB_ROOT@/.env (EnvironmentFile below), and it generates the persistent
+# LAWN_BERRY_AUTH_SECRET (token signing key) there. With no usable credential the backend
+# still starts but nobody can log in (fail closed); the E-stop endpoints keep working.
 # The web UI login form posts {username, password}: the password is that credential
 # (any username). Scripts need a bearer token (scripts/teleop.py --token).
 # To disable again (LAN bench only): set this to 0 and restart.
@@ -34,10 +36,10 @@ Environment=OPERATOR_AUTH_REQUIRED=1
 Environment=THOR_UPLOAD_ENABLED=0
 Environment=THOR_BASE_URL=http://192.168.1.64:15454
 # Load runtime secrets and configuration (e.g., NTRIP_*) from .env if present
-EnvironmentFile=-/apps/lawnberry-pi/.env
+EnvironmentFile=-@LB_ROOT@/.env
 
 # Main service command
-ExecStart=/apps/lawnberry-pi/.venv/bin/uvicorn backend.src.main:app --host 0.0.0.0 --port 8081 --workers 1
+ExecStart=@LB_ROOT@/.venv/bin/uvicorn backend.src.main:app --host 0.0.0.0 --port 8081 --workers 1
 
 # Health checks and monitoring
 ExecReload=/bin/kill -HUP $MAINPID
@@ -57,7 +59,7 @@ ProtectHome=false
 ProtectSystem=strict
 # App root must be writable: lgpio creates its .lgd-nfy-* notification FIFO in the
 # process CWD; with only subdirs writable, ultrasonic GPIO init fails (ENOENT).
-ReadWritePaths=/apps/lawnberry-pi
+ReadWritePaths=@LB_ROOT@
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

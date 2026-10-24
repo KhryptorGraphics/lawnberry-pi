@@ -6,19 +6,19 @@ PartOf=lawnberry-backend.service
 
 [Service]
 Type=simple
-User=pi
+User=@LB_USER@
 Group=video
-WorkingDirectory=/apps/lawnberry-pi
+WorkingDirectory=@LB_ROOT@
 Environment=SIM_MODE=0
 # Custom-built libcamera (Ubuntu's apt libcamera0.2 lacks the Pi5 rpi/pisp
 # pipeline handler needed for the CSI camera; see
 # docs/pi5-csi-camera-libcamera-status.md). Points at a self-contained
 # prefix, not the system libcamera -- nothing apt-managed is touched.
-Environment=LD_LIBRARY_PATH=/apps/lawnberry-pi/.local-libcamera/lib/aarch64-linux-gnu
-Environment=LIBCAMERA_IPA_MODULE_PATH=/apps/lawnberry-pi/.local-libcamera/lib/aarch64-linux-gnu/libcamera/ipa
-Environment=LIBCAMERA_IPA_CONFIG_PATH=/apps/lawnberry-pi/.local-libcamera/etc/libcamera/ipa:/apps/lawnberry-pi/.local-libcamera/share/libcamera/ipa
-Environment=PYTHONPATH=/apps/lawnberry-pi/.local-libcamera/lib/python3/dist-packages
-ExecStart=/bin/bash -lc "PY='./.venv/bin/python'; if [ ! -x \"$PY\" ]; then PY='python3'; fi; cd /apps/lawnberry-pi && \"$PY\" -m backend.src.services.camera_stream_service"
+Environment=LD_LIBRARY_PATH=@LB_ROOT@/.local-libcamera/lib/aarch64-linux-gnu
+Environment=LIBCAMERA_IPA_MODULE_PATH=@LB_ROOT@/.local-libcamera/lib/aarch64-linux-gnu/libcamera/ipa
+Environment=LIBCAMERA_IPA_CONFIG_PATH=@LB_ROOT@/.local-libcamera/etc/libcamera/ipa:@LB_ROOT@/.local-libcamera/share/libcamera/ipa
+Environment=PYTHONPATH=@LB_ROOT@/.local-libcamera/lib/python3/dist-packages
+ExecStart=/bin/bash -lc "PY='./.venv/bin/python'; if [ ! -x \"$PY\" ]; then PY='python3'; fi; cd @LB_ROOT@ && \"$PY\" -m backend.src.services.camera_stream_service"
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
@@ -32,7 +32,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=false
 ProtectSystem=strict
-ReadWritePaths=/apps/lawnberry-pi /var/lib/lawnberry /tmp
+ReadWritePaths=@LB_ROOT@ /var/lib/lawnberry /tmp
 
 # Logging
 StandardOutput=journal

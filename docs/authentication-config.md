@@ -10,13 +10,27 @@
 > authentication. The code default of `api/deps.py::require_operator_auth` is
 > unchanged (`"1"` when unset).
 >
-> **Before restarting the unit set the operator credential:** put
-> `LAWN_BERRY_OPERATOR_CREDENTIAL=<secret>` in `/apps/lawnberry-pi/.env`. Unset,
-> the public default `operator123` is accepted. The web UI login form posts
-> `{username, password}`; the password is that credential (any username), and
-> there is no longer an `admin/admin` alias. Scripts pass a bearer token
-> (`scripts/teleop.py --token`). To run a LAN bench without auth, set the unit's
-> value back to `0`.
+> **Before restarting the unit set the operator credential.** There is no built-in default
+> any more. Run `systemd/install_services.sh`: it refuses to finish (exit 3, nothing changed)
+> until `LAWN_BERRY_OPERATOR_CREDENTIAL` is a credential of at least 12 characters that is not
+> a published default (`operator123`, `admin`, `password`, ...), stores it in
+> `<root>/.env` (mode 0600) and generates the persistent `LAWN_BERRY_AUTH_SECRET` there. With
+> no usable credential the backend still starts but **nobody can log in** (fail closed); the
+> E-stop routes stay open. The web UI login form posts `{username, password}`; the password
+> is that credential (any username), and there is no `admin/admin` alias. Scripts pass a
+> bearer token (`scripts/teleop.py --token`). To run a LAN bench without auth, set the
+> unit's `OPERATOR_AUTH_REQUIRED` value back to `0`.
+>
+> The `lawnberry-pi ...` command examples further down describe a CLI that is not shipped (no
+> console entry point in `pyproject.toml`); the supported configuration is the environment
+> and `.env` described here.
+>
+> **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate): the
+> password is checked against the bcrypt `password_hash` of the security settings, else
+> `MANUAL_CONTROL_PASSWORD`, else the operator credential above, and against nothing if none is
+> usable (no credential configured, or a published default): the unlock is refused. It used to
+> accept any non-empty password in that case, and the session it returned is accepted by every
+> operator-gated write. A blank password is a 400 at every security level.
 >
 > Enforcement points that honour the flag: `api/deps.py::require_operator_auth`,
 > and in `api/routers/auth.py` `_resolve_manual_session`, `manual_unlock`, and
@@ -610,7 +624,7 @@ getent hosts lawnberry.yourdomain.com
 curl -sS https://lawnberry.yourdomain.com/ | head -c 200
 curl -sS -X POST https://lawnberry.yourdomain.com/api/v2/auth/login \
     -H 'Content-Type: application/json' \
-    -d '{"username":"admin","password":"admin"}'
+    -d '{"username":"admin","password":"<your operator credential>"}'
 ```
 
 Notes:
@@ -647,14 +661,15 @@ lawnberry-pi config auth --validate
 
 #### Emergency Access
 
-```bash
-# Physical recovery mode (requires Pi access)
-sudo systemctl stop lawnberry-backend
-sudo lawnberry-pi auth emergency-access --enable
+No emergency password and no `lawnberry-pi auth emergency-access` command exist. With shell
+access to the Pi, set a new credential and re-run the installer (it keeps the signing secret;
+`--rotate-auth-secret` also ends every existing session):
 
-# This creates temporary password: "emergency123"
-# Login and reconfigure authentication
-sudo systemctl start lawnberry-backend
+```bash
+f=$(mktemp) && ${EDITOR:-nano} "$f"      # one line: the new credential
+sudo bash systemd/install_services.sh --operator-credential-file "$f" --rotate-auth-secret
+shred -u "$f"
+# restart lawnberry-backend to load it (on the shed Pi only with physical access)
 ```
 
 #### Configuration Backup/Restore

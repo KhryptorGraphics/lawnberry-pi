@@ -21,6 +21,8 @@ from backend.src.main import app
 from backend.src.services.auth_service import AuthService
 
 CRED = "correct-horse-battery-staple"
+# The credential the backend used to fall back to. It must not authenticate any more.
+REMOVED_PUBLIC_DEFAULT = "operator123"
 
 
 @pytest.fixture
@@ -71,7 +73,8 @@ async def test_the_admin_admin_alias_is_gone(strict_auth):
             await client.post("/api/v2/auth/login", json={"credential": "admin"})
         ).status_code == 401
         wrong = await client.post(
-            "/api/v2/auth/login", json={"username": "operator", "password": "operator123"}
+            "/api/v2/auth/login",
+            json={"username": "operator", "password": REMOVED_PUBLIC_DEFAULT},
         )
         assert wrong.status_code == 401, "the public default must not work once a credential is set"
 

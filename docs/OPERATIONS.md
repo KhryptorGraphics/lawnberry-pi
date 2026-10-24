@@ -1,11 +1,15 @@
-# LawnBerry Pi v2 - Operations Guide
+# LawnBerry Pi - Operations Guide
 
 This document summarizes common operational procedures and API references relevant to day-to-day use on Raspberry Pi OS (64-bit, Bookworm). All examples target Raspberry Pi 5 primarily, with Pi 4B compatibility noted where relevant.
 
 ## Services
 - Backend API (FastAPI/Uvicorn): port 8081
-- Web UI (Vite dev): port 3000 (proxy to /api → /api/v2)
+- Web UI: port 3000 (`frontend/server.mjs` in production, Vite dev in development; both proxy /api → /api/v2)
 - WebSocket: ws://127.0.0.1:8081/api/v2/ws/telemetry
+- Operator authentication is enforced (`OPERATOR_AUTH_REQUIRED=1` in the unit). Log in with
+  `POST /api/v2/auth/login` and send `Authorization: Bearer <token>` on operator writes. The
+  credential and the token-signing secret live in `<root>/.env` (mode 0600), provisioned by
+  `systemd/install_services.sh`; there is no built-in credential.
 
 ## TLS/HTTPS Operations
 
@@ -56,8 +60,9 @@ Environment variables (set in `.env`):
 ## Control
 - POST http://127.0.0.1:8081/api/v2/control/drive
 - POST http://127.0.0.1:8081/api/v2/control/blade
-- POST http://127.0.0.1:8081/api/v2/control/emergency-stop
-- POST http://127.0.0.1:8081/api/v2/control/emergency_clear → clear E-stop with confirmation
+- POST http://127.0.0.1:8081/api/v2/control/emergency-stop → software E-stop (alias of `/control/emergency`), unauthenticated by design. **Not a hardware stop**: it latches the software flag and drives every stop path that exists (tractor service, RoboHAT, IBT-4 blade service). Read the reply: `motors_stopped` / `blade_disabled` are `true` only when a real path confirmed the stop and none failed; `subsystems` gives each output's `stopped` / `simulated` / `unconfirmed` / `failed` / `not_present`. `unconfirmed` means the command was issued but its effect could not be verified (for example a driver that only sets a flag). There is no independent hardwired E-stop yet (audit H-08, D.1), and follow-up commands are blocked only for a short window after the stop (N-02), so use the physical means to stop the machine.
+- POST http://127.0.0.1:8081/api/v2/tractor/emergency-stop → Toro variant: PTO off, levers neutral, throttle idle; cleared by the authenticated `POST /api/v2/tractor/clear-emergency`
+- POST http://127.0.0.1:8081/api/v2/control/emergency_clear → clear the E-stop latch with confirmation; requires operator authentication
 - GET http://127.0.0.1:8081/api/v2/hardware/robohat → RoboHAT status
 
 The Web UI now exposes a virtual joystick for manual drive control. Drag in any direction to stream drive vectors (linear/forward on the Y axis, angular/turn rate on the X axis). The slider underneath scales max velocity (10–100%). Releasing the joystick or pressing **Stop Motors** immediately sends a zero-vector command and clears the motion queue; the backend rate limiter has dedicated bursts for these endpoints to prevent inadvertent HTTP 429 responses during manual driving sessions.
@@ -72,7 +77,12 @@ The Web UI now exposes a virtual joystick for manual drive control. Drag in any 
 - POST http://127.0.0.1:8081/api/v2/verification-artifacts → upload verification artifacts
 
 ## Systemd
-See systemd/*.service and systemd/install_services.sh for installation. Backend service listens on port 8081.
+The units in `systemd/` are templates; `systemd/install_services.sh` renders them for the real
+account and checkout (`--user`, `--group`, `--root`), provisions `<root>/.env` and enables them
+(`--dry-run` shows the rendered units and writes nothing). It refuses to finish without a strong
+operator credential and generates the persistent `LAWN_BERRY_AUTH_SECRET`. Backend service
+listens on port 8081. See `docs/deployment-guide.md`. On the shed Pi do not stop or restart
+`lawnberry-backend` without physical access (it also stops `lawnberry-camera`).
 
 Certificate renewal units:
 - `lawnberry-cert-renewal.service` — on-demand renewal/validation + nginx reload + fallback
@@ -118,18 +128,21 @@ python scripts/generate_docs_bundle.py
 ```
 
 ## Emergency Stop Recovery
-When an emergency stop is active, all motion is locked out. To clear it:
+When an emergency stop is active, motion is locked out. To clear it:
 
-1) Ensure the physical E-stop button is released and area is safe
-2) Clear via API with explicit confirmation flag:
+1) Ensure the physical E-stop button (if one is fitted) is released and the area is safe
+2) Clear via the API with an operator token and the explicit confirmation flag:
 
 ```bash
 curl -X POST http://127.0.0.1:8081/api/v2/control/emergency_clear \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"confirmation": true}'
 ```
 
-The system will return status EMERGENCY_CLEARED.
+The system returns status EMERGENCY_CLEARED. A latched tractor E-stop or blade interlock is not
+released by this call: the reply lists it under `still_latched` and it needs its own
+authenticated `POST /api/v2/tractor/clear-emergency`.
 
 ## Blade Safety Lockout
 By default, blade engagement is locked out until safety preconditions are satisfied (no emergency stop, motors not active, authorization present). If a blade command is rejected, check active interlocks and remediate hazards before retrying.

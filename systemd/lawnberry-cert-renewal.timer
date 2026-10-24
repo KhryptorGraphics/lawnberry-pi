@@ -1,6 +1,6 @@
 [Unit]
 Description=Daily LawnBerry Pi certificate renewal/validation timer
-Documentation=README.md
+Documentation=file:@LB_ROOT@/docs/OPERATIONS.md
 
 [Timer]
 OnCalendar=daily
