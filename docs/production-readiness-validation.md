@@ -16,15 +16,17 @@ are the things that can only be confirmed on-device.
 
 ## 2. Service bring-up
 
-- [ ] systemd units start: `systemctl status lawnberry-backend lawnberry-frontend lawnberry-camera lawnberry-sensors`.
+- [ ] systemd units start: `systemctl status lawnberry-backend lawnberry-frontend lawnberry-camera`.
 - [ ] Backend runs with `SIM_MODE=0` (set in `lawnberry-backend.service`).
 - [ ] `curl -fsS http://127.0.0.1:8081/health` returns `status: healthy` with
       `message_bus / drivers / persistence / safety` all healthy on real hardware.
 
 ## 3. Security / auth (new)
 
-- [ ] Set the operator credential (`LAWN_BERRY_OPERATOR_CREDENTIAL` / secrets) and confirm
-      `POST /api/v2/auth/login` issues a bearer token.
+- [ ] The operator credential and `LAWN_BERRY_AUTH_SECRET` are in `<root>/.env` (mode 0600),
+      provisioned by `systemd/install_services.sh` (it refuses a missing, default or weak
+      credential); confirm `POST /api/v2/auth/login` issues a bearer token for that credential
+      and returns 401 for any other, including the old public default.
 - [ ] Confirm the new write-endpoint authorization (added in this PR): `PUT /api/v2/settings`,
       `PUT /api/v2/map/configuration`, `POST /api/v2/planning/jobs`, AI export, and
       `verification-artifacts` reject unauthenticated writes (401) and accept an authenticated one.

@@ -5,10 +5,10 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=pi
-Group=pi
-WorkingDirectory=/apps/lawnberry-pi
-ExecStart=/apps/lawnberry-pi/scripts/backup_system.sh
+User=@LB_USER@
+Group=@LB_GROUP@
+WorkingDirectory=@LB_ROOT@
+ExecStart=@LB_ROOT@/scripts/backup_system.sh
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
