@@ -128,7 +128,8 @@ def evaluate_changes(
             violations.append(
                 Violation("submodule", "submodules/nested repositories are not allowed", path)
             )
-        if change.new_mode == MODE_EXECUTABLE:
+        if change.new_mode == MODE_EXECUTABLE and change.old_mode != MODE_EXECUTABLE:
+            # a *new* exec bit; editing a file that is already executable stays 100755 -> 100755
             violations.append(Violation("executable", "executable files are not allowed", path))
         if change.status == "T":
             violations.append(Violation("type_change", "file type changes are not allowed", path))

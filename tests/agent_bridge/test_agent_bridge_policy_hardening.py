@@ -15,11 +15,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from bridgefakes.rig import BASE_FILES, GitRepoEnv, make_git_env
 
 from tools.agent_bridge import globs
 from tools.agent_bridge.agents.omp import GUARD_PATH
-from tools.agent_bridge.config import DEFAULT_PROTECTED_PATHS, BridgeConfig
+from tools.agent_bridge.config import DEFAULT_PROTECTED_PATHS, BridgeConfig, GitConfig
+from tools.agent_bridge.gitops import GitOps
 from tools.agent_bridge.globs import match_any
+from tools.agent_bridge.models import RunStatus
 from tools.agent_bridge.policy import Change, WritePolicy, build_write_policy, evaluate_changes
 from tools.agent_bridge.schema import TaskSpec
 
@@ -572,3 +575,127 @@ def test_python_policy_and_node_guard_agree_on_every_protected_and_ordinary_name
     python_allows = [policy.check_path(name) is None for name in names]
     node_allows = [d["allow"] for d in decisions]
     assert [n for n, a, b in zip(names, python_allows, node_allows, strict=True) if a != b] == []
+
+
+# =========================================================================== C-06
+# Only a *new* executable bit is refused.  Editing a file that is already executable in the base
+# keeps mode 100755 -> 100755 and is an ordinary content change.
+def mode_change(path: str, old_mode: str, new_mode: str, status: str = "M") -> Change:
+    return Change(path, status, old_mode, new_mode, size=10, added=1, deleted=1)
+
+
+def test_a_content_edit_of_an_already_executable_file_is_allowed() -> None:
+    change = mode_change("tools/run.sh", EXECUTABLE, EXECUTABLE)
+
+    assert evaluate_changes([change], make_policy("code"), LIMITS) == []
+
+
+@pytest.mark.parametrize(
+    ("old_mode", "new_mode", "status"),
+    [(REGULAR, EXECUTABLE, "M"), (ABSENT, EXECUTABLE, "A")],
+    ids=["chmod-plus-x", "new-executable-file"],
+)
+def test_a_new_executable_bit_is_still_refused(old_mode: str, new_mode: str, status: str) -> None:
+    change = mode_change("tools/run.sh", old_mode, new_mode, status)
+
+    found = evaluate_changes([change], make_policy("code"), LIMITS)
+
+    assert [(v.code, v.path) for v in found] == [("executable", "tools/run.sh")]
+
+
+@pytest.mark.parametrize(
+    ("old_mode", "new_mode", "status"),
+    [(EXECUTABLE, REGULAR, "M"), (EXECUTABLE, ABSENT, "D"), (REGULAR, REGULAR, "M")],
+    ids=["chmod-minus-x", "deleted", "plain-edit"],
+)
+def test_dropping_or_never_having_the_executable_bit_is_fine(
+    old_mode: str, new_mode: str, status: str
+) -> None:
+    change = mode_change("tools/run.sh", old_mode, new_mode, status)
+
+    assert evaluate_changes([change], make_policy("code"), LIMITS) == []
+
+
+@pytest.fixture
+def executable_repo(tmp_path: Path) -> tuple[GitRepoEnv, GitOps, str]:
+    files = {
+        **BASE_FILES,
+        "tools/run.sh": "#!/bin/sh\necho one\n",
+        "tools/plain.sh": "#!/bin/sh\necho plain\n",
+    }
+    git = make_git_env(tmp_path, files)
+    (git.clone / "tools/run.sh").chmod(0o755)
+    git.git("add", "-A")
+    git.git("commit", "-q", "-m", "make run.sh executable")
+    git.git("push", "-q", "origin", "main")
+    ops = GitOps(git.clone, GitConfig(), state_dir=tmp_path / "state", environ=git.env)
+    return git, ops, git.git("rev-parse", "HEAD")
+
+
+def staged_violations(
+    git: GitRepoEnv, ops: GitOps, base: str, scope: str = "code"
+) -> list[tuple[str, str | None]]:
+    ops.stage_all(git.clone)
+    staged = ops.staged_changes(git.clone, base, max_diff_bytes=1_000_000)
+    found = evaluate_changes(
+        staged.changes, make_policy(scope), LIMITS, diff_bytes=staged.diff_bytes
+    )
+    return [(v.code, v.path) for v in found]
+
+
+def test_real_git_editing_an_executable_file_is_not_a_violation(
+    executable_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = executable_repo
+    (git.clone / "tools/run.sh").write_text("#!/bin/sh\necho two\n", encoding="utf-8")
+
+    ops.stage_all(git.clone)
+    staged = ops.staged_changes(git.clone, base, max_diff_bytes=1_000_000)
+
+    assert [(c.path, c.old_mode, c.new_mode) for c in staged.changes] == [
+        ("tools/run.sh", EXECUTABLE, EXECUTABLE)
+    ]
+    assert staged_violations(git, ops, base) == []
+
+
+def test_real_git_making_a_plain_file_executable_is_a_violation(
+    executable_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = executable_repo
+    (git.clone / "tools/plain.sh").chmod(0o755)
+
+    assert staged_violations(git, ops, base) == [("executable", "tools/plain.sh")]
+
+
+def test_real_git_a_new_executable_file_is_a_violation(
+    executable_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = executable_repo
+    (git.clone / "tools/new.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (git.clone / "tools/new.sh").chmod(0o755)
+
+    assert staged_violations(git, ops, base) == [("executable", "tools/new.sh")]
+
+
+def test_the_worker_accepts_an_agent_edit_of_an_existing_executable(
+    make_rig_for: Any, tmp_path: Path
+) -> None:
+    git = make_git_env(tmp_path, {**BASE_FILES, "tools/run.sh": "#!/bin/sh\necho one\n"})
+    (git.clone / "tools/run.sh").chmod(0o755)
+    git.git("add", "-A")
+    git.git("commit", "-q", "-m", "make run.sh executable")
+    git.git("push", "-q", "origin", "main")
+    rig = make_rig_for(git=git)
+    number = rig.new_task_issue(scope="code", allowed_paths=["tools/**"])
+    rig.set_scenario(
+        [
+            {"op": "write_file", "path": "tools/run.sh", "content": "#!/bin/sh\necho two\n"},
+            {"op": "final", "text": "Done.", "report": {"status": "completed", "summary": "Edit"}},
+        ]
+    )
+
+    run = rig.run_issue(number)
+
+    assert run.status is RunStatus.DONE, (run.status, run.failure_kind, run.failure_detail)
+    assert run.result is not None and run.result["files"] == ["tools/run.sh"]
+    assert len(rig.fake.pulls) == 1
