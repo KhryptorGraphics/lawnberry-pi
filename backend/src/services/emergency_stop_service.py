@@ -9,7 +9,11 @@ never claims a stop that was not observed.
 
 Output status vocabulary:
 
-- ``stopped``      a real hardware path confirmed the stop
+- ``stopped``      a real hardware path confirmed the stop: the firmware echoed
+                   the command, the actuator command was applied, or, for the
+                   IBT-4, both GPIO inputs were driven low and read back low.
+                   None of these observe the machine itself (IBT-4 power stage,
+                   blade motor, PTO); the output ``detail`` says what was seen
 - ``simulated``    SIM_MODE: no hardware by design; counts as confirmed so SIM
                    stays testable
 - ``unconfirmed``  the command was issued but its effect could not be confirmed
@@ -124,14 +128,40 @@ def _robohat_path(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _blade_service_path(result: dict[str, Any]) -> dict[str, Any]:
-    if result.get("error") or (result["initialized"] and not result["off"]):
+    """Map a ``BladeService`` stop/park report to an output status.
+
+    ``stopped`` needs a hardware-backed driver whose off write was CONFIRMED: ``off`` is True
+    only after every write succeeded and both inputs read back low. A driver that was
+    initialised but did not confirm it, or whose setup failed (``gpio_error``, e.g. GPIO25
+    busy), is ``failed`` (attempted and failed), not absent. ``not_present`` therefore only
+    describes an UNARMED service that was never initialised: an armed one (``ibt4.gpio_enabled``)
+    is initialised by the stop itself (``BladeService``), so it ends up ``stopped`` or ``failed``.
+    """
+    error = result.get("error")
+    gpio_error = result.get("gpio_error")
+    if error or (result["initialized"] and not result["off"]):
         output = _output(
-            FAILED, error=result.get("error") or "blade driver refused the off command"
+            FAILED, error=error or gpio_error or "blade driver refused the off command"
+        )
+    elif not result["initialized"] and gpio_error:
+        output = _output(
+            FAILED,
+            error=f"IBT-4 GPIO setup failed, the blade output was NOT driven: {gpio_error}",
         )
     elif not result["initialized"]:
         return _absent(NOT_PRESENT, "IBT-4 blade service never initialised (nothing to switch off)")
     elif result["hardware_backed"]:
-        output = _output(STOPPED)
+        pins = result.get("pins") or {}
+        gpio = (
+            f"GPIO{pins['in1']}/{pins['in2']}"
+            if "in1" in pins and "in2" in pins
+            else "the IBT-4 inputs"
+        )
+        output = _output(
+            STOPPED,
+            detail=f"{gpio} driven low and read back low; "
+            "the IBT-4 power stage and the blade motor are not observed",
+        )
     elif is_simulation_mode():
         output = _output(SIMULATED)
     else:
