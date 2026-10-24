@@ -1687,3 +1687,9 @@ unreachable (last row). Test counts are in the final summary of the PR.
 
 Deployed Pi after merge (T4, not done): `OPERATOR_AUTH_REQUIRED` stays `0` there and no `.env` exists until the owner runs
 `sudo bash systemd/install_services.sh --operator-credential-file ...` with the credential from O-2.
+
+Verification on `finish/deploy`: `env -u PYTEST_ADDOPTS SIM_MODE=1 pytest tests -o addopts="" -p no:cacheprovider --ignore=tests/soak -W ignore`
+collected 891: **822 passed, 69 skipped, 0 failed, 0 errors** (baseline 762 / 693 / 69 / 0; the 129 new tests are 43 installer, 41
+`provision_env`, 27 policy and 18 auth), `ruff check .` clean, `shellcheck -x systemd/install_services.sh` clean,
+`systemd-analyze verify` clean on every rendered unit. `ruff format --check .` still reports `hardware/mounts/build_printables.py`
+and `workshop/isaac_sdg.py`, which this track did not touch.
