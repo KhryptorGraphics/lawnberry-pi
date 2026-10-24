@@ -3,7 +3,8 @@
 Comments carry a hidden marker so a retried publication never posts twice.  Text that originates
 from an agent (including error text that may embed it) is redacted and rendered inside a code
 fence or an inline code span it cannot close, so Markdown, HTML, images and ``@mentions`` in it
-stay inert.
+stay inert.  So is text chosen by whoever wrote the issue (the task title, the YAML keys that
+validation messages quote): posted as live Markdown it would come from the bridge's account.
 """
 
 from __future__ import annotations
@@ -61,6 +62,20 @@ def _verbatim(text: str) -> str:
 def _untrusted_line(text: str, limit: int, redactor: Redactor) -> str:
     """Agent-derived text as one redacted, truncated line inside an inline code span."""
     line = _one_line(redactor.redact(strip_control_chars(text)), limit)
+    return _verbatim(line) if line else "_none_"
+
+
+def _issue_line(text: str, limit: int, *, table_cell: bool = False) -> str:
+    """Issue-derived text as one line inside an inline code span it cannot close.
+
+    Task titles and validation messages (which quote the author's YAML keys) are chosen by the
+    issue's author, so ``@mentions``, links, HTML and ``#refs`` in them must stay inert.  In a
+    table cell every pipe is backslash-escaped first: GFM ends a cell at any unescaped pipe,
+    code spans included.
+    """
+    line = _one_line(text, limit)
+    if table_cell:
+        line = line.replace("|", "\\|")
     return _verbatim(line) if line else "_none_"
 
 
@@ -228,7 +243,7 @@ def render_cancelled(run: RunRecord, reason: str, redactor: Redactor | None = No
 
 
 def render_refusal(code: str, messages: Sequence[str], *, key: str) -> str:
-    bullets = [f"- {_one_line(m, 300)}" for m in messages[:20]]
+    bullets = [f"- {_issue_line(m, 300)}" for m in messages[:20]]
     return "\n".join(
         [
             "### Agent bridge cannot run this task",
@@ -268,7 +283,7 @@ def render_pull_request_body(
     lines += [
         "| | |",
         "|---|---|",
-        f"| Task | #{issue_number} {_one_line(run.issue_title, 120)} |",
+        f"| Task | #{issue_number} {_issue_line(run.issue_title, 120, table_cell=True)} |",
         f"| Agent | {_code(run.backend)}{model} |",
         f"| Run | {_code(run.run_id)} |",
         f"| Base | {base} |",

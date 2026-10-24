@@ -430,7 +430,7 @@ def test_render_cancelled_states_reason_and_run() -> None:
     ("which", "prefix", "closing", "limit"),
     [
         pytest.param("cancelled", "- Reason:", "...`", 300 + len("- Reason: ``"), id="cancelled"),
-        pytest.param("refusal", "- first line", "...", 300 + len("- "), id="refusal"),
+        pytest.param("refusal", "- `first line", "...`", 300 + len("- ``"), id="refusal"),
     ],
 )
 def test_free_text_is_one_line_and_length_capped(
@@ -452,7 +452,7 @@ def test_render_refusal_lists_at_most_twenty_messages_and_names_the_code() -> No
 
     assert "### Agent bridge cannot run this task" in body
     assert "- Reason: `invalid_task`" in body
-    assert "- problem 19" in body and "problem 20" not in body
+    assert "- `problem 19`" in body and "problem 20" not in body
     assert "remove and re-apply `agent-approved`" in body
     assert last_line(body) == marker("refusal-7-1")
 
@@ -470,7 +470,7 @@ def test_pull_request_body_ends_with_the_issue_reference_and_says_it_is_a_draft(
     assert last_line(body) == f"{keyword} #7"
     assert body.startswith("Draft pull request opened by the LawnBerry agent bridge for #7.")
     assert "has not been merged or deployed" in body and "a human must review it" in body
-    assert "| Task | #7 Document the bridge |" in body
+    assert "| Task | #7 `Document the bridge` |" in body
     assert "| Agent | `omp` (`claude-opus-5-5`) |" in body
     assert f"| Run | `{RUN_ID}` |" in body
     assert "| Base | `aaaaaaaaaa` |" in body
