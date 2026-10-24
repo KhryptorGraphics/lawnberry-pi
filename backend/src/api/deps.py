@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import os
-from datetime import UTC, datetime
-
 from fastapi import HTTPException, Request
 
-from ..core.globals import _manual_control_sessions
+from ..core.auth_posture import operator_auth_required
 from ..services.auth_service import primary_auth_service
 
 
@@ -19,27 +16,27 @@ def _bearer_token(request: Request) -> str | None:
     return None
 
 
-def _has_valid_manual_session(request: Request) -> bool:
-    sid = request.headers.get("X-Session-Id") or request.headers.get("x-session-id")
-    if not sid:
-        return False
-    now = datetime.now(UTC)
-    for entry in _manual_control_sessions.values():
-        if entry.get("session_id") == sid and entry.get("expires_at", now) > now:
-            return True
-    return False
-
-
 async def require_operator_auth(request: Request) -> None:
-    """Require operator authentication on config-changing write endpoints.
+    """Require operator authentication on every state-changing route that is not an E-stop.
 
-    Accepts EITHER a valid bearer token (issued by ``/api/v2/auth/login``) OR a
-    valid manual-control ``session_id`` (``X-Session-Id`` header). Enforcement is
-    gated by ``OPERATOR_AUTH_REQUIRED`` (default ``"1"`` — secure by default);
-    the test suite disables it so existing contract tests keep passing, and the
-    systemd unit sets it explicitly in production.
+    Accepts ONE credential: a bearer token issued by ``/api/v2/auth/login`` (or ``/api/v1``)
+    that still has a live server-side session. A manual-control session id (from
+    ``/control/manual-unlock``) is NOT an operator credential and is not accepted here: it is
+    minted only for an operator who is already logged in and re-enters the credential, and it
+    travels in request bodies and camera URLs that end up in logs, so it can only ever be an
+    additional factor for ``/control/drive`` and ``/control/blade``, never a replacement for
+    the login (it used to be accepted via ``X-Session-Id``, which turned any leaked or minted
+    session id into a full operator login).
+
+    Enforcement follows ``OPERATOR_AUTH_REQUIRED``, parsed fail-closed by
+    :func:`backend.src.core.auth_posture.operator_auth_required` (only an explicit
+    ``0``/``false``/``no``/``off`` disables it; unset keeps it on). The test suite disables it
+    so contract tests can call writes without a token, and the systemd unit sets it to ``1``.
+    The E-stop POSTs deliberately do not use this dependency; they must work with no
+    credential at all (``tests/integration/test_operator_auth_coverage.py`` lists every route
+    that is open and why).
     """
-    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
+    if not operator_auth_required():
         return
 
     token = _bearer_token(request)
@@ -51,7 +48,8 @@ async def require_operator_auth(request: Request) -> None:
         if session:
             return
 
-    if _has_valid_manual_session(request):
-        return
-
-    raise HTTPException(status_code=401, detail="Operator authentication required")
+    raise HTTPException(
+        status_code=401,
+        detail="Operator authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )

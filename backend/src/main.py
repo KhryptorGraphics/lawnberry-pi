@@ -30,6 +30,7 @@ from .api.routers import tractor as tractor_router
 from .api.routers import weather as weather_router
 from .api.safety import router as safety_router
 from .api.status import router as status_router
+from .core.auth_posture import log_auth_posture
 from .core.config_loader import ConfigLoader
 from .core.env_validation import validate_environment
 from .middleware.api_key_auth import register_api_key_auth_middleware
@@ -91,6 +92,9 @@ async def _fail_closed(app: FastAPI, tractor) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    # Say, before anything starts, every way this process is set to skip authentication
+    # (OPERATOR_AUTH_REQUIRED disabled, SIM_MODE on a production or exposed process).
+    log_auth_posture()
     # Load configuration (hardware + safety limits) and attach to app.state
     loader = ConfigLoader()
     hardware_cfg, safety_limits = loader.get()

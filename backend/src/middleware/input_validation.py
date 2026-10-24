@@ -5,6 +5,9 @@ Enforces basic constraints before handlers run:
 - Maximum body size limit
 - Rejects invalid JSON payloads early with clear errors
 
+The E-stop POSTs (``middleware/emergency_paths.py``) are never refused here: a stop request
+with an odd content type or an oversized body must still stop the machine.
+
 Note: Detailed schema validation remains with FastAPI/Pydantic models.
 """
 
@@ -17,6 +20,8 @@ from collections.abc import Iterable
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
+
+from .emergency_paths import is_emergency_stop_path
 
 
 class InputValidationMiddleware(BaseHTTPMiddleware):
@@ -33,7 +38,9 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
-        if any(path.startswith(p) for p in self._skip):
+        if is_emergency_stop_path(request.scope.get("path", "")) or any(
+            path.startswith(p) for p in self._skip
+        ):
             return await call_next(request)
 
         if request.method in {"POST", "PUT", "PATCH"}:

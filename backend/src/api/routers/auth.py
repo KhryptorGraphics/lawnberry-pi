@@ -1,32 +1,49 @@
-import base64
-import hashlib
-import json
+"""Operator login, token refresh/logout and the manual-control unlock.
+
+Authority model (see ``docs/authentication-config.md``):
+
+* ``POST /auth/login`` exchanges the one shared operator credential for a bearer token. That
+  token is the ONLY credential ``api.deps.require_operator_auth`` accepts.
+* ``POST /control/manual-unlock`` is a step-up: it requires that bearer token AND the credential
+  again (the bcrypt ``password_hash`` of the security settings, else ``MANUAL_CONTROL_PASSWORD``,
+  else the operator credential), and mints a random manual-control session id. That id is an
+  additional factor the drive and blade routes check in the request body; it is not an operator
+  credential. Nothing is minted for an unverified identity: Cloudflare Access assertions are
+  not accepted (they were decoded but never verified, so any header value unlocked control).
+"""
+
+import hmac
 import logging
 import os
-import uuid
+import secrets
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import bcrypt
 import pyotp
-from fastapi import APIRouter, HTTPException, Request, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, status
 from pydantic import BaseModel
 
+from ...core.auth_posture import operator_auth_required, sim_open_auth_enabled
 from ...core.globals import _manual_control_sessions, _security_settings
+from ...core.peer_address import request_peer_key
 from ...models.auth_security_config import SecurityLevel
 from ...models.user_session import UserSession
-from ...services.auth_service import AuthenticationError, primary_auth_service
+from ...services.auth_service import AuthenticationError, primary_auth_service, run_password_check
+from ..deps import require_operator_auth
 from .settings import get_security_level
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Security settings (auth levels, MFA options)
-# This was in rest.py as _security_settings.
-# I should probably move this to a service or keep it here if it's only used here.
-# It is used in manual unlock logic.
-# Security settings (auth levels, MFA options)
-# Imported from globals.py
+# At most this many manual-control sessions are live at once; the soonest to expire makes room.
+MANUAL_SESSION_LIMIT = 64
+# What the auth-disabled unlock hands back (nothing resolves it: with auth off, any id passes).
+AUTH_DISABLED_SESSION_ID = "manual-auth-disabled"
+CLOUDFLARE_UNSUPPORTED = (
+    "Cloudflare Access assertions are not verified by this backend, so they cannot unlock "
+    "manual control; unlock with the operator password"
+)
 
 
 # Models
@@ -86,70 +103,45 @@ class RefreshResponse(BaseModel):
 
 
 # Helpers
-def _decode_jwt_payload(token: str) -> dict[str, Any]:
-    try:
-        parts = token.split(".")
-        if len(parts) < 2:
-            return {}
-        payload_segment = parts[1]
-        padding = "=" * ((4 - len(payload_segment) % 4) % 4)
-        decoded = base64.urlsafe_b64decode((payload_segment + padding).encode("utf-8"))
-        data = json.loads(decoded.decode("utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _manual_session_expiry(
-    default_minutes: int | None = None, token_payload: dict[str, Any] | None = None
-) -> datetime:
-    now = datetime.now(UTC)
-    if token_payload and isinstance(token_payload.get("exp"), (int, float)):
-        try:
-            exp = datetime.fromtimestamp(float(token_payload["exp"]), tz=UTC)
-            if exp > now:
-                return exp
-        except Exception:
-            pass
+def _manual_session_expiry(default_minutes: int | None = None) -> datetime:
     minutes = default_minutes or 60
     try:
         minutes = int(minutes)
     except Exception:
         minutes = 60
-    return now + timedelta(minutes=max(1, minutes))
+    return datetime.now(UTC) + timedelta(minutes=max(1, minutes))
 
 
-def _manual_session_key(seed: str) -> str:
-    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
-    return f"manual-{digest[:16]}"
+def _issue_manual_session(expires_at: datetime, principal: str | None) -> dict[str, Any]:
+    """Mint a manual-control session whose id is random, not derived from any secret.
 
-
-def _store_manual_session(seed: str, expires_at: datetime, principal: str | None) -> dict[str, Any]:
-    # Garbage collect expired sessions first
+    The id used to be ``sha256`` of the unlocking password (and peer address) or of the
+    Cloudflare token: anyone who saw an id (the camera stream URL carries it, so it reaches
+    access logs) could test password guesses against it offline.
+    """
     now = datetime.now(UTC)
-    for key in list(_manual_control_sessions.keys()):
-        if _manual_control_sessions[key]["expires_at"] <= now:
-            _manual_control_sessions.pop(key, None)
+    for key in [k for k, v in _manual_control_sessions.items() if v["expires_at"] <= now]:
+        _manual_control_sessions.pop(key, None)
+    while len(_manual_control_sessions) >= MANUAL_SESSION_LIMIT:
+        soonest = min(
+            _manual_control_sessions, key=lambda k: _manual_control_sessions[k]["expires_at"]
+        )
+        _manual_control_sessions.pop(soonest, None)
 
-    entry = _manual_control_sessions.get(seed)
-    if entry:
-        entry["expires_at"] = expires_at
-        if principal:
-            entry["principal"] = principal
-        return entry
-
-    session_id = _manual_session_key(seed)
-    entry = {
-        "session_id": session_id,
-        "expires_at": expires_at,
-        "principal": principal,
-    }
-    _manual_control_sessions[seed] = entry
+    session_id = f"manual-{secrets.token_urlsafe(24)}"
+    entry = {"session_id": session_id, "expires_at": expires_at, "principal": principal}
+    _manual_control_sessions[session_id] = entry
     return entry
 
 
+def _auth_disabled_unlock() -> tuple[str, str]:
+    """Session id and expiry handed back while ``OPERATOR_AUTH_REQUIRED`` is off."""
+    timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
+    return AUTH_DISABLED_SESSION_ID, _manual_session_expiry(timeout_minutes).isoformat()
+
+
 def _resolve_manual_session(session_id: str | None) -> dict[str, Any]:
-    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
+    if not operator_auth_required():
         return {"principal": "operator", "session_id": "auth-disabled"}
 
     token = (session_id or "").strip()
@@ -159,17 +151,17 @@ def _resolve_manual_session(session_id: str | None) -> dict[str, Any]:
     now = datetime.now(UTC)
     matched_entry: dict[str, Any] | None = None
     expired: list[str] = []
-    for seed, entry in _manual_control_sessions.items():
+    wanted = token.encode("utf-8")
+    for key, entry in _manual_control_sessions.items():
         expires_at: datetime = entry.get("expires_at", now)
         if expires_at <= now:
-            expired.append(seed)
+            expired.append(key)
             continue
-        if entry.get("session_id") == token:
+        if secrets.compare_digest(str(entry.get("session_id", "")).encode("utf-8"), wanted):
             matched_entry = entry
-            break
 
-    for seed in expired:
-        _manual_control_sessions.pop(seed, None)
+    for key in expired:
+        _manual_control_sessions.pop(key, None)
 
     if matched_entry is None:
         raise HTTPException(
@@ -191,39 +183,83 @@ def _manual_unlock_principal(request: Request, method: str) -> str:
     return f"{method}:{host_str}" if host_str else method
 
 
-def _validate_manual_password(password: str | None) -> str:
-    """Check the password of a password-based manual unlock; never fail open.
+async def _manual_password_matches(pwd: str) -> bool:
+    """Compare ``pwd`` with the first usable manual-unlock secret; ``False`` if none matches.
 
-    Verified against, in order: the configured bcrypt ``password_hash``, the
-    ``MANUAL_CONTROL_PASSWORD`` environment variable, and otherwise the shared operator
-    credential. With none of them usable (no credential configured, or only a published default)
-    nothing matches. Before this, a non-empty password was accepted when none was configured,
-    and the session it returned also passes ``require_operator_auth`` and ``/control/drive``.
+    In order: the bcrypt ``password_hash`` of the security settings, ``MANUAL_CONTROL_PASSWORD``
+    (constant-time compare), else the shared operator credential. With none usable (no
+    credential configured, or only a published default) nothing matches. bcrypt runs on the
+    hash pool, never on the event loop.
+    """
+    if _security_settings.password_hash:
+        try:
+            return await run_password_check(
+                primary_auth_service.password_manager.matches,
+                pwd,
+                _security_settings.password_hash,
+            )
+        except ValueError as exc:
+            logger.error("Invalid password hash configuration: %s", exc)
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Password configuration invalid"
+            ) from exc
+    fallback = os.getenv("MANUAL_CONTROL_PASSWORD")
+    if fallback:
+        return hmac.compare_digest(pwd.encode("utf-8"), fallback.encode("utf-8"))
+    return await primary_auth_service.verify_operator_credential(pwd)
+
+
+async def _validate_manual_password(password: str | None) -> str:
+    """Check the password of a manual unlock; never fail open.
+
+    A blank password is a 400 and a wrong one a 401. (The caller wraps this in the per-peer
+    unlock throttle, so a wrong guess counts.)
     """
     pwd = (password or "").strip()
     if not pwd:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="Password required for manual unlock"
         )
-    if _security_settings.password_hash:
-        try:
-            if not bcrypt.checkpw(
-                pwd.encode("utf-8"), _security_settings.password_hash.encode("utf-8")
-            ):
-                raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
-        except ValueError as exc:
-            logger.error("Invalid password hash configuration: %s", exc)
-            raise HTTPException(
-                status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Password configuration invalid"
-            ) from exc
-    else:
-        fallback = os.getenv("MANUAL_CONTROL_PASSWORD")
-        if fallback:
-            if pwd != fallback:
-                raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
-        elif not primary_auth_service.verify_operator_credential(pwd):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+    if not await _manual_password_matches(pwd):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
     return pwd
+
+
+async def _throttled_unlock(request: Request, check: Callable[[], Awaitable[Any]]) -> Any:
+    """Run ``check`` under the per-peer unlock throttle (same limiter, separate key, as login).
+
+    The unlock is a second place to guess the operator credential, so it gets the same
+    attempt-rate limit and failure lockout as the login, keyed on the TCP peer. Only a 401
+    (a wrong secret) counts as a failure.
+    """
+    limiter = primary_auth_service.rate_limiter
+    key = f"unlock:{request_peer_key(request)}"
+    try:
+        limiter.assert_not_locked(key)
+        retry_after = limiter.record_attempt(key)
+        if retry_after is not None:
+            raise AuthenticationError(
+                "Too many authentication attempts", status_code=429, retry_after=retry_after
+            )
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail, headers=exc.headers
+        ) from exc
+
+    try:
+        result = await check()
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            lockout = limiter.record_failure(key)
+            if lockout is not None:
+                headers = dict(exc.headers or {})
+                headers["Retry-After"] = str(lockout)
+                raise HTTPException(
+                    status_code=exc.status_code, detail=exc.detail, headers=headers
+                ) from exc
+        raise
+    limiter.reset(key)
+    return result
 
 
 def _verify_totp_code(code: str | None) -> tuple[bool, bool]:
@@ -253,44 +289,6 @@ def _verify_totp_code(code: str | None) -> tuple[bool, bool]:
     if not totp.verify(normalized, valid_window=1):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code")
     return True, False
-
-
-def _extract_cloudflare_identity(
-    request: Request,
-) -> tuple[str | None, dict[str, Any], str | None]:
-    token = request.headers.get("CF-Access-Jwt-Assertion") or request.headers.get(
-        "cf-access-jwt-assertion"
-    )
-    if not token:
-        token = request.cookies.get("CF_Authorization")
-    payload = _decode_jwt_payload(token) if token else {}
-    email = (
-        request.headers.get("CF-Access-Authenticated-User-Email")
-        or request.headers.get("cf-access-authenticated-user-email")
-        or payload.get("email")
-        or payload.get("sub")
-    )
-    if email:
-        try:
-            email = str(email)
-        except Exception:
-            email = None
-    return token, payload, email
-
-
-def _client_identifier(request: Request) -> str | None:
-    header = request.headers.get("X-Client-Id")
-    if header:
-        return header
-    request_id = request.headers.get("X-Request-ID")
-    if request_id:
-        return f"request:{request_id}"
-    correlation = request.headers.get("X-Correlation-ID")
-    if correlation:
-        return f"correlation:{correlation}"
-    if os.getenv("SIM_MODE", "0") == "1":
-        return f"sim:{uuid.uuid4().hex}"
-    return None
 
 
 def _client_ip(request: Request) -> str | None:
@@ -325,8 +323,11 @@ async def _authorize_websocket(websocket: WebSocket) -> UserSession:
     Priority:
     1) Authorization: Bearer <token>
     2) Query param: access_token/token/auth_token
-    3) Cloudflare Access assertion headers (when present)
-    4) Local development (localhost/127.0.0.1) and SIM_MODE
+    3) Local development: a loopback/test client, or the explicit simulator opt-in
+       (``SIM_MODE=1`` AND ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in production)
+
+    A ``CF-Access-Jwt-Assertion`` header is deliberately NOT a credential: it was accepted
+    without any verification, so any client could name itself an operator.
     """
     # 1) Standard Bearer header
     token = _extract_bearer_token(websocket.headers.get("Authorization"))
@@ -348,27 +349,7 @@ async def _authorize_websocket(websocket: WebSocket) -> UserSession:
             raise HTTPException(status_code=401, detail="Unauthorized")
         return session
 
-    # 3) Cloudflare Access: trust Access assertion when Zero Trust policy already enforced at edge
-    try:
-        cf_assert = websocket.headers.get("CF-Access-Jwt-Assertion") or websocket.headers.get(
-            "cf-access-jwt-assertion"
-        )
-    except Exception:
-        cf_assert = None
-    if cf_assert:
-        # Create an operator session bound to the connecting IP as a best-effort identity
-        client = websocket.client
-        client_ip = (
-            (client[0] if isinstance(client, (list, tuple)) else getattr(client, "host", None))
-            if client is not None
-            else None
-        )
-        return UserSession.create_operator_session(
-            client_ip=str(client_ip) if client_ip else None,
-            user_agent=websocket.headers.get("User-Agent"),
-        )
-
-    # 4) Local dev and SIM_MODE safe path
+    # 3) Local dev and the explicit simulator opt-in
     client = websocket.client
     if client is not None:
         host = (
@@ -380,7 +361,7 @@ async def _authorize_websocket(websocket: WebSocket) -> UserSession:
     if (
         host_lower.startswith("127.")
         or host_lower in {"::1", "localhost", "testserver", "testclient"}
-        or os.getenv("SIM_MODE", "0") == "1"
+        or sim_open_auth_enabled()
     ):
         session = UserSession.create_operator_session(
             client_ip=host_lower or None, user_agent=websocket.headers.get("User-Agent")
@@ -406,7 +387,6 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
     try:
         result = await primary_auth_service.authenticate(
             credential or "",
-            client_identifier=_client_identifier(request),
             client_ip=_client_ip(request),
             user_agent=request.headers.get("User-Agent"),
         )
@@ -465,47 +445,43 @@ async def auth_profile(request: Request):
 
 
 @router.get("/control/manual-unlock/status", response_model=ManualUnlockStatusResponse)
-async def manual_unlock_status(request: Request):
-    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
-        expires_at = _manual_session_expiry(timeout_minutes)
-        session_entry = _store_manual_session("auth-disabled", expires_at, "operator")
+async def manual_unlock_status():
+    """Cloudflare-gate probe of the Control view.
+
+    With operator auth disabled it approves, as the unlock does. With auth enforced it never
+    authorizes: the Cloudflare Access assertion it used to trust was decoded but not verified
+    (any header value passed), and verifying it needs the Access issuer, audience and signing
+    keys plus an RS256 implementation that this deployment does not carry.
+    """
+    if not operator_auth_required():
+        session_id, expires_at = _auth_disabled_unlock()
         return ManualUnlockStatusResponse(
             authorized=True,
-            session_id=session_entry["session_id"],
-            expires_at=session_entry["expires_at"].isoformat(),
-            principal=session_entry.get("principal"),
+            session_id=session_id,
+            expires_at=expires_at,
+            principal="operator",
         )
-
-    token, payload, principal = _extract_cloudflare_identity(request)
-    if not token:
-        return ManualUnlockStatusResponse(
-            authorized=False,
-            reason="missing_cloudflare_token",
-        )
-
-    timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
-    expires_at = _manual_session_expiry(timeout_minutes, payload)
-    session_entry = _store_manual_session(token, expires_at, principal)
-    return ManualUnlockStatusResponse(
-        authorized=True,
-        session_id=session_entry["session_id"],
-        expires_at=session_entry["expires_at"].isoformat(),
-        principal=session_entry.get("principal"),
-    )
+    return ManualUnlockStatusResponse(authorized=False, reason="cloudflare_access_not_verified")
 
 
-@router.post("/control/manual-unlock", response_model=ManualUnlockResponse)
+@router.post(
+    "/control/manual-unlock",
+    response_model=ManualUnlockResponse,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def manual_unlock(request: Request, body: ManualUnlockRequest):
-    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
-        expires_at = _manual_session_expiry(timeout_minutes)
-        session_entry = _store_manual_session("auth-disabled", expires_at, "operator")
+    """Step-up unlock of manual control for an already logged-in operator.
+
+    Needs the operator's bearer token (``require_operator_auth``) and, in the body, the
+    credential again. Wrong credentials are throttled per TCP peer exactly like the login.
+    """
+    if not operator_auth_required():
+        session_id, expires_at = _auth_disabled_unlock()
         return ManualUnlockResponse(
             authorized=True,
-            session_id=session_entry["session_id"],
-            expires_at=session_entry["expires_at"].isoformat(),
-            principal=session_entry.get("principal"),
+            session_id=session_id,
+            expires_at=expires_at,
+            principal="operator",
             source="auth_disabled",
         )
 
@@ -521,32 +497,17 @@ async def manual_unlock(request: Request, body: ManualUnlockRequest):
         else:
             method = "password"
     if method in {"cloudflare", "cloudflare_tunnel_auth", "tunnel"}:
-        token, payload, principal = _extract_cloudflare_identity(request)
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Cloudflare Access token missing",
-            )
-
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
-        expires_at = _manual_session_expiry(timeout_minutes, payload)
-        session_entry = _store_manual_session(token, expires_at, principal)
-        return ManualUnlockResponse(
-            authorized=True,
-            session_id=session_entry["session_id"],
-            expires_at=session_entry["expires_at"].isoformat(),
-            principal=session_entry.get("principal"),
-            source="cloudflare_access",
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=CLOUDFLARE_UNSUPPORTED
         )
 
+    timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
+
     if method in {"password", "password_only"}:
-        password = _validate_manual_password(body.password)
+        await _throttled_unlock(request, lambda: _validate_manual_password(body.password))
         principal = _manual_unlock_principal(request, "password")
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
         expires_at = _manual_session_expiry(timeout_minutes)
-        seed_material = f"password:{principal}:{password}"
-        seed = f"password:{hashlib.sha256(seed_material.encode('utf-8')).hexdigest()}"
-        session_entry = _store_manual_session(seed, expires_at, principal)
+        session_entry = _issue_manual_session(expires_at, principal)
         logger.info("manual_control.unlock", extra={"method": "password", "principal": principal})
         return ManualUnlockResponse(
             authorized=True,
@@ -557,14 +518,16 @@ async def manual_unlock(request: Request, body: ManualUnlockRequest):
         )
 
     if method in {"totp", "password_totp"}:
-        totp_ok, backup_used = _verify_totp_code(body.totp_code)
-        password = _validate_manual_password(body.password)
+
+        async def _check_totp_and_password() -> tuple[bool, bool]:
+            totp_ok, backup_used = _verify_totp_code(body.totp_code)
+            await _validate_manual_password(body.password)
+            return totp_ok, backup_used
+
+        totp_ok, backup_used = await _throttled_unlock(request, _check_totp_and_password)
         principal = _manual_unlock_principal(request, "totp")
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
         expires_at = _manual_session_expiry(timeout_minutes)
-        seed_material = f"totp:{principal}:{body.totp_code or ''}:{password}:{'backup' if backup_used else 'primary'}"  # noqa: E501
-        seed = f"totp:{hashlib.sha256(seed_material.encode('utf-8')).hexdigest()}"
-        session_entry = _store_manual_session(seed, expires_at, principal)
+        session_entry = _issue_manual_session(expires_at, principal)
         logger.info(
             "manual_control.unlock",
             extra={
