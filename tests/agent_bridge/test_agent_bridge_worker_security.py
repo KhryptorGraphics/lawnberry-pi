@@ -994,8 +994,9 @@ def test_github_token_appears_nowhere_the_bridge_writes(
     assert GITHUB_TOKEN not in caplog.text
     assert GITHUB_TOKEN not in json.dumps(run.result)
     if expected is RunStatus.DONE:  # redacted, not dropped: the evidence is still readable
+        message = rig.git_env.origin_git("log", "-1", "--format=%B", run.branch or "")
         assert "[REDACTED" in rig.fake.pulls[run.pr_number or 0].body
-        assert "[REDACTED" in rig.git_env.origin_git("log", "-1", "--format=%B", run.branch or "")
+        assert "[REDACTED" not in message  # no agent text is committed: nothing to redact there
 
 
 def test_leak_scanner_detects_a_planted_token(rig: Rig) -> None:

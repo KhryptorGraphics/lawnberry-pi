@@ -853,25 +853,21 @@ class Worker:
 
     def _commit_message(self, ctx: _Ctx) -> str:
         run = ctx.run
+        # No agent text goes into the commit.  This message is what lands on the default branch
+        # once a human merges the PR, and a closing keyword, an @mention or a Co-authored-by line
+        # in it would take effect there.  The agent's summary stays in the PR body and the issue
+        # comment, where it is redacted and fenced.
         title = " ".join(strip_control_chars(ctx.el.task.title).split())
-        summary = ""
-        if ctx.agent is not None and ctx.agent.report is not None:
-            summary = ctx.agent.report.summary
-        summary = truncate(self.redactor.redact(strip_control_chars(summary)).strip(), 800)
-        parts = [f"agent(#{run.issue_number}): {truncate(title, 60, '...')}"]
-        if summary:
-            parts.append(summary)
-        parts.append(
-            "\n".join(
-                [
-                    f"{self.cfg.pull_request.closing_keyword} #{run.issue_number}",
-                    f"Agent-Bridge-Run: {run.run_id}",
-                    f"Agent-Backend: {run.backend}",
-                    f"Approved-By: {run.approved_by}",
-                ]
-            )
+        subject = f"agent(#{run.issue_number}): {truncate(title, 60, '...')}"
+        trailers = "\n".join(
+            [
+                f"{self.cfg.pull_request.closing_keyword} #{run.issue_number}",
+                f"Agent-Bridge-Run: {run.run_id}",
+                f"Agent-Backend: {run.backend}",
+                f"Approved-By: {run.approved_by}",
+            ]
         )
-        return "\n\n".join(parts) + "\n"
+        return f"{subject}\n\n{trailers}\n"
 
     # ----------------------------------------------------------------- publish
     def _final_gate(self, run: RunRecord) -> None:
