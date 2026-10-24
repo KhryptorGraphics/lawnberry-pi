@@ -210,6 +210,10 @@ class ConfigLoader:
             mapped["ina3221_config"] = cfg["ina3221"]
         if "victron" in cfg and isinstance(cfg["victron"], dict):
             mapped["victron_config"] = cfg["victron"]
+        if "ibt4" in cfg and isinstance(cfg["ibt4"], dict):
+            mapped["ibt4_config"] = cfg["ibt4"]
+        if "ultrasonic" in cfg and isinstance(cfg["ultrasonic"], dict):
+            mapped["ultrasonic_config"] = cfg["ultrasonic"]
 
         motor = cfg.get("motor_controller") or {}
         if isinstance(motor, dict) and "type" in motor and "motor_controller" not in mapped:

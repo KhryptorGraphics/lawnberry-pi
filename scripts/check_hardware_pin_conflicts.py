@@ -5,13 +5,16 @@ Hardware pin/address conflict checker (Constitution Principle V).
 Parses the mower's pin/address registry in spec/hardware.yaml
   - pins.gpio_used (gpio, txd/rxd with pin->gpio mapping)
   - pins.i2c_addresses
-  - pins.ultrasonic (conditional on limits.yaml ultrasonic_enabled)
+  - pins.ultrasonic (the legacy 3x HC-SR04 Pi pins; claimed only when limits.yaml
+    ultrasonic_enabled AND config/hardware.yaml ultrasonic.backend is gpio_hcsr04; the default
+    mcu_usb backend (four JSN-SR04T behind a USB MCU) uses USB serial and claims no Pi pin)
   - pins.uart_overlays (for txd/rxd pin/gpio cross-validation)
   - deployment (for I2C/UART availability warnings)
 and the tractor's relay/PCA9685 assignments in
   - config/tractor.yaml (relays.*.gpio, pca9685.address, pca9685.bus)
-and the ultrasonic enable flag in
+and the ultrasonic enable flag and backend in
   - config/limits.yaml (ultrasonic_enabled)
+  - config/hardware.yaml (ultrasonic.backend)
 
 Then reports any GPIO number or I2C address claimed by more than one role
 across the merged set.
@@ -177,6 +180,24 @@ def _load_ultrasonic_pins(hw: dict) -> dict[str, dict[str, int]] | None:
     return result if result else None
 
 
+def _ultrasonic_backend(root: Path) -> str:
+    """Backend selected by ``config/hardware.yaml`` ``ultrasonic.backend``.
+
+    ``mcu_usb`` (the runtime default when the block or the key is absent) talks to an MCU over USB
+    serial and uses no Pi header pin. Anything this checker cannot read or recognise is treated as
+    ``gpio_hcsr04`` (claim the legacy pins): a conflict checker must err towards reporting.
+    """
+    try:
+        cfg = _load_yaml(root / "config" / "hardware.yaml")
+    except RegistryError:
+        return "gpio_hcsr04"
+    block = cfg.get("ultrasonic")
+    if block is None:
+        return "mcu_usb"
+    backend = block.get("backend", "mcu_usb") if isinstance(block, dict) else None
+    return backend if backend in ("mcu_usb", "gpio_hcsr04") else "gpio_hcsr04"
+
+
 def collect_gpio_claims(
     root: Path, hw: dict, tractor: dict, limits: dict, ultrasonic_pins: dict | None
 ) -> tuple[list[Claim], list[str]]:
@@ -283,11 +304,12 @@ def collect_gpio_claims(
     # 3. Header I2C1 SDA/SCL (GPIO2/GPIO3) are claimed by explicit gpio_used rows in the spec;
     #    bus availability on the deployed Pi is reported from the `deployment` block.
 
-    # 4. Ultrasonic driver pins (only if limits.yaml ultrasonic_enabled)
+    # 4. Legacy HC-SR04 driver pins: only if limits.yaml ultrasonic_enabled AND the backend is the
+    #    legacy GPIO driver. The mcu_usb backend (JSN-SR04T x4 behind a USB MCU) claims no Pi pin.
     ul_enabled = True  # default matches SafetyLimits default
     if limits:
         ul_enabled = bool(limits.get("ultrasonic_enabled", True))
-    if ul_enabled and ultrasonic_pins:
+    if ul_enabled and ultrasonic_pins and _ultrasonic_backend(root) == "gpio_hcsr04":
         for sensor_name, pins in ultrasonic_pins.items():
             for pin_type, gpio in (("trig", pins["trig"]), ("echo", pins["echo"])):
                 pin = _pin_from_gpio(gpio)
