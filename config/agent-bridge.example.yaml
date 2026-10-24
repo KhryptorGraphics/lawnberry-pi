@@ -1,0 +1,166 @@
+# LawnBerry agent bridge - example configuration.
+#
+# Copy to config/agent-bridge.yaml (git-ignored by the protected-path rules) and adjust.
+# NO credentials belong in this file. The GitHub token is read from the environment variable
+# named by github.token_env (default LAWNBERRY_BRIDGE_GITHUB_TOKEN); use a fine-grained token
+# limited to this one repository with: Issues (read/write), Pull requests (read/write),
+# Contents (read/write), Metadata (read).
+#
+# Relative paths below are resolved against the directory that holds this file.
+# Documentation: docs/agent-bridge.md, docs/agent-bridge-operations.md
+
+# GitHub repository the worker serves (owner/name).
+repository: KhryptorGraphics/lawnberry-pi
+
+# Local clone the task worktrees are created from. The worker never changes its checked-out
+# branch or working tree; it only adds worktrees under state_dir and fetches the base branch.
+repo_path: ..
+
+# Ledger (SQLite), per-run logs, worktrees and the rotating bridge log live here.
+state_dir: ~/.local/state/lawnberry-agent-bridge
+
+# Dry run is the default: the worker polls and previews but executes nothing and writes
+# nothing to GitHub. Real execution needs this set to false AND `--execute` on the command
+# line AND a confirmation (`--yes` when unattended).
+dry_run: true
+
+# GitHub logins allowed to apply the approval label. An approval by anyone else is ignored
+# silently. At least one login is required (fail closed).
+approvers:
+  - KhryptorGraphics
+
+# Logins whose issues may become tasks (defaults to the approvers when omitted).
+task_authors:
+  - KhryptorGraphics
+
+# Refuse a second issue whose validated task content is identical to one that already ran.
+dedupe_by_content: true
+
+labels:
+  task: agent-task
+  approved: agent-approved
+  running: agent-running
+  blocked: agent-blocked
+  done: agent-done
+
+github:
+  api_url: https://api.github.com
+  token_env: LAWNBERRY_BRIDGE_GITHUB_TOKEN
+  # token_file: ~/.config/lawnberry-agent-bridge/token   # optional, must be mode 0600
+  request_timeout_seconds: 30
+  max_retries: 3
+  retry_backoff_seconds: 1.0
+  rate_limit_max_wait_seconds: 60
+
+git:
+  remote: origin
+  base_branch: main
+  branch_prefix: agent/
+  author_name: LawnBerry Agent Bridge
+  author_email: agent-bridge@users.noreply.github.com
+  # ambient: use the credentials git already has (credential helper / ssh agent).
+  # token: push over https with the bridge token via GIT_ASKPASS (never on a command line).
+  push_auth: ambient
+  fetch_before_run: true
+  # never | on-failure | always - what happens to a task worktree after the run.
+  keep_worktrees: on-failure
+
+pull_request:
+  # Draft pull requests are not optional; there is no setting that disables this.
+  closing_keyword: Refs
+  title_prefix: "[agent] "
+  labels: []
+
+poll:
+  interval_seconds: 60
+  max_jobs_per_poll: 1
+  error_backoff_seconds: 120
+
+agent:
+  # omp = OhMyPi (default), claude = Claude Code. A task may pick one with `agent:`.
+  default: omp
+  allowed:
+    - omp
+    - claude
+  omp:
+    binary: omp
+    # model: anthropic/claude-sonnet-5-5
+    # thinking: medium
+    pass_env: []
+  claude:
+    binary: claude
+    # model: sonnet
+    # thinking: medium
+    # Variables copied into the agent's otherwise scrubbed environment.
+    pass_env:
+      - ANTHROPIC_API_KEY
+  # Optional wrapper placed in front of every command that executes agent-influenced code
+  # (the agent CLI and the checks), e.g. a bubblewrap or systemd-run sandbox.
+  command_prefix: []
+  kill_grace_seconds: 10
+  # How often the abort check runs (cancel, closed issue, edited text). It also renews the run's
+  # lease, so limits.lease_ttl_seconds must be at least twice this.
+  cancel_poll_seconds: 15
+
+limits:
+  budget_usd: 2.0
+  max_budget_usd: 5.0
+  timeout_minutes: 20
+  max_timeout_minutes: 60
+  max_attempts_per_issue: 3
+  auto_retry_interrupted: 1
+  max_start_retries: 3
+  max_publish_attempts: 5
+  # How often reporting a finished run (comment and labels) may fail before it is given up.
+  # A 404 (the issue is gone) is given up at once.
+  max_notify_attempts: 5
+  publish_retry_delays: [2, 10, 30]
+  # A run's lease: a run whose lease expired is taken over by the next bridge process.
+  # Must be at least twice agent.cancel_poll_seconds.
+  lease_ttl_seconds: 180
+  max_log_bytes: 4000000
+  max_final_text_chars: 6000
+  max_changed_files: 40
+  max_diff_bytes: 400000
+  max_file_bytes: 1000000
+
+scopes:
+  # docs-only: documentation changes only (the safe default).
+  # code: may also touch scopes.code_paths; checks then execute agent-written code.
+  allowed:
+    - docs-only
+  docs_paths:
+    - docs/**
+    - "*.md"
+  code_paths:
+    - docs/**
+    - "*.md"
+    - tools/**
+    - tests/**
+
+# protected_paths is deliberately NOT set here: leave it out to use the built-in list (safety
+# chain, hardware drivers, firmware, systemd, secrets, CI, agent policy files, dependency
+# manifests). Setting it REPLACES that list - copy the defaults first if you extend it.
+
+# Verification commands run by the bridge itself in the worktree. A task can request them by
+# name; it can never supply a command. Use absolute paths for tools that live outside the
+# worktree (a worktree has no .venv of its own).
+checks: {}
+#  ruff:
+#    argv: [uvx, ruff@0.15.19, check, .]
+#    timeout_seconds: 300
+#  unit-tests:
+#    argv: [/home/you/lawnberry-pi/.venv/bin/python, -m, pytest, tests/unit, -q]
+#    env: {SIM_MODE: "1"}
+#    timeout_seconds: 1500
+default_checks: []
+
+prompt:
+  # Trusted repository files placed in every prompt (read from the base branch).
+  context_files:
+    - CLAUDE.md
+    - .github/copilot-instructions.md
+  max_context_chars: 20000
+
+# Extra environment variables whose VALUES must be scrubbed from logs and published text.
+extra_secret_env: []

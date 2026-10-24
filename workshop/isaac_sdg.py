@@ -338,7 +338,6 @@ def _spawn_sprinkler(root: str, r: random.Random) -> None:
     _bind_colour(root, r.choice([(0.03, 0.12, 0.04), (0.02, 0.02, 0.02), (0.05, 0.08, 0.05)]))
 
 
-
 def _box(path: str, size: tuple[float, float, float], centre=(0.0, 0.0, 0.0)) -> UsdGeom.Cube:
     """Axis-aligned box with full extents ``size`` (metres) centred on ``centre``."""
     cube = UsdGeom.Cube.Define(stage, path)

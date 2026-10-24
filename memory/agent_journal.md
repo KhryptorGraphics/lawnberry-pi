@@ -491,3 +491,83 @@ reboots after 10 min, at most once per 4 h, and never touches `morse`. `systemd/
 this board did not have. Both state machines were exercised against stubbed `iw`/`ping`/`arping`/
 `systemctl` (healthy, mute, lost, cooldown, recovery), and the Pi script's reboot path was checked in
 dry-run so nothing rebooted. Installing them is the first thing to do when the link is back.
+
+## 2026-10-24 - Approval-gated GitHub-issue agent bridge (OhMyPi default, Claude Code optional)
+
+Developer tooling only, in `tools/agent_bridge/` (nothing under `backend/`, nothing deployed, no
+hardware access). A worker polls GitHub issues labelled `agent-task`, runs a local coding agent only
+for issues a configured approver labelled `agent-approved`, and opens a *draft* pull request. The
+agent is a pluggable backend: OhMyPi `omp` (default, `omp -p --mode json`) or Claude Code `claude -p`
+(`agent.default` in `config/agent-bridge.yaml`, `agent:` in the task block, `--backend` on `smoke`);
+both return the same structured result and share timeout, budget and kill handling.
+
+Safety boundaries kept from `docs/agent-bridge.md` (the PR #16 spec, now with OhMyPi as primary):
+dry run by default, one git worktree per run, a protected-path write policy enforced by a guard
+extension (omp) / tool allow-list (claude) *and* re-checked on the staged diff, secret redaction,
+untrusted issue text quoted as data, SQLite ledger keyed by the approval event for idempotence and
+crash recovery, no merge, no deploy, no mower access. Tests run both backends against fake CLIs and a
+fake GitHub (`tests/agent_bridge/`); `python -m tools.agent_bridge smoke` drives the real binaries.
+
+## 2026-10-24 - Agent bridge (OhMyPi primary, Claude Code alternative)
+
+Documentation and verification record for the entry above (branch `feat/agent-bridge-omp`). The
+Claude-only spec of PR #16 (`docs/claude-code-bridge.md`, commit `8223f7d`) is now
+`docs/agent-bridge.md`, rewritten around what was built: omp primary, `claude` selectable (task
+`agent:` > `agent.default` > `omp`), a status table mapping every spec item, phase and acceptance
+criterion to a module and a test, the safety model, and the deviations (Python 3.11 not 3.12, polling
+not webhooks, cancellation semantics). New: `docs/agent-bridge-operations.md` (install, CLI reference,
+dry run to real run, an optional user-level systemd unit that is deliberately not under `systemd/`,
+failure table, sandboxing), `docs/agent-bridge-task-template.md` and the module index in
+`docs/code_structure_overview.md`.
+
+Why omp is guarded: its file tools honour absolute paths, `~` and `..`, and `write` can address
+`xd://` tool devices, so `tools/agent_bridge/omp_guard.mjs` checks every tool call against a per-run
+policy (the hermetic overlay also turns the devices off), and the staged-diff policy re-checks the
+whole change set before anything is committed.
+
+How verified (real binaries, this workstation, 2026-10-24):
+
+- `smoke --backend omp --model anthropic/claude-sonnet-5-5 --probe-guard` with omp 18.12.6: the agent
+  created the file ($0.024 on a cold prompt cache, about $0.008 warm); the guard blocked a write outside
+  the worktree and a read of `/etc/hostname` (2 blocked calls) and the outside file was not created.
+- Every command, flag and sample output in the three documents was produced by running the CLI (each
+  sub-command's `--help`, `validate-config`, `backends`, `validate-task` on the documented examples,
+  `status` on a sample ledger); the omp and claude argument lists were printed from the backends.
+- `systemd-run --user --scope` works as an `agent.command_prefix` resource limiter (stdin, cwd and the
+  timeout kill were checked) but only if `XDG_RUNTIME_DIR` survives the scrubbed environment; `bwrap`
+  is installed and fails (`setting up uid map: Permission denied`: unprivileged user namespaces are
+  denied), so no filesystem sandbox is available on this workstation.
+
+Honest limitations:
+
+- Phase 5 is not done. No dry run and no approved documentation-only task has run against the real
+  GitHub repository; that needs the owner's token, labels and approval (procedure in the operations guide).
+- Claude Code 2.1.293 accepts every flag the backend passes but cannot authenticate here: the smoke
+  returns a structured failure, `auth` (OAuth session expired) or, with `ANTHROPIC_API_KEY` passed,
+  `credit` ("Credit balance is too low"). A successful real Claude run has not been observed, and that
+  backend has no bridge-owned per-path guard (`claude --restricted` exists and is not enabled).
+- `code` scope has only run against the fake CLIs. Whether real omp in approval mode `write` lets an
+  allow-listed `bash` command run unattended is unverified; the bridge runs the named checks itself.
+- Found while writing the documents and fixed by the implementer: per-run logs on disk ignored the
+  capture cap, and `agent-bridge cancel` was honoured only while the agent ran (it is now also checked
+  after the lease, before verification and before every push). Still open: a requeued run whose issue
+  was closed while it waited stays `pending`, and `PR_SET_PDEATHSIG` reaps only the agent's direct child
+  if the bridge is killed abruptly.
+
+Review round (PR #17, 17 findings fixed in code and tests, documents updated to match): F4 no agent text
+in the commit message; F5 issue-derived text rendered as inert code spans; F6 only an open draft PR from the
+run's own branch is adopted (`pull_request_unexpected`); F7 the git remote must be the configured repository
+(`remote_mismatch`, `remote.py`); F8 reporting a finished run is bounded (`max_notify_attempts`, give up on 404);
+F9 lease >= 2x abort poll, poll = min(cancel_poll, ttl/3); C-02 checks run with a scrubbed env and an empty
+private HOME, and the shared git state (config, `.git` pointer, HEAD, agent branches) is fingerprinted and
+re-checked after the agent and the checks (`worktree_tampered`, commit parent must be `base_sha`); C-03 an omp run
+that used tools needs one guard audit row per call (`agent_guard_inactive`); C-04/05 nested policy files protected,
+deny lists case-insensitive; C-06 only a new exec bit refused; C-07 binary scan reads blobs; C-08 hidden characters
+in file names are `path_invalid`; C-09 linear-time `agent-result` parser; C-10 redaction gaps closed, `pass_env` and
+`extra_secret_env` registered; C-13 audit/stream samples cleaned before they are cut. F3 and F10 were already in.
+Still open: Claude backend unproven and without a path guard; Phase 5 needs the owner's token and approval; the
+guard's on-disk audit file keeps up to 80 raw path characters (`omp_guard.mjs` does not redact); no OS sandbox, so a
+check can still read any file by absolute path; a shared clone ends runs `worktree_tampered` (use a dedicated one);
+outages longer than `max_notify_attempts` polls drop a pending report and a 404 may mean lost token visibility;
+`publish_retry_delays` longer than the lease and `preview` not warning on a remote mismatch; the issue title stays
+in the commit subject and PR title. Owner decision O-1: whether `code` scope is ever enabled.
