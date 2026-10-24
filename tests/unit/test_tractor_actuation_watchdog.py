@@ -504,3 +504,24 @@ async def test_lifespan_refuses_a_watchdog_window_shorter_than_the_self_check_ca
         cleared = await svc.clear_emergency()
         assert cleared["status"] == "rejected" and "locked out" in cleared["reason"]
         assert svc._supervise_task is None
+
+
+@pytest.mark.parametrize("yields", range(0, 8))
+async def test_stopping_supervision_always_terminates_whatever_it_is_awaiting(yields):
+    """Cancelling the loop at any early await must end it (3.11 ``wait_for`` absorbs a cancel).
+
+    The loop is stopped after ``yields`` event-loop turns, which lands the cancel inside the
+    lock acquire, the read-back and the sleep in turn. Before the fix one of these absorbed the
+    cancellation and ``stop_supervision`` waited for a loop that never ended.
+    """
+    from backend.src.services.tractor_service import TractorControlService
+
+    tractor = TractorControlService(config={"enabled": True})
+    await tractor.start_supervision()
+    for _ in range(yields):
+        await asyncio.sleep(0)
+    started = time.monotonic()
+    await asyncio.wait_for(tractor.stop_supervision(), timeout=10)
+    # A hung stop only ends when this test's own timeout cancels it again, ~10 s later.
+    assert time.monotonic() - started < 3.0
+    assert tractor._supervise_task is None

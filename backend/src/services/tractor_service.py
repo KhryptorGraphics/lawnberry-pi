@@ -368,12 +368,21 @@ class TractorControlService:
 
     async def stop_supervision(self) -> None:
         task, self._supervise_task = self._supervise_task, None
-        if task is not None and not task.done() and task is not asyncio.current_task():
+        if task is None or task.done() or task is asyncio.current_task():
+            return
+        # Re-cancel instead of waiting for one cancel to land: a cancellation that arrives
+        # while the loop is inside a nested await can be absorbed, and ``await task`` would
+        # then wait for a loop that never ends.
+        for _ in range(20):
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            done, _pending = await asyncio.wait({task}, timeout=0.25)
+            if done:
+                break
+        else:
+            logger.error("Actuation supervision task did not stop after 20 cancellations")
+            return
+        if not task.cancelled():
+            task.exception()  # retrieved, so a late failure is not reported as never-awaited
 
     async def _supervise_loop(self) -> None:
         while True:
@@ -455,13 +464,15 @@ class TractorControlService:
     async def _read_back_outputs(self) -> str | None:
         """Read every servo channel back; ``None`` when each holds what was commanded."""
         try:
-            await asyncio.wait_for(self._act_lock.acquire(), timeout=self.supervise_interval_s)
+            async with asyncio.timeout(self.supervise_interval_s):
+                await self._act_lock.acquire()
         except TimeoutError:
             return f"actuation lock held for more than {self.supervise_interval_s:.2f}s"
         try:
             # Under the lock so a command cannot change the expected value between reading
             # the registers and comparing them.
-            await asyncio.wait_for(self._verify_servo_outputs(), timeout=self.ACTUATION_TIMEOUT_S)
+            async with asyncio.timeout(self.ACTUATION_TIMEOUT_S):
+                await self._verify_servo_outputs()
         except TimeoutError:
             return f"PCA9685 read-back timed out after {self.ACTUATION_TIMEOUT_S}s"
         except Exception as exc:
