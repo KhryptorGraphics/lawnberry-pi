@@ -140,9 +140,15 @@ npm run build
 ```
 
 ### 4. Install systemd Services
+
+The unit files are templates. The installer renders them for your account and checkout, writes
+`.env` (a generated `LAWN_BERRY_AUTH_SECRET`) and refuses to finish without a strong operator
+credential (at least 12 characters, not a default); see `docs/deployment-guide.md`:
+
 ```bash
-cd systemd
-sudo bash install_services.sh
+bash systemd/install_services.sh --dry-run        # review the rendered units, write nothing
+f=$(mktemp) && ${EDITOR:-nano} "$f"                 # one line: your operator credential
+sudo bash systemd/install_services.sh --operator-credential-file "$f"; shred -u "$f"
 ```
 
 ### 5. Automatic HTTPS (Zero-Touch)
@@ -199,8 +205,8 @@ sudo lawnberry-pi config --setup-wizard
 
 ### 2. Test Installation
 ```bash
-# Enable and start services
-sudo systemctl enable --now lawnberry-backend lawnberry-health lawnberry-sensors
+# Start services (the installer already enabled them)
+sudo systemctl start lawnberry-database lawnberry-backend lawnberry-health
 
 # Check service status
 sudo systemctl status lawnberry-backend

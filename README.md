@@ -211,8 +211,10 @@ Deployed units (`systemd/lawnberry-backend.service`, `systemd/lawnberry-frontend
 
 ## API Reference
 
-Examples assume the deployed port. **Operator authentication is disabled in the shipped unit**
-(`OPERATOR_AUTH_REQUIRED=0`), so these routes are open to anything that can reach the port.
+Examples assume the deployed port. **Operator authentication is enforced** (`OPERATOR_AUTH_REQUIRED=1` in
+the repo unit; the deployed Pi keeps the old `0` until `systemd/install_services.sh` is run there, which also
+provisions the credential). Log in with `POST /api/v2/auth/login` and send `Authorization: Bearer <token>` on
+operator writes; the E-stop routes stay open by design. Where a route below has no auth dependency (N-16), it is still open.
 
 ```bash
 export API=http://localhost:8081
