@@ -4,8 +4,21 @@ import { sendControlCommand, getRoboHATStatus } from '../services/api';
 import { useWebSocket } from '../services/websocket';
 import type { ControlResponseV2, BladeCommandResponse, RoboHATStatus } from '../types/control';
 import type { SystemSafetyMessage, SystemSafetyInterlock } from '../types/telemetry';
+import { apiErrorInfo, describeApiError } from '../utils/apiErrors';
+import type { ApiErrorInfo } from '../utils/apiErrors';
 
 type CommandResult = ControlResponseV2 | BladeCommandResponse
+
+// 401 (not signed in), 429 (rate limited) and an authorization-class 403 mean the backend refused the
+// REQUEST; none of them reports a hazard. A 403 on /control/drive|blade is, however, how the backend
+// reports an ACTIVE safety block ("Emergency stop active - drive commands blocked", "safety_interlock:
+// ..."), so a 403 only counts as an authorization rejection when its detail says nothing about safety.
+const SAFETY_BLOCK_DETAIL = /emergency|interlock|lockout|safety/i;
+
+function isAuthClassRejection(info: ApiErrorInfo): boolean {
+  if (info.status === 401 || info.status === 429) return true;
+  return info.status === 403 && !SAFETY_BLOCK_DETAIL.test(info.detail);
+}
 
 export const useControlStore = defineStore('control', () => {
   // State
@@ -76,6 +89,14 @@ export const useControlStore = defineStore('control', () => {
       }
       return result;
     } catch (e: any) {
+      if (isAuthClassRejection(apiErrorInfo(e))) {
+        // Not a safety interlock, and nothing but a WS "system.safety" clear ever resets the lockout, so
+        // tripping it here would leave the Control page unusable until a reload even after the operator
+        // signed in. Report why the call was refused (sign in / wait N s) and let the caller retry.
+        // remediationLink is deliberately left alone: it belongs to the last safety block.
+        lastCommandResult.value = { result: 'error', status_reason: describeApiError(e, `Failed to send ${command} command`) };
+        throw e;
+      }
       lastCommandResult.value = { result: 'error', status_reason: e?.message || 'Unknown error' };
       lockout.value = true;
       lockoutActive.value = true;

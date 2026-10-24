@@ -5,8 +5,23 @@
         <h3>🔒 Control Access Required</h3>
       </div>
       <div class="card-body">
+        <div
+          v-if="!signedIn"
+          class="sign-in-notice"
+          role="alert"
+        >
+          <strong>Sign in first.</strong>
+          <span>
+            Manual control needs a signed-in operator. Use the “Sign In” link (top right) or
+            <router-link to="/login">sign in here</router-link>
+            with the operator credential, then come back and unlock control.
+          </span>
+        </div>
         <div class="security-info">
-          <p>Manual control access requires additional authentication based on your security level:</p>
+          <p>
+            Manual control needs two things: you must be signed in as the operator, and you must re-enter the
+            operator credential below to unlock a control session (a step-up check).
+          </p>
           <div class="security-level">
             <strong>Current Security Level:</strong>
             <span class="level-badge" :class="`level-${securityConfig.auth_level}`">
@@ -25,9 +40,13 @@
               v-model="password"
               type="password"
               class="form-control"
-              placeholder="Enter your password"
+              placeholder="Operator password (re-enter to unlock)"
+              aria-describedby="control-auth-password-hint"
               @keyup.enter="$emit('authenticate')"
             >
+            <small id="control-auth-password-hint" class="form-text text-muted">
+              Re-enter the operator password to unlock manual control for this session. Being signed in is not enough on its own.
+            </small>
           </div>
 
           <!-- TOTP Verification -->
@@ -58,8 +77,11 @@
           <!-- Cloudflare Tunnel Auth -->
           <div v-else-if="securityConfig.auth_level === 'cloudflare'" class="auth-method">
             <div class="info-panel">
-              <p>Authentication is handled by Cloudflare Access.</p>
-              <p>You should already be authenticated if accessing via Cloudflare tunnel.</p>
+              <p>This security level relies on Cloudflare Access.</p>
+              <p>
+                This backend cannot verify Cloudflare Access, so manual unlock is unavailable at this level.
+                Choose Password in Settings &gt; Security.
+              </p>
             </div>
             <button class="btn btn-primary" @click="$emit('verify-cloudflare')">
               Verify Access
@@ -93,13 +115,17 @@ interface ManualControlSecurityConfig {
   auto_lock_manual_control: boolean
 }
 
-defineProps<{
+withDefaults(defineProps<{
   securityConfig: ManualControlSecurityConfig
   authenticating: boolean
   canAuthenticate: boolean
   authError: string
   formatSecurityLevel: (level: ManualControlSecurityConfig['auth_level']) => string
-}>()
+  /** False when no operator is signed in: manual-unlock needs the Bearer as well as the password. */
+  signedIn?: boolean
+}>(), {
+  signedIn: true
+})
 
 defineEmits<{
   authenticate: []
@@ -280,5 +306,28 @@ const totpCode = defineModel<string>('totpCode', { default: '' })
   padding: 1rem;
   border-radius: 4px;
   margin-bottom: 1rem;
+}
+
+.sign-in-notice {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  border-radius: 4px;
+  border: 2px solid var(--warning);
+  background: rgba(255, 193, 7, 0.12);
+  color: var(--text-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sign-in-notice strong {
+  color: var(--warning);
+  font-size: 1.1rem;
+}
+
+.sign-in-notice a {
+  color: var(--accent-green);
+  font-weight: 600;
+  text-decoration: underline;
 }
 </style>

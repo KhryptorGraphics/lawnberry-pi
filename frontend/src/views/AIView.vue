@@ -141,6 +141,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useApiService } from '@/services/api'
 import { useToastStore } from '@/stores/toast'
+import { describeApiError } from '@/utils/apiErrors'
 import MetricWidget from '@/components/MetricWidget.vue'
 
 interface AIStatus {
@@ -201,9 +202,6 @@ function fmt(v: number | undefined | null) {
 function pct(v: number | undefined | null) {
   return v == null ? '—' : Math.round(v * 100)
 }
-function detail(e: unknown): string {
-  return (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || ''
-}
 
 const rateVariant = computed(() => {
   const r = metrics.value?.success_rate
@@ -257,7 +255,7 @@ async function enableAI() {
     notify('AI autonomous control enabled')
     await refreshAll()
   } catch (e) {
-    notify(detail(e) || 'Failed to enable AI', false)
+    notify(describeApiError(e, 'Failed to enable AI'), false)
   } finally {
     busy.value = false
   }
@@ -269,7 +267,7 @@ async function disableAI() {
     notify('AI control disabled')
     await refreshAll()
   } catch (e) {
-    notify(detail(e) || 'Failed to disable AI', false)
+    notify(describeApiError(e, 'Failed to disable AI'), false)
   } finally {
     busy.value = false
   }
@@ -284,7 +282,7 @@ async function loadModel() {
     )
     await refreshAll()
   } catch (e) {
-    notify(detail(e) || 'Failed to load model', false)
+    notify(describeApiError(e, 'Failed to load model'), false)
   } finally {
     busy.value = false
   }
@@ -295,8 +293,8 @@ async function resetMetrics() {
     await api.post('/api/v2/ai/metrics/reset', {})
     notify('Metrics reset')
     await loadMetrics()
-  } catch {
-    notify('Failed to reset metrics', false)
+  } catch (e) {
+    notify(describeApiError(e, 'Failed to reset metrics'), false)
   } finally {
     busy.value = false
   }
@@ -307,7 +305,7 @@ async function exportDataset(d: Dataset) {
     const r = (await api.post(`/api/v2/ai/datasets/${d.id}/export`, { format: 'YOLO' })).data
     notify(`Export started for ${d.name} (${r?.format || 'YOLO'})`)
   } catch (e) {
-    notify(detail(e) || `Failed to export ${d.name}`, false)
+    notify(describeApiError(e, `Failed to export ${d.name}`), false)
   } finally {
     busy.value = false
   }
