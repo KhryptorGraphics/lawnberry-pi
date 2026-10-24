@@ -16,6 +16,16 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Unit tests (vitest)
+        # `npm test` is `vitest run` (one pass, no watch). vitest, jsdom and @vue/test-utils are devDependencies, so
+        # the `npm ci` above installs them; the image's Node 20 satisfies vitest 2 / vite 5 / jsdom 24 (>= 18). The
+        # specs mock the network boundary and the WebSocket, and tests/unit/serverProxy.spec.ts starts
+        # frontend/server.mjs on a free loopback port, so no backend or browser is needed. Runs before the build
+        # and the e2e specs so a unit failure gates the PR early.
+        working-directory: frontend
+        run: npm test
+        env:
+          CI: 'true'
       - name: Build frontend
         working-directory: frontend
         run: npm run build

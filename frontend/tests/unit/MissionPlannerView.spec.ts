@@ -74,6 +74,31 @@ vi.mock('leaflet', () => ({
   },
 }));
 
+// @vue-leaflet imports the REAL leaflet (vitest.config.ts aliases leaflet/dist/leaflet-src.esm), so the vi.mock('leaflet')
+// above never reached the map itself: a real L.map ran in a detached jsdom node, its layers were added on later
+// ticks, and tearing the tree down threw from inside leaflet ("Cannot read properties of undefined (reading
+// '_removePath')", "Cannot use 'in' operator to search for '_leaflet_id' in null") or, with the wrapper left mounted,
+// fired into a closing jsdom as an unhandled rejection. These tests are about the planner's mission/auth flows, not
+// about leaflet (the real map is exercised by tests/e2e/mission-planner-map.spec.ts), so the map components are inert
+// stubs that render their slots.
+vi.mock('@vue-leaflet/vue-leaflet', async () => {
+  const { defineComponent, h } = await import('vue')
+  const inert = (name: string) =>
+    defineComponent({
+      name,
+      setup: (_props, { slots }) => () => h('div', { class: `stub-${name}` }, slots.default?.()),
+    })
+  return {
+    LMap: inert('LMap'),
+    LTileLayer: inert('LTileLayer'),
+    LLayerGroup: inert('LLayerGroup'),
+    LPolyline: inert('LPolyline'),
+    LMarker: inert('LMarker'),
+    LCircleMarker: inert('LCircleMarker'),
+    LCircle: inert('LCircle'),
+  }
+})
+
 vi.mock('@/components/MissionWaypointList.vue', () => ({
   default: {
     name: 'MissionWaypointList',
@@ -107,7 +132,30 @@ function primeMapStore() {
   mapStore.loadConfiguration = vi.fn().mockResolvedValue(undefined)
 }
 
+// Every wrapper is unmounted before its test ends. @vue-leaflet loads leaflet through a dynamic import and adds
+// the map's layers on later ticks; a wrapper left mounted lets that work run into a map that is being torn down
+// (or a jsdom that is closing), which surfaced as the unhandled rejection "Cannot use 'in' operator to search
+// for '_leaflet_id' in null", attributed to whichever test happened to be last.
+const mounted: VueWrapper[] = []
+
+function mountView() {
+  const wrapper = mount(MissionPlannerView)
+  mounted.push(wrapper)
+  return wrapper
+}
+
+async function unmountAll() {
+  await vi.dynamicImportSettled() // leaflet's import, if it is still loading
+  await flushPromises() // layer adds queued by the map becoming ready
+  for (const wrapper of mounted.splice(0)) wrapper.unmount()
+  await flushPromises() // whatever the teardown itself queued
+}
+
 describe('MissionPlannerView.vue', () => {
+  afterEach(async () => {
+    await unmountAll()
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
@@ -127,13 +175,13 @@ describe('MissionPlannerView.vue', () => {
   })
 
   it('renders the mission planner view', async () => {
-    const wrapper = mount(MissionPlannerView)
+    const wrapper = mountView()
     await flushPromises()
     expect(wrapper.find('h1').text()).toBe('Mission Planner')
   })
 
   it('allows creating a mission', async () => {
-    const wrapper = mount(MissionPlannerView)
+    const wrapper = mountView()
     const missionStore = useMissionStore()
     missionStore.addWaypoint(51.5, -0.09)
     // createMission now resolves to a boolean (true = created); the view toasts on the result
@@ -162,14 +210,16 @@ describe('MissionPlannerView.vue', () => {
       consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+      // unmount while the fake clock still owns the timers, then drop what is left
+      await unmountAll()
       consoleError.mockRestore()
       vi.clearAllTimers()
       vi.useRealTimers()
     })
 
     async function mountWithMission(status: string) {
-      const wrapper = mount(MissionPlannerView)
+      const wrapper = mountView()
       const missionStore = useMissionStore()
       missionStore.currentMission = { id: 'm-1', name: 'north lawn', waypoints: [], created_at: '2026-01-01T00:00:00Z' }
       missionStore.missionStatus = status
@@ -186,7 +236,7 @@ describe('MissionPlannerView.vue', () => {
     }
 
     it('Create Mission with a 401 toasts the sign-in instruction and leaves no mission behind', async () => {
-      const wrapper = mount(MissionPlannerView)
+      const wrapper = mountView()
       const missionStore = useMissionStore()
       missionStore.addWaypoint(51.5, -0.09)
       mockedApi.post.mockRejectedValueOnce(unsigned)
@@ -206,7 +256,7 @@ describe('MissionPlannerView.vue', () => {
     })
 
     it('Create Mission that succeeds toasts "Mission created" and loads the mission', async () => {
-      const wrapper = mount(MissionPlannerView)
+      const wrapper = mountView()
       const missionStore = useMissionStore()
       missionStore.addWaypoint(51.5, -0.09)
       mockedApi.post.mockResolvedValueOnce({
