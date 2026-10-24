@@ -1,6 +1,12 @@
 name: hardware-guard
 on: [pull_request]
 
+# GitHub runs a step's `run:` with `bash -e {0}`. `-e` does NOT stop the script for a negated
+# command (`! grep ...`) or for any element of an `&&` list except the last, so those forms cannot
+# fail a step unless they are the final command. Every check below therefore tests its condition
+# explicitly (`if ...; then exit 1; fi`) or is a plain command.
+# tests/unit/test_hardware_guard_workflow.py runs these steps against crafted bad manifests.
+
 jobs:
   manifest-check:
     runs-on: ubuntu-latest
@@ -21,11 +27,12 @@ jobs:
           uv run python scripts/check_hardware_pin_conflicts.py --self-test
           uv run python scripts/check_hardware_pin_conflicts.py
 
-      - name: Pin-conflict, docs-drift-script and tractor-config tests
+      - name: Pin-conflict, docs-drift-script, guard-workflow and tractor-config tests
         run: |
           SIM_MODE=1 uv run pytest -q \
             tests/unit/test_hardware_pin_conflicts.py \
             tests/unit/test_docs_drift_script.py \
+            tests/unit/test_hardware_guard_workflow.py \
             tests/unit/test_tractor_config_file.py
 
       - name: Ensure required hardware appears in spec/hardware.yaml
@@ -46,14 +53,20 @@ jobs:
           grep -qi "Hailo" "$f"
 
       - name: Ensure bench-only ethernet note exists
-        run: grep -qi "ethernet" spec/hardware.yaml && grep -qi "bench_only" spec/hardware.yaml
+        run: |
+          f=spec/hardware.yaml
+          grep -qi "ethernet" "$f"
+          grep -qi "bench_only" "$f"
 
       - name: Block irrelevant hardware in manifest
         run: |
-          ! grep -qi "soil" spec/hardware.yaml
-          ! grep -qi "weather station" spec/hardware.yaml
-          ! grep -qi "jetson" spec/hardware.yaml
-          ! grep -qi "movidius" spec/hardware.yaml
+          f=spec/hardware.yaml
+          for term in "soil" "weather station" "jetson" "movidius"; do
+            if grep -qi -- "$term" "$f"; then
+              echo "forbidden hardware '$term' appears in $f" >&2
+              exit 1
+            fi
+          done
 
       - name: Confirm I2C addresses listed (sanity)
         run: |
@@ -70,6 +83,12 @@ jobs:
       - name: Verify INA3221 documented channel mapping is present in spec
         run: |
           f=spec/hardware.yaml
-          grep -q "channel_1" "$f" && grep -qi "Battery" "$f"
-          grep -q "channel_2" "$f" && grep -qi "Unused" "$f"
-          grep -q "channel_3" "$f" && grep -qi "Solar" "$f"
+          documented() {
+            if ! grep -q "$1" "$f" || ! grep -qi "$2" "$f"; then
+              echo "$f no longer documents $1 = $2" >&2
+              exit 1
+            fi
+          }
+          documented channel_1 Battery
+          documented channel_2 Unused
+          documented channel_3 Solar
