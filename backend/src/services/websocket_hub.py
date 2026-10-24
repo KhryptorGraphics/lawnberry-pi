@@ -125,6 +125,8 @@ class WebSocketHub:
         tof_cfg: dict | None = None
         power_cfg: dict | None = None
         ultrasonic_enabled: bool | None = None
+        ultrasonic_cfg: dict | None = None
+        ultrasonic_obstacle_cm: float | None = None
         if self._app_state and getattr(self._app_state, "hardware_config", None):
             try:
                 hwc = self._app_state.hardware_config
@@ -141,19 +143,29 @@ class WebSocketHub:
                     power_cfg["victron"] = victron.model_dump(exclude_none=True)
                 if not power_cfg:
                     power_cfg = None
+                uc = getattr(hwc, "ultrasonic_config", None)
+                if uc is not None:
+                    ultrasonic_cfg = uc.model_dump()
                 limits = getattr(self._app_state, "safety_limits", None)
                 if limits is not None:
                     ultrasonic_enabled = bool(getattr(limits, "ultrasonic_enabled", True))
+                    ultrasonic_obstacle_cm = float(
+                        getattr(limits, "ultrasonic_obstacle_distance_cm", 30.0)
+                    )
             except Exception:
                 tof_cfg = None
                 power_cfg = None
                 ultrasonic_enabled = None
+                ultrasonic_cfg = None
+                ultrasonic_obstacle_cm = None
 
         self._sensor_manager = SensorManager(
             gps_mode=gps_mode,
             tof_config=tof_cfg,
             power_config=power_cfg,
             ultrasonic_enabled=ultrasonic_enabled,
+            ultrasonic_config=ultrasonic_cfg,
+            ultrasonic_obstacle_cm=ultrasonic_obstacle_cm,
         )
         await self._sensor_manager.initialize()
         if ntrip_enabled:
