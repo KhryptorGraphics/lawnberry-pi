@@ -102,14 +102,17 @@ Tip: Use your editor’s outline and the section links below to jump to an area 
 
 | Path | Purpose | Subsystem | Exported API |
 |---|---|---|---|
-| `frontend/src/services/api.ts` | HTTP API client with auth and client‑id headers; specific control and map endpoints. | Frontend API | `sendControlCommand(command: string, payload: any = {})`, `getRoboHATStatus()`, `getMapConfiguration(configId: string = 'default')`, `saveMapConfiguration(configId: string, config: any)`, `triggerMapProviderFallback()`, `useApiService()`. |
+| `frontend/src/services/api.ts` | HTTP API client with auth and client‑id headers; specific control and map endpoints. A 401 from `/auth/refresh`, `/auth/logout`, `/auth/login` or `/control/manual-unlock` is a credential failure and is never refreshed-and-retried. | Frontend API | `sendControlCommand(command: string, payload: any = {})`, `getRoboHATStatus()`, `getMapConfiguration(configId: string = 'default')`, `saveMapConfiguration(configId: string, config: any)`, `triggerMapProviderFallback()`, `tractorLeftLever(value: number, options?: TractorCommandOptions)`, `tractorRightLever(value: number, options?: TractorCommandOptions)`, `tractorThrottle(value: number, options?: TractorCommandOptions)` (`TractorCommandOptions = { timeout?: number }`), `tractorEmergencyStop()` / `tractorClearEmergency()` (`TractorSafetyResponse`), `useApiService()`. |
 | `frontend/src/services/auth.ts` | Auth helpers (token, login/logout) backed by Pinia store. | Frontend auth | Exported functions from file (see source). |
-| `frontend/src/services/websocket.ts` | WebSocket management for telemetry/control with typed handlers. | Frontend realtime | `useWebSocket(type: 'telemetry' | 'control' = 'telemetry', handlers?: { onMessage?: (msg: any) => void })`. |
+| `frontend/src/services/websocket.ts` | WebSocket management for telemetry/control with typed handlers. A signed-in client fetches a single-use `ticket` (`POST /api/v2/auth/ws-ticket`) before EVERY connect attempt and connects with `?ticket=`; the login JWT is never put in a URL. | Frontend realtime | `useWebSocket(type: 'telemetry' | 'control' = 'telemetry', handlers?: { onMessage?: (msg: any) => void })`. |
 | `frontend/src/composables/useApi.ts` | Vue composable wrapping API client. | Frontend API | Default/ named exports (see source). |
 | `frontend/src/composables/useWebSocket.ts` | Thin composable for WebSocket URL selection. | Frontend realtime | `useWebSocket(url = '/ws')`. |
 | `frontend/src/composables/useOfflineMaps.ts` | Manage offline map tiles caching and usage. | Frontend mapping | `useOfflineMaps()`. |
 | `frontend/src/utils/mapProviders.ts` | Map provider selection and defaults (OSM/Google). | Frontend mapping | `isSecureMapsContext(location)`, `shouldUseGoogleProvider(...)`, `getOsmTileLayer(style)`. |
 | `frontend/src/utils/markdown.ts` | Safe markdown rendering helper. | Frontend utility | `renderMarkdownSafe(src: string): string`. |
+| `frontend/src/utils/apiErrors.ts` | Turns a failed API call into operator-facing text: 401 → the sign-in instruction, 429 → Retry-After, no HTTP response → "no response from the backend", else the backend `detail`. | Frontend utility | `apiErrorInfo(error): ApiErrorInfo`, `describeApiError(error, fallback): string`, `SIGN_IN_REQUIRED_MESSAGE`. |
+| `frontend/src/composables/useTractorHold.ts` | Hold-to-run command stream of the tractor page (SF-08): re-sends a held lever/throttle command every third of the backend's echoed `hold_ms` (150 ms fallback), never overlapping; sends neutral and stops on release, page hidden/pagehide/offline, unmount, a failed or timed-out request, a rejected command; a latched E-stop ends every hold without writes. | Frontend tractor control | `useTractorHold({ values, emergencyStopActive, notify })` → `{ latch, holding, engaged, holdMs, refreshMs, stopNotice, grip(control, source?, pointerId?), input(control), release(control), halt(reason, message?), neutralLevers(), idle() }`; `refreshIntervalFor(holdMs)`, `commandTimeoutFor(holdMs)`. |
+| `frontend/server.mjs` | Production static server and proxy (Express + http-proxy-middleware). Drops client-supplied `X-Forwarded-For`/`Forwarded`/`X-Real-IP` (HTTP and WebSocket upgrades), adds the real socket address (`xfwd`), and dispatches upgrades itself: `/api/v2/ws/*` as is, legacy `/ws[/channel]` → `/api/v2/ws/channel` with the query (ticket) kept. | Frontend serving | CLI entrypoint (`PORT`, `BACKEND_URL`). |
 
 ## Frontend views and router
 
@@ -119,6 +122,7 @@ These are Vue components and routing; they provide UI and don’t expose reusabl
 - App shell: `frontend/src/App.vue`
 - Router: `frontend/src/router/index.ts`
 - Entrypoint: `frontend/src/main.ts`
+- Interfaces changed by the 2026-10-24 frontend review-fix track: `TractorControlView.vue` (hold-to-run sliders, `useTractorHold`), `SecurityGateCard.vue` (prop `signedIn`, default `true`), `stores/mission.ts` (`lastError`, `createMission(name): Promise<boolean>`), `stores/tractor.ts` (`setLeftLever/setRightLever/setThrottle(value, options?: TractorCommandOptions)`), `stores/control.ts` (`submitCommand` sets no safety lockout for 401/429/authorization-class 403), `types/control.ts` (`TractorSafetyResponse`, `ControlResponseV2.result` adds `'incomplete'`), test helper `tests/unit/helpers/recordingAdapter.ts`.
 
 ## Operations and maintenance scripts
 
