@@ -20,6 +20,12 @@ enabled: false
 # bind_host: 192.168.50.20     # the Pi's HaLow address; the default 127.0.0.1 hears nobody
 # bind_port: 47101
 # allowed_sources: any         # default: only thor_host. A list of IPs/CIDRs, or "any".
+#                              # Parsed strictly: 192.168.1.64/24 (host bits set) and 0.0.0.0/0
+#                              # are errors; write the network (192.168.1.0/24), the host
+#                              # (192.168.1.64) or "any".
+# allow_wide_sources: false    # a network wider than one LAN (IPv4 shorter than /16, such as
+#                              # 10.0.0.0/8) is refused unless this is true: it is nearly always
+#                              # a typo that silently admits millions of addresses.
 
 # Timing. A downlink must echo an uplink sent within plan_max_age_s; no accepted downlink
 # for timeout_s puts the mower in hold. 10 Hz of worst-case 1,200 B uplinks is 12 kB/s.

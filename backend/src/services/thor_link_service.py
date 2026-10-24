@@ -44,8 +44,10 @@ from ..core.simulation import is_simulation_mode
 from ..models.geofence import LatLng
 from ..models.thor_link import (
     MAX_SESSION_ID,
+    MAX_UPLINK_HZ,
     SIM_LINK_KEY,
     UPLINK_HZ,
+    DatagramBudget,
     Downlink,
     LinkAuthError,
     LinkBudgetError,
@@ -54,11 +56,13 @@ from ..models.thor_link import (
     Waypoint,
     decode_downlink,
     encode,
+    fit_uplink,
     parse_key,
+    refuse_published_key,
     validate_key,
 )
 from ..models.tractor_control import LEVER_NEUTRAL_EPS
-from ..nav.geofence_validator import GeofenceShape, contains
+from ..nav.geofence_validator import GeofenceShape, path_within
 
 if TYPE_CHECKING:
     from .tractor_service import TractorControlService
@@ -75,6 +79,15 @@ _SOURCE = "thor_link"
 # Floor between repeated log lines for one cause, so a flood or a persistent
 # fault cannot turn a 10 Hz loop into a 10 Hz log.
 _LOG_INTERVAL_S = 5.0
+# Memory bound on the table of recent uplinks (see ``ThorLinkService._sent_cap``): 1,024 uplinks
+# is 20 s at the 50 Hz ceiling, far beyond any plan age worth having.
+MAX_SENT_UPLINKS = 1024
+# Least datagrams per second one source may have processed, whatever the uplink rate.
+MIN_RX_RATE_HZ = 20.0
+# Narrowest allowlist network accepted without acknowledgement, by IP version. An entry with a
+# shorter prefix names more than one LAN (a /8 is 16 million IPv4 addresses): that is a typo
+# far more often than a decision, so it needs ``allow_wide_sources``.
+_WIDE_PREFIX = {4: 16, 6: 64}
 
 
 class HoldReason(StrEnum):
@@ -90,8 +103,9 @@ class HoldReason(StrEnum):
 def resolve_link_key(secrets_manager: SecretsManager | None = None) -> bytes:
     """Return the shared link key, or raise ``LinkKeyError`` when none may be used.
 
-    ``THOR_LINK_KEY`` (hex, >= 32 bytes; ``openssl rand -hex 32``) is read
-    through ``SecretsManager``: environment first, then ``config/secrets.json``.
+    ``THOR_LINK_KEY`` (hex, >= 32 bytes, random-looking; ``openssl rand -hex 32``) is read
+    through ``SecretsManager``: environment first, then ``config/secrets.json``. A weak key
+    (see ``validate_key``) or the published ``SIM_LINK_KEY`` outside SIM_MODE is refused.
     With no key configured, SIM_MODE gets the published ``SIM_LINK_KEY`` (logged);
     anywhere else the missing key is fatal, because an unauthenticated link
     would let any host on the network steer the mower.
@@ -99,7 +113,7 @@ def resolve_link_key(secrets_manager: SecretsManager | None = None) -> bytes:
     sm = secrets_manager or SecretsManager()
     raw = sm.get(KEY_SECRET_NAME, default=None, purpose="thor_link")
     if raw:
-        return parse_key(raw)
+        return parse_key(raw, simulation=is_simulation_mode())
     if is_simulation_mode():
         logger.warning(
             "%s not configured: using the public SIM_LINK_KEY (SIM_MODE only)", KEY_SECRET_NAME
@@ -112,19 +126,55 @@ def resolve_link_key(secrets_manager: SecretsManager | None = None) -> bytes:
     )
 
 
-def _parse_sources(
-    entries: Iterable[str] | None,
+def parse_allowed_sources(
+    entries: Iterable[str] | None, *, allow_wide: bool = False
 ) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    """Parse a source allowlist strictly. ``None`` means no allowlist (an empty tuple).
+
+    Every entry is one IP address or one CIDR network, and must say exactly what it means:
+
+    * host bits must be zero: ``192.168.1.64/24`` is refused, not quietly widened to the whole
+      ``192.168.1.0/24`` (write the network, or the host as ``192.168.1.64``);
+    * ``/0`` is refused always: it matches everyone, which is "no allowlist" and is spelled
+      ``allowed_sources: any`` (``None`` here);
+    * a network wider than one LAN (IPv4 shorter than /16, IPv6 shorter than /64) is refused
+      unless ``allow_wide`` acknowledges it: ``10.0.0.0/8`` for ``10.0.0.0/28`` is a typo that
+      silently admits 16 million addresses;
+    * an empty list is an error, not "allow nobody" or "allow everybody".
+    """
     if entries is None:
         return ()
     nets = []
     for entry in entries:
-        try:
-            nets.append(ipaddress.ip_network(entry, strict=False))
-        except ValueError:
+        if not isinstance(entry, str):
             raise ValueError(
                 f"allowed_sources entry {entry!r} is not an IP address or CIDR network"
+            )
+        try:
+            net = ipaddress.ip_network(entry, strict=True)
+        except ValueError:
+            try:
+                widened = ipaddress.ip_network(entry, strict=False)
+                host = ipaddress.ip_interface(entry).ip
+            except ValueError:
+                raise ValueError(
+                    f"allowed_sources entry {entry!r} is not an IP address or CIDR network"
+                ) from None
+            raise ValueError(
+                f"allowed_sources entry {entry!r} has host bits set, so it would silently become "
+                f"{widened}: write {widened} for the whole network or {host} for the one host"
             ) from None
+        if net.prefixlen == 0:
+            raise ValueError(
+                f"allowed_sources entry {entry!r} matches every address: "
+                "use 'any' to switch the allowlist off"
+            )
+        if net.prefixlen < _WIDE_PREFIX[net.version] and not allow_wide:
+            raise ValueError(
+                f"allowed_sources entry {entry!r} matches {net.num_addresses} addresses, more than "
+                "one LAN: that is usually a typo; set allow_wide_sources to accept it"
+            )
+        nets.append(net)
     if not nets:
         raise ValueError("allowed_sources is empty; pass None to disable the allowlist")
     return tuple(nets)
@@ -144,30 +194,41 @@ class ThorLinkService:
     Args:
         tractor: actuation service used for the safe-hold neutral commands.
         thor_addr: where uplinks go.
+        bind_addr: where the Pi listens. Loopback by default: a forgotten setting hears nobody.
         timeout_s: link heartbeat timeout (no accepted downlink -> hold).
+        uplink_hz: uplink rate, at most ``MAX_UPLINK_HZ``.
         plan_max_age_s: hard cap on the age of the information a plan was built
             from, measured from the send time of the uplink it answers (an upper
             bound on its age, with no Thor clock involved).
         neutral_timeout_s: bound on each neutral command so a hung actuator bus
             shows up as a reported fault instead of stalling the slow loop.
-        key: shared HMAC key (>= 32 bytes). ``None`` resolves ``THOR_LINK_KEY``
-            via ``resolve_link_key``; with none configured, only SIM_MODE starts.
-        allowed_sources: optional IPs/CIDRs datagrams must come from. HMAC is
-            the real control; this only sheds traffic early.
-        geofence: optional ``GeofenceShape``; a plan with any waypoint outside
-            it is rejected whole. Without one, waypoints are only range-checked
-            here and the navigation consumer must bound them.
+        key: shared HMAC key (>= 32 bytes, random-looking: see ``validate_key``). ``None``
+            resolves ``THOR_LINK_KEY`` via ``resolve_link_key``; with none configured, only
+            SIM_MODE starts.
+        allowed_sources: optional IPs/CIDRs datagrams must come from, parsed strictly by
+            ``parse_allowed_sources``. HMAC is the real control; this only sheds traffic early.
+        allow_wide_sources: accept allowlist entries wider than one LAN (see
+            ``parse_allowed_sources``); a typo that widens the list must be acknowledged.
+        geofence: optional ``GeofenceShape``; a plan with any waypoint outside it, or any leg
+            between two waypoints leaving it or crossing a no-go zone, is rejected whole.
+            Without one, waypoints are only range-checked here and the navigation consumer must
+            bound them.
+
+    Datagrams are admitted through a ``DatagramBudget`` (a token bucket per source, one for the
+    port) before any HMAC work, so a flood cannot make the loop pay for each packet; what it
+    sheds is counted in ``rejects["rate"]``.
 
     Raises:
-        LinkKeyError: no usable key (or the public sim key outside SIM_MODE).
-        ValueError: a non-positive timing parameter or a bad allowlist entry.
+        LinkKeyError: no usable key, a weak one, or the public sim key outside SIM_MODE.
+        ValueError: a non-finite or non-positive timing parameter, ``uplink_hz`` above
+            ``MAX_UPLINK_HZ``, or a bad allowlist entry.
     """
 
     def __init__(
         self,
         tractor: TractorControlService,
         thor_addr: tuple[str, int],
-        bind_addr: tuple[str, int] = ("0.0.0.0", 47101),
+        bind_addr: tuple[str, int] = ("127.0.0.1", 47101),
         timeout_s: float = 0.5,
         uplink_hz: float = UPLINK_HZ,
         build_uplink: UplinkBuilder | None = None,
@@ -177,15 +238,23 @@ class ThorLinkService:
         plan_max_age_s: float = 1.0,
         neutral_timeout_s: float = 1.0,
         allowed_sources: Iterable[str] | None = None,
+        allow_wide_sources: bool = False,
         geofence: GeofenceShape | None = None,
     ) -> None:
-        if min(timeout_s, uplink_hz, plan_max_age_s, neutral_timeout_s) <= 0:
-            raise ValueError("timeout_s, uplink_hz, plan_max_age_s, neutral_timeout_s must be > 0")
+        timings = (timeout_s, uplink_hz, plan_max_age_s, neutral_timeout_s)
+        if not all(math.isfinite(t) and t > 0 for t in timings):
+            # A NaN or infinite timeout would mean "never time out": refuse, do not run.
+            raise ValueError(
+                "timeout_s, uplink_hz, plan_max_age_s, neutral_timeout_s must be > 0 and finite"
+            )
+        if uplink_hz > MAX_UPLINK_HZ:
+            raise ValueError(f"uplink_hz must be <= {MAX_UPLINK_HZ:g}")
         key = resolve_link_key() if key is None else validate_key(key)
-        if key == SIM_LINK_KEY and not is_simulation_mode():
-            raise LinkKeyError("SIM_LINK_KEY is public: it is only accepted with SIM_MODE=1")
+        refuse_published_key(key, simulation=is_simulation_mode())
         self._key = key
-        self._allowed_sources = _parse_sources(allowed_sources)
+        self._allowed_sources = parse_allowed_sources(
+            allowed_sources, allow_wide=allow_wide_sources
+        )
         self._geofence = geofence
         self._tractor = tractor
         self._thor_addr = thor_addr
@@ -202,7 +271,20 @@ class ThorLinkService:
         self.session_id = secrets.randbelow(MAX_SESSION_ID) + 1
         self._seq = 0  # next uplink seq; every smaller one has been sent
         self._sent: dict[int, float] = {}  # recent uplink seq -> send time
-        self._sent_cap = max(16, math.ceil(plan_max_age_s * uplink_hz) + 8)
+        # Memory bound as well as a replay window: an answer to an uplink older than the last
+        # ``_sent_cap`` is "stale" whatever ``plan_max_age_s`` says, so a huge age setting
+        # cannot grow this table without limit.
+        self._sent_cap = min(MAX_SENT_UPLINKS, max(16, math.ceil(plan_max_age_s * uplink_hz) + 8))
+        # The legitimate Thor sends one datagram per uplink, so twice the uplink rate (and a
+        # burst for the answers a radio stall queues up) is generous for it and tight for a flood.
+        rx_rate = max(2.0 * uplink_hz, MIN_RX_RATE_HZ)
+        self._budget = DatagramBudget(
+            rx_rate,
+            self._sent_cap,
+            total_rate_hz=4.0 * rx_rate,
+            total_burst=4 * self._sent_cap,
+        )
+        self._trusted_source: str | None = None  # source of the last accepted downlink
         self._last_ack = -1  # newest uplink seq answered by an accepted downlink
         self._last_rx: float | None = None  # when that downlink arrived
         self._plan_basis = 0.0  # send time of the uplink the active plan answers
@@ -220,7 +302,10 @@ class ThorLinkService:
         self.bytes_received = 0
         self.rejected = 0  # total dropped datagrams
         self.rejects: Counter[str] = Counter()  # ... by reason
-        self.uplink_errors = 0
+        self.uplink_errors = 0  # uplinks that could not be encoded or sent at all
+        self.builder_errors = 0  # uplinks sent bare because the state builder failed
+        self.uplinks_degraded = 0  # uplinks thinned by ``fit_uplink`` to fit one datagram
+        self.detections_dropped = 0  # detections left out of uplinks to make them fit, lifetime
         self._log_state: dict[str, tuple[float, int]] = {}
         self._transport: asyncio.DatagramTransport | None = None
         self._task: asyncio.Task | None = None
@@ -255,9 +340,33 @@ class ThorLinkService:
     # ------------------------------- inbound -------------------------------
 
     def _on_datagram(self, data: bytes, addr: tuple) -> None:
+        try:
+            self._receive(data, addr)
+        except Exception:
+            # A bug here must not become one asyncio "Exception in callback" traceback per
+            # datagram, nor leave a half-accepted downlink: drop it, count it, say so (bounded).
+            self.rejected += 1
+            self.rejects["internal"] += 1
+            self._log_limited(
+                "rx_internal", logging.ERROR, "Thor link: datagram handler failed", exc_info=True
+            )
+
+    def _receive(self, data: bytes, addr: tuple) -> None:
         self.bytes_received += len(data)
+        # Cheapest checks first, each before any work a sender can cause: the source allowlist
+        # (no state), then the datagram budget (a bucket per source and one for the port), and
+        # only then the size check, HMAC and parse. A flood costs a few dict operations per
+        # datagram, never an HMAC or a log line.
         if not self._source_allowed(addr):
             self._reject("source", addr)
+            return
+        source = str(addr[0]) if addr else ""
+        # The peer that last delivered an accepted downlink is exempt from the shared bucket
+        # (still bounded by its own), so strangers flooding the port cannot starve it.
+        if not self._budget.admit(
+            source, self._clock(), exempt_total=source == self._trusted_source
+        ):
+            self._reject("rate", addr)
             return
         try:
             msg = decode_downlink(data, self._key)
@@ -275,12 +384,15 @@ class ThorLinkService:
         if reason is not None:
             self._reject(reason, addr)
             return
-        # Accepted: the only place the heartbeat, the replay baseline and the plan move.
+        # Accepted: the only place the heartbeat, the replay baseline and the plan move. The one
+        # lookup that could fail comes first, so a failure cannot leave it half done.
+        basis = self._sent[msg.ack]
         self._last_ack = msg.ack
         self._last_rx = now
-        self._plan_basis = self._sent[msg.ack]
+        self._plan_basis = basis
         self._paused = msg.pause
         self.plan = None if msg.pause else msg
+        self._trusted_source = source
 
     def _admit(self, msg: Downlink, now: float) -> str | None:
         """Why an authentic ``msg`` must be dropped, or None. Never changes link state."""
@@ -309,11 +421,13 @@ class ThorLinkService:
         return any(ip in net for net in self._allowed_sources)
 
     def _waypoints_in_geofence(self, waypoints: list[Waypoint]) -> bool:
+        """Every waypoint inside the fence (margin applied, no-go zones clear) and every leg
+        between consecutive ones too: two inside points can still be joined across a notch."""
         if self._geofence is None:
             return True
         try:
-            return all(
-                contains(self._geofence, LatLng(latitude=w.lat, longitude=w.lon)) for w in waypoints
+            return path_within(
+                self._geofence, [LatLng(latitude=w.lat, longitude=w.lon) for w in waypoints]
             )
         except Exception:
             self._log_limited(
@@ -478,25 +592,58 @@ class ThorLinkService:
         )
         return False
 
+    def _compose_uplink(self, seq: int, now: float) -> Uplink:
+        """The uplink numbered ``seq``: the builder's state plus this service's own fields, fitted.
+
+        The heartbeat must not depend on the state builder. If the builder raises, or what it
+        returned cannot be made to fit one datagram, a bare uplink (this service's own fields
+        only: session, counter, clock, e-stop, hold and blade flags) goes out instead and the
+        failure is counted and logged, so the Thor keeps hearing the Pi and can pause it
+        deliberately. A builder that merely returns too many or too long detections is thinned
+        by ``fit_uplink`` and still gets its position through.
+        """
+        state = self._tractor.state
+        own = {
+            "sid": self.session_id,
+            "seq": seq,
+            "t_ms": int(now * 1000),
+            "estop": state.emergency_stop_active,
+            "safe_hold": self.safe_hold,
+            "hold_fault": self.hold_fault,
+            "blade": state.blade_engaged,
+        }
+        try:
+            base = self._build_uplink() if self._build_uplink else Uplink(seq=0, t_ms=0)
+            msg = base.model_copy(update=own)
+            fitted = fit_uplink(msg)
+        except Exception:
+            self.builder_errors += 1
+            self._log_limited(
+                "builder",
+                logging.ERROR,
+                "Thor link: uplink state unusable, sending a bare heartbeat",
+                exc_info=True,
+            )
+            return Uplink(seq=0, t_ms=0).model_copy(update=own)
+        if fitted is not msg:
+            dropped = (fitted.detections_dropped or 0) - (msg.detections_dropped or 0)
+            self.uplinks_degraded += 1
+            self.detections_dropped += dropped
+            self._log_limited(
+                "degraded",
+                logging.WARNING,
+                "Thor link: uplink thinned to fit one datagram (class names clipped, "
+                "%d detection(s) dropped)",
+                dropped,
+            )
+        return fitted
+
     def _send_uplink(self) -> None:
         if self._transport is None:
             return
-        msg = self._build_uplink() if self._build_uplink else Uplink(seq=0, t_ms=0)
-        state = self._tractor.state
         now = self._clock()
         seq = self._seq
-        msg = msg.model_copy(
-            update={
-                "sid": self.session_id,
-                "seq": seq,
-                "t_ms": int(now * 1000),
-                "estop": state.emergency_stop_active,
-                "safe_hold": self.safe_hold,
-                "hold_fault": self.hold_fault,
-                "blade": state.blade_engaged,
-            }
-        )
-        data = encode(msg, self._key)
+        data = encode(self._compose_uplink(seq, now), self._key)
         # Remember the send time before sending: the reply is judged against it.
         self._sent[seq] = now
         while len(self._sent) > self._sent_cap:

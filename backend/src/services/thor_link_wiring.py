@@ -36,9 +36,9 @@ from pydantic import (
 
 from ..core.simulation import is_simulation_mode
 from ..models.geofence import Geofence, LatLng
-from ..models.thor_link import UPLINK_HZ, LinkKeyError
+from ..models.thor_link import MAX_UPLINK_HZ, UPLINK_HZ, LinkKeyError
 from ..nav.geofence_validator import GeofenceShape, build_shape
-from .thor_link_service import ThorLinkService, resolve_link_key
+from .thor_link_service import ThorLinkService, parse_allowed_sources, resolve_link_key
 from .thor_plan_follower import FollowerConfig, GnssProvider, ThorPlanFollower
 
 if TYPE_CHECKING:
@@ -48,9 +48,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 CONFIG_FILE = "thor_link.yaml"
-# 50 Hz of worst-case 1,200 B uplinks is 60 kB/s, about a tenth of the one HaLow throughput
-# measurement so far: a ceiling against a typo flooding the link, not a recommendation.
-MAX_UPLINK_HZ = 50.0
 
 
 class ThorLinkStartError(RuntimeError):
@@ -78,7 +75,7 @@ class FenceSettings(BaseModel):
     no_go: list[list[tuple[float, float]]] = Field(default_factory=list)
     # Pulled in from the boundary for every check. UNVALIDATED: size it from the measured
     # stopping distance and the GNSS error (audit M-43, M-51).
-    margin_m: float = Field(0.5, ge=0.0)
+    margin_m: float = Field(0.5, ge=0.0, allow_inf_nan=False)
 
     @field_validator("no_go")
     @classmethod
@@ -102,12 +99,16 @@ class ThorLinkSettings(BaseModel):
     bind_host: str = "127.0.0.1"
     bind_port: int = Field(47101, ge=0, le=65535)
     # Source addresses a datagram must come from. Unset: the Thor's address only;
-    # "any" switches the allowlist off (HMAC is then the only control).
+    # "any" switches the allowlist off (HMAC is then the only control). Entries are parsed
+    # strictly (``parse_allowed_sources``): host bits, /0 and anything wider than one LAN
+    # (IPv4 shorter than /16) are errors, the last unless ``allow_wide_sources`` says it is meant.
     allowed_sources: list[str] | Literal["any"] | None = None
-    timeout_s: float = Field(0.5, gt=0)
-    plan_max_age_s: float = Field(1.0, gt=0)
+    allow_wide_sources: bool = False
+    # Timings are finite and positive: an infinite timeout would mean "never time out".
+    timeout_s: float = Field(0.5, gt=0, allow_inf_nan=False)
+    plan_max_age_s: float = Field(1.0, gt=0, allow_inf_nan=False)
     uplink_hz: float = Field(UPLINK_HZ, gt=0, le=MAX_UPLINK_HZ)
-    neutral_timeout_s: float = Field(1.0, gt=0)
+    neutral_timeout_s: float = Field(1.0, gt=0, allow_inf_nan=False)
     # The Thor can only ask for the blade; the Pi grants it only if this is true.
     allow_blade: bool = False
     # UNVALIDATED: equals the mission default (share of NavigationService.max_speed).
@@ -115,7 +116,7 @@ class ThorLinkSettings(BaseModel):
     require_fix: list[Literal["gps", "dgps", "rtk_float", "rtk_fixed"]] = Field(
         default_factory=lambda: ["rtk_fixed"], min_length=1
     )
-    max_position_age_s: float = Field(1.0, gt=0)
+    max_position_age_s: float = Field(1.0, gt=0, allow_inf_nan=False)
     geofence: FenceSettings | None = None
 
     @field_validator("thor_host", "bind_host")
@@ -123,20 +124,13 @@ class ThorLinkSettings(BaseModel):
     def _addresses(cls, value: str | None, info: Any):
         return value if value is None else _ipv4(value, info.field_name)
 
-    @field_validator("allowed_sources")
-    @classmethod
-    def _sources(cls, value: list[str] | str | None):
-        if isinstance(value, list):
-            if not value:
-                raise ValueError("allowed_sources is empty; use 'any' to switch it off")
-            for entry in value:
-                try:
-                    ipaddress.ip_network(entry, strict=False)
-                except ValueError:
-                    raise ValueError(
-                        f"allowed_sources entry {entry!r} is not an IP or CIDR"
-                    ) from None
-        return value
+    @model_validator(mode="after")
+    def _sources_say_what_they_mean(self) -> ThorLinkSettings:
+        # The same strict parser the link uses: host bits, /0 and too-wide networks are errors
+        # here, at config time, not a silently widened allowlist.
+        if isinstance(self.allowed_sources, list):
+            parse_allowed_sources(self.allowed_sources, allow_wide=self.allow_wide_sources)
+        return self
 
     @model_validator(mode="after")
     def _enabled_needs_a_thor(self) -> ThorLinkSettings:
@@ -200,6 +194,10 @@ class ThorLinkRuntime:
             "rejects": dict(link.rejects),
             "bytes_sent": link.bytes_sent,
             "bytes_received": link.bytes_received,
+            "uplink_errors": link.uplink_errors,
+            "builder_errors": link.builder_errors,
+            "uplinks_degraded": link.uplinks_degraded,
+            "detections_dropped": link.detections_dropped,
             "follower": self.follower.status(),
         }
 
@@ -274,6 +272,7 @@ async def start_thor_link(
             plan_max_age_s=cfg.plan_max_age_s,
             neutral_timeout_s=cfg.neutral_timeout_s,
             allowed_sources=cfg.sources(),
+            allow_wide_sources=cfg.allow_wide_sources,
             geofence=fence,
         )
     except ValueError as exc:  # includes LinkKeyError

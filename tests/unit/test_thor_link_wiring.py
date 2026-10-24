@@ -9,6 +9,7 @@ is a ``ThorLinkStartError`` that leaves the backend up, with no socket bound and
 from __future__ import annotations
 
 import asyncio
+import logging
 import socket
 import textwrap
 from pathlib import Path
@@ -18,11 +19,10 @@ import pytest
 import yaml
 
 from backend.src.models.navigation_state import NavigationState
-from backend.src.models.thor_link import SIM_LINK_KEY
+from backend.src.models.thor_link import MAX_UPLINK_HZ, SIM_LINK_KEY
 from backend.src.models.tractor_control import EngineState
 from backend.src.services.thor_link_wiring import (
     CONFIG_FILE,
-    MAX_UPLINK_HZ,
     FenceSettings,
     ThorLinkConfigError,
     ThorLinkSettings,
@@ -36,7 +36,8 @@ from backend.src.services.thor_plan_follower import GnssSnapshot
 from backend.src.services.tractor_service import TractorControlService
 
 REPO_CONFIG = Path(__file__).resolve().parents[2] / "config"
-GOOD_KEY = "6d" * 40
+# A real-looking key (the shape of `openssl rand -hex 40`): a repeated byte is refused as weak.
+GOOD_KEY = "cd62c6945fb3dcd8326edb3191758be847b21af784c90a8aa6b789ec6a1bd25b8d6696770ddf6b0c"
 SQUARE = [(45.0, -93.0), (45.0, -92.999), (45.0009, -92.999), (45.0009, -93.0)]
 
 
@@ -158,7 +159,15 @@ def test_a_full_config_file_round_trips(tmp_path):
 def test_the_allowlist_defaults_to_the_thor_alone_and_any_switches_it_off():
     assert _settings().sources() == ["127.0.0.1"]
     assert _settings(allowed_sources="any").sources() is None
-    assert _settings(allowed_sources=["10.0.0.0/8"]).sources() == ["10.0.0.0/8"]
+    assert _settings(allowed_sources=["10.0.0.0/24", "10.9.9.9"]).sources() == [
+        "10.0.0.0/24",
+        "10.9.9.9",
+    ]
+
+
+def test_a_wide_allowlist_entry_is_accepted_only_when_it_is_acknowledged():
+    wide = _settings(allowed_sources=["10.0.0.0/8"], allow_wide_sources=True)
+    assert wide.sources() == ["10.0.0.0/8"]
 
 
 BAD_CONFIGS = {
@@ -169,9 +178,23 @@ BAD_CONFIGS = {
     "port zero": "thor_port: 0\n",
     "uplink flood": f"uplink_hz: {MAX_UPLINK_HZ + 1}\n",
     "zero timeout": "timeout_s: 0\n",
+    "infinite timeout": "timeout_s: .inf\n",
+    "not a number timeout": "timeout_s: .nan\n",
+    "infinite plan age": "plan_max_age_s: .inf\n",
+    "infinite position age": "max_position_age_s: .inf\n",
+    "infinite neutral timeout": "neutral_timeout_s: .inf\n",
+    "infinite fence margin": (
+        "geofence: {margin_m: .inf, boundary: [[45, -93], [45, -92.9], [45.1, -92.9]]}\n"
+    ),
     "empty allowlist": "allowed_sources: []\n",
     "bad allowlist word": "allowed_sources: everyone\n",
     "bad allowlist entry": "allowed_sources: [not-an-ip]\n",
+    "allowlist entry with host bits": "allowed_sources: [192.168.1.64/24]\n",
+    "allowlist matches everyone": "allowed_sources: [0.0.0.0/0]\n",
+    "allowlist matches everyone even when wide is allowed": (
+        "allow_wide_sources: true\nallowed_sources: [0.0.0.0/0]\n"
+    ),
+    "allowlist /8 not acknowledged": "allowed_sources: [10.0.0.0/8]\n",
     "none is no fix": "require_fix: [none]\n",
     "no fix at all": "require_fix: []\n",
     "speed zero": "speed_percent: 0\n",
@@ -305,6 +328,7 @@ async def test_the_policy_in_the_config_reaches_the_link_and_the_follower(tracto
             plan_max_age_s=0.9,
             uplink_hz=20,
             allowed_sources=["10.0.0.0/8"],
+            allow_wide_sources=True,
         ),
     )
     try:
@@ -493,4 +517,47 @@ async def test_no_safety_monitor_means_no_link_even_with_everything_else_in_plac
     async with main.lifespan(main.app):
         assert main.app.state.thor_link is None
         assert "safety monitor" in main.app.state.thor_link_error
+    await tractor.shutdown()
+
+
+async def test_status_reports_the_uplink_and_flood_counters(tractor, real_key):
+    runtime = await _start(tractor, _settings())
+    try:
+        st = runtime.status()
+        for counter in (
+            "uplink_errors",
+            "builder_errors",
+            "uplinks_degraded",
+            "detections_dropped",
+        ):
+            assert st[counter] == 0, counter
+    finally:
+        await stop_thor_link(runtime)
+
+
+@pytest.mark.parametrize(
+    ("failure", "keeps_traceback"),
+    [(RuntimeError("a bug, not a refusal"), True), (ThorLinkStartError("refused: no key"), False)],
+)
+async def test_lifespan_keeps_the_traceback_of_a_bug_but_not_of_a_plain_refusal(
+    monkeypatch, tmp_path, caplog, failure, keeps_traceback
+):
+    import backend.src.main as main
+
+    monkeypatch.setenv("SIM_MODE", "1")
+    monkeypatch.setenv("LAWNBERRY_CONFIG_DIR", str(_config_dir(tmp_path, None)))
+    tractor = TractorControlService(config={"enabled": True})
+    _stub_the_rest_of_the_backend(monkeypatch, main, tractor, [])
+
+    async def failing_start(*_a, **_k):
+        raise failure
+
+    monkeypatch.setattr(main, "start_thor_link", failing_start)
+    with caplog.at_level(logging.CRITICAL):
+        async with main.lifespan(main.app):
+            assert main.app.state.thor_link is None
+            assert str(failure) in main.app.state.thor_link_error
+    records = [r for r in caplog.records if "Thor link NOT started" in r.getMessage()]
+    assert len(records) == 1
+    assert bool(records[0].exc_info) is keeps_traceback
     await tractor.shutdown()

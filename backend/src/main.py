@@ -50,7 +50,7 @@ from .services.camera_stream_service import camera_service
 from .services.emergency_stop_service import park_actuators
 from .services.navigation_service import NavigationService
 from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
-from .services.thor_link_wiring import start_thor_link, stop_thor_link
+from .services.thor_link_wiring import ThorLinkStartError, start_thor_link, stop_thor_link
 from .services.thor_plan_follower import gnss_from_sensor_manager
 from .services.tractor_service import get_tractor_service
 from .services.websocket_hub import websocket_hub
@@ -252,7 +252,13 @@ async def lifespan(app: FastAPI):
         )
     except Exception as exc:
         app.state.thor_link_error = str(exc)
-        _log.critical("Thor link NOT started, the mower stays on local control only: %s", exc)
+        # A refusal (ThorLinkStartError) says why in one line; anything else is a bug and keeps
+        # its traceback instead of leaving a one-line message to debug from.
+        _log.critical(
+            "Thor link NOT started, the mower stays on local control only: %s",
+            exc,
+            exc_info=not isinstance(exc, ThorLinkStartError),
+        )
     # camera-stream.service is the sole camera owner in production (the
     # constitution reserves the camera to it; the backend consumes frames
     # over its IPC socket, see api/routers/camera.py). Only embed a camera
