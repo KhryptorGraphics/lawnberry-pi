@@ -35,3 +35,16 @@
 > In the LawnBerry-pi repository, review docs/OMP-THOR-HANDOFF-2026-10-24.md on origin/docs/2026-10-24-hardware-architecture-audit. First produce a source-linked hardware conflict matrix and software gap report. Do not drive actuators or modify active hardware configuration. Work on a separate branch, run SIM_MODE=1 checks, and open a draft PR with exact tests and unresolved questions.
 
 **Integration limit:** A GitHub commit is a shared handoff, not a live RPC connection. ChatGPT cannot currently issue commands to the Thor's running Oh My Pi session or verify it consumed this file.
+
+
+## Additional owner requirements recovered in conversation review
+- Replace the legacy three-HC-SR04 assumption with **four JSN-SR04T waterproof ultrasonic units** (inner pair forward, outer pair angled outward on adjustable mounts, spanning 50-inch Toro deck). Confirm module revision, voltage and near-range blind zone.
+- Two owner-reported matching **150 kg-cm steering servos**, nominal **10–12.6 V**, may draw high stall current. Confirm labels, measured supply and fuse sizing; do not use stale 24 V servo instructions.
+- Inspect reported **momentary PTO toggle** against the software's latching relay abstraction before touching wiring.
+- Add **Pi Zero RTK base / Orange Pi HaLow gateway / Thor** as a candidate house topology to confirm, with full network and power diagrams.
+- Thor is intended to lead navigation/decision making; Pi remains local safety authority. Evaluate real-time camera/depth telemetry and fallback behavior.
+- Deliver **photo-annotated and 3D-style physical assembly documentation**: actual Toro front view with four adjustable ultrasonic mounts, GPIO/HAT riser access, USB-C, PCIe/Hailo, CSI camera, full sensor and servo wiring, house-side base and gateway.
+- Audit ROS 2/Nav2 feasibility, stereo/2D-LiDAR obstacle fusion, and any existing agent automation bridge (earlier PR #16) without assuming installed/functional capability.
+- Codex CLI, Claude Code and OMP all run on Thor. Coordinate via **separate Git worktrees**, never simultaneous edits to one working tree, and no unattended hardware actions.
+
+See the appended corrections in `docs/2026-10-24-physical-integration-plan.md`, `docs/2026-10-24-development-roadmap.md` and `docs/2026-10-24-compatibility-gap-register.md`. Treat this as a **superseding requirements addendum**, not evidence of completed implementation.
