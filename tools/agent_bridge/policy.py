@@ -6,11 +6,12 @@ permission flags), but those are defence in depth.  This module decides what may
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .config import BridgeConfig, LimitsConfig
-from .globs import PathError, match_any, normalize_repo_path
+from .globs import HIDDEN_CATEGORIES, PathError, match_any, normalize_repo_path
 from .schema import TaskSpec
 
 __all__ = [
@@ -49,6 +50,23 @@ class Violation:
     def render(self) -> str:
         where = f" `{self.path}`" if self.path else ""
         return f"{self.code}{where}: {self.detail}"
+
+
+def _displayable(path: str) -> str:
+    """``path`` as it may be published: spell out what cannot be encoded or could hide text.
+
+    Lone surrogates (the bytes of a name that is not UTF-8), format characters (zero-width,
+    bidirectional overrides), line/paragraph separators and C1 controls become ``\\uXXXX``;
+    everything else, including the C0 controls the policy already reports as they are, is kept.
+    """
+    out: list[str] = []
+    for char in path:
+        if char >= "\x80" and unicodedata.category(char) in HIDDEN_CATEGORIES:
+            code = ord(char)
+            out.append(f"\\u{code:04x}" if code <= 0xFFFF else f"\\U{code:08x}")
+        else:
+            out.append(char)
+    return "".join(out)
 
 
 @dataclass(frozen=True)
@@ -113,7 +131,7 @@ def evaluate_changes(
         try:
             path = normalize_repo_path(change.path)
         except PathError as exc:
-            violations.append(Violation("path_invalid", str(exc), change.path[:120]))
+            violations.append(Violation("path_invalid", str(exc), _displayable(change.path)[:120]))
             continue
         if path != change.path:
             violations.append(Violation("path_invalid", "path is not in canonical form", path))

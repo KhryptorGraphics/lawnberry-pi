@@ -8,6 +8,7 @@ system matters, against real git; the guard tests drive the real ``omp_guard.mjs
 from __future__ import annotations
 
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -22,7 +23,7 @@ from tools.agent_bridge import globs
 from tools.agent_bridge.agents.omp import GUARD_PATH
 from tools.agent_bridge.config import DEFAULT_PROTECTED_PATHS, BridgeConfig, GitConfig
 from tools.agent_bridge.gitops import GitOps
-from tools.agent_bridge.globs import match_any
+from tools.agent_bridge.globs import PathError, match_any, normalize_repo_path
 from tools.agent_bridge.models import RunStatus
 from tools.agent_bridge.policy import Change, WritePolicy, build_write_policy, evaluate_changes
 from tools.agent_bridge.schema import TaskSpec
@@ -889,3 +890,167 @@ def test_the_worker_blocks_an_agent_that_hides_binary_data_behind_a_text_prefix(
     ]
     assert rig.fake.pulls == {}
     assert rig.git_env.origin_branches() == ["main"]
+
+
+# =========================================================================== C-08
+# A staged path that is not valid UTF-8 (git hands such names over as lone surrogates) passed the
+# policy, was committed and pushed, and then crashed publication when the PR body listing the
+# files could not be encoded.  Zero-width and bidirectional characters were accepted likewise.
+NON_UTF8_NAME = b"docs/\xff\xfe.md".decode("utf-8", errors="surrogateescape")
+UNSAFE_NAMES = [
+    pytest.param(NON_UTF8_NAME, id="not-utf8"),
+    pytest.param("docs/\udcff.md", id="lone-surrogate"),
+    pytest.param("docs/a\u202eb.md", id="right-to-left-override"),
+    pytest.param("docs/a\u2066b.md", id="bidi-isolate"),
+    pytest.param("docs/a\u200bb.md", id="zero-width-space"),
+    pytest.param("docs/a\u200db.md", id="zero-width-joiner"),
+    pytest.param("docs/\ufeffa.md", id="byte-order-mark"),
+    pytest.param("docs/a\u00adb.md", id="soft-hyphen"),
+    pytest.param("docs/a\u2060b.md", id="word-joiner"),
+    pytest.param("docs/a\u2028b.md", id="line-separator"),
+    pytest.param("docs/a\u2029b.md", id="paragraph-separator"),
+    pytest.param("docs/a\x85b.md", id="next-line-control"),
+    pytest.param("docs/a\x9bb.md", id="c1-csi"),
+    pytest.param("docs/\U000e0041a.md", id="tag-character"),
+]
+FINE_NAMES = [
+    "docs/caf\u00e9.md",
+    "docs/cafe\u0301.md",
+    "docs/\u65e5\u672c\u8a9e.md",
+    "docs/\u00fc\u00f1\u00ee\u00e7\u00f8d\u00e9.md",
+    "docs/\u0410\u0431\u0432.md",
+    "docs/a b.md",
+    "docs/\U0001f680.md",
+]
+
+
+@pytest.mark.parametrize("name", UNSAFE_NAMES)
+def test_normalize_repo_path_rejects_invisible_and_unencodable_characters(name: str) -> None:
+    with pytest.raises(PathError, match=r"control, invisible or non-UTF-8"):
+        normalize_repo_path(name)
+
+
+@pytest.mark.parametrize("name", FINE_NAMES)
+def test_normalize_repo_path_keeps_ordinary_unicode_names(name: str) -> None:
+    assert normalize_repo_path(name) == name
+
+
+@pytest.mark.parametrize("scope", ["docs-only", "code"])
+@pytest.mark.parametrize("name", UNSAFE_NAMES)
+def test_unsafe_staged_names_are_path_invalid(name: str, scope: str) -> None:
+    found = evaluate_changes([added(name)], make_policy(scope), LIMITS)
+
+    assert [v.code for v in found] == ["path_invalid"]
+    assert "non-UTF-8" in found[0].detail
+
+
+@pytest.mark.parametrize("name", FINE_NAMES)
+def test_ordinary_unicode_names_are_not_violations(name: str) -> None:
+    assert evaluate_changes([added(name)], make_policy("docs-only"), LIMITS) == []
+
+
+@pytest.mark.parametrize("name", UNSAFE_NAMES)
+def test_a_rejected_name_is_reported_in_a_form_that_can_be_published(name: str) -> None:
+    """The report is posted to GitHub; a lone surrogate there crashed the request encoder."""
+    (violation,) = evaluate_changes([added(name)], make_policy("docs-only"), LIMITS)
+
+    for text in (violation.path or "", violation.detail, violation.render()):
+        text.encode("utf-8")  # raises UnicodeEncodeError for a surrogate
+        assert not any(unicodedata.category(c) in {"Cs", "Cf", "Zl", "Zp"} for c in text)
+    assert violation.path is not None and len(violation.path) <= 120
+    assert violation.path.startswith("docs/")
+
+
+def test_the_reported_name_spells_out_what_was_hidden() -> None:
+    (surrogates,) = evaluate_changes([added(NON_UTF8_NAME)], make_policy("docs-only"), LIMITS)
+    (override,) = evaluate_changes([added("docs/a\u202eb.md")], make_policy("docs-only"), LIMITS)
+
+    assert surrogates.path == "docs/\\udcff\\udcfe.md"
+    assert override.path == "docs/a\\u202eb.md"
+    assert "U+DCFF" in surrogates.detail and "U+202E" in override.detail
+
+
+def test_long_unsafe_names_are_still_cut_to_120_characters() -> None:
+    (violation,) = evaluate_changes(
+        [added("docs/" + "\udcff" * 200 + ".md")], make_policy("docs-only"), LIMITS
+    )
+
+    assert violation.path is not None and len(violation.path) <= 120
+
+
+def test_an_unsafe_name_cannot_hide_a_protected_path() -> None:
+    """Rejected as path_invalid before any glob is consulted: no spelling reaches the lists."""
+    for name in (
+        "docs/.claude\u200b/x.md",
+        "docs/AGENTS\u202e.md",
+        "backend/src/safety\u2028/a.py",
+    ):
+        assert [v.code for v in evaluate_changes([added(name)], make_policy("code"), LIMITS)] == [
+            "path_invalid"
+        ]
+
+
+def make_odd_file(git: GitRepoEnv, raw_name: bytes) -> None:
+    target = os.fsencode(str(git.clone)) + b"/" + raw_name
+    try:
+        with open(target, "wb") as handle:
+            handle.write(b"z\n")
+    except OSError:
+        pytest.skip("this file system rejects the file name")
+
+
+def test_real_git_a_non_utf8_file_name_is_a_path_invalid_violation(
+    blank_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = blank_repo
+    make_odd_file(git, b"docs/\xff\xfe.md")
+
+    ops.stage_all(git.clone)
+    staged = ops.staged_changes(git.clone, base, max_diff_bytes=1_000_000)
+
+    assert [c.path for c in staged.changes] == [NON_UTF8_NAME]
+    assert staged_violations(git, ops, base) == [("path_invalid", "docs/\\udcff\\udcfe.md")]
+
+
+def test_real_git_bidirectional_and_zero_width_names_are_violations(
+    blank_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = blank_repo
+    put(git, "docs/rtl\u202egnp.md", "x\n")
+    put(git, "docs/zero\u200bwidth.md", "x\n")
+    put(git, "docs/caf\u00e9.md", "x\n")
+
+    assert staged_violations(git, ops, base) == [
+        ("path_invalid", "docs/rtl\\u202egnp.md"),
+        ("path_invalid", "docs/zero\\u200bwidth.md"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("scenario_path", "shown"),
+    [
+        pytest.param("docs/\udcff\udcfe.md", "docs/\\udcff\\udcfe.md", id="not-utf8"),
+        pytest.param("docs/a\u202eb.md", "docs/a\\u202eb.md", id="rtl-override"),
+    ],
+)
+def test_the_worker_blocks_the_run_instead_of_crashing_in_publication(
+    make_rig_for: Any, scenario_path: str, shown: str
+) -> None:
+    rig = make_rig_for()
+    number = rig.new_task_issue()
+    rig.set_scenario(
+        [
+            {"op": "write_file", "path": scenario_path, "content": "z\n"},
+            {"op": "final", "text": "Done.", "report": {"status": "completed", "summary": "Note"}},
+        ]
+    )
+
+    run = rig.run_issue(number)
+
+    assert run.status is RunStatus.BLOCKED, (run.status, run.failure_kind, run.failure_detail)
+    assert run.failure_kind == "policy_violation"
+    assert run.result is not None
+    assert [v.split(":")[0] for v in run.result["violations"]] == [f"path_invalid `{shown}`"]
+    assert rig.fake.pulls == {}
+    assert rig.git_env.origin_branches() == ["main"]  # nothing was pushed
+    assert any("path_invalid" in body for body in rig.comments(number))

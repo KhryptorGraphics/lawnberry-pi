@@ -22,9 +22,11 @@ from collections.abc import Iterable
 from functools import lru_cache
 
 __all__ = [
+    "HIDDEN_CATEGORIES",
     "PathError",
     "fold_case",
     "glob_to_regex",
+    "hidden_characters",
     "match_any",
     "normalize_glob",
     "normalize_repo_path",
@@ -51,6 +53,24 @@ def fold_case(value: str) -> str:
     return unicodedata.normalize("NFC", text.lower().upper().lower())
 
 
+# What a file name may not contain besides the C0 controls and backslashes of ``_FORBIDDEN``: C1
+# controls, format characters (zero-width, bidirectional marks and overrides, BOM, soft hyphen,
+# tags), line and paragraph separators, and lone surrogates (``surrogateescape`` turns the bytes of
+# a name that is not UTF-8 into those, and a name with one cannot be encoded for GitHub).
+HIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
+
+
+def hidden_characters(text: str, limit: int = 5) -> list[str]:
+    """``U+XXXX`` of the first ``limit`` characters of ``text`` in :data:`HIDDEN_CATEGORIES`."""
+    found: list[str] = []
+    for char in text:
+        if unicodedata.category(char) in HIDDEN_CATEGORIES:
+            found.append(f"U+{ord(char):04X}")
+            if len(found) >= limit:
+                break
+    return found
+
+
 class PathError(ValueError):
     """A path or glob is not a safe repository-relative reference."""
 
@@ -66,6 +86,11 @@ def normalize_repo_path(raw: str) -> str:
         raise PathError("path is too long")
     if _FORBIDDEN.search(value):
         raise PathError("path contains control characters or backslashes")
+    hidden = hidden_characters(value)
+    if hidden:
+        raise PathError(
+            f"path contains control, invisible or non-UTF-8 characters ({', '.join(hidden)})"
+        )
     if value.startswith(("/", "~")) or re.match(r"^[A-Za-z][A-Za-z0-9+.\-]*:", value):
         raise PathError(f"path must be repository-relative: {value!r}")
     normalized = posixpath.normpath(value)
