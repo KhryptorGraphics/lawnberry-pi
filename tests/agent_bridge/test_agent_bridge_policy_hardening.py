@@ -8,6 +8,7 @@ system matters, against real git; the guard tests drive the real ``omp_guard.mjs
 from __future__ import annotations
 
 import json
+import random
 import shutil
 import subprocess
 import unicodedata
@@ -699,3 +700,192 @@ def test_the_worker_accepts_an_agent_edit_of_an_existing_executable(
     assert run.status is RunStatus.DONE, (run.status, run.failure_kind, run.failure_detail)
     assert run.result is not None and run.result["files"] == ["tools/run.sh"]
     assert len(rig.fake.pulls) == 1
+
+
+# =========================================================================== C-07
+# ``git diff --numstat`` calls a file binary when a NUL byte sits in its first 8000 bytes, so a
+# payload that starts as plain text and turns binary later passed the "no binary files" rule.
+POLYGLOT = b"# note\n" + b"x" * 8100 + b"\n\x00\x7fELF" + random.Random(7).randbytes(2000)
+LATIN1_DOC = b"# caf\xe9 notes\n" + b"plain text line\n" * 600  # not UTF-8, no NUL byte
+UTF8_DOC = (
+    "# Caf\u00e9 \u2014 na\u00efve fa\u00e7ade \u65e5\u672c\u8a9e \U0001f680\n" * 400
+).encode()
+
+
+@pytest.fixture
+def blank_repo(tmp_path: Path) -> tuple[GitRepoEnv, GitOps, str]:
+    git = make_git_env(tmp_path, {**BASE_FILES, "docs/old.md": "old\n"})
+    ops = GitOps(git.clone, GitConfig(), state_dir=tmp_path / "state", environ=git.env)
+    return git, ops, git.git("rev-parse", "HEAD")
+
+
+def put(git: GitRepoEnv, rel: str, content: bytes | str) -> None:
+    target = git.clone / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content if isinstance(content, bytes) else content.encode("utf-8"))
+
+
+def staged_binary(git: GitRepoEnv, ops: GitOps, base: str, **kwargs: Any) -> dict[str, bool]:
+    ops.stage_all(git.clone)
+    staged = ops.staged_changes(git.clone, base, max_diff_bytes=10_000_000, **kwargs)
+    return {change.path: change.binary for change in staged.changes}
+
+
+def test_git_alone_calls_the_polyglot_text(blank_repo: tuple[GitRepoEnv, GitOps, str]) -> None:
+    """Control: this is exactly what the old numstat-only check saw."""
+    git, _ops, base = blank_repo
+    put(git, "docs/poly.md", POLYGLOT)
+    git.git("add", "-A")
+
+    numstat = git.git("diff", "--cached", "--numstat", base)
+
+    assert not numstat.startswith("-\t-\t"), numstat  # git reports line counts, not "binary"
+
+
+def test_a_nul_byte_after_the_first_8000_bytes_makes_the_file_binary(
+    blank_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = blank_repo
+    put(git, "docs/poly.md", POLYGLOT)
+
+    assert staged_binary(git, ops, base) == {"docs/poly.md": True}
+
+
+def test_invalid_utf8_without_a_nul_byte_is_binary_too(
+    blank_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = blank_repo
+    put(git, "docs/latin1.md", LATIN1_DOC)
+
+    assert staged_binary(git, ops, base) == {"docs/latin1.md": True}
+
+
+def test_ordinary_utf8_text_is_not_binary_however_non_ascii_it_is(
+    blank_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = blank_repo
+    put(git, "docs/unicode.md", UTF8_DOC)
+    put(git, "docs/empty.md", b"")
+    put(git, "docs/small.md", "# Small\n")
+    put(git, "docs/old.md", "changed\n")  # a modification is scanned like an addition
+
+    assert len(UTF8_DOC) > 8000
+    assert staged_binary(git, ops, base) == {
+        "docs/unicode.md": False,
+        "docs/empty.md": False,
+        "docs/small.md": False,
+        "docs/old.md": False,
+    }
+
+
+def test_a_modified_file_that_turns_binary_is_flagged(
+    blank_repo: tuple[GitRepoEnv, GitOps, str],
+) -> None:
+    git, ops, base = blank_repo
+    put(git, "docs/old.md", POLYGLOT)
+
+    assert staged_binary(git, ops, base) == {"docs/old.md": True}
+
+
+@pytest.mark.parametrize("scope", ["docs-only", "code"])
+def test_the_policy_reports_the_polyglot_as_binary(
+    blank_repo: tuple[GitRepoEnv, GitOps, str], scope: str
+) -> None:
+    git, ops, base = blank_repo
+    put(git, "docs/poly.md", POLYGLOT)
+    put(git, "docs/fine.md", UTF8_DOC)
+
+    assert staged_violations(git, ops, base, scope) == [("binary", "docs/poly.md")]
+
+
+def spied_ops(
+    git: GitRepoEnv, tmp_path: Path
+) -> tuple[GitOps, list[tuple[list[str], bytes | None]]]:
+    """A GitOps that records every git subprocess it starts (argv and stdin)."""
+    calls: list[tuple[list[str], bytes | None]] = []
+
+    def spy(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        calls.append((argv, kwargs.get("input")))
+        return subprocess.run(argv, **kwargs)
+
+    ops = GitOps(git.clone, GitConfig(), state_dir=tmp_path / "state", environ=git.env, run=spy)
+    return ops, calls
+
+
+def content_reads(calls: list[tuple[list[str], bytes | None]]) -> list[list[str]]:
+    """The object ids requested by each ``cat-file --batch`` call."""
+    return [
+        stdin.decode("ascii").split()
+        for argv, stdin in calls
+        if "cat-file" in argv and "--batch" in argv and stdin is not None
+    ]
+
+
+def test_blobs_above_the_file_limit_are_never_read(
+    blank_repo: tuple[GitRepoEnv, GitOps, str], tmp_path: Path
+) -> None:
+    """They are refused as too large anyway; reading them would only cost memory."""
+    git, _ops, base = blank_repo
+    ops, calls = spied_ops(git, tmp_path)
+    put(git, "docs/small.md", b"\xff" * 50)
+    put(git, "docs/big.md", b"\xff" * 5000)
+    ops.stage_all(git.clone)
+
+    staged = ops.staged_changes(git.clone, base, max_diff_bytes=1_000_000, max_file_bytes=1000)
+
+    by_path = {c.path: c for c in staged.changes}
+    assert by_path["docs/small.md"].binary is True
+    assert by_path["docs/big.md"].binary is False and by_path["docs/big.md"].size == 5000
+    assert content_reads(calls) == [[git.git("rev-parse", ":docs/small.md")]]
+
+
+def test_many_blobs_are_read_in_bounded_batches(
+    blank_repo: tuple[GitRepoEnv, GitOps, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.agent_bridge import gitops
+
+    git, _ops, base = blank_repo
+    ops, calls = spied_ops(git, tmp_path)
+    monkeypatch.setattr(gitops, "SCAN_BATCH_BYTES", 2500)
+    for index in range(12):
+        put(git, f"docs/page{index:02d}.md", f"page {index} ".encode() * 100)
+    put(git, "docs/page07.md", b"page 7 " * 100 + b"\x00")
+    put(git, "docs/page11.md", b"\xfe" + b"page 11 " * 100)
+
+    found = staged_binary(git, ops, base)
+
+    assert [path for path, binary in found.items() if binary] == [
+        "docs/page07.md",
+        "docs/page11.md",
+    ]
+    assert len(found) == 12
+    reads = content_reads(calls)
+    assert len(reads) >= 4 and all(len(batch) <= 4 for batch in reads)
+    assert sum(len(batch) for batch in reads) == 12
+
+
+def test_the_worker_blocks_an_agent_that_hides_binary_data_behind_a_text_prefix(
+    make_rig_for: Any,
+) -> None:
+    rig = make_rig_for()
+    number = rig.new_task_issue()
+    rig.set_scenario(
+        [
+            {
+                "op": "write_file",
+                "path": "docs/poly.md",
+                "content": "# note\n" + "x" * 8100 + "\n\x00\x7fELF" + "y" * 100,
+            },
+            {"op": "final", "text": "Done.", "report": {"status": "completed", "summary": "Note"}},
+        ]
+    )
+
+    run = rig.run_issue(number)
+
+    assert run.status is RunStatus.BLOCKED, (run.status, run.failure_kind, run.failure_detail)
+    assert run.failure_kind == "policy_violation"
+    assert run.result is not None and run.result["violations"] == [
+        "binary `docs/poly.md`: binary files are not allowed"
+    ]
+    assert rig.fake.pulls == {}
+    assert rig.git_env.origin_branches() == ["main"]

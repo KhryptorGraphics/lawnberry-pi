@@ -17,7 +17,7 @@ from typing import Any
 
 from .config import GitConfig
 from .errors import GitError
-from .policy import Change
+from .policy import MODE_GITLINK, MODE_SYMLINK, Change
 from .redact import Redactor
 
 __all__ = ["GitOps", "StagedDiff", "worktree_pointer"]
@@ -52,6 +52,11 @@ SAFE_CONFIG: tuple[str, ...] = (
     "protocol.ext.allow=never",
 )
 ZERO_SHA = "0" * 40
+# Default per-file limit of the content scan in GitOps.staged_changes: the default of
+# ``limits.max_file_bytes``.  Blobs above it are refused as too large and are never read.
+DEFAULT_MAX_FILE_BYTES = 1_000_000
+# The scan reads blobs from ``git cat-file --batch`` in groups of at most this many bytes.
+SCAN_BATCH_BYTES = 16 * 1024 * 1024
 PUSH_TOKEN_ENV = "LAWNBERRY_BRIDGE_PUSH_TOKEN"
 
 _ASKPASS_SCRIPT = """#!/bin/sh
@@ -76,6 +81,19 @@ def worktree_pointer(path: Path) -> str | None:
         return (path / ".git").read_text(encoding="utf-8", errors="replace").strip()
     except OSError:
         return None
+
+
+def _is_text(content: bytes) -> bool:
+    """True for UTF-8 text without NUL bytes (the empty content counts as text)."""
+    if b"\0" in content:
+        return False
+    if content.isascii():
+        return True
+    try:
+        content.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 class GitOps:
@@ -265,7 +283,19 @@ class GitOps:
         """Tree id of the current index (used to prove the checks left the tree untouched)."""
         return self._text(["write-tree"], cwd=path)
 
-    def staged_changes(self, path: Path, base_sha: str, *, max_diff_bytes: int) -> StagedDiff:
+    def staged_changes(
+        self,
+        path: Path,
+        base_sha: str,
+        *,
+        max_diff_bytes: int,
+        max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+    ) -> StagedDiff:
+        """Describe everything staged against ``base_sha`` (modes, sizes, line counts, diff).
+
+        ``Change.binary`` is git's own verdict or, for every added or changed regular file of at
+        most ``max_file_bytes``, a NUL byte or invalid UTF-8 anywhere in the content.
+        """
         raw = self._run(
             [
                 "diff",
@@ -317,6 +347,19 @@ class GitOps:
         sizes = self._blob_sizes(
             [e[3] for e in entries if e[4] != "D" and e[3] != ZERO_SHA and e[1] != "160000"]
         )
+        # numstat only sees a NUL in the first 8000 bytes; read what the file limit lets through
+        # (a bigger blob is refused as too large anyway) to catch a payload that turns binary later
+        non_text = self._non_text_blobs(
+            [
+                sha
+                for _old_mode, new_mode, _old_sha, sha, status, _name in entries
+                if status != "D"
+                and sha != ZERO_SHA
+                and new_mode not in (MODE_GITLINK, MODE_SYMLINK)
+                and 0 < sizes.get(sha, 0) <= max_file_bytes
+            ],
+            sizes,
+        )
         changes: list[Change] = []
         for old_mode, new_mode, _old_sha, new_sha, status, name in entries:
             added, deleted, binary = stats.get(name, (0, 0, False))
@@ -327,7 +370,7 @@ class GitOps:
                     old_mode=old_mode,
                     new_mode=new_mode,
                     size=sizes.get(new_sha),
-                    binary=binary,
+                    binary=binary or new_sha in non_text,
                     added=added,
                     deleted=deleted,
                 )
@@ -368,6 +411,43 @@ class GitOps:
             if len(parts) == 3 and parts[2].isdigit():
                 sizes[parts[0]] = int(parts[2])
         return sizes
+
+    def _non_text_blobs(self, shas: Sequence[str], sizes: Mapping[str, int]) -> set[str]:
+        """Ids among ``shas`` whose content is not UTF-8 text: a NUL byte or invalid UTF-8.
+
+        ``git diff --numstat`` only looks for a NUL in the first 8000 bytes, so a file may start
+        as text and turn binary later.  The blobs are read through ``cat-file --batch`` in groups
+        of at most ``SCAN_BATCH_BYTES``, so the bridge never holds much more than that at once.
+        """
+        pending = sorted(set(shas))
+        flagged: set[str] = set()
+        position = 0
+        while position < len(pending):
+            batch: list[str] = []
+            total = 0
+            while position < len(pending) and (
+                not batch or total + sizes[pending[position]] <= SCAN_BATCH_BYTES
+            ):
+                total += sizes[pending[position]]
+                batch.append(pending[position])
+                position += 1
+            out = self._run(
+                ["cat-file", "--batch"], input_bytes=("\n".join(batch) + "\n").encode("ascii")
+            ).stdout
+            offset = 0
+            for sha in batch:
+                end = out.find(b"\n", offset)
+                if end < 0:
+                    break
+                header = out[offset:end].split()
+                offset = end + 1
+                if len(header) != 3 or not header[2].isdigit():
+                    continue  # "<sha> missing"
+                size = int(header[2])
+                if not _is_text(out[offset : offset + size]):
+                    flagged.add(sha)
+                offset += size + 1
+        return flagged
 
     # ---------------------------------------------------------------- commit & push
     def commit(self, path: Path, message: str) -> str:
