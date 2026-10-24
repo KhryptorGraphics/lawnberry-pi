@@ -334,3 +334,76 @@ an `nvcr.io` credential in `~/.docker/config.json`, so re-pulling the 17.6 GB im
 | `workshop.autolabel` | deps present in `$LB/env` (`transformers==4.57.1`, imagehash, PIL); MM-Grounding-DINO weights are **not** cached; huggingface.co reachable from the box |
 | `workshop.train_detector` | requires `--real` for a valid validation split; `--smoke-sdg-val` is documented as "metrics are NOT a recall gate" |
 | `$LB/repo` | a 32 MB snapshot dated 2026-10-13, **not a git checkout** (no `.git`) |
+
+## Workshop `$LB/env` re-verified on the P100 (2026-10-24)
+
+`$LB/env` (conda, python 3.11.17) already had everything requested except `onnxsim`, now installed.
+`$LB/cache/toolchain-setup/verify_aux_software.py` passes 12/12 (exit 0; log
+`$LB/logs/aux-software-2-verify-final.log`) with `CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0
+YOLO_AUTOINSTALL=False HF_HUB_OFFLINE=1`. GPU 0 is the Tesla P100-PCIE-16GB
+(`GPU-2314d735-8adb-672e-23d8-7af00db59caa`, sm_60): 63 MiB idle before and after, and the script
+asserts its own CUDA context sits on that UUID only (3080 Ti and V100 untouched).
+
+| Package | Version | Verified by |
+|---|---|---|
+| torch | 2.7.1+cu126 | `get_arch_list()` = `sm_50 sm_60 sm_70 sm_75 sm_80 sm_86 sm_90`; `cuda:0` = P100 cc 6.0; fp32 + fp16 matmul, conv backward ok |
+| torchvision | 0.22.1+cu126 | `nms` and `roi_align` on CUDA equal the CPU result |
+| ultralytics | 8.4.173 | `YOLO("yolo26s.pt").predict(bus.jpg, device=0)` → bus + 4 person; `export(format="onnx", simplify=True, device=0)` (opset 18) → ONNX Runtime CPU gives the same class ids |
+| transformers | 4.57.1 | tiny `BertModel` forward on cuda:0; `IDEA-Research/grounding-dino-base` from the offline HF cache → bus + 4 person on cuda:0 |
+| imagehash | 4.3.2 | a/p/d/w/color hash: Hamming distance bus vs half-size blurred bus 0–1, bus vs zidane 32–38 |
+| onnx | 1.23.2 | `check_model(full_check)`, `version_converter` 13→21, strict `infer_shapes`, `ReferenceEvaluator` (IR 14, max opset 28) |
+| onnxsim | **0.8.1** (installed today) | `simplify()` of a torch-exported net (9→6 nodes, max abs error vs torch 4.8e-7) and of the YOLO26s ONNX (ORT class-id parity; 368→368 nodes, nothing left after onnxslim); `python -m onnxsim` rc 0 |
+| onnxslim, onnxruntime | 0.1.97, 1.30.0 | already present; ultralytics' `simplify=True` uses **onnxslim**, not onnxsim; ORT is the CPU build |
+
+Install: `$LB/env/bin/python -m pip install -c $LB/cache/toolchain-setup/pin-constraints.txt onnxsim==0.8.1`.
+`--dry-run` listed exactly one distribution and `pip freeze` before/after differs by one line
+(`onnxsim==0.8.1`), so torch, torchvision, numpy and transformers are untouched; `pip check` is clean.
+onnxsim 0.4.36, 0.7.3 and 0.8.1 all passed a torch-2.7.1 export → simplify → ORT probe against onnx 1.23.2;
+0.8.1 (2026-10-09) is the newest. The verified set is
+`$LB/cache/toolchain-setup/pin-constraints-verified-20261024.txt` (use with `pip install -c`).
+Ultralytics installs missing export dependencies into the active env unless `YOLO_AUTOINSTALL=False`.
+
+| Host check | Result |
+|---|---|
+| `docker run --rm --gpus device=0 nvidia/cuda:12.2.0-runtime-ubuntu22.04 nvidia-smi` | exit 0; exactly one GPU row, Tesla P100-PCIE-16GB (`nvidia-smi -L` in the container: `GPU-2314d735-8adb-672e-23d8-7af00db59caa`). Docker 29.9.2, default runtime `nvidia`, NVIDIA Container Toolkit 1.20.1, driver 580.196.07 |
+| NGC CLI | 4.36.6, x86-64, `~/bin/ngc` → `~/bin/ngc-cli/ngc`; already present (symlink mtime 00:39 on 2026-10-24, binary dated 2026-09-04), so not reinstalled. `find ngc-cli/ -type f -exec md5sum {} + \| LC_ALL=C sort \| md5sum -c ngc-cli.md5` → `-: OK` |
+
+`~/bin` is on the login-shell PATH only; a non-login `ssh host cmd` needs `~/bin/ngc`. The CLI holds only a
+guest token (no API key); the box's `~/.docker/config.json` has an `nvcr.io` credential.
+
+## Isaac GR00T N1.7 on Thor (2026-10-24)
+
+**Install verified. The official demo is blocked by a gated backbone; inference runs on a clearly labelled stand-in.**
+Runbook `~/thordrive/nvidia-sim/GROOT_N17_THOR_RUNBOOK.md`; logs `~/thordrive/nvidia-sim/logs/groot-n17/`.
+
+| Item | Result |
+|---|---|
+| Repo / install | `NVIDIA/Isaac-GR00T` main `944fe70` (2026-10-21, N1.7) in `~/thordrive/nvidia-sim/Isaac-GR00T-n17`. The repo's bare-metal Thor path `scripts/deployment/thor/install_deps.sh` (JetPack 7.2, Python 3.12.3), run through `scripts/groot-n17-install.sh` in an `env -i` shell: exit 0, `.venv` 8.8 GB. torch 2.13.0+cu132 (arch list has `sm_110`), torchvision 0.28.0, torchcodec 0.15.0, transformers 4.57.6, flash-attn 2.8.3 (repo LFS wheel; `flash_attn_func` vs SDPA max abs diff 0.00098 on Thor), TensorRT 10.16.1.11, ModelOpt 0.39.0. 16/16 imports OK; bf16 4096² matmul 140 TFLOPS. |
+| Base checkpoint | `nvidia/GR00T-N1.7-3B` @ `2fc962b` (not gated; 27 files, 6.9 GB, 3.144 B params) in `~/thordrive/nvidia-sim/models/GR00T-N1.7-3B`. Sizes and all 6 LFS sha256 equal the Hub's; a `hf download` re-run fetched 27/27 files already up to date. |
+| **Blocker (official path)** | The README zero-shot demo dies loading the VLM backbone: `RuntimeError: Cannot download the VLM backbone 'nvidia/Cosmos-Reason2-2B', which is a gated Hugging Face repo` (`403 Client Error ... Access to model nvidia/Cosmos-Reason2-2B is restricted and you are not in the authorized list`). Every GR00T N1.7 checkpoint names it; `gated=auto`, NVIDIA Open Model License. HF user `giggahost` (token `superagi`) has not accepted it. **One click by the account owner:** <https://huggingface.co/nvidia/Cosmos-Reason2-2B> → "Agree and access repository", then `~/thordrive/nvidia-sim/scripts/groot-n17-official.sh` (checks access first, exits 2 while gated). |
+| Stand-in behind the numbers below | `models/GR00T-N1.7-3B-qwen3vl-standin`: symlinks to the checkpoint plus 2 edited JSON files (`model_name` → the local public `Qwen/Qwen3-VL-2B-Instruct`, Apache-2.0, sha256 verified; Cosmos-Reason2-2B is post-trained from it with the same architecture). No gated file was fetched. Loaded model: 494/494 backbone and 537/537 action-head tensors bit-identical to the GR00T shards, 0 missing/unexpected/mismatched keys. Valid for shapes and latency; action values are not guaranteed identical to the official path (the Cosmos chat template and tokenizer files are gated and were not compared). |
+| Action output | `Gr00tPolicy.get_action`, batch 1, DROID embodiment: `eef_9d` (1,40,9) + `gripper_position` (1,40,1) + `joint_position` (1,40,7), float32, finite, i.e. a (1, 40, 17) chunk. Observation: 2 cameras × 2 frames `(1,2,180,320,3)` uint8, state (1,1,9/1/7), 1 instruction. |
+| Latency, PyTorch eager | Idle GPU, MAXN, clocks at max (GPU 1574, CPU 2601, EMC 4266 MHz; Tj ≤ 56 °C). README demo `standalone_inference_script.py --traj-ids 1 2 --execution-horizon 8`: 48 timed steps avg **186.7 ms**, min 174.4, P90 196.3, max 253.0; Avg MSE 0.0202, MAE 0.0768. Per `get_action` call (n=50): median **176 ms**, p90 189 (5.7 Hz) = preprocess 7 + collate 16 + model 142 + decode 6. Official `build_trt_pipeline.py --steps benchmark --flat-e2e` eager median 167.4 ms. Server/client (`run_gr00t_server.py` + ZMQ client) median 169.5 ms, p90 174.8 (n=30). GPU peak 6.5 GB, process RSS 17 GB, model load 9-26 s. |
+| Latency, TensorRT BF16 full pipeline | Export 1 m + build 7 m 41 s (7 engines, 6.1 GB), verify cosine 0.999958 PASS. `--flat-e2e` median **168.5 ms**, no faster than eager; component benchmark eager 161.3 → TRT 148.9 ms (backbone 77.2 → 84.0, action head 66.8 → 48.6). The README's Thor 76.8 ms is LIBERO with 2 images; DROID feeds 4, i.e. 1792 ViT patches, and the baseline ViT engine is FP32. |
+| Latency, TensorRT optimized + mixed NVFP4 (README Thor recipe) | `scripts/groot-n17-nvfp4.sh` = `build_trt_pipeline.py --execution-profile optimized --quantization mixed_nvfp4 --calib-dataset-path demo_data/droid_sample --calib-size 10 --flat-e2e`: export 2 m 20 s + build 4 m 09 s (8 engines, 2.5 GB: ViT FP8, LLM and DiT NVFP4, action head as a CUDA graph), exit 0. Idle GPU, n=20: median **72.4 ms = 13.8 Hz** (min 69.1, max 84.6) against eager 174.7 ms in the same run, 2.4× faster. Verify flags "minor drift": final-action cosine 0.9952 (ViT embeds 0.977, backbone 0.998). README demo task-space error is unchanged: Avg MSE 0.0209 / MAE 0.0776 vs eager 0.0202 / 0.0768. The README's Thor 35.6 ms (28 Hz) is again the 2-image LIBERO case. |
+| Noise sources | One early run, made while other agents' Cosmos jobs were starting and stopping on the Thor, measured 527 ms median; idle-GPU runs gave 161-176 ms. On Thor's unified memory a large `cudaMalloc` with a full page cache can hold the NVIDIA RM lock for minutes (CUDA processes and `nvidia-smi` sit in D state); `sudo sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'` clears it. |
+
+Run everything with `~/thordrive/nvidia-sim/scripts/groot-n17-run.sh` (clean `env -i`, venv, `activate_thor.sh`) and plain `python`: `uv run` re-syncs against the x86 lock and destroys the Thor env.
+
+## Cosmos on Thor (2026-10-24)
+
+**Cosmos 3 (the current family) is installed and verified on the Thor: Reasoner (image and video to text), Generator (image to video) and edge-controlled Transfer each produced real output; the older Predict2.5 also ran. Two Hugging Face licence clicks remain (below).**
+Runbook `~/thordrive/nvidia-sim/cosmos3/README.md`; scripts in `~/thordrive/nvidia-sim/cosmos3/`; outputs `~/thordrive/nvidia-sim/outputs/cosmos*`. One job at a time, idle GPU, MAXN.
+
+| Item | Result |
+|---|---|
+| Which Cosmos | `github.com/NVIDIA/Cosmos` (HF collection `nvidia/cosmos3`) is the current family: Cosmos3-Edge 4B, Nano 16B, Super 64B (bf16 128 GB, does not fit Thor). The `nvidia-cosmos` org's Predict2.5, Transfer2.5 and Reason1/2 READMEs say "no longer under active development ... migrate to Cosmos 3". |
+| Env A (HF Transformers/Diffusers) | uv venv `~/thordrive/nvidia-sim/envs/cosmos3` (Python 3.13.11, 5.8 GB): torch 2.14.1+cu130 (arch list has `sm_110`), transformers 5.21.0.dev0 (`50e35cc`), diffusers 0.42.0.dev0 (`aaf57d0`), torchcodec 0.17.0, cosmos_guardrail 0.3.2. `source ~/thordrive/nvidia-sim/cosmos3/env.sh`. No source build. |
+| Env B (official `NVIDIA/cosmos-framework`) | `9214f43` (2026-10-23) in `~/thordrive/nvidia-sim/src/cosmos-framework`; venv `/home/kp/cosmos-work/envs/cosmos-framework` (8.8 GB) from `uv sync --frozen --all-extras --group cu130-torch213` with the repo-pinned uv 0.11.29 (system uv 0.11.28 is refused): torch 2.13.0+cu130 (`sm_110`), natten 0.21.6 sm_110 wheel; the repo's attention dispatcher has an arch-110 path (cuDNN, flash2, natten). `source ~/thordrive/nvidia-sim/cosmos3/env-framework.sh`. |
+| Weights | `HF_HUB_CACHE=~/thordrive/nvidia-sim/models/hf-hub`: Cosmos3-Edge 9.2 GB; Cosmos3-Nano 35 GB (physically on `/home/kp/cosmos-work/hf-store`, symlinked in, because `~/thordrive` is 97% full); Cosmos-Predict2.5-2B `diffusers/base/post-trained` 21 GB; Wan2.2 VAE. |
+| Reasoner, image (acceptance test) | **Edge, HF Transformers:** `outputs/cosmos3-edge-reasoner-20261024-005730/reasoner_text.txt`: the card's robot-flower planning prompt, 740 new tokens in 14.4 s (51 tok/s), load 10 s, GPU 4.7 GiB. A lawn photo (Mip-NeRF 360 garden) with an "autonomous mower vision system" prompt (`...-garden-20261024-010507`; Nano `cosmos3-nano-reasoner-20261024-010936/garden`): both name the round table as the obstacle and call the grass safe to mow. Video input (the generated clip, 4,006 prompt tokens) answered in 10.3 s. Nano reasoner: GPU 16.4 GiB, answers directly; Edge emits `<think>...</think>` first. Framework Edge reasoner: `cosmosfw-edge-reasoner-20261024-014240`, 78.5 ms/token. |
+| Generator, image to video (Diffusers) | Edge: `outputs/cosmos3-edge-i2v-20261024-010125/edge_i2v.mp4`, 121 frames 832x480 @ 24 fps, 20 steps, **148.5 s** (4.2 s/step), GPU peak 12.4 GiB, safety checker on. Nano: `outputs/cosmos3-nano-i2v-20261024-012716/nano_i2v_480p.mp4`, same settings, **303 s** (12 s/step), load 32 s, GPU peak 35.3 GiB. Both clips show the prompted rockslide. The Nano card's default (720p, 189 frames, 35 steps) was not run. |
+| Transfer (Cosmos3-Nano, framework) | `outputs/cosmosfw-nano-transfer-20261024-014456/transfer_edge_480p/vision.mp4`: Canny-edge control video to 121 frames 832x480 @ 30 fps, 20 steps, sampling 4 m 46 s, 6.5 min end to end; a control-vs-output contact sheet shows the output following the control edges. The older Cosmos-Transfer2.5-2B seg result (2026-10-07, row above) is unchanged: `envs/cosmos-transfer2.5` still imports clean. |
+| Predict2.5-2B (older generation, Diffusers) | `outputs/cosmos-predict25-i2w-20261024-015307/predict25_garden_i2w.mp4`: image2world from a 16:9 crop of the garden photo with a robotic-mower prompt, 93 frames 832x480, 28 steps, **718 s** (24 s/step), load 24 s, GPU peak 25.7 GiB; a black and orange mower drives in from the right. |
+| **Blockers (licence clicks by the owner of HF user `giggahost`)** | (1) `nvidia/Cosmos-1.0-Guardrail` (gated=auto, 403) is the default of `cosmos_guardrail`, Diffusers and the framework's `--guardrails`: accept at <https://huggingface.co/nvidia/Cosmos-1.0-Guardrail>. Workaround in use: `CosmosSafetyChecker(checkpoint_id="nvidia/Cosmos-Guardrail1")` in the Diffusers scripts (safety checker stays on); the framework runs use `--no-guardrails`. (2) `nvidia/Cosmos-Reason2-2B` and `-8B` (gated=auto, 403): accept at <https://huggingface.co/nvidia/Cosmos-Reason2-2B> and <https://huggingface.co/nvidia/Cosmos-Reason2-8B> (the same blocker as GR00T N1.7 above; the Cosmos 3 Reasoner needs neither). |
+| Thor pitfalls | (a) transformers/diffusers `caching_allocator_warmup` makes one model-sized `cudaMalloc`; with a ~45 GB page cache it held the NVIDIA RM lock for ~4 min (`nvidia-smi` and the GR00T jobs sat in D state). `cosmos3/thor_patches.py` skips it; `sudo sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'` clears a live stall. (b) nltk refuses group-writable data dirs (umask 0002): `chmod -R go-w ~/.cache/huggingface/cosmos_guardrail`. (c) The login shell's `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` turns gated repos into 403s; `env.sh` unsets it. (d) huggingface_hub 2.x shared blob store uses relative symlinks that break for a symlinked model dir: `HF_HUB_DISABLE_SHARED_BLOBS=1`. (e) Video input needs `torchcodec`. (f) `Cosmos2_5_PredictBasePipeline._execution_device` raises when a `CosmosSafetyChecker` is attached (guardrail sub-models have no `.device`): patched in `run_predict25.py`. |
