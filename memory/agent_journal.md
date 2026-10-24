@@ -510,3 +510,22 @@ HaLow/UART/ultrasonic claims with a reviewed known-conflicts list. Suite: 693 pa
 
 Not done and needs the owner: hardwired E-stop and PCA9685 `OE`, pin moves (O-5), measurements (audit B.7),
 installing the new unit with real credentials on the Pi. The deployed Pi still runs with auth off.
+
+## 2026-10-24 — Finish tracks: obstacle stop, watchdog, Thor wiring, 4x ultrasonic MCU, installer (simulation only)
+
+Stacked on PR #19. Software-only, SIM_MODE against fakes; nothing ran on the mower, no pin, calibration or
+`tractor.enabled` change. Obstacle stop wired from real ToF/ultrasonic readings with a config-driven,
+UNVALIDATED stopping-distance model; GNSS degradation monitor fed from real fixes; a multi-source actuation
+watchdog with PCA9685 read-back; the Thor link wired behind a default-off flag (plans reach actuators only
+through the local nav path) with a Thor-side client and a real-UDP end-to-end test; firmware, host driver and
+four-channel interface for JSN-SR04T sensors on a dedicated MCU over USB; a real `lgpio` IBT-4 driver
+(disarmed by default); 40 placeholder tests implemented or deleted; installer templating, `--dry-run`,
+persistent auth secret and refusal of default credentials.
+
+Merge found a real bug: on Python 3.11 `asyncio.wait_for` absorbs a cancellation that lands as its inner call
+completes, so `stop_supervision` could wait forever on the supervise loop (shutdown hang). Fixed with
+`asyncio.timeout` plus bounded re-cancel; regression test cancels at every early await. Suite 1623 passed,
+29 skipped, 0 failed.
+
+Owner needed: hardwired E-stop (hardware watchdog), pin moves, measurements, reading the live-only HaLow units
+from the Pi once reachable, installing on the Pi, licence clicks for Cosmos/GR00T.
