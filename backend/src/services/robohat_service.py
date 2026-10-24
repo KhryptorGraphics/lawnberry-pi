@@ -31,6 +31,25 @@ except Exception:  # pragma: no cover - serial.tools may be unavailable in CI
 
 logger = logging.getLogger(__name__)
 
+# How long a drive command stays in force when the caller gives no duration, and
+# the ceiling for any requested duration. Once a non-neutral command outlives its
+# window the service sends neutral once and stops maintaining USB control, so the
+# firmware's own failsafe (USB timeout -> RC mode -> neutral on RC loss) takes
+# over instead of being kept alive by a blind resend of the last PWM.
+DEFAULT_COMMAND_VALIDITY_S = 0.5
+MAX_COMMAND_VALIDITY_S = 10.0
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ[name])
+    except (KeyError, ValueError):
+        return default
+
+
+def _clamp_validity(seconds: float) -> float:
+    return max(0.05, min(float(seconds), MAX_COMMAND_VALIDITY_S))
+
 
 @dataclass
 class RoboHATStatus:
@@ -100,6 +119,23 @@ class RoboHATService:
         # Track last PWM sent so we can refresh it to avoid firmware USB timeout
         self._last_pwm: tuple[int, int] = (1500, 1500)
         self._last_pwm_at: float = 0.0
+        # Drive-command validity window (monotonic deadline; 0.0 = no non-neutral
+        # command in force). See DEFAULT_COMMAND_VALIDITY_S.
+        self._command_validity_s = _clamp_validity(
+            _env_float("ROBOHAT_COMMAND_VALIDITY_S", DEFAULT_COMMAND_VALIDITY_S)
+        )
+        self._cmd_valid_until: float = 0.0
+        self._cmd_expiry_task: asyncio.Task | None = None
+        # Software E-stop latch: hold neutral (and USB control) until cleared, so
+        # the stop cannot be undone by the RC receiver or a later drive command.
+        self._estop_hold = False
+        # Firmware echo counters, used to confirm a stop was actually accepted.
+        self._acks: dict[str, int] = {"pwm": 0, "blade": 0}
+
+    @property
+    def emergency_latched(self) -> bool:
+        """Is a software E-stop hold latched (drive/blade-on refused until cleared)?"""
+        return self._estop_hold
 
     async def initialize(self) -> bool:
         """Initialize RoboHAT serial connection"""
@@ -244,11 +280,25 @@ class RoboHATService:
                 await asyncio.sleep(1.0)
 
     async def _maintain_usb_control(self) -> None:
-        """Keep RoboHAT in USB control mode and feed neutral PWM when active."""
+        """Keep USB control only while a fresh drive command (or an E-stop hold) needs it.
+
+        The firmware falls back to RC mode after ~2 s of USB silence and, with no
+        RC signal, to neutral -- that is the failsafe. This loop therefore never
+        re-acquires USB control or re-sends a stale non-neutral PWM on its own:
+        it refreshes the *current* command only while it is inside its validity
+        window (long commands need that to outlive the firmware's 2 s timeout),
+        and holds neutral after an E-stop until it is cleared.
+        """
         if not self.serial_conn or not self.serial_conn.is_open:
             return
 
         if not self._usb_control_requested:
+            return
+
+        now = time.monotonic()
+        if not (now < self._cmd_valid_until or self._estop_hold):
+            # No fresh command and no latched stop: leave it to the firmware.
+            self._usb_control_requested = False
             return
 
         if self._rc_enabled:
@@ -260,13 +310,44 @@ class RoboHATService:
                 logger.warning("RoboHAT RC disable acknowledgement still pending; retrying command")
                 await self._set_rc_enabled(False, force=True)
             return
-        # Refresh the last commanded PWM periodically to prevent the firmware
-        # from timing out back to RC mode (SERIAL_TIMEOUT ≈ 2s on firmware).
-        now = time.monotonic()
+        # Refresh the current command so the firmware does not time out to RC
+        # mode mid-command (SERIAL_TIMEOUT ≈ 2s on firmware).
         if (now - max(self._last_status_at, self._last_pwm_at)) >= 0.9:
             steer_us, thr_us = self._last_pwm
             await self._send_line(f"pwm,{steer_us},{thr_us}")
             self._last_pwm_at = now
+
+    def _ensure_command_expiry(self) -> None:
+        if self._cmd_expiry_task is None or self._cmd_expiry_task.done():
+            self._cmd_expiry_task = asyncio.get_running_loop().create_task(
+                self._command_expiry_loop()
+            )
+
+    def _cancel_command_expiry(self) -> None:
+        self._cmd_valid_until = 0.0
+        task = self._cmd_expiry_task
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+
+    async def _command_expiry_loop(self) -> None:
+        """Send neutral once when a non-neutral drive command outlives its window."""
+        while True:
+            if self._cmd_valid_until <= 0.0:
+                return  # cancelled, or replaced by a neutral command
+            remaining = self._cmd_valid_until - time.monotonic()
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+                continue
+            self._cmd_valid_until = 0.0
+            logger.warning(
+                "RoboHAT drive command expired: neutral sent, firmware failsafe in charge"
+            )
+            self._last_pwm = (1500, 1500)
+            self._last_pwm_at = time.monotonic()
+            if not await self._send_line("pwm,1500,1500"):
+                # The firmware's own 2 s USB timeout still applies.
+                self.status.last_error = "command_expiry_neutral_failed"
+            return
 
     async def _wait_for_usb_control(self, timeout: float = 0.75) -> bool:
         """Block until the firmware confirms USB control or timeout expires."""
@@ -370,6 +451,12 @@ class RoboHATService:
             self._last_status_at = time.monotonic()
             self.status.motor_controller_ok = True
             self.status.last_watchdog_echo = "pwm_ack"
+            self._acks["pwm"] += 1
+            return
+
+        if line_lower.startswith("[usb] blade"):
+            self._last_status_at = time.monotonic()
+            self._acks["blade"] += 1
             return
 
         if line_lower.startswith("[usb] invalid"):
@@ -396,14 +483,29 @@ class RoboHATService:
         # For everything else, keep a debug breadcrumb without polluting logs.
         logger.debug("RoboHAT: %s", line)
 
-    async def send_motor_command(self, left_speed: float, right_speed: float) -> bool:
-        """Send motor command to RoboHAT"""
+    async def send_motor_command(
+        self, left_speed: float, right_speed: float, valid_for_s: float | None = None
+    ) -> bool:
+        """Send a drive command that stays in force for ``valid_for_s`` seconds.
+
+        ``valid_for_s`` defaults to the configured validity
+        (``ROBOHAT_COMMAND_VALIDITY_S``, 0.5 s) and is clamped to
+        ``MAX_COMMAND_VALIDITY_S``. A caller driving continuously must re-send
+        inside that window; if it lapses without a refresh the service sends
+        neutral once and stops maintaining USB control. A neutral command needs
+        no window. Refused while an E-stop hold is latched.
+        """
         if not self.serial_conn or not self.serial_conn.is_open or not self.running:
+            return False
+
+        if self._estop_hold:
+            self.status.last_error = "emergency_stop_latched"
             return False
 
         if not await self._ensure_usb_control(timeout=0.9, retries=2):
             return False
 
+        validity = self._command_validity_s if valid_for_s is None else _clamp_validity(valid_for_s)
         steer_us, throttle_us = self._mix_arcade_to_pwm(left_speed, right_speed)
         ok = await self._send_line(f"pwm,{steer_us},{throttle_us}")
 
@@ -411,10 +513,14 @@ class RoboHATService:
             self.status.motor_controller_ok = True
             self.status.last_watchdog_echo = f"pwm:{steer_us}/{throttle_us}"
             self.status.last_error = None
-            # Record last PWM so watchdog can refresh the same command and
-            # prevent firmware USB timeout during longer manoeuvres.
+            now = time.monotonic()
             self._last_pwm = (steer_us, throttle_us)
-            self._last_pwm_at = time.monotonic()
+            self._last_pwm_at = now
+            if (steer_us, throttle_us) == (1500, 1500):
+                self._cancel_command_expiry()  # neutral: nothing to expire
+            else:
+                self._cmd_valid_until = now + validity
+                self._ensure_command_expiry()
         else:
             self.status.motor_controller_ok = False
             self.status.last_error = "pwm_send_failed"
@@ -423,6 +529,10 @@ class RoboHATService:
     async def send_blade_command(self, active: bool, speed: float = 1.0) -> bool:
         """Send blade motor command to RoboHAT"""
         if not self.serial_conn or not self.serial_conn.is_open or not self.running:
+            return False
+
+        if active and speed > 0 and self._estop_hold:
+            self.status.last_error = "emergency_stop_latched"
             return False
 
         if not await self._ensure_usb_control(timeout=0.9, retries=2):
@@ -438,25 +548,93 @@ class RoboHATService:
             self.status.last_error = "blade_command_failed"
         return ok
 
-    async def emergency_stop(self) -> bool:
-        """Send emergency stop command to RoboHAT"""
-        logger.critical("Sending emergency stop to RoboHAT")
-        if not self.serial_conn or not self.serial_conn.is_open or not self.running:
-            return False
+    async def _send_confirmed(self, line: str, ack: str, timeout: float = 0.5) -> str:
+        """Send ``line`` and wait for the firmware's echo.
 
-        usb_ready = await self._ensure_usb_control(timeout=0.6, retries=2)
-        if not usb_ready:
-            logger.warning("Emergency stop proceeding without USB control acknowledgement")
-        ok = await self._send_line("pwm,1500,1500")
-        # Record neutral PWM as last command to maintain safe stop if needed
+        Returns ``"acked"`` (firmware echoed it), ``"unacked"`` (written to the
+        port but no echo within ``timeout`` -- e.g. the firmware is in RC mode and
+        rejected it) or ``"send_failed"`` (the write itself failed).
+        """
+        before = self._acks[ack]
+        if not await self._send_line(line):
+            return "send_failed"
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._acks[ack] > before:
+                return "acked"
+            await asyncio.sleep(0.02)
+        return "unacked"
+
+    async def emergency_stop_detail(self) -> dict[str, Any]:
+        """Latch a stop on the RoboHAT and report what the firmware actually did.
+
+        ``drive``/``blade`` are each ``"acked"``, ``"unacked"`` or
+        ``"send_failed"`` (see ``_send_confirmed``); ``usb_control`` says whether
+        the firmware was in USB-control mode for the drive stop. The blade is
+        switched off first (accepted in any firmware mode, no USB control
+        needed), then neutral PWM. After this the service holds neutral until
+        ``clear_emergency()`` and refuses new drive / blade-on commands.
+        """
+        logger.critical("Sending emergency stop to RoboHAT")
+        detail: dict[str, Any] = {
+            "drive": "send_failed",
+            "blade": "send_failed",
+            "usb_control": False,
+            "error": None,
+        }
+        if not self.serial_conn or not self.serial_conn.is_open or not self.running:
+            detail["error"] = "serial not connected"
+            return detail
+
+        self._estop_hold = True
+        self._cancel_command_expiry()
         self._last_pwm = (1500, 1500)
         self._last_pwm_at = time.monotonic()
-        ok = await self._send_line("blade=off") and ok
+        detail["blade"] = await self._send_confirmed("blade=off", "blade")
+        detail["drive"] = await self._send_confirmed("pwm,1500,1500", "pwm", timeout=0.3)
+        detail["usb_control"] = not self._rc_enabled
+        if detail["drive"] != "acked":
+            # pwm is only accepted in USB-control mode: take control and retry.
+            detail["usb_control"] = await self._ensure_usb_control(timeout=0.6, retries=2)
+            if not detail["usb_control"]:
+                logger.warning("Emergency stop could not obtain USB control of the RoboHAT")
+            detail["drive"] = await self._send_confirmed("pwm,1500,1500", "pwm")
         self.status.motor_controller_ok = False
         self.status.last_watchdog_echo = "emergency_stop"
-        if not ok:
+        if "send_failed" in (detail["drive"], detail["blade"]):
             self.status.last_error = "emergency_stop_failed"
-        return ok
+            detail["error"] = "serial write failed"
+        return detail
+
+    async def emergency_stop(self) -> bool:
+        """Send emergency stop to the RoboHAT; ``True`` if both commands were written.
+
+        This is the legacy "was it sent" result. Use ``emergency_stop_detail()``
+        for whether the firmware accepted the stop.
+        """
+        detail = await self.emergency_stop_detail()
+        return "send_failed" not in (detail["drive"], detail["blade"])
+
+    async def park(self) -> dict[str, Any]:
+        """Neutral PWM and blade off without latching an E-stop (shutdown).
+
+        Best effort and bounded: never takes USB control just to park (in RC mode
+        the RC receiver / firmware failsafe governs drive, and ``blade=off`` is
+        accepted in any mode). Same result shape as ``emergency_stop_detail``.
+        """
+        detail: dict[str, Any] = {"drive": "send_failed", "blade": "send_failed", "error": None}
+        if not self.serial_conn or not self.serial_conn.is_open:
+            detail["error"] = "serial not connected"
+            return detail
+        self._cancel_command_expiry()
+        self._estop_hold = False
+        self._last_pwm = (1500, 1500)
+        self._last_pwm_at = time.monotonic()
+        detail["blade"] = await self._send_confirmed("blade=off", "blade")
+        detail["drive"] = await self._send_confirmed("pwm,1500,1500", "pwm", timeout=0.3)
+        if "send_failed" in (detail["drive"], detail["blade"]):
+            detail["error"] = "serial write failed"
+        return detail
 
     async def clear_emergency(self) -> bool:
         """Clear emergency stop on RoboHAT"""
@@ -464,6 +642,7 @@ class RoboHATService:
         if not self.serial_conn or not self.serial_conn.is_open or not self.running:
             return False
 
+        self._estop_hold = False
         if not await self._ensure_usb_control(timeout=0.9, retries=2):
             return False
         ok = await self._send_line("rc=disable")
@@ -502,6 +681,13 @@ class RoboHATService:
         """Shutdown RoboHAT service"""
         logger.info("Shutting down RoboHAT service")
 
+        # Park first: neutral PWM and blade off, so a mid-command shutdown does not
+        # leave the firmware holding the last command until its own timeout.
+        try:
+            await asyncio.wait_for(self.park(), timeout=3.0)
+        except Exception as exc:
+            logger.warning("RoboHAT park on shutdown failed: %s", exc)
+
         self.running = False
 
         # Try to hand control back to RC so that the mower is safe even if the
@@ -510,6 +696,8 @@ class RoboHATService:
             await self._set_rc_enabled(True)
         except Exception:
             pass
+
+        self._cancel_command_expiry()
 
         # Cancel background tasks
         if self.watchdog_task:
