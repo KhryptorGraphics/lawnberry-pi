@@ -10,16 +10,23 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import shutil
+import signal
 import subprocess
+import time
 import unicodedata
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import pytest
 from bridgefakes.rig import BASE_FILES, GitRepoEnv, make_git_env
+from pydantic import ValidationError
 
 from tools.agent_bridge import globs
+from tools.agent_bridge.agents.base import AgentReport, extract_report
 from tools.agent_bridge.agents.omp import GUARD_PATH
 from tools.agent_bridge.config import DEFAULT_PROTECTED_PATHS, BridgeConfig, GitConfig
 from tools.agent_bridge.gitops import GitOps
@@ -1054,3 +1061,255 @@ def test_the_worker_blocks_the_run_instead_of_crashing_in_publication(
     assert rig.fake.pulls == {}
     assert rig.git_env.origin_branches() == ["main"]  # nothing was pushed
     assert any("path_invalid" in body for body in rig.comments(number))
+
+
+# =========================================================================== C-09
+# ``extract_report`` used a lazy ``.*?`` with DOTALL tried from every ``agent-result`` opener, so
+# an agent that ends its message with many unterminated openers made the single worker burn about
+# a minute of CPU after the process had exited (27 s for 16000 openers, 256k characters).
+REPORT = {"status": "completed", "summary": "Edited docs", "files_changed": ["docs/a.md"]}
+LEGACY_REPORT_FENCE = re.compile(
+    r"^ {0,3}(?P<fence>`{3,})\s*(?:json\s+)?agent-result\s*$\n(?P<body>.*?)^ {0,3}(?P=fence)\s*$",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def legacy_extract_report(text: str) -> AgentReport | None:
+    """The implementation C-09 replaced, kept as the oracle for the differential test."""
+    for match in reversed(list(LEGACY_REPORT_FENCE.finditer(text))):
+        try:
+            return AgentReport.model_validate(json.loads(match.group("body")))
+        except (ValueError, ValidationError, RecursionError):
+            continue
+    return None
+
+
+def fenced_report(body: str | dict[str, Any] = REPORT, ticks: str = "```") -> str:
+    text = body if isinstance(body, str) else json.dumps(body)
+    return f"{ticks}json agent-result\n{text}\n{ticks}\n"
+
+
+class Stalled(Exception):
+    """The block needed more wall-clock time than allowed."""
+
+
+@contextmanager
+def time_limit(seconds: float) -> Iterator[None]:
+    def on_alarm(signum: int, frame: object) -> None:
+        raise Stalled
+
+    previous = signal.signal(signal.SIGALRM, on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+needs_timers = pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="needs interval timers")
+
+HOSTILE_REPORT_TEXTS: dict[str, Callable[[], str]] = {
+    "the-reviews-case": lambda: "```agent-result\n" * 16_000,
+    "json-openers": lambda: "```json agent-result\n" * 12_000,
+    "indented-openers": lambda: "   ```agent-result\n" * 14_000,
+    "openers-then-one-closer": lambda: "```agent-result\n" * 16_000 + "```\n",
+    "openers-then-a-longer-closer": lambda: "```agent-result\n" * 16_000 + "````\n",
+    "distinct-fence-lengths": lambda: "".join(
+        "`" * (3 + index % 400) + "agent-result\n" for index in range(5_000)
+    ),
+    "openers-and-prose": lambda: "```agent-result\nsome prose here\n" * 8_000,
+    "crlf-openers": lambda: "```agent-result\r\n" * 16_000,
+    "one-huge-backtick-line": lambda: "`" * 400_000,
+    "one-huge-info-line": lambda: "```" + " " * 400_000 + "x",
+    "json-then-spaces": lambda: "```json" + " " * 400_000 + "x",
+    "blank-lines": lambda: "\n" * 400_000,
+    "closers-only": lambda: "```\n" * 100_000,
+    "unterminated-final-report": lambda: (
+        "noise\n" * 20_000 + "```agent-result\n" + json.dumps(REPORT)
+    ),
+}
+
+
+@needs_timers
+@pytest.mark.parametrize("name", sorted(HOSTILE_REPORT_TEXTS))
+def test_extract_report_is_fast_on_hostile_text(name: str) -> None:
+    text = HOSTILE_REPORT_TEXTS[name]()
+
+    started = time.process_time()
+    try:
+        with time_limit(5.0):
+            report = extract_report(text)
+    except Stalled:
+        pytest.fail(f"extract_report needed more than 5 s for {len(text)} characters of {name}")
+
+    assert report is None
+    assert time.process_time() - started < 2.0, name
+
+
+@needs_timers
+def test_extract_report_finds_a_report_after_a_wall_of_unterminated_openers() -> None:
+    """Openers of another fence length never close, so the real block after them is found.
+
+    (Same-length openers pair up with the report's own closing fence, exactly as in CommonMark
+    and as the replaced regex did: the first opener's block then swallows the report.)
+    """
+    text = "````agent-result\n" * 16_000 + fenced_report({**REPORT, "summary": "the real one"})
+
+    with time_limit(5.0):
+        report = extract_report(text)
+
+    assert report is not None and report.summary == "the real one"
+
+
+def test_a_report_after_same_length_unterminated_openers_is_swallowed_as_before() -> None:
+    wall = "```agent-result\n" * 3
+    text = wall + fenced_report({**REPORT, "summary": "swallowed"})
+
+    assert extract_report(text) is None
+    assert extract_report(text) == legacy_extract_report(text)
+
+
+@needs_timers
+def test_extract_report_time_grows_linearly_not_quadratically() -> None:
+    def cost(openers: int) -> float:
+        text = "```agent-result\n" * openers
+        started = time.process_time()
+        with time_limit(10.0):
+            extract_report(text)
+        return time.process_time() - started
+
+    small, large = cost(4_000), cost(32_000)  # 8x the input
+
+    assert large < 0.5, large
+    assert large < max(small, 0.005) * 40  # quadratic growth would be ~64x
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "no fence at all",
+        "```agent-result\n",
+        "```agent-result",
+        "```json agent-result\n{}\n```",
+        "```agent-result\n{not json}\n```\n",
+        "    ```agent-result\n" + json.dumps(REPORT) + "\n```\n",  # indented four spaces
+        "```agent-results\n" + json.dumps(REPORT) + "\n```\n",
+        "``agent-result\n" + json.dumps(REPORT) + "\n``\n",  # two backticks are no fence
+    ],
+)
+def test_extract_report_returns_none_without_a_valid_block(text: str) -> None:
+    assert extract_report(text) is None
+
+
+@pytest.mark.parametrize(
+    "opener", ["``` agent-result", "```\tjson   agent-result  ", "   ```agent-result"]
+)
+def test_the_opener_tolerates_whitespace_around_its_info_string(opener: str) -> None:
+    report = extract_report(f"{opener}\n{json.dumps(REPORT)}\n```\n")
+
+    assert report is not None and report.summary == "Edited docs"
+
+
+def test_the_last_complete_valid_fence_wins() -> None:
+    first = fenced_report({**REPORT, "summary": "first"})
+    second = fenced_report({**REPORT, "summary": "second", "status": "blocked"})
+    broken = fenced_report("{nope")
+
+    assert (extract_report(f"{first}\n{second}") or fail()).summary == "second"
+    assert (extract_report(f"{first}\n{broken}") or fail()).summary == "first"
+    assert (extract_report(f"{broken}\n{second}\n{broken}") or fail()).summary == "second"
+
+
+def test_a_fence_needs_the_same_number_of_backticks_to_close() -> None:
+    inner = f"```agent-result\n{json.dumps(REPORT)}\n```\n"
+    outer = "````agent-result\n" + inner + "````\n"
+
+    assert extract_report(outer) is None  # the outer body is not JSON; the inner fence is body
+    assert extract_report("````agent-result\n" + json.dumps(REPORT) + "\n```\n") is None
+    assert extract_report("```agent-result\n" + json.dumps(REPORT) + "\n````\n") is None
+    assert extract_report("````agent-result\n" + json.dumps(REPORT) + "\n````\n") is not None
+
+
+def test_a_report_after_an_unclosed_longer_fence_is_still_found() -> None:
+    text = "````agent-result\nlost\n" + fenced_report({**REPORT, "summary": "found"})
+
+    assert (extract_report(text) or fail()).summary == "found"
+
+
+def fail() -> AgentReport:
+    pytest.fail("no report found")
+
+
+# Differential test against the replaced regex.  Inputs are shuffled from fence lines, info
+# strings, bodies and filler; the replaced regex also let the opener be split over two lines
+# (a bare fence line, then a line reading ``agent-result``), which no agent output relies on and
+# the line-based scanner does not accept, so those shapes are left out.
+SPLIT_OPENER = re.compile(r"^ {0,3}`{3,}\s*\n\s*(?:json\s+)?agent-result\s*$", re.MULTILINE)
+INFO_STRINGS = [
+    "agent-result",
+    "json agent-result",
+    "json   agent-result  ",
+    "  agent-result",
+    "\tagent-result",
+    "agent-result\t",
+    "AGENT-RESULT",
+    "python agent-result",
+    "agent-results",
+    "json",
+    "",
+    "agent-result extra",
+]
+BODIES = [
+    json.dumps(REPORT),
+    json.dumps({**REPORT, "summary": "second", "status": "blocked"}),
+    json.dumps(REPORT, indent=2),
+    "{not json",
+    "[1, 2]",
+    "{}",
+    "",
+    "   ",
+    "prose line",
+    "```python",
+    "````",
+    "~~~",
+]
+FILLER = ["", "text", "   ", "Thanks!", "\t"]
+
+
+def random_report_text(rng: random.Random) -> str:
+    """A few fenced blocks, each opened, filled and (usually) closed in a slightly wrong way."""
+    lines: list[str] = []
+    for _ in range(rng.randint(1, 5)):
+        ticks = rng.choice([3, 3, 3, 4, 5])
+        lines.append(
+            " " * rng.choice([0, 0, 0, 1, 3, 4])
+            + "`" * ticks
+            + rng.choice(INFO_STRINGS[:3] * 3 + INFO_STRINGS)
+        )
+        lines.extend(rng.choice(BODIES[:3] * 3 + BODIES) for _ in range(rng.randint(0, 3)))
+        if rng.random() < 0.85:
+            closing = ticks if rng.random() < 0.8 else rng.choice([3, 4, 5, 6])
+            lines.append(
+                " " * rng.choice([0, 0, 0, 1, 3, 4])
+                + "`" * closing
+                + rng.choice(["", "", "", " ", "\t", " x"])
+            )
+        lines.extend(rng.choice(FILLER) for _ in range(rng.randint(0, 2)))
+    eol = rng.choice(["\n", "\n", "\r\n"])
+    return eol.join(lines) + rng.choice(["", eol])
+
+
+def test_the_scanner_agrees_with_the_replaced_regex_on_random_texts() -> None:
+    rng = random.Random(20261024)
+    checked = found = 0
+    for _ in range(6_000):
+        text = random_report_text(rng)
+        if SPLIT_OPENER.search(text):
+            continue
+        expected, actual = legacy_extract_report(text), extract_report(text)
+        assert actual == expected, text
+        checked += 1
+        found += expected is not None
+    assert checked > 4_000 and 500 < found < checked - 500  # both outcomes are well represented

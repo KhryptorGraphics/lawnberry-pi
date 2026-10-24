@@ -6,6 +6,7 @@ and returns the same :class:`AgentResult`, so the worker never needs to know whi
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import re
@@ -110,17 +111,53 @@ class AgentReport(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
-_REPORT_FENCE = re.compile(
-    r"^ {0,3}(?P<fence>`{3,})\s*(?:json\s+)?agent-result\s*$\n(?P<body>.*?)^ {0,3}(?P=fence)\s*$",
-    re.MULTILINE | re.DOTALL,
-)
+# What may follow the backticks of an opening fence: ``agent-result`` or ``json agent-result``.
+_REPORT_INFO = re.compile(r"\s*(?:json\s+)?agent-result\s*\Z")
+
+
+def _report_bodies(text: str) -> list[str]:
+    """Bodies of the ``agent-result`` fences in ``text``, in order, found in linear time.
+
+    An opening fence is a line of up to three spaces, at least three backticks and the info
+    string (see ``_REPORT_INFO``).  It closes at the first later line of up to three spaces, the
+    *same number* of backticks and only whitespace.  An opener without a closer is skipped, and a
+    block never starts inside the previous one.  (A regular expression with a lazy ``.*?`` tried
+    from every opener is quadratic on a message made of unterminated openers.)
+    """
+    lines = text.split("\n")
+    openers: list[tuple[int, int]] = []  # (line index, backticks)
+    closers: dict[int, list[int]] = {}  # backticks -> indexes of lines that could close
+    for index, line in enumerate(lines):
+        body = line.lstrip(" ")
+        if len(line) - len(body) > 3:
+            continue
+        rest = body.lstrip("`")
+        ticks = len(body) - len(rest)
+        if ticks < 3:
+            continue
+        if not rest or rest.isspace():
+            closers.setdefault(ticks, []).append(index)
+        elif _REPORT_INFO.match(rest):
+            openers.append((index, ticks))
+    bodies: list[str] = []
+    resume = 0
+    for index, ticks in openers:
+        if index < resume:
+            continue
+        later = closers.get(ticks, [])
+        found = bisect.bisect_right(later, index)
+        if found == len(later):
+            continue
+        bodies.append("\n".join(lines[index + 1 : later[found]]))
+        resume = later[found] + 1
+    return bodies
 
 
 def extract_report(text: str) -> AgentReport | None:
     """Parse the last well-formed ``agent-result`` block in ``text`` (or ``None``)."""
-    for match in reversed(list(_REPORT_FENCE.finditer(text))):
+    for body in reversed(_report_bodies(text)):
         try:
-            return AgentReport.model_validate(json.loads(match.group("body")))
+            return AgentReport.model_validate(json.loads(body))
         except (ValueError, ValidationError, RecursionError):
             continue
     return None
