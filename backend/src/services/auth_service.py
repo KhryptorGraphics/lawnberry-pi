@@ -316,6 +316,15 @@ class AuthService:
             return False  # no usable credential configured: nobody logs in
         return self.password_manager.verify_password(credential, self.operator_credential_hash)
 
+    def verify_operator_credential(self, credential: str) -> bool:
+        """``True`` when ``credential`` is the configured operator credential.
+
+        For other credential-gated flows (manual-control unlock) that must not invent their own
+        default: with no usable credential configured nothing matches, and SIM_MODE accepts any
+        non-empty value exactly like ``authenticate``. No rate limiting, no session.
+        """
+        return self._validate_credential(credential)
+
     def _issue_token_for_session(self, session: UserSession) -> AuthResult:
         token, expires_at = self.jwt_manager.create_token(
             session_id=session.session_id,

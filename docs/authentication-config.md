@@ -25,6 +25,13 @@
 > console entry point in `pyproject.toml`); the supported configuration is the environment
 > and `.env` described here.
 >
+> **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate): the
+> password is checked against the bcrypt `password_hash` of the security settings, else
+> `MANUAL_CONTROL_PASSWORD`, else the operator credential above, and against nothing if none is
+> usable (no credential configured, or a published default): the unlock is refused. It used to
+> accept any non-empty password in that case, and the session it returned is accepted by every
+> operator-gated write. A blank password is a 400 at every security level.
+>
 > Enforcement points that honour the flag: `api/deps.py::require_operator_auth`,
 > and in `api/routers/auth.py` `_resolve_manual_session`, `manual_unlock`, and
 > `manual_unlock_status`. The fail-closed contract is unchanged when auth is

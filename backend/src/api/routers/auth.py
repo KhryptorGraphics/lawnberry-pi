@@ -192,18 +192,19 @@ def _manual_unlock_principal(request: Request, method: str) -> str:
 
 
 def _validate_manual_password(password: str | None) -> str:
+    """Check the password of a password-based manual unlock; never fail open.
+
+    Verified against, in order: the configured bcrypt ``password_hash``, the
+    ``MANUAL_CONTROL_PASSWORD`` environment variable, and otherwise the shared operator
+    credential. With none of them usable (no credential configured, or only a published default)
+    nothing matches. Before this, a non-empty password was accepted when none was configured,
+    and the session it returned also passes ``require_operator_auth`` and ``/control/drive``.
+    """
     pwd = (password or "").strip()
-    required = bool(
-        _security_settings.password_required()
-        or _security_settings.password_hash
-        or os.getenv("MANUAL_CONTROL_PASSWORD")
-    )
-    if required and not pwd:
+    if not pwd:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="Password required for manual unlock"
         )
-    if not pwd:
-        return pwd
     if _security_settings.password_hash:
         try:
             if not bcrypt.checkpw(
@@ -217,7 +218,10 @@ def _validate_manual_password(password: str | None) -> str:
             ) from exc
     else:
         fallback = os.getenv("MANUAL_CONTROL_PASSWORD")
-        if fallback and pwd != fallback:
+        if fallback:
+            if pwd != fallback:
+                raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+        elif not primary_auth_service.verify_operator_credential(pwd):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
     return pwd
 
