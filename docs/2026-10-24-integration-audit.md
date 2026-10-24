@@ -1694,3 +1694,9 @@ collected 899: **830 passed, 69 skipped, 0 failed, 0 errors** (baseline 762 / 69
 `provision_env`, 27 policy, 18 auth and 8 manual-unlock), `ruff check .` clean, `shellcheck -x systemd/install_services.sh` clean,
 `systemd-analyze verify` clean on every rendered unit. `ruff format --check .` still reports `hardware/mounts/build_printables.py`
 and `workshop/isaac_sdg.py`, which this track did not touch.
+
+Observed, not changed (outside this track; reported by `FinishJsn.IntegrationPlaceholders`, verified in `backend/src/api/rest.py`
+`control_drive_v2`): `POST /api/v2/control/drive` without a `session_id` takes the legacy branch, which needs no operator
+authentication even under `OPERATOR_AUTH_REQUIRED=1`. It does not call the RoboHAT, so nothing moves, but it returns computed motor
+speeds, writes an audit row and sets the in-memory `_legacy_motors_active` flag that the blade interlock tests read. The legacy
+integration tests depend on that contract, so closing it (reject, or require the operator gate) is a decision for the safety/API owner.
