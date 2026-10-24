@@ -19,14 +19,12 @@ pytest -q
 ```
 
 - Contract tests validate the FastAPI REST + WebSocket API.
-- Integration tests include backups/migration and more.
-- Placeholder integration tests (future work) are skipped by default.
-
-Run placeholder integration tests explicitly:
-
-```bash
-RUN_PLACEHOLDER_INTEGRATION=1 pytest -q tests/integration
-```
+- Integration tests (`tests/integration`) include backups, SQLite schema migrations, the ACME/TLS
+  renewal flow (against a fake `certbot` executable and `openssl`-generated certificates, never
+  Let's Encrypt), map provider/cost control, and manual control during GPS loss.
+- There is no placeholder gate for `tests/integration`: every test there runs by default. The only
+  opt-in gates are the Pi-target ones: `RUN_PERF_TESTS=1` (latency/throughput budgets) and
+  `RUN_HW_TESTS=1` (hardware self-test, see "On-device hardware testing" below).
 
 ## 2) Frontend tests and lint (optional)
 
