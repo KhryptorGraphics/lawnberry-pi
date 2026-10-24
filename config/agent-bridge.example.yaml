@@ -109,6 +109,9 @@ limits:
   auto_retry_interrupted: 1
   max_start_retries: 3
   max_publish_attempts: 5
+  # How often reporting a finished run (comment and labels) may fail before it is given up.
+  # A 404 (the issue is gone) is given up at once.
+  max_notify_attempts: 5
   publish_retry_delays: [2, 10, 30]
   lease_ttl_seconds: 180
   max_log_bytes: 4000000

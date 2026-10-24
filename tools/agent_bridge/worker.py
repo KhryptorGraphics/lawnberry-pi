@@ -1069,12 +1069,21 @@ class Worker:
             self._cleanup(run, stop.status)
         return True
 
-    def _notify_terminal(self, run: RunRecord, stop: _Stop, payload: dict[str, Any]) -> None:
+    def _notify_terminal(self, run: RunRecord, stop: _Stop, payload: dict[str, Any]) -> bool:
+        """Tell the issue how ``run`` ended; True only when comment, labels and flag all landed.
+
+        A failure is recorded and counted (:meth:`_notify_failed`) and returns False, so that the
+        caller never claims a report that did not happen.
+        """
         try:
-            if stop.status is RunStatus.CANCELLED:
+            if stop.status is RunStatus.DONE:
+                outcome = "done"
+                body = render_done(run, payload, self.redactor)
+            elif stop.status is RunStatus.CANCELLED:
+                outcome = "cancelled"
                 body = render_cancelled(run, stop.detail)
-                self.publisher.comment_once(run.issue_number, f"run-{run.run_id}-cancelled", body)
             else:
+                outcome = "blocked"
                 body = render_blocked(
                     run,
                     kind=stop.kind,
@@ -1083,18 +1092,62 @@ class Worker:
                     payload=payload,
                     redactor=self.redactor,
                 )
-                self.publisher.comment_once(run.issue_number, f"run-{run.run_id}-blocked", body)
+            self.publisher.comment_once(run.issue_number, f"run-{run.run_id}-{outcome}", body)
             self.publisher.mark_terminal(run.issue_number, stop.status)
             self.ledger.update(run.run_id, result_json={**payload, "notified": True})
         except GitHubError as exc:
+            self._notify_failed(run, payload, exc)
+            return False
+        return True
+
+    @staticmethod
+    def _failed_reports(result: Mapping[str, Any] | None) -> int:
+        """How many reports of a finished run failed so far (``result["notify_attempts"]``)."""
+        value = (result or {}).get("notify_attempts")
+        return value if type(value) is int and value > 0 else 0
+
+    def _notify_failed(self, run: RunRecord, payload: dict[str, Any], exc: GitHubError) -> None:
+        """Count a report that did not reach GitHub and stop retrying once that is pointless.
+
+        The issue being gone (404) cannot heal, so it ends the retries at once.  Any other failure
+        (a revoked permission, an outage, a rejected request) may heal, so it is retried on later
+        polls until ``limits.max_notify_attempts`` failures are used up.  ``"gave_up"`` in
+        ``result["notified"]`` is what keeps :meth:`_reconcile_unreported` from trying again.
+        """
+        limit = self.cfg.limits.max_notify_attempts
+        attempts = self._failed_reports(payload) + 1
+        gone = isinstance(exc, GitHubNotFound)
+        reason = "issue not found (404)" if gone else "attempt limit reached"
+        gave_up = gone or attempts >= limit
+        result: dict[str, Any] = {**payload, "notify_attempts": attempts}
+        if gave_up:
+            result["notified"] = "gave_up"
+            result["notify_gave_up"] = reason
+        self.ledger.update(run.run_id, result_json=result)
+        error = self.redactor.redact(str(exc))[:200]
+        self.ledger.record_event(
+            "notify.failed",
+            repo=run.repo,
+            issue_number=run.issue_number,
+            run_id=run.run_id,
+            detail={"error": error, "attempt": attempts},
+        )
+        LOG.warning(
+            "could not report run %s on GitHub (attempt %d of %d): %s",
+            run.run_id[:12],
+            attempts,
+            limit,
+            error,
+        )
+        if gave_up:
             self.ledger.record_event(
-                "notify.failed",
+                "notify.gave_up",
                 repo=run.repo,
                 issue_number=run.issue_number,
                 run_id=run.run_id,
-                detail={"error": str(exc)[:200]},
+                detail={"attempts": attempts, "limit": limit, "reason": reason},
             )
-            LOG.warning("could not report run %s on GitHub: %s", run.run_id[:12], exc)
+            LOG.error("giving up reporting run %s on GitHub: %s", run.run_id[:12], reason)
 
     def _retry_limit(self, run_id: str) -> int:
         """Automatic retries allowed at the phase the run was in when it stopped."""
@@ -1203,30 +1256,31 @@ class Worker:
             return f"abandoned {where}: {exc}"
 
     def _reconcile_unreported(self) -> list[str]:
-        """Re-send labels/comments for finished runs whose GitHub update failed earlier."""
+        """Re-send labels/comments for finished runs whose GitHub update failed earlier.
+
+        A run is reported only when :meth:`_notify_terminal` says it was; a try that failed is
+        listed as such with its attempt number.  Runs with a ``notified`` flag are skipped, which
+        includes the ``"gave_up"`` that :meth:`_notify_failed` sets once retrying is pointless.
+        """
         actions: list[str] = []
+        limit = self.cfg.limits.max_notify_attempts
         for run in self.ledger.list_runs(limit=20):
-            if not run.status.terminal or (run.result or {}).get("notified"):
-                continue
             payload = run.result or {}
+            if not run.status.terminal or payload.get("notified"):
+                continue
             stop = _Stop(
                 run.status,
                 run.failure_kind or run.status.value,
                 run.failure_detail or "",
             )
-            if run.status is RunStatus.DONE:
-                try:
-                    self.publisher.comment_once(
-                        run.issue_number,
-                        f"run-{run.run_id}-done",
-                        render_done(run, payload, self.redactor),
-                    )
-                    self.publisher.mark_terminal(run.issue_number, RunStatus.DONE)
-                    self.ledger.update(run.run_id, result_json={**payload, "notified": True})
-                    actions.append(f"reported run {run.run_id[:12]}")
-                except GitHubError:
-                    continue
-            else:
-                self._notify_terminal(run, stop, payload)
-                actions.append(f"reported run {run.run_id[:12]}")
+            name = run.run_id[:12]
+            if self._notify_terminal(run, stop, payload):
+                actions.append(f"reported run {name}")
+                continue
+            stored = (self.ledger.get(run.run_id) or run).result or {}
+            attempts = self._failed_reports(stored) or self._failed_reports(payload) + 1
+            line = f"could not report run {name} (attempt {attempts} of {limit})"
+            if stored.get("notified") == "gave_up":
+                line += f"; giving up: {stored.get('notify_gave_up') or 'no more attempts'}"
+            actions.append(line)
         return actions

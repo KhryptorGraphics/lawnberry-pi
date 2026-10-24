@@ -21,11 +21,22 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pydantic
 import pytest
 from bridgefakes.rig import REPO, Rig
 
+from tools.agent_bridge.config import LimitsConfig
+from tools.agent_bridge.errors import (
+    GitHubConflict,
+    GitHubError,
+    GitHubNotFound,
+    GitHubPermissionError,
+    GitHubUnavailable,
+)
 from tools.agent_bridge.ledger import RunRecord
 from tools.agent_bridge.models import RunStatus
+from tools.agent_bridge.publisher import Publisher
+from tools.agent_bridge.worker import _Stop
 
 
 # --------------------------------------------------------------------------------------------
@@ -339,3 +350,220 @@ def test_the_push_urls_are_checked_again_right_before_the_push(
     assert "pushes to github.test/fork-owner/repo" in (run.failure_detail or "")
     assert rig.git_env.origin_branches() == ["main"] and rig.fake.pulls == {}
     assert run.commit_sha  # the change is kept locally
+
+
+# --------------------------------------------------------------------------------------------
+# F8: reporting a finished run is bounded and tells the truth
+# --------------------------------------------------------------------------------------------
+NO_CHANGES = [{"op": "final", "text": "Nothing needed changing."}]  # BLOCKED ``no_changes``
+ATTEMPT_LIMIT = 5  # the default of ``limits.max_notify_attempts``
+
+
+def current(rig: Rig, run: RunRecord) -> RunRecord:
+    found = rig.ledger.get(run.run_id)
+    assert found is not None
+    return found
+
+
+def events_of(rig: Rig, run: RunRecord, kind: str) -> list[dict[str, Any]]:
+    return [e for e in rig.ledger.events(run_id=run.run_id) if e["kind"] == kind]
+
+
+class FailingReports:
+    """The real publisher, except that every report of a finished run raises ``error``."""
+
+    def __init__(self, real: Publisher, error: GitHubError) -> None:
+        self._real = real
+        self.error = error
+        self.reports = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    def comment_once(self, issue_number: int, key: str, body: str) -> bool:
+        if key.endswith(("-done", "-blocked", "-cancelled")):
+            self.reports += 1
+            raise self.error
+        return self._real.comment_once(issue_number, key, body)
+
+
+GONE = "issue not found (404)"
+SPENT = "attempt limit reached"
+DELIVERY_ERRORS = {
+    # The issue is gone: there is nothing left to report to, so the first 404 ends it.
+    "not-found": (GitHubNotFound("GitHub object not found: Not Found", status=404), 1, GONE),
+    # Everything else may heal (permissions get fixed, outages end), so it gets the full limit.
+    "permission": (
+        GitHubPermissionError("GitHub denied the request", status=403),
+        ATTEMPT_LIMIT,
+        SPENT,
+    ),
+    "unavailable": (GitHubUnavailable("connection reset"), ATTEMPT_LIMIT, SPENT),
+    "rejected": (GitHubConflict("GitHub rejected the request", status=422), ATTEMPT_LIMIT, SPENT),
+    "other": (GitHubError("GitHub error HTTP 500: boom", status=500), ATTEMPT_LIMIT, SPENT),
+}
+
+
+@pytest.mark.parametrize(
+    ("error", "calls", "reason"), DELIVERY_ERRORS.values(), ids=DELIVERY_ERRORS.keys()
+)
+def test_a_report_that_cannot_be_delivered_is_attempted_a_bounded_number_of_times(
+    rig: Rig, error: GitHubError, calls: int, reason: str
+) -> None:
+    stub = FailingReports(rig.worker.publisher, error)
+    rig.worker.publisher = stub  # type: ignore[assignment]
+    rig.set_scenario(NO_CHANGES)
+    run = rig.run_issue(rig.new_task_issue())
+    assert run.status is RunStatus.BLOCKED and run.failure_kind == "no_changes", describe(run)
+
+    for _ in range(ATTEMPT_LIMIT + 3):  # many polls: the loop must not go on forever
+        rig.worker.recover(execute=True)
+
+    assert stub.reports == calls
+    stored = current(rig, run)
+    assert stored.result is not None
+    assert stored.result["notified"] == "gave_up"
+    assert stored.result["notify_gave_up"] == reason
+    assert stored.result["notify_attempts"] == calls
+    assert len(events_of(rig, run, "notify.failed")) == calls
+    [gave_up] = events_of(rig, run, "notify.gave_up")
+    assert gave_up["detail"]["reason"] == reason
+
+
+def test_recover_only_claims_a_report_that_was_delivered(rig: Rig) -> None:
+    rig.fake.deny("POST", "/comments")
+    number = rig.new_task_issue()
+    run = rig.run_issue(number)  # even "started" could not be posted: blocked, and not told
+    short = run.run_id[:12]
+    assert run.status is RunStatus.BLOCKED and run.failure_kind == "github_permission"
+    assert run.result is not None and run.result["notify_attempts"] == 1
+    assert not run.result.get("notified")
+
+    assert rig.worker.recover(execute=True) == [f"could not report run {short} (attempt 2 of 5)"]
+    assert rig.worker.recover(execute=True) == [f"could not report run {short} (attempt 3 of 5)"]
+    assert "agent-blocked" not in rig.fake.issue_labels(number)
+
+    rig.fake.allow("POST", "/comments")  # a transient fault: no reason to have given up
+    assert rig.worker.recover(execute=True) == [f"reported run {short}"]
+
+    healed = current(rig, run)
+    assert healed.result is not None and healed.result["notified"] is True
+    labels = set(rig.fake.issue_labels(number))
+    assert "agent-blocked" in labels and "agent-running" not in labels
+    assert len(blocked_comments(rig, number)) == 1
+    assert len(events_of(rig, run, "notify.failed")) == 3
+    assert events_of(rig, run, "notify.gave_up") == []
+    assert rig.worker.recover(execute=True) == []
+
+
+def test_a_report_that_keeps_failing_is_given_up_after_the_attempt_limit(rig: Rig) -> None:
+    rig.fake.deny("POST", "/comments")
+    number = rig.new_task_issue()
+    run = rig.run_issue(number)
+    short = run.run_id[:12]
+
+    for attempt in range(2, ATTEMPT_LIMIT):
+        expected = [f"could not report run {short} (attempt {attempt} of {ATTEMPT_LIMIT})"]
+        assert rig.worker.recover(execute=True) == expected
+    [last] = rig.worker.recover(execute=True)
+    assert last == f"could not report run {short} (attempt 5 of 5); giving up: {SPENT}"
+
+    rig.fake.allow("POST", "/comments")  # a healthy GitHub is not asked again either
+    rig.fake.reset_requests()
+    for _ in range(3):
+        assert rig.worker.recover(execute=True) == []
+    assert rig.fake.requests == []
+    stored = current(rig, run)
+    assert stored.result is not None
+    assert stored.result["notified"] == "gave_up" and stored.result["notify_attempts"] == 5
+    assert len(events_of(rig, run, "notify.failed")) == 5
+    [gave_up] = events_of(rig, run, "notify.gave_up")
+    assert gave_up["detail"]["attempts"] == 5
+    assert "agent-blocked" not in rig.fake.issue_labels(number)  # the ledger says what happened
+
+
+def test_a_report_to_an_issue_that_is_gone_is_given_up_at_once_and_says_so(rig: Rig) -> None:
+    rig.set_scenario(NO_CHANGES)
+    number = rig.new_task_issue()
+    run = rig.run_issue(number)  # blocked and reported
+    assert run.result is not None and run.result["notified"] is True
+    lost = {k: v for k, v in run.result.items() if k != "notified"}
+    rig.ledger.update(run.run_id, result_json=lost)  # the delivery was never recorded
+    gone = FailingReports(rig.worker.publisher, GitHubNotFound("not found", status=404))
+    rig.worker.publisher = gone  # type: ignore[assignment]
+
+    [action] = rig.worker.recover(execute=True)  # the issue was deleted meanwhile
+
+    assert action == f"could not report run {run.run_id[:12]} (attempt 1 of 5); giving up: {GONE}"
+    for _ in range(3):
+        assert rig.worker.recover(execute=True) == []
+    assert gone.reports == 1
+
+
+def test_a_done_run_whose_report_keeps_failing_is_reported_truthfully_and_given_up(
+    rig: Rig,
+) -> None:
+    number = rig.new_task_issue()
+    run = rig.run_issue(number)
+    assert run.status is RunStatus.DONE, describe(run)
+    short = run.run_id[:12]
+    assert run.result is not None
+    lost = {k: v for k, v in run.result.items() if k != "notified"}
+    rig.ledger.update(run.run_id, result_json=lost)  # the completion was never recorded as sent
+    rig.fake.comments[number] = [  # ...and the done comment is gone from the issue
+        c for c in rig.fake.comments[number] if f"run-{run.run_id}-done" not in c.body
+    ]
+    rig.fake.deny("POST", "/comments")
+
+    for attempt in range(1, ATTEMPT_LIMIT):
+        expected = [f"could not report run {short} (attempt {attempt} of {ATTEMPT_LIMIT})"]
+        assert rig.worker.recover(execute=True) == expected
+    [last] = rig.worker.recover(execute=True)
+    assert last == f"could not report run {short} (attempt 5 of 5); giving up: {SPENT}"
+
+    rig.fake.allow("POST", "/comments")
+    rig.fake.reset_requests()
+    assert rig.worker.recover(execute=True) == [] and rig.fake.requests == []
+    stored = current(rig, run)
+    assert stored.result is not None and stored.result["notified"] == "gave_up"
+    assert len(events_of(rig, run, "notify.failed")) == ATTEMPT_LIMIT
+    assert len(events_of(rig, run, "notify.gave_up")) == 1
+
+
+def test_the_attempt_limit_is_configurable(make_rig_for: Any) -> None:
+    rig: Rig = make_rig_for(limits={"max_notify_attempts": 2})
+    rig.fake.deny("POST", "/comments")
+    run = rig.run_issue(rig.new_task_issue())
+
+    [action] = rig.worker.recover(execute=True)
+
+    assert action == f"could not report run {run.run_id[:12]} (attempt 2 of 2); giving up: {SPENT}"
+    assert rig.worker.recover(execute=True) == []
+
+
+def test_notify_terminal_returns_true_only_when_comment_labels_and_flag_all_landed(
+    rig: Rig,
+) -> None:
+    rig.fake.deny("POST", "/labels")  # the comment goes through, the label does not
+    number = rig.new_task_issue()
+    run = rig.run_issue(number)
+    assert run.status is RunStatus.BLOCKED and run.failure_kind == "github_permission"
+    stop = _Stop(run.status, run.failure_kind or "", run.failure_detail or "")
+    payload = current(rig, run).result or {}
+
+    assert rig.worker._notify_terminal(current(rig, run), stop, payload) is False
+    assert not (current(rig, run).result or {}).get("notified")
+
+    rig.fake.allow("POST", "/labels")
+    assert rig.worker._notify_terminal(current(rig, run), stop, payload) is True
+    assert (current(rig, run).result or {})["notified"] is True
+    assert "agent-blocked" in rig.fake.issue_labels(number)
+
+
+def test_the_notify_attempt_limit_defaults_to_five_and_is_bounded() -> None:
+    assert LimitsConfig().max_notify_attempts == ATTEMPT_LIMIT
+    for allowed in (1, 50):
+        assert LimitsConfig(max_notify_attempts=allowed).max_notify_attempts == allowed
+    for refused in (0, -1, 51):
+        with pytest.raises(pydantic.ValidationError):
+            LimitsConfig(max_notify_attempts=refused)

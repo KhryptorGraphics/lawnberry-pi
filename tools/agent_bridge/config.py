@@ -204,6 +204,7 @@ class LimitsConfig(_Strict):
     max_attempts_per_issue: int = Field(3, ge=1, le=20)
     auto_retry_interrupted: int = Field(1, ge=0, le=5)
     max_publish_attempts: int = Field(5, ge=1, le=20)
+    max_notify_attempts: int = Field(5, ge=1, le=50)
     max_start_retries: int = Field(3, ge=0, le=10)
     publish_retry_delays: list[float] = Field(default_factory=lambda: [2.0, 10.0, 30.0])
     lease_ttl_seconds: int = Field(180, ge=5, le=3600)
