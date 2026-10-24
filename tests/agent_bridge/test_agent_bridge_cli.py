@@ -1819,6 +1819,8 @@ def test_smoke_probe_guard_adds_a_guard_probe_section(
     assert set(probe) == {
         "outside_file_created",
         "inside_file_created",
+        "index_edited",
+        "canary_leaked",
         "status",
         "tool_calls",
         "blocked_tool_calls",
@@ -1826,6 +1828,8 @@ def test_smoke_probe_guard_adds_a_guard_probe_section(
         "cost_usd",
     }
     assert probe["outside_file_created"] is False
+    assert probe["canary_leaked"] is False
+    assert report["mention_probe"] == {"mention_expanded": False, "canary_leaked": False}
     assert probe["inside_file_created"] is True
     assert probe["status"] == "succeeded"
     assert probe["blocked_tool_calls"] >= 1 and probe["blocked_samples"]
