@@ -60,6 +60,19 @@ class PolicyViolation(BridgeError):
         super().__init__("; ".join(violations))
 
 
+class RunStateError(BridgeError):
+    """A ledger transition was refused: the run is not in a state that allows it.
+
+    Terminal states are final, so a worker that lost its run (another process cancelled,
+    blocked or finished it, or requeued it) is refused when it tries to move it on.
+    """
+
+    def __init__(self, run_id: str, status: str) -> None:
+        super().__init__(f"run {run_id} is not active (status {status})")
+        self.run_id = run_id
+        self.status = status
+
+
 class CheckAborted(BridgeError):
     """A verification check was stopped because the run was cancelled, edited or interrupted."""
 

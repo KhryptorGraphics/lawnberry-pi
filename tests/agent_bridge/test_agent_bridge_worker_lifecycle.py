@@ -955,6 +955,109 @@ def test_local_cancel_requested_after_the_agent_finished_stops_the_publication(
     assert_cancelled_without_publishing(rig, number, detail="cancelled locally")
 
 
+def test_a_run_another_process_concluded_is_neither_resurrected_nor_pushed(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Terminal states are final: this worker's next ledger write is refused and it stops (F10)."""
+    number = rig.new_task_issue()
+    other = Ledger(rig.ledger.path, clock=rig.clock)  # a second process on the same state
+    real_commit = rig.git.commit
+
+    def commit_then_lose_the_run(path: Path, message: str) -> str:
+        sha = real_commit(path, message)
+        (active,) = rig.ledger.active_runs()
+        assert other.finish(
+            active.run_id,
+            RunStatus.CANCELLED,
+            failure_kind="cancelled",
+            failure_detail="cancel: concluded by another process",
+        )
+        return sha
+
+    monkeypatch.setattr(rig.git, "commit", commit_then_lose_the_run)
+    try:
+        report = rig.poll()
+    finally:
+        other.close()
+
+    run = only_run(rig, number)
+    assert [r.run_id for r in report.runs] == [run.run_id]
+    # The other process's verdict stands: not moved back to publishing, not turned into BLOCKED.
+    assert run.status is RunStatus.CANCELLED and run.phase is RunPhase.FINISHED, describe(run)
+    assert run.failure_kind == "cancelled"
+    assert run.failure_detail == "cancel: concluded by another process"
+    assert run.pr_number is None
+    assert rig.git_env.origin_branches() == ["main"] and rig.fake.pulls == {}
+    # This worker reported nothing: that is up to the process that concluded the run.
+    assert comments_with(rig, number, DONE_HEADING) == []
+    assert comments_with(rig, number, BLOCKED_HEADING) == []
+    assert not {"agent-done", "agent-blocked"} & set(rig.fake.issue_labels(number))
+    assert agent_starts(rig) == 1
+
+
+def test_a_done_that_comes_after_another_process_concluded_the_run_is_dropped(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    number = rig.new_task_issue()
+    other = Ledger(rig.ledger.path, clock=rig.clock)
+    real_mark = rig.worker.publisher.mark_terminal
+
+    def mark_then_lose_the_run(issue_number: int, status: RunStatus) -> None:
+        real_mark(issue_number, status)
+        (active,) = rig.ledger.active_runs()
+        assert other.finish(active.run_id, RunStatus.CANCELLED, failure_kind="cancelled")
+
+    monkeypatch.setattr(rig.worker.publisher, "mark_terminal", mark_then_lose_the_run)
+    try:
+        rig.poll()
+    finally:
+        other.close()
+
+    run = only_run(rig, number)
+    assert run.status is RunStatus.CANCELLED, describe(run)  # not overwritten with DONE
+    assert run.failure_kind == "cancelled" and not (run.result or {}).get("notified")
+    # The DONE clean-up did not run for a run that is not done.
+    assert Path(run.worktree_path or "").exists() and run.branch in local_agent_branches(rig)
+
+
+def test_recovery_that_loses_the_run_while_resuming_says_so_instead_of_crashing(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    number = rig.new_task_issue()
+    monkeypatch.setattr(
+        rig.worker, "_publish", lambda *a, **k: (_ for _ in ()).throw(SimulatedCrash("publish"))
+    )
+    with pytest.raises(SimulatedCrash):
+        rig.poll()
+    monkeypatch.undo()
+    crashed = only_run(rig, number)
+    assert crashed.status is RunStatus.PUBLISHING and crashed.phase is RunPhase.PUSH
+    worker = restart(rig)
+    expire_leases(rig)
+    other = Ledger(rig.ledger.path, clock=rig.clock)
+    real_push = worker.git.push
+
+    def push_then_lose_the_run(branch: str) -> None:
+        real_push(branch)
+        assert other.finish(
+            crashed.run_id,
+            RunStatus.CANCELLED,
+            failure_kind="cancelled",
+            result={"notified": True},  # the other process reported it itself
+        )
+
+    monkeypatch.setattr(worker.git, "push", push_then_lose_the_run)
+    try:
+        actions = worker.recover(execute=True)
+    finally:
+        other.close()
+
+    assert_reported(actions, "abandoned", crashed)
+    assert f"run {crashed.run_id} is not active (status cancelled)" in actions[0]
+    assert current(rig, crashed.run_id).status is RunStatus.CANCELLED
+    assert rig.fake.pulls == {}  # it never got as far as the pull request
+
+
 def test_a_pending_run_cancelled_locally_never_starts_its_agent(rig: Rig) -> None:
     number = rig.new_task_issue()
     run = crash_mid_agent(rig, number)

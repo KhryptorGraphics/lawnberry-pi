@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 
 from tools.agent_bridge import ledger as ledger_module
+from tools.agent_bridge.errors import BridgeError, RunStateError
 from tools.agent_bridge.ledger import (
     LeaseRequest,
     Ledger,
@@ -751,10 +752,14 @@ def test_stale_runs_lists_only_active_runs_whose_lease_has_expired(
     assert [r.run_id for r in ledger.stale_runs()] == [live.run_id]
 
 
-def test_an_active_run_without_a_lease_is_stale(ledger: Ledger) -> None:
+def test_an_active_run_without_a_lease_is_stale(ledger: Ledger, db_path: Path) -> None:
     run = grant(ledger)
     assert ledger.requeue_interrupted(run.run_id, 1)  # clears the lease
-    ledger.set_phase(run.run_id, RunPhase.AGENT, status=RunStatus.RUNNING)
+    # ``set_phase`` refuses a pending run (terminal and requeued runs are never resurrected), so
+    # the lease-less active row is written directly.
+    sql_exec(
+        db_path, f"UPDATE runs SET status='running', phase='agent' WHERE run_id='{run.run_id}'"
+    )
 
     assert [r.run_id for r in ledger.stale_runs()] == [run.run_id]
 
@@ -947,6 +952,182 @@ def test_finish_on_an_unknown_run_is_a_silent_no_op(ledger: Ledger) -> None:
     assert ledger.list_runs() == [] and ledger.events() == []
 
 
+# ------------------------------------------------------------------ terminal states are final
+@pytest.mark.parametrize("target", [None, RunStatus.PUBLISHING], ids=["phase-only", "publishing"])
+@pytest.mark.parametrize("status", TERMINAL, ids=lambda s: s.value)
+def test_set_phase_refuses_to_resurrect_a_finished_run(
+    ledger: Ledger, status: RunStatus, target: RunStatus | None
+) -> None:
+    """A cancelled, blocked or done run must never go back to ``publishing`` (F10)."""
+    run = grant(ledger)
+    ledger.finish(run.run_id, status, failure_kind=None if status is RunStatus.DONE else "x")
+    before = state_of(ledger)
+
+    with pytest.raises(
+        RunStateError, match=rf"run {run.run_id} is not active \(status {status.value}\)"
+    ):
+        ledger.set_phase(run.run_id, RunPhase.PUSH, status=target, commit_sha="f" * 40)
+
+    assert state_of(ledger) == before  # no field written, no phase event, finished_at untouched
+    stored = ledger.get(run.run_id)
+    assert stored is not None
+    assert (stored.status, stored.phase, stored.commit_sha) == (status, RunPhase.FINISHED, None)
+    assert stored.finished_at is not None and ledger.active_runs() == []
+
+
+def test_a_blocked_run_cannot_be_resurrected_by_a_late_set_phase(
+    ledger: Ledger, clock: FakeClock
+) -> None:
+    run = grant(ledger)
+    ledger.finish(run.run_id, RunStatus.BLOCKED, failure_kind="checks_failed")
+    finished_at = ledger.get(run.run_id).finished_at
+    clock.advance(5)
+
+    with pytest.raises(RunStateError):
+        ledger.set_phase(run.run_id, RunPhase.PUSH, status=RunStatus.PUBLISHING)
+
+    record = ledger.get(run.run_id)
+    assert record is not None
+    assert (record.status, record.phase) == (RunStatus.BLOCKED, RunPhase.FINISHED)
+    assert record.finished_at == finished_at and record.failure_kind == "checks_failed"
+    assert ledger.lease(make_request()).reason == "already-processed"
+
+
+def test_set_phase_refuses_a_pending_run(ledger: Ledger) -> None:
+    """A requeued run has no worker: only ``lease`` may move it back to running."""
+    run = grant(ledger)
+    assert ledger.requeue_interrupted(run.run_id, 1)
+    before = state_of(ledger)
+
+    with pytest.raises(RunStateError, match=r"is not active \(status pending\)"):
+        ledger.set_phase(run.run_id, RunPhase.AGENT, status=RunStatus.RUNNING)
+
+    assert state_of(ledger) == before
+    assert ledger.get(run.run_id).status is RunStatus.PENDING
+
+
+def test_set_phase_refuses_an_unknown_run(ledger: Ledger) -> None:
+    with pytest.raises(RunStateError, match=r"run no-such-run is not active \(status unknown\)"):
+        ledger.set_phase("no-such-run", RunPhase.AGENT, branch="agent/x")
+
+    assert ledger.list_runs() == [] and ledger.events() == []
+
+
+def test_run_state_error_is_a_bridge_error_that_names_the_run_and_its_status() -> None:
+    error = RunStateError("abc123", "cancelled")
+
+    assert isinstance(error, BridgeError)
+    assert (error.run_id, error.status) == ("abc123", "cancelled")
+    assert str(error) == "run abc123 is not active (status cancelled)"
+
+
+@pytest.mark.parametrize("second", TERMINAL, ids=lambda s: f"then-{s.value}")
+@pytest.mark.parametrize("first", TERMINAL, ids=lambda s: s.value)
+def test_finish_never_overwrites_a_run_that_is_already_finished(
+    ledger: Ledger, clock: FakeClock, first: RunStatus, second: RunStatus
+) -> None:
+    run = grant(ledger)
+    ledger.finish(
+        run.run_id,
+        first,
+        failure_kind="first",
+        failure_detail="first detail",
+        result={"who": "first"},
+    )
+    clock.advance(30)
+    before = state_of(ledger)
+
+    changed = ledger.finish(
+        run.run_id,
+        second,
+        failure_kind="late",
+        failure_detail="late detail",
+        result={"who": "late"},
+    )
+
+    assert changed is False
+    assert state_of(ledger) == before  # status, failure, result, finished_at and event log intact
+    stored = ledger.get(run.run_id)
+    assert stored is not None
+    assert (stored.status, stored.failure_kind, stored.result) == (first, "first", {"who": "first"})
+
+
+@pytest.mark.parametrize("setup", ["running", "publishing", "pending"])
+def test_finish_reports_that_it_concluded_a_run_that_was_not_finished(
+    ledger: Ledger, setup: str
+) -> None:
+    run = grant(ledger)
+    if setup == "publishing":
+        ledger.set_phase(run.run_id, RunPhase.PUSH, status=RunStatus.PUBLISHING)
+    elif setup == "pending":
+        assert ledger.requeue_interrupted(run.run_id, 1)
+
+    assert ledger.finish(run.run_id, RunStatus.BLOCKED, failure_kind="x") is True
+
+    assert ledger.get(run.run_id).status is RunStatus.BLOCKED
+    assert kinds(ledger)[-1] == "finish.blocked"
+
+
+def test_finish_returns_false_for_an_unknown_run(ledger: Ledger) -> None:
+    assert ledger.finish("no-such-run", RunStatus.DONE) is False
+
+
+def test_a_stale_process_cannot_undo_what_another_process_concluded(
+    db_path: Path, clock: FakeClock
+) -> None:
+    """The report's scenario: the lease lapses, another process cancels, the old worker goes on."""
+    stale = Ledger(db_path, clock=clock)
+    other = Ledger(db_path, clock=clock)
+    try:
+        run = grant(stale)
+        clock.advance(TTL * 2)  # the old worker stalled and its lease lapsed
+        assert [r.run_id for r in other.stale_runs()] == [run.run_id]
+        assert other.finish(run.run_id, RunStatus.CANCELLED, failure_kind="cancelled") is True
+
+        with pytest.raises(RunStateError):
+            stale.set_phase(
+                run.run_id, RunPhase.PUSH, status=RunStatus.PUBLISHING, commit_sha="a" * 40
+            )
+        assert stale.finish(run.run_id, RunStatus.DONE, result={"pr": 1}) is False
+
+        record = other.get(run.run_id)
+        assert record is not None
+        assert (record.status, record.failure_kind, record.commit_sha, record.result) == (
+            RunStatus.CANCELLED,
+            "cancelled",
+            None,
+            None,
+        )
+        assert sql_rows(db_path, "SELECT status, phase FROM runs") == [("cancelled", "finished")]
+    finally:
+        stale.close()
+        other.close()
+
+
+def test_the_normal_run_to_done_flow_is_unaffected_by_the_guards(ledger: Ledger) -> None:
+    run = grant(ledger)
+
+    ledger.set_phase(run.run_id, RunPhase.WORKTREE, branch="agent/issue-7-a")
+    ledger.set_phase(run.run_id, RunPhase.AGENT)
+    ledger.set_phase(run.run_id, RunPhase.PUSH, status=RunStatus.PUBLISHING, commit_sha="c" * 40)
+    ledger.set_phase(run.run_id, RunPhase.PULL_REQUEST)
+    ledger.set_phase(run.run_id, RunPhase.NOTIFY, pr_number=3, pr_url="https://example.test/3")
+    assert ledger.finish(run.run_id, RunStatus.DONE, result={"notified": True}) is True
+
+    done = ledger.get(run.run_id)
+    assert done is not None
+    assert (done.status, done.phase, done.pr_number) == (RunStatus.DONE, RunPhase.FINISHED, 3)
+    assert kinds(ledger) == [
+        "lease.granted",
+        "phase.worktree",
+        "phase.agent",
+        "phase.push",
+        "phase.pull_request",
+        "phase.notify",
+        "finish.done",
+    ]
+
+
 # ----------------------------------------------------------------------- update / set_phase
 UPDATABLE_SAMPLES: dict[str, Any] = {
     "agent_pid": 4321,
@@ -1053,7 +1234,8 @@ def test_update_without_fields_or_for_an_unknown_run_changes_nothing(
 
     ledger.update(run.run_id)
     ledger.update("no-such-run", branch="agent/x")
-    ledger.set_phase("no-such-run", RunPhase.AGENT, branch="agent/x")
+    with pytest.raises(RunStateError):  # a missing run is not active, so it is refused loudly
+        ledger.set_phase("no-such-run", RunPhase.AGENT, branch="agent/x")
 
     assert state_of(ledger) == before
 

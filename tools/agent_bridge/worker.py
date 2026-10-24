@@ -35,6 +35,7 @@ from .errors import (
     GitHubNotFound,
     GitHubPermissionError,
     GitHubUnavailable,
+    RunStateError,
     TaskValidationError,
 )
 from .github import GitHubClient, edited_after, find_approval
@@ -965,24 +966,42 @@ class Worker:
             )
             self.publisher.mark_terminal(run.issue_number, RunStatus.DONE)
             payload = {**payload, "notified": True}
-            self.ledger.finish(run.run_id, RunStatus.DONE, result=payload)
-            self._cleanup(run, RunStatus.DONE)
+            if self.ledger.finish(run.run_id, RunStatus.DONE, result=payload):
+                self._cleanup(run, RunStatus.DONE)
+            else:
+                LOG.warning(
+                    "run %s was concluded elsewhere before it could be marked done; "
+                    "leaving its ledger row and worktree alone",
+                    run.run_id[:12],
+                )
 
     # ----------------------------------------------------------------- conclusion
-    def _conclude(self, run_id: str, stop: _Stop, payload: dict[str, Any]) -> None:
+    def _conclude(self, run_id: str, stop: _Stop, payload: dict[str, Any]) -> bool:
+        """End a run in ``stop.status`` and report it; False when another process already did.
+
+        Terminal states are final, so a refused :meth:`Ledger.finish` means the run is not ours
+        to report or to clean up after.
+        """
         payload = {**payload, "violations": stop.violations or payload.get("violations", [])}
-        self.ledger.finish(
+        if not self.ledger.finish(
             run_id,
             stop.status,
             failure_kind=stop.kind,
             failure_detail=stop.detail,
             result=payload,
-        )
+        ):
+            LOG.warning(
+                "run %s was already concluded elsewhere; not reporting %s/%s",
+                run_id[:12],
+                stop.status.value,
+                stop.kind,
+            )
+            return False
         run = self.ledger.get(run_id)
-        if run is None:
-            return
-        self._notify_terminal(run, stop, payload)
-        self._cleanup(run, stop.status)
+        if run is not None:
+            self._notify_terminal(run, stop, payload)
+            self._cleanup(run, stop.status)
+        return True
 
     def _notify_terminal(self, run: RunRecord, stop: _Stop, payload: dict[str, Any]) -> None:
         try:
@@ -1086,7 +1105,7 @@ class Worker:
 
     def _resume_publish(self, run: RunRecord, where: str) -> str:
         if run.publish_attempts >= self.cfg.limits.max_publish_attempts:
-            self._conclude(
+            gave_up = self._conclude(
                 run.run_id,
                 _Stop(
                     RunStatus.BLOCKED,
@@ -1096,6 +1115,8 @@ class Worker:
                 ),
                 run.result or {},
             )
+            if not gave_up:
+                return f"abandoned {where}: finished elsewhere"
             return f"gave up publishing {where}"
         if not self.ledger.claim_publishing(
             run.run_id, self.worker_id, os.getpid(), self.cfg.limits.lease_ttl_seconds
@@ -1106,10 +1127,14 @@ class Worker:
             self._publish(run, payload)
             return f"resumed publishing {where}"
         except _Stop as stop:
-            self._conclude(run.run_id, stop, payload)
-            return f"publishing {where} ended {stop.status.value}"
+            if self._conclude(run.run_id, stop, payload):
+                return f"publishing {where} ended {stop.status.value}"
+            return f"abandoned {where}: finished elsewhere"
         except _Deferred as why:
             return f"publishing {where} still deferred: {str(why)[:80]}"
+        except RunStateError as exc:
+            LOG.warning("publishing run %s stopped: %s", run.run_id[:12], exc)
+            return f"abandoned {where}: {exc}"
 
     def _reconcile_unreported(self) -> list[str]:
         """Re-send labels/comments for finished runs whose GitHub update failed earlier."""

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .errors import RunStateError
 from .models import RunPhase, RunStatus
 
 __all__ = [
@@ -518,6 +519,12 @@ class Ledger:
         status: RunStatus | None = None,
         **fields: Any,
     ) -> None:
+        """Move an *active* run to ``phase`` (and optionally a new active ``status``).
+
+        Terminal states are final: a run that is not ``running`` or ``publishing`` (finished,
+        requeued, or unknown) is left untouched and :class:`RunStateError` is raised, so a stale
+        process can never resurrect a run another process cancelled, blocked or finished.
+        """
         bad = set(fields) - _UPDATABLE
         if bad:
             raise ValueError(f"cannot update ledger columns: {sorted(bad)}")
@@ -533,14 +540,18 @@ class Ledger:
             params.append(value)
         params.append(run_id)
         with self._tx() as cx:
-            cx.execute(f"UPDATE runs SET {', '.join(columns)} WHERE run_id=?", params)
+            cur = cx.execute(
+                f"UPDATE runs SET {', '.join(columns)} "
+                "WHERE run_id=? AND status IN ('running','publishing')",
+                params,
+            )
+            if cur.rowcount != 1:
+                found = cx.execute("SELECT status FROM runs WHERE run_id=?", (run_id,)).fetchone()
+                raise RunStateError(run_id, found["status"] if found is not None else "unknown")
             row = cx.execute(
                 "SELECT repo, issue_number FROM runs WHERE run_id=?", (run_id,)
             ).fetchone()
-            if row is not None:
-                self._event(
-                    cx, run_id, row["repo"], row["issue_number"], f"phase.{phase.value}", {}
-                )
+            self._event(cx, run_id, row["repo"], row["issue_number"], f"phase.{phase.value}", {})
 
     def finish(
         self,
@@ -550,15 +561,22 @@ class Ledger:
         failure_kind: str | None = None,
         failure_detail: str | None = None,
         result: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> bool:
+        """Conclude a run that is not finished yet; True when this call did so.
+
+        Terminal states are final: a run that is already ``done``, ``blocked`` or ``cancelled``
+        (or unknown) is left untouched, no event is written and False is returned, so a late or
+        stale caller can neither overwrite the outcome nor report it a second time.
+        """
         if not status.terminal:
             raise ValueError("finish() needs a terminal status")
         stamp = self._stamp()
         with self._tx() as cx:
-            cx.execute(
+            cur = cx.execute(
                 "UPDATE runs SET status=?, phase='finished', failure_kind=?, failure_detail=?, "
                 "result_json=COALESCE(?, result_json), finished_at=?, updated_at=?, "
-                "lease_expires_at=NULL, agent_pid=NULL, agent_start_ticks=NULL WHERE run_id=?",
+                "lease_expires_at=NULL, agent_pid=NULL, agent_start_ticks=NULL "
+                "WHERE run_id=? AND status IN ('pending','running','publishing')",
                 (
                     status.value,
                     failure_kind,
@@ -569,18 +587,20 @@ class Ledger:
                     run_id,
                 ),
             )
+            if cur.rowcount != 1:
+                return False
             row = cx.execute(
                 "SELECT repo, issue_number FROM runs WHERE run_id=?", (run_id,)
             ).fetchone()
-            if row is not None:
-                self._event(
-                    cx,
-                    run_id,
-                    row["repo"],
-                    row["issue_number"],
-                    f"finish.{status.value}",
-                    {"failure_kind": failure_kind},
-                )
+            self._event(
+                cx,
+                run_id,
+                row["repo"],
+                row["issue_number"],
+                f"finish.{status.value}",
+                {"failure_kind": failure_kind},
+            )
+            return True
 
     def requeue_interrupted(self, run_id: str, max_auto_retries: int) -> bool:
         """Requeue a ``running`` run if its retry budget allows; any other status returns False."""
