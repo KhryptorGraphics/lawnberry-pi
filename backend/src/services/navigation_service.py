@@ -184,6 +184,7 @@ class NavigationService:
         # Safety inputs, attached by the lifespan (see attach_safety). None = not gated:
         # unit/bench configuration only; main.py never serves a mission without them.
         self.obstacle_guard: Any | None = None  # safety.obstacle_stop.ObstacleGuard
+        self.gps_monitor: Any | None = None  # nav.gps_degradation.GPSDegradationMonitor
         # Control-loop period of go_to_waypoint (5 Hz); a knob so tests can run the loop fast.
         self.control_period_s = 0.2
         self._hold_reasons: tuple[str, ...] | None = None  # set while motion is held
@@ -207,13 +208,23 @@ class NavigationService:
 
     # ------------------------------ safety gate ------------------------------
 
-    def attach_safety(self, *, obstacle_guard: Any | None = None) -> None:
+    def attach_safety(
+        self, *, obstacle_guard: Any | None = None, gps_monitor: Any | None = None
+    ) -> None:
         """Attach the safety inputs every autonomous motion path consults.
 
-        ``obstacle_guard`` is a ``safety.obstacle_stop.ObstacleGuard``. Without it nothing is
-        gated: that is the unit/bench configuration only, the lifespan always attaches it.
+        ``obstacle_guard`` is a ``safety.obstacle_stop.ObstacleGuard``; ``gps_monitor`` a
+        ``nav.gps_degradation.GPSDegradationMonitor`` (fed from ``update_navigation_state``).
+        Both replace what was attached before, so passing neither detaches both. Without them
+        nothing is gated: that is the unit/bench configuration only, the lifespan always
+        attaches them.
         """
         self.obstacle_guard = obstacle_guard
+        self.gps_monitor = gps_monitor
+
+    def autonomy_active(self) -> bool:
+        """True while a mission/AI run is the thing moving the machine."""
+        return self.navigation_state.navigation_mode in AUTONOMOUS_MODES
 
     def _motion_gate(self) -> "MotionGate":
         """One verdict from every safety input; a check that cannot run is a hold."""
@@ -233,7 +244,31 @@ class NavigationService:
                 hold = assessment.hold
                 if assessment.status is not ObstacleStatus.CLEAR:
                     reasons.extend(assessment.reasons)
+        gnss = self.gps_monitor
+        if gnss is not None:
+            try:
+                fix = gnss.assess()
+            except Exception as exc:
+                logger.exception("GNSS monitor failed: holding autonomous motion")
+                hold, cap = True, 0.0
+                reasons.append(f"gnss monitor failed: {exc!r}")
+            else:
+                if not fix.healthy:
+                    hold, cap = True, 0.0
+                    reasons.extend(f"gnss: {reason}" for reason in fix.reasons)
         return MotionGate(hold, cap, tuple(reasons))
+
+    async def hold_for_gnss(self, assessment: Any | None = None) -> None:
+        """GNSS monitor hold handler: stop autonomy at the actuators while the fix is degraded.
+
+        Level-triggered like the loops' own gate (blade off first, then levers neutral, both
+        always attempted, platform-specific); the loops keep holding on their next tick and
+        resume by themselves once the fix has been healthy for the resume dwell.
+        """
+        reasons = tuple(f"gnss: {r}" for r in getattr(assessment, "reasons", ())) or (
+            "gnss: degraded",
+        )
+        await self._hold_motion(MotionGate(True, 0.0, reasons))
 
     async def _robohat_blade(self, on: bool) -> bool:
         """Command the differential platform's blade; False if there is no controller."""
@@ -330,6 +365,17 @@ class NavigationService:
         from .tractor_service import get_tractor_service
 
         mission_service = get_mission_service()
+
+        # GNSS precondition (audit D.9): no mission starts on a missing, stale or inaccurate
+        # fix, or on one that has not yet stayed healthy for the resume dwell. Checked before
+        # the engine is cranked, so a refused mission has touched nothing.
+        gnss = self.gps_monitor
+        if gnss is not None:
+            fix = gnss.assess()
+            if not fix.healthy:
+                raise RuntimeError(
+                    "Cannot start mission: GNSS fix is not healthy (" + "; ".join(fix.reasons) + ")"
+                )
 
         # Tractor: auto-start the engine before any state mutation, so a failed
         # crank aborts the mission cleanly instead of driving an unpowered
@@ -618,6 +664,13 @@ class NavigationService:
     async def update_navigation_state(self, sensor_data: SensorData) -> NavigationState:
         """Update navigation state with sensor fusion"""
 
+        # Feed the GNSS monitor the real reading (None this tick = nothing new to observe).
+        if self.gps_monitor is not None:
+            try:
+                self.gps_monitor.observe(sensor_data.gps)
+            except Exception:
+                logger.exception("GNSS monitor could not take the reading (it will go stale)")
+
         # Update position from GPS or dead reckoning
         current_position = await self._update_position(sensor_data)
         if current_position:
@@ -667,7 +720,12 @@ class NavigationService:
             # Update dead reckoning reference
             self.dead_reckoning.update_gps_reference(gps_position)
             self.navigation_state.dead_reckoning_active = False
-            self.navigation_state.last_gps_fix = datetime.now(UTC)
+            # The fix's own timestamp, not "now": a reading the sensor interface replayed
+            # after the receiver went quiet must not look like a fresh fix.
+            fix_stamp = getattr(sensor_data.gps, "timestamp", None)
+            self.navigation_state.last_gps_fix = (
+                fix_stamp if isinstance(fix_stamp, datetime) else datetime.now(UTC)
+            )
 
             return gps_position
 

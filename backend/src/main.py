@@ -38,7 +38,7 @@ from .middleware.input_validation import register_input_validation_middleware
 from .middleware.rate_limiting import register_global_rate_limiter
 from .middleware.sanitization import register_sanitization_middleware
 from .middleware.security import register_security_middleware
-from .nav.gps_degradation import GPSDegradationMonitor
+from .nav.gps_degradation import GPSDegradationConfig, GPSDegradationMonitor
 from .safety.estop_handler import EstopHandler
 from .safety.motor_authorization import MotorAuthorization
 from .safety.obstacle_stop import ObstacleStopMonitor, configure_obstacle_guard
@@ -108,8 +108,15 @@ async def lifespan(app: FastAPI):
                     _log.warning("ToF pair addressing failed: %s", e)
     except Exception:
         pass
-    # Start GPS degradation monitor
-    app.state.gps_deg_monitor = GPSDegradationMonitor()
+    # GNSS-quality monitor (audit N-31): fed the real GpsReading by the navigation service,
+    # read by every autonomous motion path (NavigationService._motion_gate), and, while the
+    # fix is degraded and autonomy runs, stops the machine at the actuators every cycle.
+    nav_service = NavigationService.get_instance()
+    app.state.gps_deg_monitor = GPSDegradationMonitor(
+        GPSDegradationConfig.from_limits(safety_limits.gps_degradation),
+        autonomy_active=nav_service.autonomy_active,
+        hold_handlers=(nav_service.hold_for_gnss,),
+    )
     await app.state.gps_deg_monitor.start()
 
     # Validate safety limits at startup and attach report
@@ -146,9 +153,8 @@ async def lifespan(app: FastAPI):
     # sensor that is stale or missing holds autonomous motion (manual operator drive is not
     # limited), and if the monitor dies the readings age out and the guard holds by itself.
     obstacle_guard = configure_obstacle_guard(safety_limits)
-    nav_service = NavigationService.get_instance()
     guard_tractor = get_tractor_service()
-    nav_service.attach_safety(obstacle_guard=obstacle_guard)
+    nav_service.attach_safety(obstacle_guard=obstacle_guard, gps_monitor=app.state.gps_deg_monitor)
     guard_tractor.motion_limiter = obstacle_guard
     obstacle_monitor = ObstacleStopMonitor(
         obstacle_guard,

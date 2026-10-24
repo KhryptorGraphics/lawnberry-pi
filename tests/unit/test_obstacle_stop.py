@@ -729,13 +729,15 @@ async def test_lifespan_attaches_the_guard_to_nav_and_tractor_and_detaches_it_on
     async with main.lifespan(main.app):
         guard = main.app.state.obstacle_guard
         assert nav.obstacle_guard is guard and tractor.motion_limiter is guard
+        assert nav.gps_monitor is main.app.state.gps_deg_monitor  # the GNSS verdict is attached too
         assert guard.limits.validated is False  # the shipped model is declared UNVALIDATED
         assert sorted(guard.sources) == ["tof_left", "tof_right"]
         await asyncio.sleep(0.12)  # no sensors in the test: the running monitor keeps it held
         assert main.app.state.obstacle_monitor.cycles >= 1 and guard.assess().hold
         res = await tractor.set_levers(0.5, 0.5, source="navigation")
         assert res["limited"] is True and tractor.state.left_lever == 0.0
-    assert nav.obstacle_guard is None and tractor.motion_limiter is None
+    assert nav.obstacle_guard is None and nav.gps_monitor is None
+    assert tractor.motion_limiter is None
 
 
 async def test_tof_interface_marks_a_value_the_driver_replayed_as_stale_not_valid():
