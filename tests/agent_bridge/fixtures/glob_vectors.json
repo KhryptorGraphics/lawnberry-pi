@@ -263,5 +263,110 @@
   "pattern": "**/a/**",
   "path": "q/ab/b",
   "match": false
+ },
+ {
+  "pattern": "**/AGENTS.md",
+  "path": "AGENTS.md",
+  "match": true
+ },
+ {
+  "pattern": "**/AGENTS.md",
+  "path": "docs/AGENTS.md",
+  "match": true
+ },
+ {
+  "pattern": "**/AGENTS.md",
+  "path": "tests/AGENTS.md",
+  "match": true
+ },
+ {
+  "pattern": "**/AGENTS.md",
+  "path": "docs/agents.md",
+  "match": false
+ },
+ {
+  "pattern": "**/AGENTS.md",
+  "path": "docs/AGENTS.md.bak",
+  "match": false
+ },
+ {
+  "pattern": "**/AGENTS.md",
+  "path": "docs/agents-guide.md",
+  "match": false
+ },
+ {
+  "pattern": "**/CLAUDE.md",
+  "path": "docs/CLAUDE.md",
+  "match": true
+ },
+ {
+  "pattern": "**/CLAUDE.md",
+  "path": "Claude.MD",
+  "match": false
+ },
+ {
+  "pattern": "**/CLAUDE.local.md",
+  "path": "CLAUDE.local.md",
+  "match": true
+ },
+ {
+  "pattern": "**/CLAUDE.local.md",
+  "path": "docs/CLAUDE.local.md",
+  "match": true
+ },
+ {
+  "pattern": "**/CLAUDE.local.md",
+  "path": "CLAUDE.md",
+  "match": false
+ },
+ {
+  "pattern": "**/.claude/**",
+  "path": ".claude",
+  "match": true
+ },
+ {
+  "pattern": "**/.claude/**",
+  "path": "docs/.claude/x.md",
+  "match": true
+ },
+ {
+  "pattern": "**/.claude/**",
+  "path": "docs/.CLAUDE/x.md",
+  "match": false
+ },
+ {
+  "pattern": "**/.claude/**",
+  "path": "docs/.claudette/x.md",
+  "match": false
+ },
+ {
+  "pattern": "**/.gitattributes",
+  "path": ".gitattributes",
+  "match": true
+ },
+ {
+  "pattern": "**/.gitattributes",
+  "path": "docs/.gitattributes",
+  "match": true
+ },
+ {
+  "pattern": "**/.gitattributes",
+  "path": "docs/.gitattributes.md",
+  "match": false
+ },
+ {
+  "pattern": "**/.gitignore",
+  "path": "tests/.gitignore",
+  "match": true
+ },
+ {
+  "pattern": "**/.git/**",
+  "path": "docs/.git/config",
+  "match": true
+ },
+ {
+  "pattern": "**/.git/**",
+  "path": "docs/.github/x",
+  "match": false
  }
 ]

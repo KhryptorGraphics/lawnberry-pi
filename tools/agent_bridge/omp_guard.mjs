@@ -11,7 +11,8 @@
 //     file:// - and the guard must never approve a different file than omp opens), must stay
 //     inside `policy.root` (symlinks resolved), must not be a URL or `xd://` device, must not
 //     contain `..` segments and must not match `read_deny`; the path as written and its
-//     symlink-resolved form are both matched against `read_deny`, `write_deny` and the allow sets;
+//     symlink-resolved form are both matched against `read_deny`, `write_deny` and the allow sets
+//     (the two deny lists case-insensitively, see foldCase; the allow sets exactly);
 //   * write-class tools must also match every set in `write_allow_sets` and no `write_deny` glob,
 //     must name their files in path arguments (edit syntaxes that carry paths inside a text
 //     `input` - hashline, apply_patch, sloppy - are refused) and are capped in total payload bytes;
@@ -81,6 +82,31 @@ export function globToRegExp(pattern) {
 
 export function matchAny(rel, patterns) {
 	return patterns.some((p) => globToRegExp(p).test(rel));
+}
+
+// Caseless canonical form of a path or glob; the twin of `fold_case` in globs.py (same steps,
+// shared test vectors).  Case-insensitive file systems (NTFS, APFS, HFS+, ext4 casefold) equate
+// more than ASCII letters (long s and S, dotless i and I, the Kelvin sign and K, sharp s and
+// ss, e + combining acute and e-acute).  Lower case, upper case, lower case again, between two
+// NFC passes, maps them onto one spelling.  `*`, `?` and `/` are unaffected.
+export function foldCase(value) {
+	return value.normalize("NFC").toLowerCase().toUpperCase().toLowerCase().normalize("NFC");
+}
+
+const FOLDED_PATTERNS = new Map();
+function foldedRegExp(pattern) {
+	let re = FOLDED_PATTERNS.get(pattern);
+	if (re === undefined) {
+		re = globToRegExp(foldCase(pattern));
+		FOLDED_PATTERNS.set(pattern, re);
+	}
+	return re;
+}
+
+// Deny lists only: `claude.md` is the protected `CLAUDE.md` on a file system that ignores case.
+export function matchAnyFolded(rel, patterns) {
+	const folded = foldCase(rel);
+	return patterns.some((p) => foldedRegExp(p).test(folded));
 }
 
 function isInside(root, candidate) {
@@ -258,12 +284,12 @@ export function decide(policy, event, cwdFallback) {
 	// The lexical path and the symlink-resolved path must both pass: a directory symlink inside an
 	// allowed folder must not lead to a protected, out-of-scope or read-denied file.
 	for (const rel of new Set([...rels, ...reals])) {
-		if (rel !== "." && matchAny(rel, policy.read_deny)) {
+		if (rel !== "." && matchAnyFolded(rel, policy.read_deny)) {
 			return { allow: false, reason: `path is not readable by agents: ${rel}`, paths: rels };
 		}
 		if (!isWrite) continue;
 		if (rel === ".") return { allow: false, reason: "cannot write the repository root", paths: rels };
-		if (matchAny(rel, policy.write_deny)) {
+		if (matchAnyFolded(rel, policy.write_deny)) {
 			return { allow: false, reason: `path is protected and needs a human change: ${rel}`, paths: rels };
 		}
 		for (const set of policy.write_allow_sets) {

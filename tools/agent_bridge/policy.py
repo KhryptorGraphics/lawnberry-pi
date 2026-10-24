@@ -53,13 +53,17 @@ class Violation:
 
 @dataclass(frozen=True)
 class WritePolicy:
-    """Every ``allow_sets`` entry must be matched (any glob within a set) and no ``deny`` glob."""
+    """Every ``allow_sets`` entry must be matched (any glob within a set) and no ``deny`` glob.
+
+    Allow globs are case-sensitive.  ``deny`` globs are compared case-insensitively: on a checkout
+    whose file system ignores case, ``claude.md`` is the protected ``CLAUDE.md``.
+    """
 
     allow_sets: tuple[tuple[str, ...], ...]
     deny: tuple[str, ...]
 
     def check_path(self, path: str) -> Violation | None:
-        if match_any(path, self.deny):
+        if match_any(path, self.deny, casefold=True):
             return Violation("protected_path", "path is protected and needs a human change", path)
         for allowed in self.allow_sets:
             if not match_any(path, allowed):

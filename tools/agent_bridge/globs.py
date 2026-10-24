@@ -9,17 +9,21 @@ Dialect (anchored at the repository root, POSIX separators):
 
 The JavaScript guard implements the same translation; the shared test vectors in
 ``tests/agent_bridge/fixtures/glob_vectors.json`` are checked against both implementations.
+Matching is case-sensitive, except where a caller asks for ``casefold=True``: deny lists use it
+so that ``claude.md`` cannot slip past a protected ``CLAUDE.md`` on a file system that ignores case.
 """
 
 from __future__ import annotations
 
 import posixpath
 import re
+import unicodedata
 from collections.abc import Iterable
 from functools import lru_cache
 
 __all__ = [
     "PathError",
+    "fold_case",
     "glob_to_regex",
     "match_any",
     "normalize_glob",
@@ -28,6 +32,23 @@ __all__ = [
 
 _MAX_PATH = 400
 _FORBIDDEN = re.compile(r"[\x00-\x1f\x7f\\]")
+
+
+@lru_cache(maxsize=2048)
+def fold_case(value: str) -> str:
+    """Caseless canonical form of a path or glob, for comparing against deny lists.
+
+    Case-insensitive file systems (NTFS, APFS, HFS+, ext4 with casefold) treat more than ASCII
+    letters as equal: ``\u017f`` (long s) is an ``S`` to NTFS, dotless ``\u0131`` an ``I``, the
+    Kelvin sign a ``K``, ``\u00df`` and capital ``\u1e9e`` are ``ss``, and ``e`` plus a combining
+    acute is ``\u00e9``.  Lower case, upper case, lower case again, between two NFC
+    normalisations, maps every such spelling onto one form (plain ``lower().upper()`` alone is
+    not idempotent for ``\u1e9e``).  Glob syntax (``*``, ``?``, ``/``) is unaffected.
+    ``foldCase`` in ``omp_guard.mjs`` takes the identical steps; the shared tests keep the two
+    in lock-step.
+    """
+    text = unicodedata.normalize("NFC", value)
+    return unicodedata.normalize("NFC", text.lower().upper().lower())
 
 
 class PathError(ValueError):
@@ -114,6 +135,13 @@ def glob_to_regex(pattern: str) -> re.Pattern[str]:
     return re.compile("^" + "".join(out) + r"\Z")
 
 
-def match_any(path: str, patterns: Iterable[str]) -> bool:
-    """True when ``path`` (normalised, repo-relative) matches at least one glob."""
+def match_any(path: str, patterns: Iterable[str], *, casefold: bool = False) -> bool:
+    """True when ``path`` (normalised, repo-relative) matches at least one glob.
+
+    ``casefold=True`` compares both sides through :func:`fold_case`.  Deny lists use it (a file
+    system that ignores case opens ``claude.md`` for ``CLAUDE.md``); allow lists stay exact.
+    """
+    if casefold:
+        folded = fold_case(path)
+        return any(glob_to_regex(fold_case(p)).match(folded) for p in patterns)
     return any(glob_to_regex(p).match(path) for p in patterns)
