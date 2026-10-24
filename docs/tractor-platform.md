@@ -7,7 +7,8 @@ steering wheel, gas pedal, clutch, or gear selector: each of the two drive
 levers independently commands its own side's ground speed and direction, and
 the mower's own hydrostatic transaxles turn that into motion (push a lever
 forward to drive that side forward, pull it back to reverse it, center it to
-stop that side). The engine and both hydrostatic transaxles are kept stock;
+stop that side). The engine and both hydrostatic transaxles are kept stock, and two high-torque servos
+physically push/pull the existing lap-bar drive levers (header comment of `config/tractor.yaml`).
 The current mechanical BOM in `hardware.md` selects ANNIMOS/DSSERVO RDS51150SG
 12 V units; the printable stationary-side interface uses a **photo-derived six-hole
 rear bracket** (photo aa8b43) with **six M2.5 through-bolts** and OD6 washers/AF5
@@ -15,7 +16,11 @@ nuts on the inboard face, not the listing's 24 × 24 mm drawing pattern. The mov
 member is the U crossplate, carrying a printed adapter with the **same six-hole pattern
 as the arm heads**, in double shear on an M6 pin at 55 mm radius; face 45° = neutral, face 90°
 = full reverse. This still requires a purchased-revision fit check.
-The older ASMC-04B **24 V** power design in other platform documents is not
+The older ASMC-04B **24 V** power design in other platform documents (`docs/hardware-overview.md`,
+`docs/tractor-acceptance-criteria.md` §4, `docs/RELEASE_NOTES.md`) is **superseded** and must not be used
+(H-05, H-20). The purchased servo label, rated voltage and stall current are still to be verified before any
+power is connected; the owner reports two matching 150 kg·cm-class servos at nominal 10–12.6 V with possibly
+8 A or more stall current (owner-reported, not bench-verified).
 The platform exposes the five discrete actuators below.
 
 ## Actuators
@@ -39,9 +44,28 @@ Positional actuators are PCA9685 I2C PWM channels (0-indexed, `config/tractor.ya
 `pca9685:` block sets the I2C address/bus/frequency — moved off the PCA9685's 0x40
 power-on default, which collides with the INA3221 power monitor, to 0x41). The
 blade-PTO relay's GPIO was moved off pin 6 (collides with the ToF Left Interrupt)
-to GPIO 26. Both are verified conflict-free by `scripts/check_hardware_pin_conflicts.py`
-(wired into `.github/workflows/hardware-guard.yml`). Calibrate each channel's
+to GPIO 26. `scripts/check_hardware_pin_conflicts.py` (wired into `.github/workflows/hardware-guard.yml`)
+reports no collision between those rows and the rest of `spec/hardware.yaml` / `config/tractor.yaml` — **but
+that registry omits the HaLow HAT and header-I2C availability; see the audit notes below.** Calibrate each channel's
 `us_min/us_center/us_max` on the bench.
+
+> **Audit notes (2026-10-24) — read before relying on the statements in this section.**
+>
+> - **GPIO5 (starter relay) is the HaLow radio's RESET line, and GPIO25 (the blade IN2 in `spec/hardware.yaml`)
+>   its IRQ, on the deployed Pi** (live Pi, read-only audit: the `halow-dw` overlay sets `reset-gpios = <&gpio 5>`
+>   and GPIO25 is claimed as `mm610x_spi_irq_gpio`; H-02b, H-02c). Energising, or merely claiming, GPIO5 can reset
+>   the radio, and a radio driver reload can pulse the starter input. Do not connect the starter relay input to
+>   GPIO5 until the allocation is redone.
+> - **There is no header I2C bus on the deployed Pi** (`dtparam=i2c_arm=off`, GPIO3 is the HaLow WAKE line,
+>   `/dev/i2c-1` absent), so `bus: 1` in `config/tractor.yaml` addresses a bus that does not exist there. With the
+>   PCA9685 unreachable the driver degrades to a silent no-op
+>   (`backend/src/drivers/actuators/pca9685_driver.py:117-126,155-156`) and `TractorControlService` still returns
+>   `status: ok` (`backend/src/services/tractor_service.py:157-172,199-203`).
+> - **`OE` polarity:** the PCA9685 `OE` input is active-low (HIGH disables the outputs; disabled means no pulse,
+>   not neutral). See `docs/tractor-acceptance-criteria.md` §1 (H-04). The "watchdog driving the board's `OE`
+>   pin" in the next paragraph means driving it HIGH.
+> - **PTO:** `blade_pto` is modelled as a latching relay (table above). The owner reports a **momentary** OEM
+>   PTO switch; the OEM circuit must be traced before anything is wired to it (H-21).
 
 A PCA9685 board holds its last commanded pulse if the I2C bus or host is lost —
 it does not fail safe on its own. `PCA9685Driver` propagates any write failure
