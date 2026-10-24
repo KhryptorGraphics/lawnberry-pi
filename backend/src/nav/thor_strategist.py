@@ -35,6 +35,8 @@ class StrategyConfig:
     edge_margin_m: float = 0.8
     obstacle_radius_m: float = 1.0  # keep-out around a reported obstacle
     min_obstacle_conf: float = 0.5
+    # Most obstacle keep-outs remembered; the oldest go first (see ``ThorStrategist.on_uplink``).
+    max_obstacles: int = 256
     require_fix: str = "rtk_fixed"
 
 
@@ -249,16 +251,25 @@ class ThorStrategist:
         if up.lat is None or up.lon is None or up.fix != self.cfg.require_fix:
             return self._down(up, pause=True)
         here = self.frame.xy((up.lat, up.lon))
-        new = []
+        known = list(self.state.obstacles_xy)
+        new: list[tuple[float, float]] = []
         for d in up.detections:
             if d.conf < self.cfg.min_obstacle_conf:
                 continue
             heading = math.radians((up.heading_deg or 0.0) + d.bearing_deg)
-            new.append(
-                (here[0] + d.range_m * math.sin(heading), here[1] + d.range_m * math.cos(heading))
+            point = (
+                here[0] + d.range_m * math.sin(heading),
+                here[1] + d.range_m * math.cos(heading),
             )
+            # The same obstacle is reported on every uplink (10 Hz): one already inside a keep-out
+            # circle adds nothing, and without this the list, the union of circles and every
+            # replan grew for as long as the obstacle stayed in view.
+            if any(math.dist(point, o) < self.cfg.obstacle_radius_m for o in (*known, *new)):
+                continue
+            new.append(point)
         if new:
-            self.state.obstacles_xy += new
+            # Oldest first out: planning cost and the saved state stay bounded however long it runs.
+            self.state.obstacles_xy = [*known, *new][-self.cfg.max_obstacles :]
             self.legs = self.legs[: self.state.next_index]
             self.replan(start=here)
         if up.estop or self.state.next_index >= len(self.legs):

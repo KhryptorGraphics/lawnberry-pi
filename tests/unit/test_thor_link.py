@@ -50,93 +50,18 @@ from backend.src.services.thor_link_service import (
     resolve_link_key,
 )
 from backend.src.services.tractor_service import TractorControlService
+from tests.unit._thor_link_rig import (
+    KEY,
+    LOGGER,
+    OTHER_KEY,
+    THOR,
+    WP,
+    Rig,
+)
 
-KEY = b"thorlink-test-key/0123456789abcdef!"
-OTHER_KEY = b"someone-elses-key/0123456789abcdef!!"
-THOR = ("10.0.0.2", 47101)
-WP = Waypoint(lat=45.0, lon=-93.0, blade=True)
-LOGGER = "backend.src.services.thor_link_service"
-
-
-class FakeClock:
-    def __init__(self) -> None:
-        self.t = 100.0
-
-    def __call__(self) -> float:
-        return self.t
-
-
-class FakeWire:
-    """Stands in for the UDP socket: records every datagram the Pi sends."""
-
-    def __init__(self) -> None:
-        self.sent: list[tuple[bytes, tuple]] = []
-
-    def sendto(self, data: bytes, addr: tuple) -> None:
-        self.sent.append((data, addr))
-
-    def close(self) -> None:
-        pass
-
-
-class Rig:
-    """A ThorLinkService on a fake clock and socket, plus the Thor's side of the wire."""
-
-    def __init__(self, *, clock: FakeClock | None = None, key: bytes = KEY, **kw) -> None:
-        kw.setdefault("timeout_s", 0.5)
-        self.clock = clock or FakeClock()
-        self.tractor = TractorControlService(config={})
-        self.link = ThorLinkService(self.tractor, THOR, clock=self.clock, key=key, **kw)
-        self.wire = FakeWire()
-        self.link._transport = self.wire
-
-    @property
-    def uplinks(self) -> list[Uplink]:
-        return [decode_uplink(data, KEY) for data, _ in self.wire.sent]
-
-    async def tick(self) -> None:
-        await self.link.tick()
-
-    def answer(
-        self,
-        up: Uplink | None = None,
-        *,
-        waypoints: list[Waypoint] | None = None,
-        pause: bool = False,
-        plan_id: str = "p1",
-        key: bytes = KEY,
-        **override,
-    ) -> bytes:
-        """What a healthy Thor sends for ``up`` (default: the newest uplink)."""
-        up = up or self.uplinks[-1]
-        down = Downlink(
-            sid=up.sid,
-            ack=up.seq,
-            plan_id=plan_id,
-            waypoints=[WP] if waypoints is None else waypoints,
-            pause=pause,
-        ).model_copy(update=override)  # model_copy skips validation: crafts out-of-range values
-        return encode(down, key)
-
-    def deliver(self, data: bytes, addr: tuple = THOR) -> None:
-        self.link._on_datagram(data, addr)
-
-    async def connect(self) -> bytes:
-        """Uplink #0, the Thor's answer to it, then a tick that leaves hold. Returns the answer."""
-        await self.tick()
-        answer = self.answer()
-        self.deliver(answer)
-        await self.tick()
-        assert not self.link.safe_hold
-        return answer
-
-    async def run_to_neutral_failure(self) -> None:
-        """Engine on, moving, blade on, then the Thor goes silent past the timeout."""
-        self.tractor.state.engine = EngineState.RUNNING
-        self.tractor.authorize()
-        await self.connect()
-        await self.tractor.set_levers(0.6, 0.6)
-        await self.tractor.engage_blade(True)
+# Keys as `openssl rand -hex N` writes them: a repeated byte or pattern is refused as weak.
+STRONG_HEX = "02c19247cdc8a03a8d4e9375da1136737a50178cba9dc90e55f1fb1960d8473a"
+STRONG_HEX_2 = "19c6692112451eb7f369cdd0ec60bf15d38e64e1ac466aa9d6679562af3770bafad0cc468766cd60"
 
 
 # ------------------------------- the datagram -------------------------------
@@ -200,10 +125,11 @@ def test_every_window_the_real_strategist_emits_fits_one_datagram():
     lat, lon = ll(1, 1)
     for i in range(0, len(s.legs), 3):
         s.state.next_index = 0
-        up = Uplink(sid=5, seq=i, t_ms=1, lat=lat, lon=lon, fix="rtk_fixed", waypoint_index=i)
+        seq = 9_000 + 13 * i  # never equal to the waypoint index, so a wrong echo is visible
+        up = Uplink(sid=5, seq=seq, t_ms=1, lat=lat, lon=lon, fix="rtk_fixed", waypoint_index=i)
         down = s.on_uplink(up)
         assert len(encode(down, KEY)) <= MAX_DATAGRAM_BYTES
-        assert (down.sid, down.ack) == (5, i)
+        assert (down.sid, down.ack) == (5, seq)
 
 
 def test_oversized_datagram_rejected_for_both_directions():
@@ -289,12 +215,12 @@ def test_weak_or_malformed_keys_are_refused():
             encode(msg, bad)
         with pytest.raises(LinkKeyError):
             decode_downlink(b"y" * 64, bad)
-    assert parse_key("ab" * KEY_MIN_BYTES) == bytes.fromhex("ab" * KEY_MIN_BYTES)
+    assert parse_key(STRONG_HEX) == bytes.fromhex(STRONG_HEX)
     with pytest.raises(LinkKeyError, match="hex") as bad_hex:
         parse_key("zz" * 40)
     assert "zz" not in str(bad_hex.value)  # never echo the secret
-    with pytest.raises(LinkKeyError):
-        parse_key("ab" * (KEY_MIN_BYTES - 1))
+    with pytest.raises(LinkKeyError, match="at least"):
+        parse_key(STRONG_HEX[: 2 * (KEY_MIN_BYTES - 1)])
 
 
 # ----------------------------- hold and heartbeat -----------------------------
@@ -777,6 +703,77 @@ async def test_pause_is_never_refused_for_its_content():
     assert rig.link.safe_hold and rig.link.hold_reason is HoldReason.PAUSED
 
 
+def _local_shape(points, *, buffer_m: float = 0.0, inset_m: float = 0.0):
+    """A fence from metres east/north of the test yard's origin, plus a ``Waypoint`` helper."""
+    ll, _ = _yard()
+    fence = Geofence(
+        geofence_id="local",
+        boundary=[LatLng(latitude=a, longitude=b) for a, b in (ll(x, y) for x, y in points)],
+        buffer_distance_m=buffer_m,
+    )
+
+    def wpt(x: float, y: float, blade: bool = False) -> Waypoint:
+        lat, lon = ll(x, y)
+        return Waypoint(lat=lat, lon=lon, blade=blade)
+
+    return build_shape(fence, inset_m=inset_m), wpt
+
+
+U_YARD = [(0, 0), (30, 0), (30, 30), (20, 30), (20, 10), (10, 10), (10, 30), (0, 30)]
+
+
+async def test_a_plan_whose_leg_crosses_the_notch_of_a_u_shaped_yard_is_rejected_whole():
+    """THOR-03: both waypoints are inside; the straight leg between them is not."""
+    fence, wpt = _local_shape(U_YARD)
+    left_arm, right_arm = wpt(5, 25), wpt(25, 25)
+    rig = Rig(geofence=fence)
+    await rig.tick()
+    rig.deliver(rig.answer(waypoints=[left_arm, right_arm]))
+    assert rig.link.rejects["geofence"] == 1, "the leg across the notch was accepted"
+    assert rig.link.plan is None and rig.link.safe_hold
+    assert not rig.link.link_fresh(), "a rejected plan is not a heartbeat either"
+    # the same waypoints joined by a route round the bottom of the U are fine, and the rejection
+    # did not burn the uplink's replay slot
+    around = [left_arm, wpt(5, 5), wpt(25, 5), right_arm]
+    rig.deliver(rig.answer(rig.uplinks[0], waypoints=around))
+    await rig.tick()
+    assert not rig.link.safe_hold and len(rig.link.current_plan().waypoints) == 4
+
+
+async def test_a_leg_between_two_later_waypoints_is_checked_too():
+    fence, wpt = _local_shape(U_YARD)
+    rig = Rig(geofence=fence)
+    await rig.tick()
+    window = [wpt(5, 5), wpt(25, 5), wpt(25, 25), wpt(5, 25)]  # last leg crosses the notch
+    rig.deliver(rig.answer(waypoints=window))
+    assert rig.link.rejects["geofence"] == 1 and rig.link.plan is None
+
+
+async def test_a_waypoint_3_m_outside_a_fence_with_a_5_m_buffer_is_rejected():
+    """THOR-03: the geofence's own outward buffer was enforced as if it were inside the fence."""
+    fence, wpt = _local_shape([(0, 0), (20, 0), (20, 20), (0, 20)], buffer_m=5.0)
+    rig = Rig(geofence=fence)
+    await rig.tick()
+    rig.deliver(rig.answer(waypoints=[wpt(10, 10), wpt(-3, 10)]))
+    assert rig.link.rejects["geofence"] == 1 and rig.link.plan is None
+    rig.deliver(rig.answer(rig.uplinks[0], waypoints=[wpt(10, 10), wpt(1, 10)]))
+    await rig.tick()
+    assert not rig.link.safe_hold, "a waypoint inside the yard is still accepted"
+
+
+async def test_the_margin_keeps_waypoints_and_legs_off_the_fence_line():
+    fence, wpt = _local_shape([(0, 0), (40, 0), (40, 40), (0, 40)], inset_m=2.0)
+    rig = Rig(geofence=fence)
+    await rig.tick()
+    rig.deliver(rig.answer(waypoints=[wpt(10, 10), wpt(1, 10)]))  # 1 m in: inside the 2 m margin
+    assert rig.link.rejects["geofence"] == 1
+    rig.deliver(rig.answer(rig.uplinks[0], waypoints=[wpt(10, 1), wpt(30, 1)]))  # leg in the band
+    assert rig.link.rejects["geofence"] == 2
+    rig.deliver(rig.answer(rig.uplinks[0], waypoints=[wpt(10, 3), wpt(30, 3)]))
+    await rig.tick()
+    assert not rig.link.safe_hold and rig.link.rejects["geofence"] == 2
+
+
 async def test_real_strategist_plans_are_accepted_end_to_end():
     ll, yard = _yard()
     s = ThorStrategist(yard, [[ll(25, 15), ll(35, 15), ll(35, 25), ll(25, 25)]])
@@ -798,7 +795,7 @@ async def test_real_strategist_plans_are_accepted_end_to_end():
     for step in range(8):
         await rig.tick()
         up = decode_uplink(rig.wire.sent[-1][0], KEY)  # what the Thor receives and verifies
-        assert up.lat == lat and up.waypoint_index == progress["i"]
+        assert up.lat == pytest.approx(lat, abs=1e-7) and up.waypoint_index == progress["i"]
         rig.deliver(encode(s.on_uplink(up), KEY))
         progress["i"] = 3 * step
         rig.clock.t += 0.1
@@ -836,15 +833,23 @@ async def test_oversized_and_malformed_datagrams_are_counted_and_do_not_move_sta
 
 async def test_rejection_logging_is_rate_limited(caplog):
     rig = Rig()
+    junk = (b"junk" * 20, ("203.0.113.9", 4000))
+
+    def lines(cause: str) -> list[str]:
+        return [r.getMessage() for r in caplog.records if f"({cause})" in r.getMessage()]
+
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         for _ in range(1000):
-            rig.deliver(b"junk" * 20, ("203.0.113.9", 4000))
-        assert rig.link.rejects["auth"] == 1000
-        assert len([r for r in caplog.records if "(auth)" in r.getMessage()]) == 1
+            rig.deliver(*junk)
+        # The datagram budget lets a burst reach the HMAC (auth); the rest are shed (rate).
+        auth, rate = rig.link.rejects["auth"], rig.link.rejects["rate"]
+        assert rig.link.rejected == 1000 and auth + rate == 1000 and auth > 0 and rate > 0
+        assert len(lines("auth")) == 1 and len(lines("rate")) == 1  # one line per cause
         rig.clock.t += 6.0
-        rig.deliver(b"junk" * 20, ("203.0.113.9", 4000))
-    lines = [r.getMessage() for r in caplog.records if "(auth)" in r.getMessage()]
-    assert len(lines) == 2 and "+999 similar suppressed" in lines[1]
+        for _ in range(1000):
+            rig.deliver(*junk)
+    assert len(lines("auth")) == 2 and f"+{auth - 1} similar suppressed" in lines("auth")[1]
+    assert len(lines("rate")) == 2 and f"+{rate - 1} similar suppressed" in lines("rate")[1]
 
 
 # ------------------------------ source allowlist ------------------------------
@@ -926,7 +931,7 @@ def test_public_sim_key_is_refused_outside_sim_mode(monkeypatch, tmp_path):
 
 async def test_configured_key_comes_from_the_environment_as_hex(monkeypatch, tmp_path, caplog):
     _isolated_secrets(monkeypatch, tmp_path, sim=False)
-    secret_hex = "9f" * 40
+    secret_hex = STRONG_HEX_2
     monkeypatch.setenv("THOR_LINK_KEY", secret_hex)
     with caplog.at_level(logging.DEBUG):
         rig = Rig(key=None)
@@ -944,8 +949,8 @@ async def test_configured_key_comes_from_the_environment_as_hex(monkeypatch, tmp
 
 def test_key_can_come_from_the_secrets_store(monkeypatch, tmp_path):
     sm = _isolated_secrets(monkeypatch, tmp_path, sim=False)
-    sm.set("THOR_LINK_KEY", "5a" * 32)
-    assert resolve_link_key(sm) == bytes.fromhex("5a" * 32)
+    sm.set("THOR_LINK_KEY", STRONG_HEX)
+    assert resolve_link_key(sm) == bytes.fromhex(STRONG_HEX)
 
 
 # ------------------------------ real sockets ----------------------------------

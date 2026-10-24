@@ -1,13 +1,14 @@
 """Geofence validation and enforcement helpers.
 
 - Validates polygons using shapely
-- Supports buffer zones (positive -> expansion, negative -> contraction)
-- Supports exclusion ("no-go") polygons inside the fence and an inward ``inset_m`` margin
-- Provides point-in-geofence checks, and straight-segment checks for plan legs
+- Enforces the boundary pulled *inward* by a safety margin (``inset_m``); the fence is never grown
+- Supports exclusion ("no-go") polygons inside the fence
+- Provides point-in-geofence checks, straight-segment checks and whole-path checks for plan legs
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -22,13 +23,14 @@ from ..models import Geofence, LatLng
 class GeofenceShape:
     """A fence in one local metric frame.
 
-    ``buffered`` is the polygon enforced by default (``contains``/``segment_within``):
-    the boundary grown by ``Geofence.buffer_distance_m`` or shrunk by ``inset_m``.
-    ``no_go`` are exclusion polygons in the same frame; nothing may be inside or touch them.
+    ``polygon`` is the boundary as given. ``enforced`` is the polygon every point and leg must
+    stay inside: the boundary pulled in by ``inset_m`` and never larger than it, so no waypoint
+    outside the boundary can pass. ``no_go`` are exclusion polygons in the same frame; nothing may
+    be inside or touch them.
     """
 
     polygon: Polygon
-    buffered: Polygon
+    enforced: Polygon
     origin_lat: float
     origin_lon: float
     no_go: tuple[Polygon, ...] = ()
@@ -73,41 +75,43 @@ def build_shape(
     no_go: Sequence[Sequence[LatLng]] | None = None,
     inset_m: float = 0.0,
 ) -> GeofenceShape:
-    """Create a shapely polygon for the geofence and its buffered version.
+    """Create the shapely polygons for the geofence, its inward-margin version and its no-go zones.
 
-    ``no_go`` adds exclusion polygons (each >= 3 points). ``inset_m`` (>= 0) pulls the
-    enforced boundary inwards as a safety margin; it is netted against the geofence's
-    own ``buffer_distance_m``. A margin that leaves no area is an error, never a silent
-    fall-back to the unshrunk boundary.
+    ``inset_m`` (finite, >= 0) pulls the enforced boundary inwards as a safety margin; a margin
+    that leaves no area is an error, never a silent fall-back to the unshrunk boundary.
+    ``no_go`` adds exclusion polygons (each >= 3 points).
+
+    ``geofence.buffer_distance_m`` is deliberately not applied. It grows the boundary outwards, a
+    tolerance for deciding that something has *violated* the fence; used here it would let a plan
+    leave the fence by that much (a 5 m buffer accepted a waypoint 3 m outside). Only ``inset_m``
+    changes what is enforced, and only inwards.
     """
-    if inset_m < 0:
-        raise ValueError("inset_m must be >= 0")
+    if not math.isfinite(inset_m) or inset_m < 0:
+        raise ValueError("inset_m must be a finite number >= 0")
     base, olat, olon = _polygon_from_latlngs(geofence.boundary)
-    buffered = base
-    net = (geofence.buffer_distance_m or 0.0) - inset_m
-    if net != 0.0:
-        buffered = base.buffer(net)
-        if buffered.is_empty:
-            if inset_m > 0:
-                raise ValueError(f"inset_m={inset_m} leaves no area inside the geofence")
-            buffered = base
+    enforced = base.buffer(-inset_m) if inset_m else base
+    if enforced.is_empty:
+        raise ValueError(f"inset_m={inset_m} leaves no area inside the geofence")
     zones = tuple(_polygon_from_latlngs(z, (olat, olon))[0] for z in (no_go or ()))
     return GeofenceShape(
-        polygon=base, buffered=buffered, origin_lat=olat, origin_lon=olon, no_go=zones
+        polygon=base, enforced=enforced, origin_lat=olat, origin_lon=olon, no_go=zones
     )
 
 
-def contains(shape: GeofenceShape, point: LatLng, use_buffer: bool = True) -> bool:
-    """True if ``point`` is inside the (buffered) fence and outside every no-go zone."""
+def contains(shape: GeofenceShape, point: LatLng, use_margin: bool = True) -> bool:
+    """True if ``point`` is inside the fence (inset by its margin) and outside every no-go zone.
+
+    ``use_margin=False`` tests the boundary as given instead of the margin-reduced one.
+    """
     from shapely.geometry import Point as SPoint  # type: ignore
 
     x, y = _to_xy(point.latitude, point.longitude, shape.origin_lat, shape.origin_lon)
-    poly = shape.buffered if use_buffer else shape.polygon
+    poly = shape.enforced if use_margin else shape.polygon
     pt = SPoint(x, y)
     return poly.covers(pt) and not any(z.intersects(pt) for z in shape.no_go)
 
 
-def segment_within(shape: GeofenceShape, a: LatLng, b: LatLng, use_buffer: bool = True) -> bool:
+def segment_within(shape: GeofenceShape, a: LatLng, b: LatLng, use_margin: bool = True) -> bool:
     """True if the straight leg ``a`` -> ``b`` stays inside the fence and clear of every no-go zone.
 
     A waypoint check alone is not enough: with a concave fence or an exclusion zone, two
@@ -118,10 +122,26 @@ def segment_within(shape: GeofenceShape, a: LatLng, b: LatLng, use_buffer: bool 
     ax, ay = _to_xy(a.latitude, a.longitude, shape.origin_lat, shape.origin_lon)
     bx, by = _to_xy(b.latitude, b.longitude, shape.origin_lat, shape.origin_lon)
     leg = LineString([(ax, ay), (bx, by)]) if (ax, ay) != (bx, by) else None
-    poly = shape.buffered if use_buffer else shape.polygon
+    poly = shape.enforced if use_margin else shape.polygon
     if leg is None:
-        return contains(shape, a, use_buffer=use_buffer)
+        return contains(shape, a, use_margin=use_margin)
     return poly.covers(leg) and not any(z.intersects(leg) for z in shape.no_go)
 
 
-__all__ = ["GeofenceShape", "build_shape", "contains", "segment_within"]
+def path_within(shape: GeofenceShape, points: Sequence[LatLng], use_margin: bool = True) -> bool:
+    """True if every point of ``points`` and every straight leg between consecutive ones is allowed.
+
+    This is the check for a plan window: each waypoint inside the fence and each leg joining two
+    of them inside it too and clear of the no-go zones. An empty path is trivially allowed; the
+    leg from the mower's own position to the first waypoint is not part of it (the follower checks
+    that one against the live position).
+    """
+    if not all(contains(shape, p, use_margin=use_margin) for p in points):
+        return False
+    return all(
+        segment_within(shape, a, b, use_margin=use_margin)
+        for a, b in zip(points, points[1:], strict=False)
+    )
+
+
+__all__ = ["GeofenceShape", "build_shape", "contains", "path_within", "segment_within"]

@@ -59,8 +59,12 @@ thor_client = importlib.util.module_from_spec(_spec)
 sys.modules["scripts.thor_link_client"] = thor_client
 _spec.loader.exec_module(thor_client)
 
-KEY = bytes.fromhex("5c" * 40)
-OTHER_KEY = bytes.fromhex("a7" * 40)
+KEY = bytes.fromhex(
+    "6b1ecbe04e1f6197ffd65f59ff3baa94bfdd6cca75eac11be83c9bf3da0582008991ed4fe6452786"
+)
+OTHER_KEY = bytes.fromhex(
+    "705eefb5c4b96bfa3cfcaee64245af7ade9f4a0470722e8e590e2bf112a8e186a9482dd2f5d9e179"
+)
 LAT0, LON0 = 45.0, -93.0
 M_PER_DEG = 111_195.0
 NEUTRAL = LEVER_NEUTRAL_EPS
@@ -560,10 +564,20 @@ async def test_a_plan_outside_the_fence_is_refused_even_from_the_real_thor(monke
         assert s.drive_events_after(0.0) == []
 
 
-async def test_a_leg_across_the_no_go_zone_is_never_driven(monkeypatch):
+async def test_a_plan_whose_leg_crosses_the_no_go_zone_is_refused_whole_by_the_link(monkeypatch):
     across = [wp(5, 50), wp(90, 50)]  # both ends legal; the line crosses the 40..60 square
     async with pi_stack(monkeypatch, plan=across, start=(5.0, 50.0)) as s:
-        await eventually(lambda: s.follower.reached >= 1, what="the start waypoint (already there)")
+        await eventually(lambda: s.link.rejects["geofence"] >= 3, what="the crossing refused")
+        assert s.link.safe_hold, "no plan was accepted, so the mower never left hold"
+        await holds_for(s.neutral, 0.5, "the mower standing still")
+        assert s.follower.state.value == "idle" and s.drive_events_after(0.0) == []
+
+
+async def test_a_leg_from_the_mower_across_the_no_go_zone_is_never_driven(monkeypatch):
+    # The one waypoint is legal and a window of one has no leg of its own, so the link accepts
+    # it; the leg from where the mower stands (5, 50) to it crosses the zone: the follower's.
+    async with pi_stack(monkeypatch, plan=[wp(90, 50)], start=(5.0, 50.0)) as s:
+        await eventually(lambda: not s.link.safe_hold, what="the link to accept the plan")
         await eventually(lambda: s.follower.reason == "leg_blocked", what="the crossing refused")
         await holds_for(s.neutral, 0.5, "the mower standing still")
         assert s.drive_events_after(0.0) == []

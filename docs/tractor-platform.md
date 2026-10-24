@@ -228,7 +228,8 @@ Uplink, Pi → Thor, 10 Hz (doubles as the Pi's heartbeat):
 | `sid`, `seq` | Pi session id (random 48-bit, new per service run) and uplink counter (0, 1, 2, …) |
 | `t_ms` | Pi monotonic clock, ms |
 | `lat`, `lon`, `heading_deg`, `fix` | position, heading, RTK quality (`none`/`gps`/`dgps`/`rtk_float`/`rtk_fixed`) |
-| `detections` | at most 16 × `{c, b, r, p}`: class, bearing °, range m, confidence |
+| `detections` | at most 16 × `{c, b, r, p}`: class (at most 24 characters), bearing °, range m, confidence |
+| `detections_dropped` | only when detections had to be left out to fit one datagram: how many |
 | `estop`, `safe_hold`, `hold_fault`, `blade` | Pi state; `hold_fault` = the hold could not confirm neutral |
 | `waypoint_index` | the Pi's progress along the plan |
 
@@ -241,10 +242,21 @@ Downlink, Thor → Pi (one per uplink):
 | `start_index`, `waypoints` | window of at most 16 `{lat, lon, blade}` starting at plan index `start_index`; lat/lon are quantised to 1e-7° (≈1.1 cm) on the wire |
 | `pause` | hold; any waypoints are ignored |
 
-Worst-case datagrams, from `tests/unit/test_thor_link.py`: uplink 1,177 B (16 detections,
-full-precision doubles), downlink window 1,009 B; the uplink bound at 10 Hz is
-12 kB/s. The budget rests on HaLow measured at one site so far
-(`docs/autonomy-toolchain-matrix.md`).
+Worst-case datagrams, from `tests/unit/test_thor_link.py` and `test_thor_link_uplink_fit.py`:
+uplink 1,150 B (16 detections of the longest shipped class name, `unknown_obstacle`, 16
+characters, full-precision doubles; lat/lon are quantised to 1e-7° and heading to 0.1° on the
+wire), downlink window 1,009 B; the uplink bound at 10 Hz is 12 kB/s. The budget rests on HaLow
+measured at one site so far (`docs/autonomy-toolchain-matrix.md`).
+
+An uplink is the heartbeat, so it is never refused for its size. One that would exceed 1,200 B
+(16 detections with 24-character class names come to 1,278 B) is thinned by `fit_uplink`: class
+names are clipped to the longest length that fits (never below 8 characters), then the least
+confident detections are dropped (farthest first among equals) and the count goes out as
+`detections_dropped` (absent when the list is complete). If the state builder itself raises, or
+its payload cannot be made to fit, a bare uplink (session, counter, clock, e-stop/hold/blade
+flags) is sent instead and counted in `builder_errors`; `uplinks_degraded` and
+`detections_dropped` count the thinning. The Thor must read a non-zero `detections_dropped` as
+"obstacles exist that were not listed".
 
 ### Authentication
 
@@ -262,14 +274,38 @@ never refresh the heartbeat.
   It is never logged. There is no key id or rotation protocol: to rotate, replace the
   key on both hosts and restart both ends.
 - **No key, no start**: `ThorLinkService(...)` raises `LinkKeyError` if no key is
-  configured, if it is malformed or under 32 bytes, or if it is the published
-  `SIM_LINK_KEY` while `SIM_MODE` is off. With `SIM_MODE=1` and nothing configured it
-  uses `SIM_LINK_KEY` and logs a warning. That key is in the repository and
+  configured, if it is malformed or under 32 bytes, if it does not look random, or if it is
+  the published `SIM_LINK_KEY` while `SIM_MODE` is off. With `SIM_MODE=1` and nothing configured
+  it uses `SIM_LINK_KEY` and logs a warning. That key is in the repository and
   authenticates nothing; tests and simulation may also pass any explicit key.
+- **Key quality**: the tag is the only real control, so `validate_key` refuses, with an explicit
+  reason that never echoes the key: all zero bytes, one byte repeated (`aa`×32), a repeating unit
+  shorter than 16 bytes (`password`×4, so only 8 bytes of secret) and fewer than 16 distinct byte
+  values. A key from `openssl rand -hex 32` is never refused (odds below 1 in 10¹³). The published
+  sim key is refused from a file, the environment or the secrets store unless `SIM_MODE=1`, on the
+  Pi and in `thor_link_client.py` alike.
 - **Source allowlist** (optional): `allowed_sources=["10.0.0.0/24", "192.168.1.5"]`
   drops datagrams from other addresses before any decoding. It sheds noise; it is
-  not a control, because UDP source addresses can be spoofed. Off by default, as the
-  Thor may answer from a different interface address than the one the Pi sends to.
+  not a control, because UDP source addresses can be spoofed. Off by default in the service
+  (`config/thor_link.yaml` defaults it to the Thor's address), as the Thor may answer from a
+  different interface address than the one the Pi sends to. Entries are parsed strictly:
+  `192.168.1.64/24` (host bits) is an error rather than a quiet `192.168.1.0/24`, `0.0.0.0/0` is
+  an error (write `allowed_sources: any`), and a network wider than one LAN (`10.0.0.0/8`) is an
+  error unless `allow_wide_sources: true` acknowledges it.
+- **Flood bound**: a token bucket per source address (20 datagrams/s or twice the uplink rate,
+  burst = the uplink memory, 18 at the defaults) and one for the whole port (four times that)
+  sit in front of the HMAC, with at most 64 sources remembered. The legitimate Thor sends one
+  datagram per uplink, so it never sees the limit; the peer that last delivered an accepted
+  downlink skips the port bucket, so strangers cannot starve it. Measured on a development box
+  with a loopback flood of 1,200 B datagrams against the real socket (3 s, one sender process):
+  before the bound 357,034 datagrams were received and every one cost an HMAC; after it 519,121
+  were received and 78 reached the HMAC (the burst plus 20/s), the rest being dropped as `rate`.
+  The cost per received datagram fell from about 8.3 µs to 5.7 µs, but a saturating flood still
+  kept about 90 % of one core busy in both runs, because asyncio's own receive path dominates;
+  the event loop stayed responsive (maximum timer lag 0.5 ms before, 2 to 5 ms after, with a test
+  suite running alongside). So the bound limits the HMAC, parsing and logging work, not the cost
+  of receiving: an upstream firewall rule (nftables rate limit on the HaLow interface) is still
+  the real defence against a flooded radio link, and nothing here has been measured on the Pi.
 - The tag authenticates, it does not encrypt: position, detections and waypoints are
   visible to anyone on the link.
 
@@ -291,7 +327,10 @@ in order; the reason a datagram was dropped is counted in `rejects` (total in
 | 6 | `ack` is below the next uplink `seq`, i.e. an uplink this run really sent | `future_ack` |
 | 7 | `ack` is above the newest accepted `ack` | `replay` |
 | 8 | the answered uplink is still remembered and was sent ≤ `plan_max_age_s` ago | `stale` |
-| 9 | plans only: every waypoint is inside the geofence | `geofence` |
+| 9 | plans only: every waypoint is inside the geofence (margin applied) and every leg between consecutive waypoints stays inside it and clear of the no-go zones | `geofence` |
+
+A datagram that passes check 1 must also fit the **datagram budget** (below) before check 2; one
+that does not is dropped unread and counted as `rate`.
 
 Only a downlink that passes everything moves state (heartbeat, replay baseline, plan);
 a rejected one changes nothing. Rejections are logged at most once per 5 s per cause,
@@ -424,9 +463,10 @@ unknown keys are an error, numbers marked unvalidated are placeholders to size o
 | `require_fix` | `[rtk_fixed]` | fixes the mower may drive on |
 | `max_position_age_s` | `1.0` (unvalidated) | age limit for the GNSS reading and the navigation feed |
 | `speed_percent` | `50` (unvalidated) | share of `NavigationService.max_speed`; the protocol has no speed field |
-| `geofence.margin_m` | `0.5` (unvalidated) | pulled in from the boundary for every check; size it from the stopping distance and GNSS error (audit M-43, M-51) |
-| `timeout_s`, `plan_max_age_s` | `0.5`, `1.0` | heartbeat timeout and plan age cap, as in the state machine above |
+| `geofence.margin_m` | `0.5` (unvalidated) | pulled in from the boundary for every check, never outwards; size it from the stopping distance and GNSS error (audit M-43, M-51) |
+| `timeout_s`, `plan_max_age_s` | `0.5`, `1.0` | heartbeat timeout and plan age cap, as in the state machine above; every timing must be finite and above 0, `uplink_hz` at most 50 |
 | `bind_host` | `127.0.0.1` | closed unless set |
+| `allowed_sources`, `allow_wide_sources` | thor_host only, `false` | strict list of IPs/CIDRs (see Authentication); a network wider than one LAN (IPv4 shorter than /16) is refused unless `allow_wide_sources: true` |
 
 ### How a plan becomes motion
 
@@ -473,9 +513,10 @@ runs out every 16 waypoints: the mower waits for the next window, normally one o
 **Policy that is the Pi's alone.** Speed is `speed_percent`, never the Thor's. The blade is
 requested only if the waypoint asks for it *and* `allow_blade` is true, and then
 `TractorControlService.engage_blade` still refuses it with the E-stop or tilt latch set, an
-unauthorized or stopped engine, or in reverse. Waypoints are checked against the fence by the
-link (the whole window is rejected if one is outside) and the legs between them by the
-follower, including no-go zones.
+unauthorized or stopped engine, or in reverse. The link checks every waypoint of a window
+against the fence and every straight leg between consecutive waypoints (inside the fence pulled
+in by the margin, clear of the no-go zones; the whole window is rejected otherwise); the follower
+checks the one leg the link cannot see, from the mower's own position to the next waypoint.
 
 **What wins over a valid plan** (each is a test in `tests/integration/test_thor_link_e2e.py`,
 run against a Thor that never pauses):
@@ -528,9 +569,12 @@ Pi's replay rule protects the Pi only):
 - answer each accepted uplink once, to its source address, echoing `sid` and `seq` (as `ack`),
   pauses included, since the Pi ignores anything unechoed;
 - pause, never plan, while the Pi reports no `rtk_fixed` fix, an e-stop or a hold fault;
-- answer a planner failure with a pause rather than silence;
-- refuse to start without a key, never fall back to the public key outside `SIM_MODE`, and
-  never log the key.
+- answer a planner failure with a pause rather than silence (`thor_link_client.py` also turns a
+  planner answer that does not echo `sid`/`seq` into a pause that does);
+- refuse to start without a key, refuse a weak key and never fall back to, or accept, the public
+  key outside `SIM_MODE`, and never log the key;
+- shed floods before doing any HMAC work (the client keeps a token bucket per source and one for
+  the port), and rate-limit its own logging.
 
 **What remains on the Thor side** (not in this repository, or not done):
 
