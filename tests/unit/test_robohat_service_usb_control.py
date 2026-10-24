@@ -125,10 +125,12 @@ async def test_process_line_invalid_pwm_marks_rc_enabled():
 
 
 @pytest.mark.asyncio
-async def test_maintain_usb_control_reacquires_control(monkeypatch):
+async def test_maintain_usb_control_reacquires_control_while_command_fresh(monkeypatch):
+    """While a fresh command is in force, a firmware fall-back to RC is undone."""
     svc = RoboHATService()
     svc.serial_conn = _StubSerial()
     svc._usb_control_requested = True
+    svc._cmd_valid_until = time.monotonic() + 5.0
     svc._rc_enabled = True
     svc._pending_rc_state = None
     calls: list[tuple[bool, bool]] = []
@@ -144,12 +146,14 @@ async def test_maintain_usb_control_reacquires_control(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_maintain_usb_control_sends_keepalive(monkeypatch):
+async def test_maintain_usb_control_refreshes_the_current_command_while_fresh(monkeypatch):
     svc = RoboHATService()
     svc.serial_conn = _StubSerial()
     svc._usb_control_requested = True
     svc._rc_enabled = False
     svc._pending_rc_state = None
+    svc._cmd_valid_until = time.monotonic() + 5.0
+    svc._last_pwm = (1600, 1620)
     sent: list[str] = []
 
     async def fake_send_line(line: str) -> bool:
@@ -160,7 +164,7 @@ async def test_maintain_usb_control_sends_keepalive(monkeypatch):
 
     await svc._maintain_usb_control()
 
-    assert sent == ["pwm,1500,1500"]
+    assert sent == ["pwm,1600,1620"]
 
 
 @pytest.mark.asyncio
@@ -190,6 +194,7 @@ async def test_maintain_usb_control_waits_for_pending_ack(monkeypatch):
     svc._usb_control_requested = True
     svc._rc_enabled = False
     svc._pending_rc_state = False
+    svc._cmd_valid_until = time.monotonic() + 5.0
     svc._pending_rc_since = time.monotonic()
 
     async def fail_send_line(*_args, **_kwargs):

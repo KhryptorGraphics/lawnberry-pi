@@ -1,17 +1,22 @@
 # Authentication Configuration Guide
 
-> **⚠️ Authentication is currently DISABLED on the deployed unit.**
+> **Authentication is ENFORCED by the repo unit (`OPERATOR_AUTH_REQUIRED=1`).**
 >
-> `systemd/lawnberry-backend.service` ships `OPERATOR_AUTH_REQUIRED=0`. This is
-> a deliberate choice for a LAN-only, single-operator deployment with no
-> internet exposure. Login, operator-auth-gated writes, and the manual-control
-> unlock step are all bypassed. Everything below describes the system as it behaves
-> when auth is switched back on.
+> `systemd/lawnberry-backend.service` now ships `OPERATOR_AUTH_REQUIRED=1`
+> (2026-10-24 safety audit; it was `0`). Login, operator-auth-gated writes
+> (tractor, control, missions) and the manual-control unlock step are required.
+> The E-stop endpoints stay unauthenticated by design; clearing an E-stop or a
+> blade latch (`/tractor/clear-emergency`, `/control/emergency_clear`) requires
+> authentication. The code default of `api/deps.py::require_operator_auth` is
+> unchanged (`"1"` when unset).
 >
-> **To re-enable:** set `Environment=OPERATOR_AUTH_REQUIRED=1` in the unit file
-> and restart the backend. Nothing else was removed — the login view, the JWT
-> auth service, and every credential path are intact. Do this before exposing
-> the unit beyond a trusted LAN.
+> **Before restarting the unit set the operator credential:** put
+> `LAWN_BERRY_OPERATOR_CREDENTIAL=<secret>` in `/apps/lawnberry-pi/.env`. Unset,
+> the public default `operator123` is accepted. The web UI login form posts
+> `{username, password}`; the password is that credential (any username), and
+> there is no longer an `admin/admin` alias. Scripts pass a bearer token
+> (`scripts/teleop.py --token`). To run a LAN bench without auth, set the unit's
+> value back to `0`.
 >
 > Enforcement points that honour the flag: `api/deps.py::require_operator_auth`,
 > and in `api/routers/auth.py` `_resolve_manual_session`, `manual_unlock`, and

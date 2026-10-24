@@ -169,6 +169,9 @@ class ControlResponseV2(BaseModel):
     active_interlocks: list[str] = []
     remediation: Optional[dict[str, str]] = None
     telemetry_snapshot: Optional[dict[str, Any]] = None
+    # Emergency-stop endpoints only: the per-subsystem report (motors_stopped,
+    # blade_disabled, complete, subsystems, faults) -- see emergency_stop_service.
+    emergency_stop: Optional[dict[str, Any]] = None
     timestamp: str
 
 
@@ -414,7 +417,13 @@ async def control_drive_v2(cmd: dict, request: Request):
         right_speed = max(-speed_limit, min(speed_limit, right_speed))
 
         # Send to RoboHAT
-        success = await robohat.send_motor_command(left_speed, right_speed)
+        success = await robohat.send_motor_command(
+            left_speed,
+            right_speed,
+            # duration_ms is how long this command stays in force; 0/absent = the
+            # service default. After that the drive returns to neutral.
+            valid_for_s=(duration_ms / 1000.0) if duration_ms > 0 else None,
+        )
 
         watchdog_end = datetime.now(timezone.utc)
         watchdog_latency = (watchdog_end - watchdog_start).total_seconds() * 1000
@@ -597,11 +606,46 @@ async def control_blade_v2(cmd: dict, request: Request):
     return JSONResponse(status_code=423, content=payload)
 
 
+def _emergency_remediation(report: dict[str, Any]) -> dict[str, str]:
+    if report["complete"]:
+        message = "Emergency stop latched; every output confirmed stopped"
+    else:
+        faults = "; ".join(report["faults"]) or "no output could be confirmed"
+        message = (
+            "Emergency stop LATCHED but NOT every output is confirmed stopped "
+            f"({faults}). Use the physical stop."
+        )
+    return {"message": message, "docs_link": "/docs/OPERATIONS.md#emergency-stop-recovery"}
+
+
+async def _run_emergency_stop(source: str) -> dict[str, Any]:
+    """Drive every stop path and return the per-subsystem report; never raises."""
+    from ..services.emergency_stop_service import execute_emergency_stop
+
+    try:
+        return await execute_emergency_stop(source=source)
+    except Exception as exc:  # the orchestrator is built not to raise; fail honest if it does
+        logger.critical("Emergency stop orchestration failed: %s", exc, exc_info=True)
+        return {
+            "emergency_stop_active": True,
+            "motors_stopped": False,
+            "blade_disabled": False,
+            "complete": False,
+            "subsystems": {},
+            "faults": [f"emergency stop orchestration failed: {type(exc).__name__}: {exc}"],
+        }
+
+
 @router.post("/control/emergency", response_model=ControlResponseV2, status_code=202)
 async def control_emergency_v2(body: Optional[dict] = None, request: Request = None):
-    """Trigger emergency stop with immediate hardware shutdown"""
+    """Latch the emergency stop and drive every stop path that exists.
+
+    Always available: it never requires a valid manual-control session (the
+    session is only resolved for the audit trail). The response reports what
+    each subsystem (tractor, RoboHAT, IBT-4 blade) actually did -- ``motors_stopped``
+    / ``blade_disabled`` are ``True`` only when a stop was confirmed and none failed.
+    """
     import uuid
-    from ..services.robohat_service import get_robohat_service
 
     audit_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc)
@@ -610,7 +654,10 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
     is_legacy = isinstance(payload, dict) and payload.get("command")
     session_context = None
     if not is_legacy:
-        session_context = _resolve_manual_session(payload.get("session_id"))
+        try:
+            session_context = _resolve_manual_session(payload.get("session_id"))
+        except HTTPException:
+            session_context = None  # an E-stop must not be refused for a missing session
 
     # Set emergency state
     _safety_state["emergency_stop_active"] = True
@@ -628,18 +675,19 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
     except Exception:
         pass
 
-    # Send emergency stop to RoboHAT
-    robohat = get_robohat_service()
-    if robohat and robohat.status.serial_connected:
-        await robohat.emergency_stop()
+    report = await _run_emergency_stop("api:/control/emergency")
 
     # If legacy payload with command field was sent, return 200 with integration-expected shape
     if is_legacy:
         legacy_payload = {
             "status": "EMERGENCY_STOP_ACTIVE",
-            "motors_stopped": True,
-            "blade_disabled": True,
+            "motors_stopped": report["motors_stopped"],
+            "blade_disabled": report["blade_disabled"],
             "emergency_stop_active": True,
+            "complete": report["complete"],
+            "subsystems": report["subsystems"],
+            "faults": report["faults"],
+            "remediation": _emergency_remediation(report),
             "timestamp": timestamp.isoformat(),
         }
         persistence.add_audit_log("control.emergency_stop", details={"response": legacy_payload})
@@ -649,18 +697,19 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
         accepted=True,
         audit_id=audit_id,
         result="accepted",
-        status_reason="EMERGENCY_STOP_TRIGGERED",
+        status_reason=(
+            "EMERGENCY_STOP_TRIGGERED" if report["complete"] else "EMERGENCY_STOP_INCOMPLETE"
+        ),
         safety_checks=["immediate_stop"],
-        active_interlocks=["emergency_stop_override"],
-        remediation={
-            "message": "Emergency stop activated - all motors stopped",
-            "docs_link": "/docs/OPERATIONS.md#emergency-stop-recovery",
-        },
+        active_interlocks=["emergency_stop_override"]
+        + ([] if report["complete"] else ["emergency_stop_unconfirmed"]),
+        remediation=_emergency_remediation(report),
         telemetry_snapshot={
             "component_id": "drive_left",
             "status": "fault",
             "latency_ms": 0.0,
         },
+        emergency_stop=report,
         timestamp=timestamp.isoformat(),
     )
 
@@ -675,18 +724,23 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
 
 @router.post("/control/emergency-stop")
 async def control_emergency_stop_alias(request: Request = None):
-    """Integration-friendly alias that always returns 200 and a simple flag."""
-    # Trigger emergency state
+    """Integration-friendly alias: always 200, with the per-subsystem truth in the body.
+
+    ``emergency_stop_active`` is the software latch (always ``True`` here);
+    ``motors_stopped`` / ``blade_disabled`` / ``complete`` say what was actually
+    confirmed, per ``subsystems`` -- see ``emergency_stop_service``.
+    """
     _safety_state["emergency_stop_active"] = True
     _blade_state["active"] = False
+    report = await _run_emergency_stop("api:/control/emergency-stop")
     payload = {
         "emergency_stop_active": True,
-        "motors_stopped": True,
-        "blade_disabled": True,
-        "remediation": {
-            "message": "Emergency stop activated - all motors stopped",
-            "docs_link": "/docs/OPERATIONS.md#emergency-stop-recovery",
-        },
+        "motors_stopped": report["motors_stopped"],
+        "blade_disabled": report["blade_disabled"],
+        "complete": report["complete"],
+        "subsystems": report["subsystems"],
+        "faults": report["faults"],
+        "remediation": _emergency_remediation(report),
     }
     persistence.add_audit_log("control.emergency_stop", details={"response": payload})
     return JSONResponse(status_code=200, content=payload)

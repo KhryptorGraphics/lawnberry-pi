@@ -138,7 +138,12 @@ class IMUCalibrationService:
 
         try:
             for step in sequence:
-                accepted = await robohat.send_motor_command(step["left_speed"], step["right_speed"])
+                # Each step is one command held for step["duration"]: tell the drive
+                # how long it stays valid (plus a margin) or it would return to
+                # neutral after the default command validity.
+                accepted = await robohat.send_motor_command(
+                    step["left_speed"], step["right_speed"], valid_for_s=step["duration"] + 0.5
+                )
                 logger.info("IMU calibration step %s accepted=%s", step["name"], accepted)
                 await asyncio.sleep(step["duration"])
                 sample = await _capture_snapshot()

@@ -5,22 +5,33 @@ codebase's established precedent (``drivers/sensors/ina3221_driver.py``) of
 talking to well-documented I2C parts directly rather than pulling in a vendor
 library for a few dozen register writes.
 
-Two distinct failure modes, handled deliberately differently:
+Three distinct states, handled deliberately differently:
 
-- **Hardware absent at ``initialize()`` time** (SIM_MODE, or no PCA9685 wired
-  up yet) is tolerated: ``_hw_ok`` stays ``False`` and ``set_pwm_us`` becomes a
-  no-op, exactly like ``INA3221Driver`` degrades when its bus isn't present.
+- **SIM_MODE** (``is_simulation_mode()``): there is no chip by design.
+  ``initialize()`` succeeds, ``is_ready()`` is ``True`` and ``set_pwm_us`` is a
+  simulated no-op so the rest of the stack stays testable.
+- **Hardware absent or failed at ``initialize()`` time** (no PCA9685 wired up,
+  no I2C bus on this host, chip does not ACK) is *tolerated at start-up* -- the
+  backend must still come up, with its watchdog and E-stop wiring -- but it is
+  **never silent**: ``_hw_ok`` stays ``False``, ``is_ready()`` is ``False``,
+  ``health_check()`` reports ``ok: False`` plus the error, and every
+  ``set_pwm_us`` raises :class:`PCA9685UnavailableError` instead of returning
+  as if a pulse had been emitted. ``TractorControlService`` turns that into
+  refused commands and a reported fault.
 - **Hardware was present and a write fails afterward** (a mid-mission I2C bus
-  fault) is *not* swallowed: ``set_pwm_us`` lets the exception propagate. The
-  PCA9685 holds its last commanded pulse on I2C/host loss rather than failing
-  safe on its own, so ``tractor_service.py``'s emergency-stop and
-  command-failure paths depend on a real transport fault actually reaching
-  them. Swallowing it here (as the previous RoboHAT-serial ``_send_pwm`` did)
-  would make that escalation path unreachable dead code.
+  fault) is *not* swallowed either: ``set_pwm_us`` lets the exception
+  propagate. The PCA9685 holds its last commanded pulse on I2C/host loss
+  rather than failing safe on its own, so ``tractor_service.py``'s
+  emergency-stop and command-failure paths depend on a real transport fault
+  actually reaching them.
 
-A physical bus-fault failsafe (e.g. a watchdog driving the board's ``OE`` pin
-low) is a hardware-phase concern tracked separately and is *not* implemented
-here — this driver only makes the fault observable to its caller.
+A physical bus-fault failsafe is a hardware-phase concern tracked separately
+and is *not* implemented here -- this driver only makes the fault observable
+to its caller. Note for that work (PCA9685 datasheet, confirm on the actual
+breakout): ``OE`` is active-LOW, so *driving it low enables the outputs*;
+driving it HIGH disables them and, with ``MODE2 = 0x04`` (``OUTNE = 00``),
+leaves every channel low -- no pulse at all, which is "stop commanding", not
+"go to neutral".
 """
 
 from __future__ import annotations
@@ -35,6 +46,18 @@ from ...core.simulation import is_simulation_mode
 from ..base import HardwareDriver
 
 logger = logging.getLogger(__name__)
+
+
+class PCA9685Error(RuntimeError):
+    """Base class for PCA9685 driver faults."""
+
+
+class PCA9685UnavailableError(PCA9685Error):
+    """The chip was never confirmed present (or failed to initialise).
+
+    Raised by :meth:`PCA9685Driver.set_pwm_us` so a command can never report
+    success for a pulse that was not emitted.
+    """
 
 
 @dataclass(slots=True)
@@ -71,8 +94,30 @@ class PCA9685Driver(HardwareDriver):
             bus=int(bus) if bus is not None else base_cfg.bus,
             frequency_hz=float(frequency_hz) if frequency_hz else base_cfg.frequency_hz,
         )
-        # Tolerated-no-op until a real initialize() confirms the chip answers.
+        # False until initialize() confirms the chip answers. Not the same as
+        # "simulated": see is_ready().
         self._hw_ok: bool = False
+        # Last init/write failure, cleared by the next success. Surfaced via
+        # health_check()/last_error so a fault is never only a log line.
+        self._last_error: str | None = None
+
+    @property
+    def hardware_ok(self) -> bool:
+        """True only when a real chip answered ``initialize()``."""
+        return self._hw_ok
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    def is_ready(self) -> bool:
+        """Can ``set_pwm_us`` be expected to emit a real (or simulated) pulse?
+
+        ``True`` in SIM_MODE (simulated by design) or once a real chip answered
+        ``initialize()``. ``False`` when the chip is absent/failed: callers must
+        refuse to actuate rather than assume the pulse went out.
+        """
+        return self._hw_ok or is_simulation_mode()
 
     def _prescale(self) -> int:
         """PRESCALE register value for the configured PWM frequency (pure)."""
@@ -94,6 +139,7 @@ class PCA9685Driver(HardwareDriver):
     async def initialize(self) -> None:  # noqa: D401
         self.initialized = True
         self._hw_ok = False
+        self._last_error = None
         if is_simulation_mode():
             return
         try:
@@ -115,15 +161,15 @@ class PCA9685Driver(HardwareDriver):
             await asyncio.to_thread(_setup)
             self._hw_ok = True
         except Exception as exc:
-            # Absent board, no I2C bus on this host, SIM off-device, etc.:
-            # tolerated — degrade to no-op, matching INA3221Driver's pattern.
-            logger.warning(
-                "PCA9685 not available at %#x (bus %d): %s; actuation calls will no-op",
-                self._cfg.address,
-                self._cfg.bus,
-                exc,
-            )
+            # Absent board, no I2C bus on this host, etc. Start-up tolerates it
+            # (the backend must still come up with its safety wiring), but it is
+            # recorded and every later set_pwm_us raises -- never a silent no-op.
             self._hw_ok = False
+            self._last_error = (
+                f"PCA9685 not available at {self._cfg.address:#x} "
+                f"(bus {self._cfg.bus}): {type(exc).__name__}: {exc}"
+            )
+            logger.error("%s; lever/throttle commands will be REFUSED", self._last_error)
 
     async def start(self) -> None:  # noqa: D401
         self.running = True
@@ -136,7 +182,9 @@ class PCA9685Driver(HardwareDriver):
             "driver": "pca9685",
             "initialized": self.initialized,
             "running": self.running,
+            "ok": self.is_ready() and self._last_error is None,
             "hardware_ok": self._hw_ok,
+            "error": self._last_error,
             "address": hex(self._cfg.address),
             "bus": self._cfg.bus,
             "frequency_hz": self._cfg.frequency_hz,
@@ -146,14 +194,19 @@ class PCA9685Driver(HardwareDriver):
     async def set_pwm_us(self, channel: int, us: int) -> None:
         """Command one channel's pulse width in microseconds.
 
-        No-ops if the chip was never confirmed present (SIM_MODE or absent at
-        ``initialize()``). Once hardware has been confirmed present, a write
-        failure is deliberately left to propagate — see module docstring.
+        In SIM_MODE this is a simulated no-op. Anywhere else it either emits
+        the pulse or raises: :class:`PCA9685UnavailableError` when the chip
+        was never confirmed present, or the underlying transport error when a
+        write to confirmed hardware fails -- see the module docstring.
         """
         if not 0 <= channel <= 15:
             raise ValueError(f"PCA9685 channel out of range 0-15: {channel}")
         if not self._hw_ok:
-            return
+            if is_simulation_mode():
+                return  # simulated by design: there is no chip to talk to
+            raise PCA9685UnavailableError(
+                self._last_error or "PCA9685 not initialised: no pulse was emitted"
+            )
 
         on, off = self._ticks_for_us(us)
         from smbus2 import SMBus  # type: ignore
@@ -167,8 +220,13 @@ class PCA9685Driver(HardwareDriver):
                     [on & 0xFF, (on >> 8) & 0xFF, off & 0xFF, (off >> 8) & 0xFF],
                 )
 
-        # Deliberately unguarded: a fault here must reach the caller.
-        await asyncio.to_thread(_write)
+        try:
+            await asyncio.to_thread(_write)
+        except Exception as exc:
+            # Deliberately not swallowed: a fault here must reach the caller.
+            self._last_error = f"write failed: {type(exc).__name__}: {exc}"
+            raise
+        self._last_error = None
 
 
-__all__ = ["PCA9685Driver"]
+__all__ = ["PCA9685Driver", "PCA9685Error", "PCA9685UnavailableError"]

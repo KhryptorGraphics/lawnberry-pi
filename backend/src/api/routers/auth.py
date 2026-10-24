@@ -393,10 +393,11 @@ async def _authorize_websocket(websocket: WebSocket) -> UserSession:
 async def auth_login(payload: AuthLoginRequest, request: Request):
     credential = payload.credential
     if credential is None and payload.username is not None and payload.password is not None:
-        if payload.username == "admin" and payload.password == "admin":
-            credential = os.getenv("LAWN_BERRY_OPERATOR_CREDENTIAL", "operator123")
-        else:
-            credential = ""
+        # The login form posts username + password; the password IS the single
+        # shared operator credential (the username is informational). There is no
+        # hard-wired admin/admin alias: it only works if the operator credential
+        # (LAWN_BERRY_OPERATOR_CREDENTIAL) is literally "admin".
+        credential = payload.password
 
     try:
         result = await primary_auth_service.authenticate(

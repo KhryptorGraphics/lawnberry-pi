@@ -2,6 +2,7 @@
 
 from .tractor_actuators import (
     RelayActuator,
+    RelayUnavailableError,
     ServoActuator,
     ServoCalibration,
 )
@@ -10,4 +11,5 @@ __all__ = [
     "ServoActuator",
     "ServoCalibration",
     "RelayActuator",
+    "RelayUnavailableError",
 ]
