@@ -10,7 +10,7 @@ the fake agent CLIs):
 * F8: reporting a finished run to GitHub is bounded and never claims success it did not have.
 * F9: a healthy run's lease must outlive a missed abort poll (the abort check is the heartbeat).
 
-Every test runs once per backend (``omp`` and ``claude``).
+Worker-level tests run once per backend (``omp`` and ``claude``).
 """
 
 from __future__ import annotations
@@ -25,8 +25,11 @@ import pydantic
 import pytest
 from bridgefakes.rig import REPO, Rig
 
-from tools.agent_bridge.config import LimitsConfig
+from tools.agent_bridge.agents.base import AgentReport, AgentRequest, AgentResult, AgentStatus
+from tools.agent_bridge.checks import run_checks
+from tools.agent_bridge.config import BridgeConfig, LimitsConfig, load_config
 from tools.agent_bridge.errors import (
+    ConfigError,
     GitHubConflict,
     GitHubError,
     GitHubNotFound,
@@ -567,3 +570,175 @@ def test_the_notify_attempt_limit_defaults_to_five_and_is_bounded() -> None:
     for refused in (0, -1, 51):
         with pytest.raises(pydantic.ValidationError):
             LimitsConfig(max_notify_attempts=refused)
+
+
+# --------------------------------------------------------------------------------------------
+# F9: a healthy run's lease outlives a missed abort poll
+# --------------------------------------------------------------------------------------------
+def bridge_config(**overrides: Any) -> BridgeConfig:
+    return BridgeConfig.model_validate(
+        {"repository": "owner/repo", "approvers": ["alice"], **overrides}
+    )
+
+
+def test_a_lease_that_cannot_survive_a_missed_poll_is_refused_naming_both_values() -> None:
+    with pytest.raises(pydantic.ValidationError) as refused:
+        bridge_config(limits={"lease_ttl_seconds": 30}, agent={"cancel_poll_seconds": 300})
+
+    message = str(refused.value)
+    assert "limits.lease_ttl_seconds (30)" in message
+    assert "agent.cancel_poll_seconds (300)" in message
+    assert "twice" in message
+
+
+@pytest.mark.parametrize(
+    ("ttl", "poll", "valid"),
+    [
+        (180, 15, True),  # the defaults
+        (30, 0.1, True),  # the test rig
+        (60, 30, True),  # exactly twice: one missed poll still fits
+        (59, 30, False),
+        (30, 15, True),
+        (29, 15, False),  # default poll, too short a lease
+        (5, 2.5, True),
+        (5, 2.6, False),
+        (600, 300, True),
+        (599, 300, False),
+    ],
+)
+def test_the_lease_must_be_at_least_twice_the_abort_poll(
+    ttl: int, poll: float, valid: bool
+) -> None:
+    limits, agent = {"lease_ttl_seconds": ttl}, {"cancel_poll_seconds": poll}
+    if valid:
+        cfg = bridge_config(limits=limits, agent=agent)
+        assert (cfg.limits.lease_ttl_seconds, cfg.agent.cancel_poll_seconds) == (ttl, poll)
+    else:
+        with pytest.raises(pydantic.ValidationError, match="lease_ttl_seconds"):
+            bridge_config(limits=limits, agent=agent)
+
+
+def test_the_defaults_and_the_shipped_example_satisfy_the_lease_rule() -> None:
+    cfg = bridge_config()
+    assert cfg.limits.lease_ttl_seconds >= 2 * cfg.agent.cancel_poll_seconds
+    example = load_config(Path(__file__).resolve().parents[2] / "config/agent-bridge.example.yaml")
+    assert example.limits.lease_ttl_seconds >= 2 * example.agent.cancel_poll_seconds
+
+
+def test_a_config_file_with_a_too_short_lease_is_a_config_error(tmp_path: Path) -> None:
+    path = tmp_path / "bridge.yaml"
+    path.write_text(
+        "repository: owner/repo\n"
+        "approvers: [alice]\n"
+        "limits: {lease_ttl_seconds: 30}\n"
+        "agent: {cancel_poll_seconds: 300}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match=r"lease_ttl_seconds \(30\).*cancel_poll_seconds"):
+        load_config(path)
+
+
+@pytest.mark.parametrize(
+    ("ttl", "poll", "expected"),
+    [
+        (180, 15, 15.0),  # the defaults keep their cadence
+        (60, 30, 20.0),  # a third of the lease, not the whole poll
+        (30, 12, 10.0),
+        (600, 300, 200.0),
+        (30, 0.1, 0.1),  # the test rig is unaffected
+    ],
+)
+def test_the_abort_check_never_waits_more_than_a_third_of_the_lease(
+    make_rig_for: Any, ttl: int, poll: float, expected: float
+) -> None:
+    rig: Rig = make_rig_for(agent={"cancel_poll_seconds": poll}, limits={"lease_ttl_seconds": ttl})
+
+    assert rig.worker._abort_poll_seconds() == pytest.approx(expected)
+
+
+def test_a_config_assembled_without_validation_still_gets_a_safe_abort_poll(rig: Rig) -> None:
+    # Assigning to a nested model skips BridgeConfig's cross-field validator; the worker must not
+    # rely on it alone.
+    rig.cfg.agent.cancel_poll_seconds = 15
+    rig.cfg.limits.lease_ttl_seconds = 6
+
+    assert rig.worker._abort_poll_seconds() == pytest.approx(2.0)
+
+
+class SlowAgent:
+    """An agent that works for much longer than a lease, on the rig's fake clock.
+
+    It drives the abort check itself, the way the process runner does: once per ``abort_poll_s``
+    of (simulated) time.  One poll goes missing on the way and the next one is a second late (a
+    slow GitHub call inside the check, a busy machine): exactly what the configuration promises a
+    healthy run survives.  Before every check it looks at the ledger the way a second bridge
+    process would and notes every run that process would take for abandoned.
+    """
+
+    name = "slow"
+
+    def __init__(self, rig: Rig, *, works_for: int) -> None:
+        self.rig = rig
+        self.works_for = works_for
+        self.requested_poll: float | None = None
+        self.seen_stale: list[str] = []
+
+    def run(self, request: AgentRequest) -> AgentResult:
+        assert request.abort_check is not None
+        self.requested_poll = request.abort_poll_s
+        (request.cwd / "docs" / "agent-note.md").write_text("Agent edit.\n", encoding="utf-8")
+        poll = int(request.abort_poll_s)
+        elapsed, missed = 0, False
+        while elapsed < self.works_for:
+            gap = poll
+            if not missed and elapsed >= 2 * poll:
+                missed, gap = True, 2 * poll + 1
+            self.rig.clock.advance(gap)
+            elapsed += gap
+            self.seen_stale += [run.run_id for run in self.rig.ledger.stale_runs()]
+            reason = request.abort_check()
+            if reason:
+                return AgentResult(backend=self.name, status=AgentStatus.CANCELLED, error=reason)
+        return AgentResult(
+            backend=self.name,
+            status=AgentStatus.SUCCEEDED,
+            final_text="Done.",
+            report=AgentReport(
+                status="completed",
+                summary="Edited the documentation.",
+                files_changed=["docs/agent-note.md"],
+            ),
+        )
+
+
+def test_a_healthy_run_keeps_its_lease_through_a_missed_poll(make_rig_for: Any) -> None:
+    # The smallest lease the configuration accepts for this poll: exactly twice as long.
+    rig: Rig = make_rig_for(agent={"cancel_poll_seconds": 30}, limits={"lease_ttl_seconds": 60})
+    agent = SlowAgent(rig, works_for=180)  # three leases' worth of work
+    rig.worker.backends[rig.backend] = agent  # type: ignore[assignment]
+
+    run = rig.run_issue(rig.new_task_issue())
+
+    assert agent.seen_stale == [], "a second bridge would have recovered this live run"
+    assert agent.requested_poll == 20  # a third of the lease, not the 30 s of the config
+    assert run.status is RunStatus.DONE, describe(run)
+    assert rig.ledger.stale_runs() == []
+
+
+def test_checks_are_polled_at_the_same_lease_safe_cadence(
+    make_rig_for: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig: Rig = make_rig_for(agent={"cancel_poll_seconds": 30}, limits={"lease_ttl_seconds": 60})
+    polled: list[float] = []
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        polled.append(kwargs["abort_poll_s"])
+        return run_checks(*args, **kwargs)
+
+    monkeypatch.setattr("tools.agent_bridge.worker.run_checks", spy)
+
+    run = rig.run_issue(rig.new_task_issue(checks=["pass"]))
+
+    assert run.status is RunStatus.DONE, describe(run)
+    assert polled == [20]

@@ -719,6 +719,15 @@ class Worker:
 
         return check
 
+    def _abort_poll_seconds(self) -> float:
+        """Seconds between abort checks, which are also the lease heartbeat of the run.
+
+        ``agent.cancel_poll_seconds``, but never more than a third of the lease.  The config
+        validator already promises that one missed poll cannot expire a healthy run's lease; a
+        third leaves room for a second one, and covers a configuration built without validation.
+        """
+        return min(self.cfg.agent.cancel_poll_seconds, self.cfg.limits.lease_ttl_seconds / 3)
+
     def _agent_phase(self, ctx: _Ctx) -> None:
         run, el = ctx.run, ctx.el
         assert ctx.worktree is not None
@@ -755,7 +764,7 @@ class Worker:
             bash_allowlist=tuple(bash_allow),
             run_id=run.run_id,
             abort_check=self._abort_check(ctx),
-            abort_poll_s=self.cfg.agent.cancel_poll_seconds,
+            abort_poll_s=self._abort_poll_seconds(),
             on_start=lambda pid, ticks: self.ledger.update(
                 run.run_id, agent_pid=pid, agent_start_ticks=ticks
             ),
@@ -868,7 +877,7 @@ class Worker:
                     environ=self._environ,
                     command_prefix=self.cfg.agent.command_prefix,
                     abort_check=self._abort_check(ctx),
-                    abort_poll_s=self.cfg.agent.cancel_poll_seconds,
+                    abort_poll_s=self._abort_poll_seconds(),
                 )
             except CheckAborted as exc:
                 raise self._abort_outcome(exc.reason) from exc

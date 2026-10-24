@@ -98,6 +98,8 @@ agent:
   # (the agent CLI and the checks), e.g. a bubblewrap or systemd-run sandbox.
   command_prefix: []
   kill_grace_seconds: 10
+  # How often the abort check runs (cancel, closed issue, edited text). It also renews the run's
+  # lease, so limits.lease_ttl_seconds must be at least twice this.
   cancel_poll_seconds: 15
 
 limits:
@@ -113,6 +115,8 @@ limits:
   # A 404 (the issue is gone) is given up at once.
   max_notify_attempts: 5
   publish_retry_delays: [2, 10, 30]
+  # A run's lease: a run whose lease expired is taken over by the next bridge process.
+  # Must be at least twice agent.cancel_poll_seconds.
   lease_ttl_seconds: 180
   max_log_bytes: 4000000
   max_final_text_chars: 6000

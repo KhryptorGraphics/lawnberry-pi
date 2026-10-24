@@ -376,6 +376,13 @@ class BridgeConfig(_Strict):
         for name in self.default_checks:
             if name not in self.checks:
                 raise ValueError(f"default_checks references undefined check {name!r}")
+        ttl, poll = self.limits.lease_ttl_seconds, self.agent.cancel_poll_seconds
+        if ttl < 2 * poll:
+            raise ValueError(
+                f"limits.lease_ttl_seconds ({ttl}) must be at least twice "
+                f"agent.cancel_poll_seconds ({poll:g}): the abort check is what renews the lease, "
+                "and a healthy run may miss one poll"
+            )
         return self
 
     @property
