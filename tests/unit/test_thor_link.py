@@ -321,7 +321,7 @@ async def test_uplink_carries_session_counter_and_hold_state():
     ups = rig.uplinks
     assert [u.seq for u in ups] == [0, 1, 2]
     assert {u.sid for u in ups} == {rig.link.session_id} and rig.link.session_id > 0
-    assert ups[0].safe_hold
+    assert ups[0].safe_hold and not ups[0].hold_fault
     assert [u.t_ms for u in ups] == [int(t * 1000) for t in times]
 
 
@@ -350,7 +350,7 @@ async def test_link_timeout_neutralises_levers_and_blade_without_revoking():
     await rig.tick()
     link, state = rig.link, rig.tractor.state
     assert link.safe_hold and link.current_plan() is None
-    assert link.hold_reason is HoldReason.LINK_TIMEOUT
+    assert link.hold_reason is HoldReason.LINK_TIMEOUT and not link.hold_fault
     assert state.left_lever == 0.0 and state.right_lever == 0.0
     assert state.blade_engaged is False
     assert state.authorized is True  # soft stop, not e-stop
@@ -380,6 +380,16 @@ async def test_held_mower_moved_elsewhere_is_reneutralised():
     await rig.tractor.set_levers(0.4, 0.4)
     await rig.tick()
     assert rig.tractor.state.left_lever == 0.0 and rig.tractor.state.right_lever == 0.0
+
+
+async def test_blade_engaged_while_held_is_dropped_again():
+    rig = Rig()
+    rig.tractor.state.engine = EngineState.RUNNING
+    rig.tractor.authorize()
+    await rig.tick()
+    await rig.tractor.engage_blade(True)
+    await rig.tick()
+    assert rig.tractor.state.blade_engaged is False
 
 
 # ------------------------- spoofing, replay, restart --------------------------
@@ -553,7 +563,7 @@ async def test_steady_answers_keep_the_plan_alive_well_past_the_age_limits():
         rig.clock.t += 0.1
     await rig.tick()
     assert not rig.link.safe_hold and rig.link.current_plan() is not None
-    assert rig.link.rejected == 0
+    assert rig.link.rejected == 0 and rig.link.hold_failures == 0
 
 
 async def test_current_plan_expires_without_a_tick():
@@ -574,6 +584,127 @@ async def test_answers_to_uplinks_the_pi_no_longer_remembers_are_stale():
     assert rig.link.rejects["stale"] == 1
     rig.deliver(rig.answer(rig.uplinks[39]))
     assert rig.link.rejected == 1 and rig.link.link_fresh()
+
+
+# --------------------------- neutral failure is surfaced ----------------------
+
+
+async def test_neutral_failure_is_surfaced_retried_and_blocks_resume(caplog):
+    rig = Rig()
+    await rig.run_to_neutral_failure()
+
+    async def stuck_bus(left, right, source="operator"):
+        raise OSError("i2c bus hang")
+
+    rig.tractor.set_levers = stuck_bus
+    rig.clock.t += 0.6  # link lost
+    with caplog.at_level(logging.ERROR, logger=LOGGER):
+        await rig.tick()
+    link, state = rig.link, rig.tractor.state
+    assert link.safe_hold and link.hold_fault and link.hold_failures == 1
+    assert "levers_neutral" in link.hold_error and "i2c bus hang" in link.hold_error
+    assert state.blade_engaged is False  # the blade was still dropped despite the lever failure
+    assert state.left_lever == 0.6  # ... but the levers are NOT neutral, and we say so
+    assert any("NOT CONFIRMED NEUTRAL" in r.getMessage() for r in caplog.records)
+    assert rig.uplinks[-1].hold_fault and rig.uplinks[-1].safe_hold  # the Thor is told
+
+    await rig.tick()  # keeps retrying every tick
+    assert link.hold_failures == 2
+
+    # The Thor comes back with a perfectly good plan: no resume while neutral is unconfirmed.
+    rig.deliver(rig.answer())
+    await rig.tick()
+    assert link.safe_hold and link.hold_fault and link.current_plan() is None
+    assert link.hold_reason is HoldReason.NEUTRAL_UNCONFIRMED
+
+    del rig.tractor.set_levers  # the bus recovers
+    await rig.tick()
+    assert not link.hold_fault and link.hold_error is None
+    assert state.left_lever == 0.0 and state.right_lever == 0.0
+    assert not link.safe_hold and link.current_plan() is not None
+    assert rig.uplinks[-1].hold_fault is False
+
+
+async def test_failed_neutral_keeps_being_retried_even_if_nothing_reads_as_moving():
+    rig = Rig()  # engine off: state.moving is False whatever the levers say
+    await rig.connect()
+    rig.tractor.state.left_lever = 0.6
+
+    async def stuck_bus(left, right, source="operator"):
+        raise OSError("i2c bus hang")
+
+    rig.tractor.set_levers = stuck_bus
+    rig.clock.t += 0.6
+    await rig.tick()
+    assert rig.link.hold_fault and rig.link.hold_failures == 1
+    assert not rig.tractor.state.moving
+    await rig.tick()
+    assert rig.link.hold_failures == 2  # retried: the fault itself drives the retry
+    del rig.tractor.set_levers
+    await rig.tick()
+    assert not rig.link.hold_fault and rig.tractor.state.left_lever == 0.0
+
+
+async def test_each_neutral_command_is_attempted_even_if_the_other_fails():
+    rig = Rig()
+    await rig.run_to_neutral_failure()
+
+    async def broken_relay(on, source="operator"):
+        raise RuntimeError("gpio busy")
+
+    rig.tractor.engage_blade = broken_relay
+    rig.clock.t += 0.6
+    await rig.tick()
+    assert rig.tractor.state.left_lever == 0.0 and rig.tractor.state.right_lever == 0.0
+    assert rig.link.hold_fault and "blade_off" in rig.link.hold_error
+    assert rig.tractor.state.blade_engaged is True  # still on, and reported as such
+
+
+async def test_hung_neutral_command_times_out_and_is_reported():
+    rig = Rig(neutral_timeout_s=0.05)
+    await rig.run_to_neutral_failure()
+
+    async def hung(left, right, source="operator"):
+        await asyncio.sleep(3600)
+
+    rig.tractor.set_levers = hung
+    rig.clock.t += 0.6
+    await asyncio.wait_for(rig.tick(), timeout=2.0)  # the slow loop is not stalled
+    assert rig.link.hold_fault and "timed out" in rig.link.hold_error
+
+
+async def test_latched_estop_is_neutral_only_if_the_mower_really_is():
+    # E-stop already neutralised the mower: set_levers is refused, and that is fine.
+    ok = Rig()
+    await ok.connect()
+    ok.tractor.state.emergency_stop_active = True
+    ok.clock.t += 0.6  # link lost: the hold tries set_levers and is told "emergency stop active"
+    await ok.tick()
+    assert ok.link.safe_hold and not ok.link.hold_fault
+
+    # E-stop latched but its neutral write failed: the state still shows a lever out.
+    bad = Rig()
+    await bad.connect()
+    bad.tractor.state.engine = EngineState.RUNNING
+    bad.tractor.state.left_lever = 0.6
+    bad.tractor.state.emergency_stop_active = True
+    bad.clock.t += 0.6
+    await bad.tick()
+    assert bad.link.hold_fault and "emergency stop active" in bad.link.hold_error
+    assert bad.uplinks[-1].estop and bad.uplinks[-1].hold_fault
+
+
+async def test_evaluation_failure_fails_closed_and_is_reported():
+    rig = Rig()
+    await rig.connect()
+
+    async def bug():
+        raise RuntimeError("boom")
+
+    rig.link._evaluate_hold = bug
+    await rig.tick()  # never raises
+    assert rig.link.safe_hold and rig.link.plan is None and rig.link.current_plan() is None
+    assert rig.link.hold_fault and "boom" in rig.link.hold_error
 
 
 # ------------------------------ geofence --------------------------------------
@@ -750,6 +881,7 @@ def test_bad_allowlists_and_timings_are_refused():
         {"timeout_s": 0},
         {"uplink_hz": 0},
         {"plan_max_age_s": -1},
+        {"neutral_timeout_s": 0},
     ):
         with pytest.raises(ValueError, match="must be > 0"):
             ThorLinkService(tractor, THOR, key=KEY, **kw)

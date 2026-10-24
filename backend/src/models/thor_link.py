@@ -102,6 +102,9 @@ class Uplink(BaseModel):
     detections: list[Detection] = Field(default_factory=list, max_length=MAX_DETECTIONS)
     estop: bool = False
     safe_hold: bool = False
+    # True while the Pi is held and could not confirm both levers neutral and
+    # the blade off (see ThorLinkService.hold_fault).
+    hold_fault: bool = False
     blade: bool = False
     waypoint_index: int | None = None
 

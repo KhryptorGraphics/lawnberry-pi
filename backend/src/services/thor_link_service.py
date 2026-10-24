@@ -20,7 +20,10 @@ logged at a bounded rate. A ``pause`` is never refused for its *content*.
 
 Safe hold is entered when no downlink has been accepted within ``timeout_s``,
 the accepted plan's information is older than ``plan_max_age_s``, or the Thor
-sends ``pause``. Leaving hold requires a fresh, non-paused plan.
+sends ``pause``. Leaving hold requires a fresh, non-paused plan *and* a
+confirmed neutral: if the neutral commands fail the service stays held, keeps
+retrying every tick and reports the failure (``hold_fault`` / ``hold_error``,
+an ERROR log, and ``hold_fault`` in the uplink) instead of swallowing it.
 """
 
 from __future__ import annotations
@@ -54,6 +57,7 @@ from ..models.thor_link import (
     parse_key,
     validate_key,
 )
+from ..models.tractor_control import LEVER_NEUTRAL_EPS
 from ..nav.geofence_validator import GeofenceShape, contains
 
 if TYPE_CHECKING:
@@ -80,6 +84,7 @@ class HoldReason(StrEnum):
     LINK_TIMEOUT = "link_timeout"  # no accepted downlink within timeout_s
     PLAN_STALE = "plan_stale"  # plan information older than plan_max_age_s
     PAUSED = "paused"  # the Thor asked for a pause
+    NEUTRAL_UNCONFIRMED = "neutral_unconfirmed"  # plan usable, but neutral not confirmed
 
 
 def resolve_link_key(secrets_manager: SecretsManager | None = None) -> bytes:
@@ -143,6 +148,8 @@ class ThorLinkService:
         plan_max_age_s: hard cap on the age of the information a plan was built
             from, measured from the send time of the uplink it answers (an upper
             bound on its age, with no Thor clock involved).
+        neutral_timeout_s: bound on each neutral command so a hung actuator bus
+            shows up as a reported fault instead of stalling the slow loop.
         key: shared HMAC key (>= 32 bytes). ``None`` resolves ``THOR_LINK_KEY``
             via ``resolve_link_key``; with none configured, only SIM_MODE starts.
         allowed_sources: optional IPs/CIDRs datagrams must come from. HMAC is
@@ -168,11 +175,12 @@ class ThorLinkService:
         *,
         key: bytes | None = None,
         plan_max_age_s: float = 1.0,
+        neutral_timeout_s: float = 1.0,
         allowed_sources: Iterable[str] | None = None,
         geofence: GeofenceShape | None = None,
     ) -> None:
-        if min(timeout_s, uplink_hz, plan_max_age_s) <= 0:
-            raise ValueError("timeout_s, uplink_hz, plan_max_age_s must be > 0")
+        if min(timeout_s, uplink_hz, plan_max_age_s, neutral_timeout_s) <= 0:
+            raise ValueError("timeout_s, uplink_hz, plan_max_age_s, neutral_timeout_s must be > 0")
         key = resolve_link_key() if key is None else validate_key(key)
         if key == SIM_LINK_KEY and not is_simulation_mode():
             raise LinkKeyError("SIM_LINK_KEY is public: it is only accepted with SIM_MODE=1")
@@ -184,6 +192,7 @@ class ThorLinkService:
         self._bind_addr = bind_addr
         self._timeout_s = float(timeout_s)
         self._plan_max_age_s = float(plan_max_age_s)
+        self._neutral_timeout_s = float(neutral_timeout_s)
         self._period = 1.0 / float(uplink_hz)
         self._build_uplink = build_uplink
         self._clock = clock
@@ -202,6 +211,11 @@ class ThorLinkService:
         self.plan: Downlink | None = None
         self.safe_hold = True  # no link yet == hold
         self.hold_reason: HoldReason | None = HoldReason.NO_LINK
+        # Set when a hold could not confirm blade off and both levers neutral.
+        # Blocks leaving hold and is reported to the Thor in every uplink.
+        self.hold_fault = False
+        self.hold_error: str | None = None
+        self.hold_failures = 0  # failed neutral attempts, lifetime
         self.bytes_sent = 0
         self.bytes_received = 0
         self.rejected = 0  # total dropped datagrams
@@ -350,8 +364,16 @@ class ThorLinkService:
         """One slow-loop iteration: evaluate hold, then send an uplink. Never raises."""
         try:
             await self._evaluate_hold()
-        except Exception:
-            logger.exception("Thor link: safe-hold evaluation failed")
+        except Exception as exc:
+            # A bug here must not leave a plan live or hide itself: fail closed and report.
+            self.plan = None
+            self.safe_hold = True
+            self.hold_fault = True
+            self.hold_error = f"hold evaluation failed: {exc!r}"
+            self.hold_failures += 1
+            self._log_limited(
+                "evaluate", logging.ERROR, "Thor link: safe-hold evaluation failed", exc_info=True
+            )
         try:
             self._send_uplink()
         except Exception:
@@ -368,16 +390,85 @@ class ThorLinkService:
                 logger.warning("Thor link: entering safe hold (%s)", reason.value)
                 self.plan = None  # a stale plan must not outlive the link that vouched for it
                 self.safe_hold = True
-                await self._tractor.engage_blade(False, source=_SOURCE)
-                await self._tractor.set_levers(0.0, 0.0, source=_SOURCE)
-            elif self._tractor.state.moving:
-                # Something else moved the mower while held: re-assert neutral.
-                await self._tractor.set_levers(0.0, 0.0, source=_SOURCE)
+                await self._neutralise()
+                return
+            state = self._tractor.state
+            if self.hold_fault or state.moving or state.blade_engaged:
+                # Retry a failed neutral, or re-assert it: something moved the mower while held.
+                await self._neutralise()
             return
-        if self.safe_hold:
-            logger.info("Thor link: fresh plan received, leaving safe hold")
-            self.safe_hold = False
-            self.hold_reason = None
+        if not self.safe_hold:
+            return
+        if self.hold_fault:
+            # The plan is fine but neutral was never confirmed: keep holding and keep trying.
+            self.hold_reason = HoldReason.NEUTRAL_UNCONFIRMED
+            if not await self._neutralise():
+                return
+        logger.info("Thor link: fresh plan received, leaving safe hold")
+        self.safe_hold = False
+        self.hold_reason = None
+
+    async def _neutralise(self) -> bool:
+        """Blade off, then levers neutral; True if the tractor state confirms both.
+
+        Both are always attempted. A raised error, a timeout or a refusal is
+        recorded (``hold_fault``/``hold_error``/``hold_failures``) and logged, never
+        swallowed. "Confirmed" is read from ``tractor.state``, which the tractor
+        service updates only after an actuator write succeeds, so a latched e-stop
+        that already neutralised the mower counts as confirmed while one whose
+        neutral write failed does not. It is the last *commanded* state, not a
+        measurement of the physical levers (PCA9685 holds its last pulse).
+        """
+        steps = (
+            ("blade_off", lambda: self._tractor.engage_blade(False, source=_SOURCE)),
+            ("levers_neutral", lambda: self._tractor.set_levers(0.0, 0.0, source=_SOURCE)),
+        )
+        errors: list[str] = []
+        for name, command in steps:
+            try:
+                result = await asyncio.wait_for(command(), timeout=self._neutral_timeout_s)
+            except Exception as exc:
+                # A TimeoutError with no message is wait_for expiring, not a driver error.
+                expired = isinstance(exc, TimeoutError) and not exc.args
+                detail = f"timed out after {self._neutral_timeout_s:g}s" if expired else repr(exc)
+                errors.append(f"{name} failed: {detail}")
+                self._log_limited(
+                    f"neutral:{name}",
+                    logging.ERROR,
+                    "Thor link: safe-hold %s failed (%s)",
+                    name,
+                    detail,
+                    exc_info=not expired,
+                )
+            else:
+                if isinstance(result, dict) and result.get("status") == "rejected":
+                    errors.append(f"{name} rejected: {result.get('reason')}")
+        state = self._tractor.state
+        confirmed = (
+            not state.blade_engaged
+            and abs(state.left_lever) <= LEVER_NEUTRAL_EPS
+            and abs(state.right_lever) <= LEVER_NEUTRAL_EPS
+        )
+        if confirmed:
+            if self.hold_fault:
+                logger.warning(
+                    "Thor link: safe-hold neutral confirmed after %d failed attempt(s)",
+                    self.hold_failures,
+                )
+            self.hold_fault = False
+            self.hold_error = None
+            return True
+        self.hold_fault = True
+        self.hold_failures += 1
+        self.hold_error = "; ".join(errors) or "tractor state still shows blade on or levers moving"
+        self._log_limited(
+            "neutral_fault",
+            logging.ERROR,
+            "Thor link: SAFE HOLD NOT CONFIRMED NEUTRAL (%s), attempt %d",
+            self.hold_error,
+            self.hold_failures,
+        )
+        return False
 
     def _send_uplink(self) -> None:
         if self._transport is None:
@@ -393,6 +484,7 @@ class ThorLinkService:
                 "t_ms": int(now * 1000),
                 "estop": state.emergency_stop_active,
                 "safe_hold": self.safe_hold,
+                "hold_fault": self.hold_fault,
                 "blade": state.blade_engaged,
             }
         )
