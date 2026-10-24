@@ -342,9 +342,10 @@ def read_stl_triangles(path: Path) -> list[tuple]:
         raise ValueError(f"Malformed or empty binary STL: {path}")
     return [
         tuple(
-            tuple(round(value, 5) for value in struct.unpack_from("<12fH", data, 84 + index * 50)[
-                start : start + 3
-            ])
+            tuple(
+                round(value, 5)
+                for value in struct.unpack_from("<12fH", data, 84 + index * 50)[start : start + 3]
+            )
             for start in (3, 6, 9)
         )
         for index in range(count)
@@ -358,12 +359,8 @@ def canonical_mesh_digest(path: Path) -> str:
     geometric-equivalence proof. A raw STL hash can also vary for identical
     triangles because the export's byte stream is not reliably stable.
     """
-    faces = sorted(
-        tuple(sorted(face)) for face in read_stl_triangles(path)
-    )
-    payload = ";".join(
-        ",".join(f"{x:.4f},{y:.4f},{z:.4f}" for x, y, z in face) for face in faces
-    )
+    faces = sorted(tuple(sorted(face)) for face in read_stl_triangles(path))
+    payload = ";".join(",".join(f"{x:.4f},{y:.4f},{z:.4f}" for x, y, z in face) for face in faces)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -426,7 +423,7 @@ def write_3mf(source: Path, target: Path) -> None:
             '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com'
             '/3dmanufacturing/core/2015/02">'
             f'<metadata name="Title">{name}</metadata>'
-            '<resources>'
+            "<resources>"
             f'<object id="1" type="model" name="{name}"><mesh><vertices>{vertices}</vertices>'
             f"<triangles>{mesh_faces}</triangles></mesh></object>"
             "</resources>"

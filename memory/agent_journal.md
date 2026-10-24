@@ -491,3 +491,22 @@ reboots after 10 min, at most once per 4 h, and never touches `morse`. `systemd/
 this board did not have. Both state machines were exercised against stubbed `iw`/`ping`/`arping`/
 `systemctl` (healthy, mute, lost, cooldown, recovery), and the Pi script's reboot path was checked in
 dry-run so nothing rebooted. Installing them is the first thing to do when the link is back.
+
+## 2026-10-24 — Integration audit against PR #18; safety and Thor-link fixes (simulation only)
+
+Audited the repository and the deployed Pi 5 (read-only) against the four documents on
+`docs/2026-10-24-hardware-architecture-audit`. Findings, status matrix, wiring proposal, safety review and
+the P0-P6 plan are in `docs/2026-10-24-integration-audit.md`. Highlights: the general E-stop API stopped
+nothing yet reported success; tractor levers held their last command forever; auth was off in the shipped
+unit; GPIO5 is both the HaLow RESET line and the starter relay, GPIO25 both the HaLow IRQ and the blade
+output; header I2C is disabled on the deployed Pi (`i2c_arm=off`) though the PCA9685, ToF and power
+monitor are configured on it; the Thor link was unauthenticated.
+
+Changed (all SIM_MODE against fakes; nothing ran on the mower, no pin, calibration or `tractor.enabled`
+change): truthful per-subsystem E-stop, authenticated clear, PCA9685 faults surfaced, tractor and RoboHAT
+command expiry, a tilt/E-stop latch that navigation cannot undo, shutdown parking, auth required in the repo
+unit, an authenticated and replay-safe Thor link (still not wired), and a pin checker that now sees the
+HaLow/UART/ultrasonic claims with a reviewed known-conflicts list. Suite: 693 passed, 69 skipped, 0 failed.
+
+Not done and needs the owner: hardwired E-stop and PCA9685 `OE`, pin moves (O-5), measurements (audit B.7),
+installing the new unit with real credentials on the Pi. The deployed Pi still runs with auth off.
