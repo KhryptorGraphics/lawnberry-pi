@@ -1962,5 +1962,12 @@ share their own bucket (`TRACTOR_COMMAND_GROUP`, 30/s, burst 90 per client). The
 until then `GLOBAL_RATE_LIMIT_*` must be raised. The WebSocket ticket route and the proxy header contract were likewise agreed with `FixAuth`. (2) The
 blade is still not touched by the backend deadman or by this page's stop paths (design decision, review SF-08 text). (3) On `pagehide`
 the neutral request is an ordinary XHR; if the browser cancels it the backend hold (500 ms) is the stop. (4) Hold-to-run on two
-sliders needs two pointers (touch) or the Latch checkbox (mouse); the default is the safe one. (5) Nothing here was exercised against a
-real backend or hardware.
+sliders needs two pointers (touch) or the Latch checkbox (mouse); the default is the safe one. (5) Nothing in this track was exercised
+against hardware. `FixAuth` ran `server.mjs` at `3fb4f7f` against its real backend (SIM_MODE, strict auth): 29 checks passed (spoofed
+`X-Forwarded-For` stripped on HTTP and upgrades, `ws-ticket` through the proxy, `?ticket=` accepted on `/api/v2/ws/telemetry`,
+`/ws` (query kept), `/api/v2/ws/status` and `/api/v2/ws/control`, a reused or bogus ticket is 401). (6) **Behaviour change for signed-out
+visitors:** with `xfwd` the backend sees the browser's own address instead of the proxy's loopback, so an anonymous browser on the LAN
+is refused (HTTP 401) on the read-only `/api/v2/ws/telemetry` and `/ws/status` upgrade; signed in (ticket) or on the mower itself it
+opens. The page cannot read a handshake status, so it sees an ordinary failed socket: `WebSocketService` stops after 5 reconnect
+attempts (linear 1-5 s back-off, no ticket request when signed out) and each view keeps whatever REST polling it already has; there is
+no live socket for a visitor who has not signed in.
