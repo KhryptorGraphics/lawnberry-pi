@@ -177,7 +177,7 @@ async def ws_telemetry(websocket: WebSocket):
 @router.websocket("/ws/control")
 async def ws_control(websocket: WebSocket):
     """Secondary WebSocket endpoint for control channel events."""
-    session = await _authorize_websocket(websocket)
+    session = await _authorize_websocket(websocket, command_capable=True)
     client_id = "ctrl-" + uuid.uuid4().hex
     session.add_websocket_connection(client_id, endpoint="/api/v2/ws/control")
     try:

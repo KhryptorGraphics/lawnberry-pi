@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from .routers.auth import _authorize_websocket
 from .rest import websocket_hub
 from ..core.robot_state_manager import get_robot_state_manager
 from ..models.safety_interlock import InterlockState, InterlockType
@@ -51,7 +52,8 @@ async def get_status_v2():
 
 @router.websocket("/api/v2/ws/status")
 async def ws_status(websocket: WebSocket):
-    """Stream robot state at approximately 5Hz."""
+    """Stream robot state at approximately 5Hz (read-only; see ``_authorize_websocket``)."""
+    await _authorize_websocket(websocket)
     await websocket.accept()
     cadence_hz = 5.0
     mgr = get_robot_state_manager()

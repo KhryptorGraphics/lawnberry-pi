@@ -26,7 +26,7 @@ from pydantic import BaseModel
 
 from ...core.auth_posture import operator_auth_required, sim_open_auth_enabled
 from ...core.globals import _manual_control_sessions, _security_settings
-from ...core.peer_address import request_peer_key
+from ...core.peer_address import client_host, request_peer_key
 from ...models.auth_security_config import SecurityLevel
 from ...models.user_session import UserSession
 from ...services.auth_service import AuthenticationError, primary_auth_service, run_password_check
@@ -172,11 +172,8 @@ def _resolve_manual_session(session_id: str | None) -> dict[str, Any]:
 
 
 def _manual_unlock_principal(request: Request, method: str) -> str:
-    host = None
     try:
-        client = getattr(request, "client", None)
-        if client is not None:
-            host = getattr(client, "host", None)
+        host = client_host(request)  # the real client behind a trusted proxy, else the peer
     except Exception:
         host = None
     host_str = str(host).strip() if host else ""
@@ -292,10 +289,9 @@ def _verify_totp_code(code: str | None) -> tuple[bool, bool]:
 
 
 def _client_ip(request: Request) -> str | None:
-    client = request.client
-    if client and getattr(client, "host", None):
-        return str(client.host)
-    return None
+    """The client address for login throttling and the session record (proxy-aware)."""
+    host = client_host(request)
+    return str(host) if host else None
 
 
 def _extract_bearer_token(auth_header: str | None) -> str | None:
@@ -317,39 +313,87 @@ async def _require_session(request: Request) -> UserSession:
     return session
 
 
-async def _authorize_websocket(websocket: WebSocket) -> UserSession:
-    """Authorize websocket connections.
+# Single-use WebSocket tickets. A browser cannot set an Authorization header on a WebSocket
+# handshake, and the 8 hour login token must not travel in a URL (uvicorn logs the query
+# string), so the UI exchanges its bearer token for a 30 s, single-use ticket per connection.
+WS_TICKET_TTL_SECONDS = 30
+WS_TICKET_LIMIT = 256
+_ws_tickets: dict[str, dict[str, Any]] = {}
 
-    Priority:
-    1) Authorization: Bearer <token>
-    2) Query param: access_token/token/auth_token
-    3) Local development: a loopback/test client, or the explicit simulator opt-in
-       (``SIM_MODE=1`` AND ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in production)
+
+class WsTicketResponse(BaseModel):
+    ticket: str
+    expires_in: int
+
+
+def _mint_ws_ticket(session_id: str) -> str:
+    now = datetime.now(UTC)
+    for key in [k for k, v in _ws_tickets.items() if v["expires_at"] <= now]:
+        _ws_tickets.pop(key, None)
+    while len(_ws_tickets) >= WS_TICKET_LIMIT:
+        _ws_tickets.pop(min(_ws_tickets, key=lambda k: _ws_tickets[k]["expires_at"]), None)
+    ticket = secrets.token_urlsafe(24)
+    expires_at = now + timedelta(seconds=WS_TICKET_TTL_SECONDS)
+    _ws_tickets[ticket] = {"session_id": session_id, "expires_at": expires_at}
+    return ticket
+
+
+async def _session_for_ws_ticket(ticket: str) -> UserSession | None:
+    """Redeem a ticket: the live login session it was minted for, else ``None``. Single use."""
+    entry = _ws_tickets.pop(ticket, None)  # popped first: a ticket can never be presented twice
+    if entry is None or entry["expires_at"] <= datetime.now(UTC):
+        return None
+    return await primary_auth_service.verify_session(entry["session_id"])
+
+
+async def _authorize_websocket(
+    websocket: WebSocket, *, command_capable: bool = False
+) -> UserSession:
+    """Admit a WebSocket connection, or raise 401.
+
+    A credential is honoured on every path: ``Authorization: Bearer <login token>`` (non-browser
+    clients) or a single-use ``?ticket=`` from ``POST /auth/ws-ticket`` (browsers). A presented
+    but invalid credential is always refused. The login token in a query string
+    (``access_token``/``token``/``auth_token``) is no longer read at all.
+
+    With no credential:
+
+    * ``command_capable`` paths (``/ws/control``) are refused whenever ``OPERATOR_AUTH_REQUIRED``
+      is on, whoever the peer is: the loopback (the UI server's proxied browsers) and
+      ``SIM_MODE`` included;
+    * everything else is admitted for a loopback TCP peer (the UI server proxies from there; the
+      read-only streams carry what the open GET routes carry) or the explicit simulator opt-in
+      (``SIM_MODE=1`` AND ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in production), and refused for
+      every other peer. ``X-Forwarded-For`` is irrelevant here: the TCP peer decides.
+
+    No WebSocket handler changes mower state today (``/ws/control`` only acknowledges), so an
+    anonymous connection cannot actuate anything.
 
     A ``CF-Access-Jwt-Assertion`` header is deliberately NOT a credential: it was accepted
     without any verification, so any client could name itself an operator.
     """
-    # 1) Standard Bearer header
     token = _extract_bearer_token(websocket.headers.get("Authorization"))
-
-    # 2) Query param fallbacks used by browsers that cannot set custom headers in WS
-    if not token:
-        try:
-            qp = getattr(websocket, "query_params", None)
-            if qp is not None:
-                getter = getattr(qp, "get", None)
-                if callable(getter):
-                    token = getter("access_token") or getter("token") or getter("auth_token")
-        except Exception:
-            token = None
-
     if token:
         session = await primary_auth_service.verify_token(token)
         if not session:
             raise HTTPException(status_code=401, detail="Unauthorized")
         return session
 
-    # 3) Local dev and the explicit simulator opt-in
+    ticket = None
+    try:
+        getter = getattr(getattr(websocket, "query_params", None), "get", None)
+        ticket = getter("ticket") if callable(getter) else None
+    except Exception:
+        ticket = None
+    if ticket:
+        session = await _session_for_ws_ticket(str(ticket))
+        if session is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return session
+
+    if command_capable and operator_auth_required():
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     client = websocket.client
     if client is not None:
         host = (
@@ -363,10 +407,9 @@ async def _authorize_websocket(websocket: WebSocket) -> UserSession:
         or host_lower in {"::1", "localhost", "testserver", "testclient"}
         or sim_open_auth_enabled()
     ):
-        session = UserSession.create_operator_session(
-            client_ip=host_lower or None, user_agent=websocket.headers.get("User-Agent")
+        return UserSession.create_operator_session(
+            client_ip=client_host(websocket), user_agent=websocket.headers.get("User-Agent")
         )
-        return session
 
     raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -441,6 +484,23 @@ async def auth_profile(request: Request):
         username=session.username,
         role=session.security_context.role.value,
         created_at=session.created_at,
+    )
+
+
+@router.post(
+    "/auth/ws-ticket",
+    response_model=WsTicketResponse,
+    dependencies=[Depends(require_operator_auth)],
+)
+async def auth_ws_ticket(request: Request):
+    """A 30 s single-use ticket for one WebSocket connection (``?ticket=``).
+
+    Verifies the bearer token itself, so it answers 401 without a login whatever
+    ``OPERATOR_AUTH_REQUIRED`` says. Fetch a fresh ticket for every (re)connect.
+    """
+    session = await _require_session(request)
+    return WsTicketResponse(
+        ticket=_mint_ws_ticket(session.session_id), expires_in=WS_TICKET_TTL_SECONDS
     )
 
 
