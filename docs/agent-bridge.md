@@ -137,6 +137,7 @@ tools/agent_bridge/           runner, queue API adapter, schema validation, subp
   checks.py    prompt.py      named verification commands; prompt synthesis
   redact.py    publisher.py   secret redaction; labels, bot comments, PR body, read-only dry-run wrapper
   process.py   smoke.py       bounded subprocess supervision; real-agent smoke test
+  remote.py                   does a git remote name the configured repository?
   agents/{__init__,base,omp,claude}.py   pluggable backends
   omp_guard.mjs               omp tool-call guard extension
 tests/agent_bridge/           unit, security and integration tests; bridgefakes/ holds the fake GitHub
@@ -230,7 +231,7 @@ Every backend receives an `AgentRequest` (prompt, working directory, run directo
 budget, write allow-sets and deny list, optional exact command allow-list, abort callback) and returns an
 `AgentResult`: `status` (`succeeded`, `failed`, `timed_out`, `budget_exceeded`, `cancelled`,
 `unavailable`), `failure_kind` (`auth`, `credit`, `rate_limit`, `api_error`, `timeout`, `budget`,
-`max_turns`, `nonzero_exit`, `no_result`, `unavailable`, `cancelled`, `hook`), exit code, duration, final
+`max_turns`, `nonzero_exit`, `no_result`, `unavailable`, `cancelled`, `hook`, `guard_inactive`), exit code, duration, final
 text, the parsed `report`, `cost_usd`, token `usage`, model, session id, turn and tool-call counts,
 blocked tool calls and samples, log paths and the command that ran. The agent ends its final message with
 one fenced block that is parsed as `AgentReport`:
@@ -326,6 +327,16 @@ checks every call before it executes, against a JSON policy that lives outside t
 - a missing or invalid policy blocks everything (fail closed); each decision is appended to
   `omp-guard-audit.jsonl`, and blocked calls reach the model as errors starting with
   `[agent-bridge guard]`.
+- the guard's audit log is also the proof that the guard ran. A run that used tools ends FAILED
+  `guard_inactive` (the worker reports it as BLOCKED `agent_guard_inactive`, nothing is published) unless the log
+  holds a well-formed row (a JSON object with a string `tool` and a boolean `allow`) for every tool call, up to the
+  guard's 5,000-row cap; an omp that loaded the extension but never fired `tool_call` would otherwise leave every
+  call unguarded. The log is removed when a run's files are written, so rows of an earlier attempt cannot vouch for a
+  dead guard, and it is read with a bound of 5,000 lines of 64 KiB. Runs with zero tool calls and the Claude backend
+  are not affected. Blocked-call counts take the larger of the log and the stream; the samples kept in the ledger and
+  the PR are stripped of control characters and redacted *before* they are cut to length, so a token cannot be left
+  half visible. The file on disk is another matter: the guard writes up to 80 characters of the raw path text of a
+  call into `omp-guard-audit.jsonl` and `omp_guard.mjs` does not redact it (see Known limitations).
 
 **Prompt-level `@path` mentions bypass every tool guard.** omp scans the prompt itself for `@path` (at the
 start of the text or after whitespace, a bracket or a quote), resolves it with `~` and absolute paths honoured
@@ -390,13 +401,15 @@ effective timeout = `min(task timeout_minutes or limits.timeout_minutes, limits.
 (default 20 min, cap 60). The agent's cost is reported in the comment, the PR and `status`; a run that
 produces no cost event is shown as `n/a`.
 
-The **abort check** runs every `agent.cancel_poll_seconds` (15 s) while the agent or a check is running. It
-refreshes the lease and ends the run when the bridge is shutting down (the run is requeued), when
-`agent-bridge cancel` was issued, when the issue was closed, when `agent-approved` was removed (all
-cancelled) or when the issue text no longer matches the approved revision (blocked `task_changed`). A GitHub
-outage during the check does not cancel anything. `agent-bridge cancel` is also honoured right after the
-lease (a pending run never starts), at the start of verification and before every publish attempt, so
-nothing is pushed after it.
+The **abort check** runs every `min(agent.cancel_poll_seconds, limits.lease_ttl_seconds / 3)` (15 s with the
+defaults) while the agent or a check is running. It refreshes the lease and ends the run when the bridge is shutting
+down (the run is requeued), when `agent-bridge cancel` was issued, when the issue was closed, when `agent-approved`
+was removed (all cancelled) or when the issue text no longer matches the approved revision (blocked `task_changed`).
+A GitHub outage during the check does not cancel anything. Because the check is also the lease heartbeat, the
+configuration is refused unless `limits.lease_ttl_seconds` is at least twice `agent.cancel_poll_seconds`: one missed
+poll cannot let a second bridge process recover (and double-run) a healthy run. `agent-bridge cancel` is also
+honoured right after the lease (a pending run never starts), at the start of verification and before every publish
+attempt, so nothing is pushed after it.
 
 ## Safety model
 
@@ -406,24 +419,32 @@ nothing is pushed after it.
 | **Edit-after-approval invalidation** | an edit or rename at or after the approval time (GraphQL `lastEditedAt`, `renamed` events) makes the approval stale (`approval_stale`; fail closed on equal timestamps). The owner must re-read the text and re-apply the label | `github.edited_after` |
 | **Revision binding** | the run is bound to `sha256(title + body)` and the approval event id. The hash is compared at lease time, every abort poll and before each publish attempt; a difference ends the run `task_changed` and nothing is pushed. The ledger key `(repo, issue, approval event)` is unique, so one approval is one run | `schema.compute_revision`, `ledger.lease` |
 | **Strict task parsing** | exactly one fenced `agent-task` block; YAML without anchors, aliases, tags or duplicate keys; unknown fields rejected; hidden HTML comments, invisible and bidirectional characters (Unicode `Default_Ignorable_Code_Point`, line/paragraph separators, the braille blank), control characters and oversize input rejected - on the raw text and again on the decoded YAML values, so an escape such as `"\u202e"` or a `!!binary` value cannot hide text - so the approver sees everything an agent receives | `schema.py` |
-| **Protected paths** | 43 globs (safety chain, drivers, motor/blade/RoboHAT/tractor/Thor-link/power services, core, hardware and limit configuration, secrets, SSL, `systemd/`, `scripts/`, `spec/`, `hardware/`, `.github/`, agent policy files, `tools/agent_bridge/`, dependency manifests) can never be changed by a run. Setting `protected_paths` *replaces* the list | `config.DEFAULT_PROTECTED_PATHS`, `policy.py` |
-| **Scope and size limits** | `docs-only` (`docs/**`, `*.md`) or `code` (adds `tools/**`, `tests/**`), further narrowed by the task's `allowed_paths`. At most 40 files, 400,000 diff bytes, 1,000,000 bytes per file; no symlinks, submodules, executables, binary files or type changes; paths must be canonical | `policy.evaluate_changes` |
-| **Draft only, no merge, no deploy** | pull requests are always drafts (`draft: Literal[True]`); the code has no merge or deploy call; the only network peers are GitHub and the agent's model provider; the only subprocesses are `git`, the agent CLI and configured checks. Pushes are never forced | `config.PullRequestConfig`, `github.create_pull_request`, `gitops.push` |
+| **Protected paths** | 58 globs (safety chain, drivers, motor/blade/RoboHAT/tractor/Thor-link/power services, core, hardware and limit configuration, secrets, SSL, `systemd/`, `scripts/`, `spec/`, `hardware/`, `.github/`, agent policy files, `tools/agent_bridge/`, dependency manifests) can never be changed by a run. The agent-policy and git control files (`AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md`, `GEMINI.md`, `.claude/`, `.omp/`, `.agents/`, `.cursor/`, `.cursorrules`, `.mcp.json`, `.gitattributes`, `.gitmodules`, `.gitignore`, `.github/`, `.git/`) are protected at any depth, because the agent CLIs read them hierarchically and git applies a nested `.gitattributes` or `.gitignore`. The protected and read-deny lists match case-insensitively (NFC plus a lower/upper/lower fold, so Unicode equivalents such as the long s or the Kelvin sign cannot stand in for a letter), in Python and in the guard; write allow-sets stay exact. Setting `protected_paths` *replaces* the list | `config.DEFAULT_PROTECTED_PATHS`, `globs.match_any`, `globs.fold_case`, `policy.py`, `omp_guard.mjs` |
+| **Scope and size limits** | `docs-only` (`docs/**`, `*.md`) or `code` (adds `tools/**`, `tests/**`), further narrowed by the task's `allowed_paths`. At most 40 files, 400,000 diff bytes, 1,000,000 bytes per file; no symlinks, submodules, type changes or *new* executable bits (editing a file that is already executable is fine); no binary files: git's 8,000-byte heuristic is not trusted, so the bridge reads each added or modified blob up to `limits.max_file_bytes` and refuses any NUL byte or invalid UTF-8 (`binary`). Paths must be canonical, valid UTF-8 and free of control, format, line-separator and surrogate characters (`path_invalid`; the report shows them as `\uXXXX` escapes so it can be published) | `policy.evaluate_changes`, `globs.normalize_repo_path`, `gitops.staged_changes` |
+| **Draft only, no merge, no deploy** | pull requests are always drafts (`draft: Literal[True]`); the code has no merge or deploy call; the only network peers are GitHub and the agent's model provider; the only subprocesses are `git`, the agent CLI and configured checks. Pushes are never forced. The bridge verifies GitHub's answer, not only its own request: the pull request recorded for a run, found or just created, must be open, a draft and from the run's own branch, otherwise the run ends BLOCKED `pull_request_unexpected` before labels, the recorded PR number or the done comment (a closed or merged one, one opened ready for review, or one someone else opened from the branch right after the push) | `config.PullRequestConfig`, `github.create_pull_request`, `gitops.push`, `worker._publish_once` |
 | **Dry run** | `dry_run: true` by default; a real run needs `dry_run: false`, `--execute` and `--yes` (or an interactive "y"); a dry run wraps the GitHub client so any write raises | `cli._authorize_execution`, `publisher.ReadOnlyGitHub` |
-| **Scrubbed environment** | agents get an allow-list environment only; checks get `PATH HOME USER LOGNAME LANG TMPDIR` plus the values written in the configuration; git gets a small allow-list | `agents/base.py`, `checks.py`, `gitops.py` |
-| **Secret redaction** | the GitHub token and `extra_secret_env` values are scrubbed literally, and GitHub/Anthropic/OpenAI/AWS/Slack/Google keys, private keys, bearer tokens, JWTs, URL credentials and `NAME=value` secrets by pattern, from logs, captured output, comments, PR text and commit messages. Added diff lines are scanned and a hit blocks the run (`policy_violation`, code `secret`; the value is never stored) | `redact.py` |
-| **Prompt-injection defences** | only the title and the validated block reach the agent; trusted rules come first and the task is quoted between random-nonce markers with every line prefixed, labelled as data; commands come only from configuration by name (an issue can never supply a command line); agent text is untrusted, redacted and rendered inside a code fence | `prompt.py`, `schema.py`, `publisher.py` |
-| **Git hardening** | hooks disabled (`core.hooksPath=/dev/null`, `--no-verify`), no fsmonitor, no external protocols, no prompts, no signing; the worktree's `.git` pointer and `HEAD` are checked after the agent (`worktree_tampered`); agents are told not to use git and the file-only tool set cannot | `gitops.py`, `worker._verify_and_commit` |
+| **Scrubbed environment** | agents get an allow-list environment only. Checks run with a scrubbed environment and an empty private `HOME`: a fresh directory (mode 0700, with `tmp`, `.config`, `.cache`, `.local/share` below it) that is removed when the check ends; `PATH` is the bridge interpreter's directory followed by `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`; `USER` and `LOGNAME` are `agent-bridge`; git's global and system configuration are off (`GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` are `/dev/null`, `GIT_CONFIG_NOSYSTEM=1`); only `LANG` is inherited; then come the values written in the check's configured `env`. A check that needs a credential or a tool outside those directories sets it there or uses an absolute path. Git gets a small allow-list | `agents/base.py`, `checks.py` (`CHECK_PATH_DIRS`, `CHECK_IDENTITY`), `gitops.py` |
+| **Secret redaction** | the GitHub token, the `extra_secret_env` values and the values of every credential handed to an agent (`pass_env` of each backend) are scrubbed literally (case-insensitively, and in URL-encoded, JSON-escaped and base64 forms, also when a line break or invisible character splits them), and GitHub (`gh*_` and `github_pat_`, uncapped), Anthropic, OpenAI, AWS (including a bare secret key), Slack, Google (API and OAuth), npm, GitLab, Stripe, Hugging Face, Groq, NVIDIA and xAI keys, private keys, `Authorization` headers, bearer tokens, JWTs, URL credentials and `NAME=value` secrets (a 4-7 character password value only when it contains a digit or symbol or is quoted) by pattern, from logs, captured output, comments, PR text and commit messages. Added diff lines are scanned and a hit blocks the run (`policy_violation`, code `secret`; the value is never stored). The scan is bounded: the worst 1 MB hostile input takes about 0.3 s | `redact.py`, `cli.build_runtime` |
+| **Prompt-injection defences** | only the title and the validated block reach the agent; trusted rules come first and the task is quoted between random-nonce markers with every line prefixed, labelled as data; commands come only from configuration by name (an issue can never supply a command line); agent text is untrusted, redacted and rendered inside a code fence. The commit message holds no agent text: only the subject `agent(#N): <issue title, cut to 60 characters>` and the trailers (`<closing keyword> #N`, `Agent-Bridge-Run`, `Agent-Backend`, `Approved-By`), because a closing keyword, an `@mention` or a `Co-authored-by` line in a commit message takes effect on the default branch once a human merges; the agent's summary stays, redacted and fenced, in the PR body and the done comment. Issue-derived text that the bridge writes itself (every refusal reason, the title in the PR-body table) is rendered as an inline code span that the text cannot close, with every pipe character backslash-escaped in the table cell, so an `@everyone` or a link in a YAML key arrives as inert code. The `agent-result` block is located in linear time (a line scanner), so a hostile final text cannot stall the worker | `prompt.py`, `schema.py`, `publisher.py` (`_issue_line`), `worker._commit_message`, `agents/base.py` (`extract_report`) |
+| **Git hardening and publication integrity** | hooks disabled (`core.hooksPath=/dev/null`, `--no-verify`), no fsmonitor, no external protocols, no prompts, no signing; agents are told not to use git and the file-only tool set cannot. Code that the agent wrote runs unsandboxed in the checks (`pytest` imports `conftest.py`), so the state that decides what a branch publishes is fingerprinted when the worktree is created (`GitSnapshot`: the sha256 of the clone's `config` file, the worktree's `.git` pointer text, HEAD and its branch, and every `refs/heads/<branch_prefix>*`) and compared again after the agent phase and after the checks, before the verdict is read. Any difference, or a repository git can no longer read, ends the run BLOCKED `worktree_tampered` with nothing committed or pushed. After the commit its only parent must be `base_sha` (read from the raw commit, so replace refs and grafts cannot fake it). Other refs, tags, remote-tracking refs and other worktrees are ignored on purpose, so the owner can keep working in the clone | `gitops.py` (`GitSnapshot`, `state_snapshot`, `commit_parents`), `worker._verify_and_commit` |
+| **Remote is the configured repository** | approvals, labels and pull requests go to `repository` through the API, while the base is fetched from and the branch pushed to the clone's remote. Before every run's fetch (also with `fetch_before_run` off) and again right before the first push of every publication, resumed ones included, the fetch URL and every push URL (`pushurl`, `url.*.pushInsteadOf` and a second URL are applied) must name `repository` on the host of `github.api_url`. https, `ssh://` and scp-like spellings are accepted in any letter case with or without `.git`; `github.com` also accepts `ssh.github.com`. Anything else ends the run BLOCKED `remote_mismatch`, and the message never echoes a credential embedded in a URL. A local path or `file://` remote cannot be compared and is allowed with one warning | `remote.py` (`check_remote`), `worker._verify_remote`, `gitops.push_urls`, `config.GitHubConfig.web_host` |
+| **The guard must prove it ran (omp)** | an omp run that used tools ends BLOCKED `agent_guard_inactive` unless the guard's audit log has a well-formed row for every tool call (see "Why the guard exists"); nothing is published. Runs without tool calls and the Claude backend are unaffected | `agents/omp.py` (`GuardAudit`, `_guard_audit`), `worker.HINTS` |
 | **One run at a time** | a ledger lease allows a single active run (`busy` otherwise); `poll.max_jobs_per_poll` defaults to 1; at most 3 runs per issue; identical task content in another issue is refused (`duplicate_task`) | `ledger.lease`, `config.LimitsConfig` |
 | **Terminal states are final** | a run that is `done`, `blocked` or `cancelled` is never moved again: `Ledger.set_phase` refuses it (`RunStateError`) and `Ledger.finish` returns `False` without writing, so a stale or second process cannot move a cancelled run back to `publishing` (and push it) or overwrite its outcome. A worker that loses its run stops without reporting or cleaning up after it. `finish` is conditional on the run being `pending`, `running` or `publishing`; `set_phase` on `running` or `publishing` | `ledger.set_phase`, `ledger.finish`, `worker._conclude`, `worker._publish_once` |
 | **Bot comments are trusted only from the bridge's own account** | every report comment carries a hidden marker so a retry never posts twice, but the markers are public and predictable (the run id is in the "started" comment; refusal keys come from the issue number, event id and code). A marker only counts when the comment's author is the account the token belongs to (`GET /user`, compared case-insensitively, looked up once per process), so another user pre-posting `...-done` or `...-blocked` cannot suppress the bridge's report. A token that cannot call `GET /user` ends the run `github_permission` | `publisher.Publisher.comment_once`, `github.HttpGitHubClient.viewer_login` |
 | **Not on the mower** | the worker runs on the developer workstation only; it imports nothing from `backend/`, holds no mower credentials and has no SSH or hardware path | design; install guidance in the operations guide |
+| **Reporting a finished run is bounded** | the final comment and labels are retried on later polls, at most `limits.max_notify_attempts` failures (default 5), and at once abandoned when GitHub answers 404 (the issue is gone). The attempts are counted in `result_json` (`notify_attempts`), every failure is a `notify.failed` event and giving up a `notify.gave_up` event with `notified: "gave_up"` and its reason, so `recover` says `reported run X` only when the report really landed and otherwise `could not report run X (attempt k of N)`, with `; giving up: <reason>` on the last | `worker._notify_terminal`, `worker._notify_failed`, `worker.recover` |
 
 What the bridge does **not** protect against: a model that makes a wrong but in-scope change (a human reviews
 every draft PR); an agent CLI that is itself compromised or holds credentials in its own configuration
 directory (the omp process runs as the workstation user, the guard confines its *tool calls*); network egress
 (the bridge does not firewall the agent). `agent.command_prefix` is the hook for an operating-system sandbox
 (see the operations guide).
+
+Without an operating-system sandbox the environment scrub of the checks removes ambient credentials, not file
+access: a check, or an allow-listed `bash` command, can still read any file it can name by absolute path. The
+publication-integrity gate (see "Git hardening and publication integrity") is what protects *what is published*; it
+does not confine what check code can read.
 
 ## Known limitations
 
@@ -444,6 +465,23 @@ directory (the omp process runs as the workstation user, the guard confines its 
   the agent's direct child; processes it spawned can outlive it.
 - Agent and omp/claude CLI versions are not pinned or enforced; `agent-bridge backends` prints what is
   installed and `smoke` is the compatibility check after an upgrade.
+- **Residuals of the review round (fixes F4-F10 and C-02 to C-13).**
+  - The issue title still appears in the commit subject (60 characters) and in the PR title: it is
+    approver-reviewed text and stays that way. Agent text no longer does.
+  - A GitHub outage longer than `limits.max_notify_attempts` polls abandons a pending report (`gave_up`), and a 404
+    is read as "the issue is gone" although it can also mean that the token lost visibility of the repository.
+  - `limits.publish_retry_delays` may add up to more than the lease; nothing validates that. The dry-run `preview`
+    does not warn about a remote mismatch (only a real run checks the remote).
+  - The guard's on-disk `omp-guard-audit.jsonl` holds up to 80 characters of raw path text per refused call,
+    because `omp_guard.mjs` was not changed to redact it. The ledger, the PR and the comments only ever get the
+    cleaned, redacted samples.
+  - A clone that the owner or a second bridge process also uses ends a run `worktree_tampered` if its `config` or a
+    `refs/heads/<branch_prefix>*` ref changes while the run is in progress: give the bridge a dedicated clone.
+    Tags, other branches and other worktrees do not matter.
+  - Redaction is best effort: a token split so that its head already matches a pattern is redacted but its
+    continuation on the next line stays visible, a bare AWS key split over lines is not detected, and Windows
+    trailing-dot or short-name aliases of protected files are not covered (the bridge is Linux-only).
+  - The Claude backend is still unproven end to end and has no path guard (see above).
 
 ## Deviations from the original spec
 

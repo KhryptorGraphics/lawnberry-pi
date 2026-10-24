@@ -553,3 +553,21 @@ Honest limitations:
   after the lease, before verification and before every push). Still open: a requeued run whose issue
   was closed while it waited stays `pending`, and `PR_SET_PDEATHSIG` reaps only the agent's direct child
   if the bridge is killed abruptly.
+
+Review round (PR #17, 17 findings fixed in code and tests, documents updated to match): F4 no agent text
+in the commit message; F5 issue-derived text rendered as inert code spans; F6 only an open draft PR from the
+run's own branch is adopted (`pull_request_unexpected`); F7 the git remote must be the configured repository
+(`remote_mismatch`, `remote.py`); F8 reporting a finished run is bounded (`max_notify_attempts`, give up on 404);
+F9 lease >= 2x abort poll, poll = min(cancel_poll, ttl/3); C-02 checks run with a scrubbed env and an empty
+private HOME, and the shared git state (config, `.git` pointer, HEAD, agent branches) is fingerprinted and
+re-checked after the agent and the checks (`worktree_tampered`, commit parent must be `base_sha`); C-03 an omp run
+that used tools needs one guard audit row per call (`agent_guard_inactive`); C-04/05 nested policy files protected,
+deny lists case-insensitive; C-06 only a new exec bit refused; C-07 binary scan reads blobs; C-08 hidden characters
+in file names are `path_invalid`; C-09 linear-time `agent-result` parser; C-10 redaction gaps closed, `pass_env` and
+`extra_secret_env` registered; C-13 audit/stream samples cleaned before they are cut. F3 and F10 were already in.
+Still open: Claude backend unproven and without a path guard; Phase 5 needs the owner's token and approval; the
+guard's on-disk audit file keeps up to 80 raw path characters (`omp_guard.mjs` does not redact); no OS sandbox, so a
+check can still read any file by absolute path; a shared clone ends runs `worktree_tampered` (use a dedicated one);
+outages longer than `max_notify_attempts` polls drop a pending report and a 404 may mean lost token visibility;
+`publish_retry_delays` longer than the lease and `preview` not warning on a remote mismatch; the issue title stays
+in the commit subject and PR title. Owner decision O-1: whether `code` scope is ever enabled.

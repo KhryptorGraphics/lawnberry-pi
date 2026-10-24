@@ -129,10 +129,10 @@ checks: {}
 | `git` | `remote origin`, `base_branch main`, `branch_prefix agent/`, `author_name`/`author_email` for commits, `push_auth` (`ambient` = whatever credentials git already has; `token` = push over https with the bridge token via `GIT_ASKPASS`, never on a command line), `fetch_before_run true`, `keep_worktrees` (`never`, `on-failure` default, `always`), `git_timeout_seconds` 120 |
 | `pull_request` | `closing_keyword` (`Refs` default, or `Closes`/`Fixes`), `title_prefix "[agent] "`, `labels []` (added to the PR). Draft is fixed and cannot be turned off |
 | `poll` | `interval_seconds` 60, `max_jobs_per_poll` 1, `error_backoff_seconds` 120 |
-| `agent` | `default omp`, `allowed [omp, claude]`, `omp`/`claude` each with `binary`, `model`, `thinking` (`off minimal low medium high xhigh max auto`), `extra_args`, `pass_env` (claude defaults to `ANTHROPIC_API_KEY`); `command_prefix` (sandbox hook, below), `kill_grace_seconds` 10, `cancel_poll_seconds` 15 |
-| `limits` | `budget_usd` 2.0 / `max_budget_usd` 5.0, `timeout_minutes` 20 / `max_timeout_minutes` 60, `max_attempts_per_issue` 3, `auto_retry_interrupted` 1, `max_start_retries` 3, `max_publish_attempts` 5, `publish_retry_delays [2, 10, 30]`, `lease_ttl_seconds` 180, `max_log_bytes` 4,000,000, `max_final_text_chars` 6000, `max_changed_files` 40, `max_diff_bytes` 400,000, `max_file_bytes` 1,000,000 |
+| `agent` | `default omp`, `allowed [omp, claude]`, `omp`/`claude` each with `binary`, `model`, `thinking` (`off minimal low medium high xhigh max auto`), `extra_args`, `pass_env` (claude defaults to `ANTHROPIC_API_KEY`; every value listed here is also registered with the redactor); `command_prefix` (sandbox hook, below), `kill_grace_seconds` 10, `cancel_poll_seconds` 15 (how often the abort check runs, which also renews the lease: it is `min(cancel_poll_seconds, lease_ttl_seconds / 3)` in practice) |
+| `limits` | `budget_usd` 2.0 / `max_budget_usd` 5.0, `timeout_minutes` 20 / `max_timeout_minutes` 60, `max_attempts_per_issue` 3, `auto_retry_interrupted` 1, `max_start_retries` 3, `max_publish_attempts` 5, `publish_retry_delays [2, 10, 30]`, `max_notify_attempts` 5 (1-50: failed attempts to report a finished run before giving up), `lease_ttl_seconds` 180 (**must be at least twice `agent.cancel_poll_seconds`**, or the configuration is refused: `limits.lease_ttl_seconds (20) must be at least twice agent.cancel_poll_seconds (15)...`), `max_log_bytes` 4,000,000, `max_final_text_chars` 6000, `max_changed_files` 40, `max_diff_bytes` 400,000, `max_file_bytes` 1,000,000 (also the largest blob the binary scan reads) |
 | `scopes` | `allowed [docs-only]` (add `code` deliberately), `docs_paths [docs/**, "*.md"]`, `code_paths [docs/**, "*.md", tools/**, tests/**]` |
-| `protected_paths` | leave it out. The built-in list (43 globs) keeps agents out of the safety chain, drivers, hardware and limit configuration, secrets, `systemd/`, `scripts/`, `.github/`, agent policy files, `tools/agent_bridge/` and dependency manifests. **Setting it replaces the list**: copy the defaults first if you extend it |
+| `protected_paths` | leave it out. The built-in list (58 globs) keeps agents out of the safety chain, drivers, hardware and limit configuration, secrets, `systemd/`, `scripts/`, `.github/`, agent policy files and git control files at any depth (`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.omp/`, `.gitattributes`, `.gitignore`, `.git/`, ...), `tools/agent_bridge/` and dependency manifests; protected and read-deny globs match case-insensitively. **Setting it replaces the list**: copy the defaults first if you extend it |
 | `checks`, `default_checks` | named verification commands the bridge itself runs in the worktree: `argv` (list), `timeout_seconds` (600), `env` (literal values). A task can request a check by name and can never supply a command. Use absolute paths for tools outside the worktree: a worktree has no `.venv` of its own |
 | `prompt` | `context_files [CLAUDE.md, .github/copilot-instructions.md]` (read from the base branch into every prompt), `max_context_chars` 20,000 |
 
@@ -152,6 +152,20 @@ default_checks: []
 
 A check must leave the worktree exactly as it found it; one that creates files (caches, reports) ends the run
 `checks_modified_tree`.
+
+**The environment of a check.** In `code` scope a check runs agent-written code (`pytest` imports the agent's
+`conftest.py`), so it does not inherit the bridge's environment. It gets a fresh, empty private `HOME` (mode 0700,
+with `tmp`, `.config`, `.cache` and `.local/share` below it; `TMPDIR` and the `XDG_*` variables point into it) that
+is removed when the check ends, `PATH` set to the directory of the bridge's Python interpreter followed by
+`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`, `USER` and `LOGNAME` set to `agent-bridge`, git's
+global and system configuration turned off, `GIT_TERMINAL_PROMPT=0`, and `LANG` if the bridge has one; the check's
+configured `env` is applied on top. Nothing else (no token, `SSH_AUTH_SOCK`, `~/.gitconfig`, cloud credential) is
+passed. A check that needs a credential, or a tool that is not in those directories, must set it in its own `env`
+or use an absolute path in `argv`. The scrub removes ambient credentials, not file access: without a sandbox
+(`agent.command_prefix`) a check can still read any file it names by absolute path. After the agent phase and after
+the checks the bridge compares the clone's `config`, the worktree's `.git` pointer and HEAD and
+`refs/heads/<branch_prefix>*` with their state at worktree creation (`worktree_tampered` below). Use a clone that
+only the bridge uses.
 
 ## CLI reference
 
@@ -364,14 +378,17 @@ sqlite3 -readonly "$S" "select run_id, status, phase, lease_expires_at from runs
 ```
 
 Event kinds: `lease.granted`, `lease.resumed`, `lease.denied`, `phase.<phase>`, `finish.<status>`,
-`run.requeued`, `refused.<code>` (once per distinct refusal), `notify.failed`.
+`run.requeued`, `refused.<code>` (once per distinct refusal), `notify.failed` (with the `attempt` number),
+`notify.gave_up` (reporting a finished run was abandoned: `attempts`, `limit`, `reason`).
 
 ## Failures and recovery
 
 Everything below is reported to the issue (blocked and cancelled runs get a comment with the reason and hints)
 and stored in the ledger (`runs.failure_kind`, `failure_detail`, `result_json`). A blocked run never pushed a
-branch or opened a PR, **except** `publish_failed`, `push_failed` and `github_error`, which happen during
-publication (the commit stays in the kept worktree).
+branch or opened a PR, **except** `publish_failed`, `push_failed`, `github_error` and `pull_request_unexpected`
+(the branch is pushed and a pull request exists), which happen during publication (the commit stays in the kept
+worktree). `remote_mismatch` can also be found right before the first push: nothing was pushed then, the commit stays
+local.
 
 ### Run endings (`failure_kind`)
 
@@ -390,10 +407,13 @@ publication (the commit stays in the kept worktree).
 | `agent_unavailable` | blocked | the agent binary is missing, not executable or could not be started | install it, fix `agent.<name>.binary`, or pick the other backend with `agent:` |
 | `agent_blocked` | blocked | the agent reported `blocked`: it judged it could not do the task safely and changed nothing | read its summary in the comment; rewrite the task or do it by hand |
 | `no_changes` | blocked | the agent finished without changing any file | rephrase the objective |
-| `policy_violation` | blocked | the staged diff broke the change policy; the comment lists each violation: `protected_path`, `outside_scope`, `too_many_files`, `diff_too_big`, `too_large`, `path_invalid`, `symlink`, `submodule`, `executable`, `type_change`, `binary`, `secret` | a human makes protected or out-of-scope changes; narrow the task; for `secret`, rotate the credential if it was real |
+| `policy_violation` | blocked | the staged diff broke the change policy; the comment lists each violation: `protected_path`, `outside_scope`, `too_many_files`, `diff_too_big`, `too_large`, `path_invalid` (a name that is not canonical, not UTF-8, or contains a control, invisible/format, line-separator or surrogate character; shown as `\uXXXX` escapes), `symlink`, `submodule`, `executable` (a *new* executable bit; editing a file that is already executable is allowed), `type_change`, `binary` (a NUL byte or invalid UTF-8 in a blob up to `limits.max_file_bytes`, or git's own verdict), `secret` | a human makes protected or out-of-scope changes; narrow the task; for `secret`, rotate the credential if it was real |
 | `checks_failed` | blocked | a named check failed (the first failure stops the sequence) | read `runs/<id>/checks/check-<name>.*.log` and the comment tail; fix the task or the check |
 | `checks_modified_tree` | blocked | the checks created or changed files in the worktree | make the check side-effect free |
-| `worktree_tampered` | blocked | the worktree's `.git` pointer changed or `HEAD` moved during the agent run | treat the agent as faulty: inspect `worktrees/<run_id>` before re-approving anything |
+| `worktree_tampered` | blocked | the shared git state differed from its state at worktree creation after the agent phase or after the checks: the worktree's `.git` pointer or `HEAD` changed, the clone's `config` file changed, or a `refs/heads/<branch_prefix>*` branch was created, moved or deleted; or git can no longer read the repository; or the new commit's parent is not `base_sha`. Nothing was committed or pushed | treat the agent (or a check) as faulty: inspect `worktrees/<run_id>` and the failure detail before re-approving anything. If the cause is your own work in the same clone (config edit, branch under the agent prefix, a second bridge), use a dedicated clone for the bridge |
+| `agent_guard_inactive` | blocked | omp ran tools but the guard's audit log (`runs/<id>/agent/omp-guard-audit.jsonl`) is missing, unreadable or has fewer well-formed rows than tool calls, so the guard cannot be shown to have confined them. Nothing was published | run `smoke --backend omp --probe-guard`; upgrade or downgrade omp until it passes; then re-approve |
+| `remote_mismatch` | blocked | the clone's git remote (the fetch URL or any push URL, `pushurl` and `pushInsteadOf` included) is not `repository` on the host of `github.api_url`; checked before every run's fetch and again before the first push. The message names the remote's host and repository (never a credential) | point `git.remote` and `repo_path` at a clone of the configured repository (fix its `pushurl` too), then re-approve. `preview` does not warn about this |
+| `pull_request_unexpected` | blocked | the pull request found or created for the run's branch is not an open draft from that branch (closed or merged, ready for review, or opened by someone else); nothing was labelled and no done comment was posted | close it, or turn it into a draft if it is the bridge's own work, then re-approve |
 | `commit_failed` | blocked | `git commit` failed | read `bridge.log` (disk space, git setup) |
 | `task_changed` | blocked | the issue title or body changed after approval (found at start, during the agent or check poll, or before the push) | review the edit, then remove and re-apply `agent-approved` |
 | `github_permission` | blocked | the token is rejected: at start it cannot update labels/comments or cannot call `GET /user`, at publish it needs Contents, Pull requests and Issues read/write | fix the token scopes (see [Permissions](#permissions)), re-approve |
@@ -411,6 +431,17 @@ Network problems do not end a run by themselves: GitHub or the git remote unreac
 the run (`max_start_retries`); an unreachable GitHub during the abort poll is ignored; publication retries after
 2, 10 and 30 seconds and is then deferred, the run staying `publishing` until a later pass resumes it
 (`max_publish_attempts`). Duplicates are prevented by the ledger, never by comments.
+
+**When the report itself cannot be delivered.** A run that finished (done, blocked or cancelled) is reported with a
+comment and a label change. If that fails, `recover` and every poll retry it, but at most `limits.max_notify_attempts`
+failed attempts (default 5, counted in `result_json.notify_attempts`, one `notify.failed` event each). A 404 (the issue
+is gone) ends the retries at once. Giving up sets `result_json.notified` to `gave_up`, records the reason
+(`issue not found (404)` or `attempt limit reached`) in `notify_gave_up` and logs a `notify.gave_up` event, and the run
+is never reported again, even when GitHub recovers; `recover` prints `reported run X` only for a report that landed and
+`could not report run X (attempt k of N)` (with `; giving up: <reason>` on the last) otherwise. A GitHub outage longer
+than that many polls therefore abandons a pending report, and a 404 can also mean that the token lost access to the
+repository: raise `max_notify_attempts` if outages are common, and check the token before blaming the issue. Read the
+run with `status` (the failure kind is unaffected) when no comment appears.
 
 ### Refusals (no run is created)
 
