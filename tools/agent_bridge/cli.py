@@ -117,7 +117,12 @@ def find_config(arg: str | None) -> Path:
 
 def build_runtime(cfg: BridgeConfig, *, execute: bool, verbose: bool = False) -> Runtime:
     token = resolve_github_token(cfg.github)
-    extra = [os.environ[name] for name in cfg.extra_secret_env if os.environ.get(name)]
+    # every credential the operator hands to an agent (pass_env of each backend) or names
+    # (extra_secret_env) is a literal; patterns alone miss keys without a recognisable shape
+    secret_env = dict.fromkeys(
+        [*cfg.extra_secret_env, *cfg.agent.omp.pass_env, *cfg.agent.claude.pass_env]
+    )
+    extra = [os.environ[name] for name in secret_env if os.environ.get(name)]
     redactor = Redactor([token, *extra])
     state_dir = cfg.resolved_state_dir()
     state_dir.mkdir(parents=True, exist_ok=True)

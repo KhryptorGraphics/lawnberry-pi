@@ -53,6 +53,21 @@ SECRET_SAMPLES: dict[str, list[str]] = {
     "private-key": [PEM, PEM.replace("RSA ", ""), PEM.replace("RSA", "OPENSSH")],
     "bearer-token": ["Bearer " + "abcdefghijklmnopqrstuvwxyz0123456789", "bearer " + "A" * 24],
     "jwt": [JWT],
+    # added with the C-10 fix: each sample is replaced whole, whatever surrounds it
+    "aws-secret-key": ["wJalrXUtnFEMI" + "/K7MDENG/bPxRfiCYEXAMPLEKEY"],
+    "google-oauth-token": ["ya29." + "a0AfH6SMBx1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"],
+    "gitlab-token": ["glpat-" + "A1b2C3d4E5f6G7h8I9j0"],
+    "npm-token": ["npm_" + ALNUM36],
+    "stripe-key": ["sk_live_" + ALNUM36[:24], "rk_test_" + ALNUM36[:24]],
+    "huggingface-token": ["hf_" + ALNUM36[:34]],
+    "groq-key": ["gsk_" + ALNUM36 + "A1b2C3d4E5f6G7h8"],
+    "nvidia-key": ["nvapi-" + ALNUM36 + "-_" + ALNUM36[:20]],
+    "xai-key": ["xai-" + ALNUM36 + ALNUM36],
+    "authorization": [
+        "Authorization: Basic " + "dXNlcjpodW50ZXIyaHVudGVyMg==",
+        "Authorization: token " + "0123456789abcdef" * 2,
+        "Proxy-Authorization: Bearer " + "s3cr3tT0k3n",
+    ],
 }
 # (prefix, suffix) pairs: the text around a secret must survive untouched.
 SURROUNDINGS = [
