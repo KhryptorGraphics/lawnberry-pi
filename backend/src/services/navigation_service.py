@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -237,13 +238,25 @@ class NavigationService:
             self.navigation_state.navigation_mode = NavigationMode.IDLE
             logger.info(f"Mission {mission.id} completed.")
 
-    async def go_to_waypoint(self, waypoint: "MissionWaypoint"):  # noqa: F821
-        """Navigate to a single waypoint and block until arrival."""
+    async def go_to_waypoint(
+        self,
+        waypoint: "MissionWaypoint",  # noqa: F821
+        *,
+        should_continue: Callable[[], bool] | None = None,
+    ):
+        """Navigate to a single waypoint and block until arrival.
+
+        ``should_continue`` is an external gate for legs that belong to no mission (the Thor
+        plan follower): it is polled at the top of every control tick, and the first time it
+        returns False the platform is soft-stopped and the call returns without arriving.
+        A gated leg ignores mission status, so a plan can never be steered by (or paused
+        through) a mission it is not part of.
+        """
         from ..models.tractor_control import TractorCommand
         from .mission_service import get_mission_service
         from .tractor_service import get_tractor_service
 
-        mission_service = get_mission_service()
+        mission_service = get_mission_service() if should_continue is None else None
         tractor = get_tractor_service()
 
         target_pos = Position(latitude=waypoint.lat, longitude=waypoint.lon)
@@ -263,6 +276,11 @@ class NavigationService:
             logger.warning("Blade command failed or unavailable; continuing movement")
 
         while True:
+            if should_continue is not None and not should_continue():
+                logger.info("Waypoint navigation halted by the caller's gate.")
+                await self._stop_platform()
+                return
+
             if not self.navigation_state.current_position:
                 await asyncio.sleep(0.5)
                 continue
@@ -271,7 +289,9 @@ class NavigationService:
             mission_id = next(
                 (
                     mid
-                    for mid, m in mission_service.missions.items()
+                    for mid, m in (
+                        mission_service.missions.items() if mission_service is not None else ()
+                    )
                     if waypoint.id in [w.id for w in m.waypoints]
                 ),
                 None,
