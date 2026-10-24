@@ -140,7 +140,9 @@ async def get_service() -> AIInferenceService:
 # ----------------------- API Endpoints -----------------------
 
 
-@router.post("/enable", response_model=EnableAIResponse)
+@router.post(
+    "/enable", response_model=EnableAIResponse, dependencies=[Depends(require_operator_auth)]
+)
 async def enable_ai_control(
     request: EnableAIRequest,
     service: AIInferenceService = Depends(get_service),  # noqa: B008
@@ -176,7 +178,9 @@ async def enable_ai_control(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/disable", response_model=EnableAIResponse)
+@router.post(
+    "/disable", response_model=EnableAIResponse, dependencies=[Depends(require_operator_auth)]
+)
 async def disable_ai_control(
     service: AIInferenceService = Depends(get_service),  # noqa: B008
 ) -> EnableAIResponse:
@@ -240,7 +244,9 @@ async def get_ai_status(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/model", response_model=LoadModelResponse)
+@router.post(
+    "/model", response_model=LoadModelResponse, dependencies=[Depends(require_operator_auth)]
+)
 async def load_model(
     request: LoadModelRequest,
     service: AIInferenceService = Depends(get_service),  # noqa: B008
@@ -339,7 +345,7 @@ async def get_metrics(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/metrics/reset")
+@router.post("/metrics/reset", dependencies=[Depends(require_operator_auth)])
 async def reset_metrics(
     service: AIInferenceService = Depends(get_service),  # noqa: B008
 ) -> dict[str, Any]:

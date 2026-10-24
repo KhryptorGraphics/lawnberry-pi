@@ -29,6 +29,7 @@ from ...services.perimeter_recorder import (
     RecordingState,
     get_perimeter_recorder,
 )
+from ..deps import require_operator_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -100,7 +101,11 @@ class HealthResponse(BaseModel):
 # ----------------------- API Endpoints -----------------------
 
 
-@router.post("/start", response_model=RecordingSessionResponse)
+@router.post(
+    "/start",
+    response_model=RecordingSessionResponse,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def start_recording(
     request: StartRecordingRequest,
     recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
@@ -146,7 +151,11 @@ async def start_recording(
         raise HTTPException(status_code=500, detail=f"Failed to start recording: {e}") from e
 
 
-@router.post("/stop", response_model=RecordingSessionResponse)
+@router.post(
+    "/stop",
+    response_model=RecordingSessionResponse,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def stop_recording(
     recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
 ) -> RecordingSessionResponse:
@@ -200,7 +209,7 @@ async def stop_recording(
         raise HTTPException(status_code=500, detail=f"Failed to stop recording: {e}") from e
 
 
-@router.post("/pause")
+@router.post("/pause", dependencies=[Depends(require_operator_auth)])
 async def pause_recording(
     recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
 ) -> dict[str, str]:
@@ -227,7 +236,7 @@ async def pause_recording(
         raise HTTPException(status_code=500, detail=f"Failed to pause recording: {e}") from e
 
 
-@router.post("/resume")
+@router.post("/resume", dependencies=[Depends(require_operator_auth)])
 async def resume_recording(
     recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008
 ) -> dict[str, str]:
@@ -348,7 +357,7 @@ async def get_session(
     return session_data
 
 
-@router.delete("/sessions/{session_id}")
+@router.delete("/sessions/{session_id}", dependencies=[Depends(require_operator_auth)])
 async def delete_session(
     session_id: str,
     recorder: PerimeterRecordingService = Depends(get_perimeter_recorder),  # noqa: B008

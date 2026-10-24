@@ -10,12 +10,13 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from ...core.persistence import persistence
 from ...services.websocket_hub import websocket_hub
+from ..deps import require_operator_auth
 from .auth import _authorize_websocket, _extract_bearer_token
 
 logger = logging.getLogger(__name__)
@@ -384,7 +385,7 @@ async def export_telemetry_diagnostic(
         )
 
 
-@router.post("/telemetry/ping")
+@router.post("/telemetry/ping", dependencies=[Depends(require_operator_auth)])
 async def telemetry_ping(request: TelemetryPingRequest):
     """Return latency percentiles and samples to meet contract tests"""
     samples = []

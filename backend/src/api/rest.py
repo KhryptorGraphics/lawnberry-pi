@@ -81,7 +81,7 @@ def get_map_zones(request: Request):
     return JSONResponse(content=data, headers=headers)
 
 
-@router.post("/map/zones", response_model=list[Zone])
+@router.post("/map/zones", response_model=list[Zone], dependencies=[Depends(require_operator_auth)])
 def post_map_zones(zones: list[Zone]):
     global _zones_store
     _zones_store = zones
@@ -137,7 +137,9 @@ def get_map_locations(request: Request):
     return JSONResponse(content=data, headers=headers)
 
 
-@router.put("/map/locations", response_model=MapLocations)
+@router.put(
+    "/map/locations", response_model=MapLocations, dependencies=[Depends(require_operator_auth)]
+)
 def put_map_locations(locations: MapLocations):
     global _locations_store
     _locations_store = locations
@@ -309,7 +311,12 @@ class DriveContractIn(BaseModel):
     reason: Optional[str] = None
 
 
-@router.post("/control/drive", response_model=ControlResponseV2, status_code=202)
+@router.post(
+    "/control/drive",
+    response_model=ControlResponseV2,
+    status_code=202,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def control_drive_v2(cmd: dict, request: Request):
     """Execute drive command with safety checks and audit logging"""
     import uuid
@@ -492,7 +499,7 @@ class BladeContractIn(BaseModel):
     reason: Optional[str] = None
 
 
-@router.post("/control/blade")
+@router.post("/control/blade", dependencies=[Depends(require_operator_auth)])
 async def control_blade_v2(cmd: dict, request: Request):
     """Execute blade command with safety interlocks and audit logging"""
     import uuid
