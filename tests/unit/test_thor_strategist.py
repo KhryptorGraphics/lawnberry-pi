@@ -67,6 +67,22 @@ def test_pause_without_rtk_fix_and_window_size():
     assert len(down.waypoints) == MAX_WAYPOINTS and down.start_index == 2
 
 
+def test_every_answer_echoes_the_uplink_it_answers():
+    """The Pi acts only on a downlink echoing its uplink's sid/seq; that includes every pause."""
+    s = ThorStrategist(YARD, [BED])
+    cases = {
+        "window": (_fixed(s, 3), False),
+        "no rtk fix": (_fixed(s, 4).model_copy(update={"fix": "rtk_float"}), True),
+        "estop": (_fixed(s, 5, estop=True), True),
+        "plan finished": (_fixed(s, len(s.legs)), True),
+    }
+    for name, (up, expect_pause) in cases.items():
+        up = up.model_copy(update={"sid": 777_000 + up.seq})
+        down = s.on_uplink(up)
+        assert (down.sid, down.ack) == (up.sid, up.seq), name
+        assert down.pause is expect_pause, name
+
+
 def test_resume_after_interruption(tmp_path):
     s = ThorStrategist(YARD, [BED], plan_id="mow1")
     mid = len(s.legs) // 2
