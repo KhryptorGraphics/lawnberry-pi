@@ -35,7 +35,8 @@
             <button class="btn btn-secondary" :disabled="busy || state?.engine !== 'running'" @click="stopEngine">Stop engine</button>
           </div>
           <div class="estop-row">
-            <button class="btn btn-emergency" :disabled="busy" @click="emergencyStop">🛑 EMERGENCY STOP</button>
+            <!-- Never disabled: the E-stop must stay clickable while any other request is in flight. -->
+            <button class="btn btn-emergency" @click="emergencyStop">🛑 EMERGENCY STOP</button>
             <button
               v-if="state?.emergency_stop_active"
               class="btn btn-warning"
@@ -52,7 +53,7 @@
       <div class="card">
         <div class="card-header"><h3>Drivetrain</h3></div>
         <div class="card-body">
-          <label class="ctl">Left Lever <span>{{ leftLever.toFixed(2) }} · {{ leverLabel(leftLever) }}</span></label>
+          <label class="ctl">Left Lever <span data-testid="left-lever-command">{{ leftLever.toFixed(2) }} · {{ leverLabel(leftLever) }}</span></label>
           <input
             v-model.number="leftLever"
             type="range"
@@ -61,11 +62,16 @@
             step="0.05"
             data-testid="left-lever-slider"
             :disabled="locked"
-            @change="onLeftLever"
+            @pointerdown="hold.grip('left', 'pointer', $event.pointerId)"
+            @keydown="hold.grip('left')"
+            @input="hold.input('left')"
+            @keyup="hold.release('left')"
+            @blur="hold.release('left')"
           >
           <div class="ctl-ends"><span>reverse</span><span>forward</span></div>
+          <div class="held" data-testid="left-lever-held">Backend is holding {{ leverHeld(state?.left_lever) }}</div>
 
-          <label class="ctl">Right Lever <span>{{ rightLever.toFixed(2) }} · {{ leverLabel(rightLever) }}</span></label>
+          <label class="ctl">Right Lever <span data-testid="right-lever-command">{{ rightLever.toFixed(2) }} · {{ leverLabel(rightLever) }}</span></label>
           <input
             v-model.number="rightLever"
             type="range"
@@ -74,13 +80,49 @@
             step="0.05"
             data-testid="right-lever-slider"
             :disabled="locked"
-            @change="onRightLever"
+            @pointerdown="hold.grip('right', 'pointer', $event.pointerId)"
+            @keydown="hold.grip('right')"
+            @input="hold.input('right')"
+            @keyup="hold.release('right')"
+            @blur="hold.release('right')"
           >
           <div class="ctl-ends"><span>reverse</span><span>forward</span></div>
+          <div class="held" data-testid="right-lever-held">Backend is holding {{ leverHeld(state?.right_lever) }}</div>
 
-          <button class="btn btn-secondary neutral-btn" :disabled="locked" @click="bothToNeutral">
+          <button
+            class="btn btn-secondary neutral-btn"
+            :disabled="!!state?.emergency_stop_active"
+            data-testid="neutral-button"
+            @click="bothToNeutral"
+          >
             Both levers to neutral
           </button>
+
+          <div class="hold-status" :class="{ active: holding }" data-testid="hold-status">
+            <template v-if="holding">
+              Commanding: re-sent every {{ refreshMs }} ms<template v-if="holdMs"> (backend hold {{ holdMs }} ms)</template>
+            </template>
+            <template v-else>
+              Not commanding anything from this page
+            </template>
+          </div>
+          <div
+            v-if="stopNotice"
+            class="hold-notice"
+            role="alert"
+            data-testid="hold-notice"
+          >
+            {{ stopNotice }}
+          </div>
+          <label class="latch">
+            <input
+              v-model="latch"
+              type="checkbox"
+              data-testid="latch-toggle"
+            >
+            Latch sliders (keep commanding after release)
+          </label>
+          <p class="hint">Hold a slider to drive; releasing it sends neutral. While a control is held the page re-sends its command, and the backend returns the machine to neutral on its own if the commands stop.</p>
         </div>
       </div>
 
@@ -88,17 +130,23 @@
       <div class="card">
         <div class="card-header"><h3>Engine &amp; Implement</h3></div>
         <div class="card-body">
-          <label class="ctl">Throttle (engine RPM) <span>{{ throttle.toFixed(2) }}</span></label>
+          <label class="ctl">Throttle (engine RPM) <span data-testid="throttle-command">{{ throttle.toFixed(2) }}</span></label>
           <input
             v-model.number="throttle"
             type="range"
             min="0"
             max="1"
             step="0.05"
+            data-testid="throttle-slider"
             :disabled="locked"
-            @change="onThrottle"
+            @pointerdown="hold.grip('throttle', 'pointer', $event.pointerId)"
+            @keydown="hold.grip('throttle')"
+            @input="hold.input('throttle')"
+            @keyup="hold.release('throttle')"
+            @blur="hold.release('throttle')"
           >
           <div class="ctl-ends"><span>idle</span><span>full</span></div>
+          <div class="held" data-testid="throttle-held">Backend is holding {{ throttleHeld(state?.throttle) }}</div>
 
           <label class="ctl">Blade (PTO)</label>
           <button
@@ -150,8 +198,11 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useTractorStore } from '@/stores/tractor'
 import { useCameraFeed } from '@/composables/useCameraFeed'
+import { useTractorHold } from '@/composables/useTractorHold'
 import { useWebSocket } from '@/services/websocket'
 import { useToastStore } from '@/stores/toast'
+import { describeApiError } from '@/utils/apiErrors'
+import type { TractorSafetyResponse } from '@/types/control'
 import CameraFeedCard from '@/components/control/CameraFeedCard.vue'
 
 const tractor = useTractorStore()
@@ -159,6 +210,10 @@ const toast = useToastStore()
 
 const state = computed(() => tractor.state)
 
+// The sliders are what THIS page is commanding right now: they sit at 0 whenever it is not
+// commanding anything. What the machine is actually holding is read from the backend state
+// (the "Backend is holding" lines), so a lever the backend let go of can never keep showing
+// the old slider value.
 const leftLever = ref(0)
 const rightLever = ref(0)
 const throttle = ref(0)
@@ -175,20 +230,40 @@ function leverLabel(value: number): string {
   return 'Neutral'
 }
 
+function leverHeld(value: number | undefined): string {
+  return value === undefined ? '—' : `${value.toFixed(2)} · ${leverLabel(value)}`
+}
+
+function throttleHeld(value: number | undefined): string {
+  return value === undefined ? '—' : value.toFixed(2)
+}
+
 function notify(msg: string, good = true) {
   toast.show(msg, good ? 'success' : 'error')
 }
 
-function syncFromState() {
-  const s = state.value
-  if (!s) return
-  leftLever.value = s.left_lever
-  rightLever.value = s.right_lever
-  throttle.value = s.throttle
-}
+// Hold-to-run: while a slider is held the page re-sends its command inside the backend's
+// command hold; see composables/useTractorHold.ts for every stop condition.
+const hold = useTractorHold({
+  values: { left: leftLever, right: rightLever, throttle },
+  emergencyStopActive: computed(() => !!state.value?.emergency_stop_active),
+  notify,
+})
+const { latch, holding, refreshMs, holdMs, stopNotice } = hold
 
-function handle(result: { status?: string; reason?: string }, label: string) {
-  if (result?.status === 'rejected') notify(`${label}: ${result.reason}`, false)
+function handle(result: TractorSafetyResponse | undefined, label: string) {
+  if (!result) return
+  if (result.status === 'rejected') {
+    notify(`${label}: ${result.reason}`, false)
+  } else if (result.status === 'partial') {
+    const latched = result.still_latched?.length ? ` (still latched: ${result.still_latched.join(', ')})` : ''
+    notify(`${label}: not fully applied${latched}`, false)
+  } else if (result.status === 'not_enabled') {
+    notify(`${label}: the tractor is not enabled on this backend`, false)
+  } else if (result.complete === false) {
+    // The latch is set but the backend could not confirm every output went safe.
+    notify(`${label}: latched, but NOT every output was confirmed (${result.faults?.join('; ') || 'see the backend log'})`, false)
+  }
 }
 
 async function call(fn: () => Promise<any>, label: string) {
@@ -196,35 +271,30 @@ async function call(fn: () => Promise<any>, label: string) {
   try {
     handle(await fn(), label)
   } catch (e: unknown) {
-    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-    notify(detail || `${label} failed`, false)
+    notify(describeApiError(e, `${label} failed`), false)
   } finally {
     busy.value = false
   }
 }
 
-const onLeftLever = () => call(() => tractor.setLeftLever(leftLever.value), 'Left lever')
-const onRightLever = () => call(() => tractor.setRightLever(rightLever.value), 'Right lever')
-const onThrottle = () => call(() => tractor.setThrottle(throttle.value), 'Throttle')
 const toggleBlade = () => call(() => tractor.setBlade(!state.value?.blade_engaged), 'Blade')
 const startEngine = () => call(() => tractor.startEngine(), 'Start engine')
 const stopEngine = () => call(() => tractor.stopEngine(), 'Stop engine')
-const emergencyStop = () => call(() => tractor.emergencyStop(), 'Emergency stop')
 const clearEmergency = () => call(() => tractor.clearEmergency(), 'Clear E-stop')
 const toggleAuthorize = () =>
   call(() => (state.value?.authorized ? tractor.revoke() : tractor.authorize()), 'Authorize')
 
-// Convenience: snap both drive levers to neutral in one click. Instant local
-// feedback (matches slider-drag UX) then a single busy-flag cycle covering
-// both requests; surfaces whichever leg is rejected, if either is.
-const bothToNeutral = () => {
-  leftLever.value = 0
-  rightLever.value = 0
-  return call(async () => {
-    const [left, right] = await Promise.all([tractor.setLeftLever(0), tractor.setRightLever(0)])
-    return left.status === 'rejected' ? left : right
-  }, 'Neutral')
+// Every hold ends first, with no neutral writes of its own: the E-stop request drives
+// neutral itself and the backend refuses further lever writes once it is latched.
+const emergencyStop = () => {
+  hold.halt('estop')
+  return call(() => tractor.emergencyStop(), 'Emergency stop')
 }
+
+// Snap both drive levers to neutral in one click. Goes through the hold so the two writes
+// are sequential (left, then right: concurrent writes each read the other lever's old
+// state) and so a stream in progress stops.
+const bothToNeutral = () => hold.neutralLevers()
 
 // GPS display — telemetry.navigation is generic Pi-GPS telemetry, already
 // flowing regardless of drivetrain. ponytail: same ~25-line glue as
@@ -291,8 +361,8 @@ const {
 onMounted(async () => {
   // One-time initial REST fetch for fast first paint; the store's WS
   // subscription (wired eagerly at store creation) drives everything after.
-  await tractor.fetchState()
-  syncFromState()
+  // A failed fetch must not keep the telemetry and camera feeds from starting.
+  await tractor.fetchState().catch(() => undefined)
 
   await connect()
   subscribe('telemetry.navigation', applyNavigation)
@@ -353,12 +423,15 @@ onUnmounted(() => {
 }
 .ctl { display: flex; justify-content: space-between; font-size: 0.9rem; color: var(--text-muted, #6c757d); margin: 0.75rem 0 0.25rem; font-weight: 600; }
 .ctl-ends { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted, #6c757d); }
+.held { margin-top: 0.25rem; font-size: 0.8rem; color: var(--text-muted, #6c757d); }
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
   height: 24px;
   background: transparent;
+  /* A drag must stay a drag: a touch scroll would cancel the pointer and release the control. */
+  touch-action: none;
 }
 input[type="range"]::-webkit-slider-runnable-track,
 input[type="range"]::-moz-range-track {
@@ -390,6 +463,10 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent-green); outl
 input[type="range"]:disabled { opacity: 0.5; }
 .blade-btn { width: 100%; }
 .neutral-btn { width: 100%; margin-top: 0.75rem; }
+.hold-status { margin-top: 0.75rem; padding: 0.4rem 0.6rem; border: 1px solid var(--primary-light); border-radius: 4px; font-size: 0.85rem; color: var(--text-muted, #6c757d); }
+.hold-status.active { border-color: var(--accent-green); color: var(--accent-green); }
+.hold-notice { margin-top: 0.5rem; padding: 0.5rem 0.75rem; border: 1px solid var(--danger); border-radius: 4px; background: rgba(255,67,67,0.15); color: var(--danger); font-size: 0.85rem; }
+.latch { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; font-size: 0.85rem; }
 .hint { margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted, #6c757d); }
 .badge { padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
 .badge-on { background: rgba(0,255,146,0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }

@@ -14,6 +14,7 @@
       :authenticating="authenticating"
       :can-authenticate="canAuthenticate"
       :auth-error="authError"
+      :signed-in="signedIn"
       :format-security-level="formatSecurityLevel"
       @authenticate="authenticateControl"
       @authenticate-google="authenticateWithGoogle"
@@ -182,7 +183,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { type AxiosError } from 'axios'
 import { storeToRefs } from 'pinia'
 import { useControlStore } from '@/stores/control'
 import {
@@ -193,6 +193,8 @@ import {
 } from '@/services/api'
 import { useToastStore } from '@/stores/toast'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useAuthStore } from '@/stores/auth'
+import { apiErrorInfo, describeApiError, SIGN_IN_REQUIRED_MESSAGE } from '@/utils/apiErrors'
 import type { RoboHATStatus } from '@/types/control'
 import VirtualJoystick from '@/components/ui/VirtualJoystick.vue'
 import SecurityGateCard from '@/components/control/SecurityGateCard.vue'
@@ -240,10 +242,21 @@ const MOVEMENT_DURATION_MS = 160
 const MOVEMENT_REPEAT_INTERVAL_MS = 120
 const JOYSTICK_REASON = 'manual-joystick'
 
+const UNLOCK_UNAVAILABLE_MESSAGE = 'Manual control unlock is unavailable (backend endpoint missing).'
+// GET /control/manual-unlock/status payload `reason` while the backend enforces operator auth: it can no
+// longer verify a Cloudflare Access assertion, so this security level can never unlock.
+const CLOUDFLARE_NOT_VERIFIED_REASON = 'cloudflare_access_not_verified'
+const CLOUDFLARE_UNAVAILABLE_MESSAGE =
+  'Cloudflare Access cannot be verified by this backend; manual unlock is unavailable with this security level. Choose Password in Settings > Security.'
+// POST /control/emergency answers accepted:false, result:"incomplete" when the stop is latched but not confirmed on
+// every output; the mower may then still be moving or cutting, so it must never be reported as a clean stop.
+const EMERGENCY_NOT_CONFIRMED_MESSAGE = 'Emergency stop latched, but NOT every output was confirmed'
+
 const control = useControlStore()
 const api = useApiService()
 const toast = useToastStore()
 const preferences = usePreferencesStore()
+const auth = useAuthStore()
 
 preferences.ensureInitialized()
 const { unitSystem } = storeToRefs(preferences)
@@ -369,6 +382,10 @@ const canAuthenticate = computed(() => {
       return false
   }
 })
+
+// POST /control/manual-unlock is a step-up check: besides the operator password it needs the Bearer of a
+// signed-in operator (the ApiService attaches it whenever the auth store holds a token).
+const signedIn = computed(() => Boolean(auth.token))
 
 const robohatStatus = computed(() => control.robohatStatus as Record<string, any> | null)
 
@@ -543,6 +560,21 @@ function showStatus(message: string, success: boolean, timeout = 4000) {
   }
 }
 
+// POST /control/drive|blade answer 401 for two different reasons: no/invalid Bearer ("Operator authentication
+// required": sign in) and an unknown or expired manual-control session_id ("Manual control session required" |
+// "Manual control session invalid or expired", routers/auth.py). Telling a signed-in operator to sign in for the
+// second would send them in circles, so it keeps the backend's text and drops back to the unlock gate, where a
+// fresh session can be created.
+function reportControlFailure(error: unknown, fallback: string) {
+  const info = apiErrorInfo(error)
+  if (info.authRequired && /manual control session/i.test(info.detail)) {
+    lockControl()
+    showStatus(`${info.detail}. Unlock manual control again.`, false)
+    return
+  }
+  showStatus(describeApiError(error, fallback), false)
+}
+
 function updateSessionTimer(expiresAt?: string) {
   if (sessionTimer) {
     window.clearInterval(sessionTimer)
@@ -678,6 +710,25 @@ async function autoUnlockIfPossible() {
   }
 }
 
+// What the operator needs to hear for a failed POST /control/manual-unlock. The call now also needs the
+// operator Bearer, so a 401 is either "not signed in" or "wrong password".
+function describeUnlockError(error: unknown): string {
+  const info = apiErrorInfo(error)
+  switch (info.status) {
+    case 401:
+      return auth.token ? info.detail || 'Invalid password' : SIGN_IN_REQUIRED_MESSAGE
+    case 429:
+      return describeApiError(error, 'Too many attempts')
+    case 404:
+      return UNLOCK_UNAVAILABLE_MESSAGE
+    case 501:
+      return info.detail || UNLOCK_UNAVAILABLE_MESSAGE
+    default:
+      // 400 (blank password / TOTP code) and everything else: the backend says what was wrong
+      return info.detail || (error instanceof Error ? error.message : '') || 'Authentication failed'
+  }
+}
+
 async function authenticateControl() {
   if (!canAuthenticate.value || authenticating.value) return
 
@@ -695,19 +746,14 @@ async function authenticateControl() {
     toast.show('Manual control unlocked', 'success', 2500)
     showStatus('Manual control unlocked', true)
   } catch (error) {
-    const axiosError = error as AxiosError
-    const status = axiosError.response?.status
+    // Fail closed: nothing in this block may unlock; isControlUnlocked only flips in attemptUnlock().
+    const status = apiErrorInfo(error).status
+    const message = describeUnlockError(error)
+    authError.value = message
     if (status === 404 || status === 501) {
-      // Backend endpoint unavailable – fail closed, do not grant control.
-      const message = 'Manual control unlock is unavailable (backend endpoint missing).'
-      authError.value = message
       toast.show(message, 'error', 5000)
-      showStatus(message, false)
-    } else {
-      const message = (axiosError.response?.data as any)?.detail || axiosError.message || 'Authentication failed'
-      authError.value = message
-      showStatus(message, false)
     }
+    showStatus(message, false)
   } finally {
     authenticating.value = false
   }
@@ -740,6 +786,11 @@ async function verifyCloudflareAuth() {
       isControlUnlocked.value = true
       showStatus('Cloudflare Access verified', true)
       toast.show('Cloudflare Access verified', 'success', 2500)
+    } else if (data?.reason === CLOUDFLARE_NOT_VERIFIED_REASON) {
+      // Fail closed: this level can never unlock while the backend enforces operator auth.
+      authError.value = CLOUDFLARE_UNAVAILABLE_MESSAGE
+      toast.show(CLOUDFLARE_UNAVAILABLE_MESSAGE, 'error', 5000)
+      showStatus(CLOUDFLARE_UNAVAILABLE_MESSAGE, false)
     } else {
       showStatus('Cloudflare verification failed', false)
     }
@@ -843,7 +894,7 @@ async function dispatchDriveCommands(): Promise<void> {
         const angularMag = Math.abs(payload.vector.angular ?? 0)
         currentSpeed.value = Math.max(linearMag, angularMag)
       } catch (error) {
-        showStatus('Failed to send drive command', false)
+        reportControlFailure(error, 'Failed to send drive command')
       }
     }
   } finally {
@@ -922,12 +973,21 @@ async function stopMovement(sendStopCommand = true) {
 async function emergencyStop() {
   setPerforming(true)
   try {
-    await control.submitCommand('emergency', { session_id: ensureSession().session_id })
+    const reply = await control.submitCommand('emergency', { session_id: ensureSession().session_id })
     currentSpeed.value = 0
     mowingActive.value = false
-    showStatus('Emergency stop activated', true)
+    if (reply?.accepted === false || reply?.result === 'incomplete') {
+      const reason = reply && 'status_reason' in reply ? reply.status_reason : null
+      const message = reason ? `${EMERGENCY_NOT_CONFIRMED_MESSAGE} (${reason})` : EMERGENCY_NOT_CONFIRMED_MESSAGE
+      toast.show(message, 'error', 10000)
+      showStatus(message, false, 10000)
+    } else {
+      showStatus('Emergency stop activated', true)
+    }
   } catch (error) {
-    showStatus('Failed to trigger emergency stop', false)
+    // The E-stop is unauthenticated by design, so whatever failed it was never a missing sign-in: do not say so.
+    const failed = 'Failed to trigger emergency stop'
+    showStatus(apiErrorInfo(error).authRequired ? failed : describeApiError(error, failed), false)
   } finally {
     setPerforming(false)
   }
@@ -950,7 +1010,7 @@ async function toggleMowing() {
       showStatus(mowingActive.value ? 'Mowing started' : 'Mowing stopped', true)
     }
   } catch (error) {
-    showStatus('Failed to toggle mowing', false)
+    reportControlFailure(error, 'Failed to toggle mowing')
   } finally {
     setPerforming(false)
   }

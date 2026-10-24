@@ -12,6 +12,7 @@ import {
   tractorStopEngine,
   tractorThrottle,
 } from '../services/api'
+import type { TractorCommandOptions } from '../services/api'
 import { useWebSocket } from '../services/websocket'
 import type { TractorActuatorResponse, TractorState } from '../types/control'
 
@@ -88,15 +89,16 @@ export const useTractorStore = defineStore('tractor', () => {
     }
     return result
   }
-
-  async function setLeftLever(value: number) {
-    return mergeOkFields(await tractorLeftLever(value))
+  // `options` (a per-request timeout) is only forwarded when given, so callers that do not
+  // need it keep the plain one-argument call.
+  async function setLeftLever(value: number, options?: TractorCommandOptions) {
+    return mergeOkFields(await (options ? tractorLeftLever(value, options) : tractorLeftLever(value)))
   }
-  async function setRightLever(value: number) {
-    return mergeOkFields(await tractorRightLever(value))
+  async function setRightLever(value: number, options?: TractorCommandOptions) {
+    return mergeOkFields(await (options ? tractorRightLever(value, options) : tractorRightLever(value)))
   }
-  async function setThrottle(value: number) {
-    return mergeOkFields(await tractorThrottle(value))
+  async function setThrottle(value: number, options?: TractorCommandOptions) {
+    return mergeOkFields(await (options ? tractorThrottle(value, options) : tractorThrottle(value)))
   }
   async function setBlade(engaged: boolean) {
     return mergeOkFields(await tractorBlade(engaged))
@@ -141,9 +143,11 @@ export const useTractorStore = defineStore('tractor', () => {
   }
 
   async function clearEmergency() {
-    // Unwinding direction: wait for real confirmation before showing "cleared".
+    // Unwinding direction: wait for real confirmation before showing "cleared". A 'partial'
+    // clear (the E-stop latch went but a tilt latch stays) changed the backend state too,
+    // so anything but a refusal re-reads it.
     const result = await tractorClearEmergency()
-    if (result.status === 'ok') {
+    if (result.status !== 'rejected') {
       await fetchState().catch(() => undefined)
     }
     return result

@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
+import { setActivePinia, createPinia } from 'pinia'
 import { ref, defineComponent, h } from 'vue'
 import ControlView from '@/views/ControlView.vue'
 import apiClient from '@/services/api'
@@ -87,7 +89,7 @@ interface MountOptions {
 
 async function mountControlView(options: MountOptions = {}) {
   const { unlock = true, keepCameraFeed = false } = options
-  const wrapper = mount(ControlView)
+  const wrapper = mount(ControlView, { global: { stubs: { RouterLink: RouterLinkStub } } })
   await flushPromises()
   wrapper.vm.session = { session_id: 'session-1' }
   if (unlock) {
@@ -102,6 +104,8 @@ async function mountControlView(options: MountOptions = {}) {
 }
 
 beforeEach(() => {
+  // ControlView reads the signed-in state from the (real) auth store.
+  setActivePinia(createPinia())
   controlStoreContainer.current = createMockControlStore()
   toastStore.show.mockReset()
   vi.useFakeTimers()
