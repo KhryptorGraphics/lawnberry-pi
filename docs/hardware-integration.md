@@ -1,5 +1,7 @@
 # LawnBerry Pi v2 - Hardware Integration Guide
 
+> Platform: differential-drive mower only (RoboHAT/Cytron/IBT-4); not the Toro tractor variant.
+
 This guide documents wiring, pin assignments, and integration steps for Raspberry Pi 5 and Raspberry Pi 4B. Always disconnect power before wiring. Refer to `spec/hardware.yaml` for canonical configuration.
 
 ## Platform Notes
@@ -55,6 +57,7 @@ Verification steps:
   - CH1: Battery
   - CH2: Unused
   - CH3: Solar Input
+- **Contradiction (unresolved):** `ina3221_driver.py` and `config/hardware.yaml` use CH1 = Solar (0.0025 ohm), CH3 = Battery (0.0015 ohm). No shunt has been measured; do not change either side without a bench measurement of which input carries battery current.
 
 ### Victron SmartSolar BLE telemetry
 - Optional replacement or supplement for INA3221 readings.
@@ -65,7 +68,7 @@ Verification steps:
 ### IMU (BNO085)
 - Preferred: UART4 at 3,000,000 baud
 - Pi 5: /dev/ttyAMA4 → GPIO 12 (TXD4), GPIO 13 (RXD4)
-- Pi 4B: Alternative pins may be required; map to rpi4_alt_pin as specified (e.g., TXD4 on GPIO 24, RXD4 on GPIO 21). Verify with `dtoverlay=uart4` and `gpioinfo`.
+- Pi 4B: Alternative pins may be required; map to rpi4_alt_pin as specified (e.g., TXD4 on GPIO 24, RXD4 on GPIO 21). Verify with `gpioinfo`. (On the Pi 4B the overlay is `uart4`; the `rpi4_alt_pin` values in `spec/hardware.yaml` are **physical header pin numbers** (21/24), not BCM GPIOs.)
 
 ### GPS
 - Preferred: USB (ZED-F9P RTK) → /dev/ttyACM*
@@ -113,8 +116,9 @@ Alternative drive controller (fallback): L298N dual H-Bridge (basic PWM/dir via 
 2. For Pi 5 IMU on UART4:
    - Add to `/boot/firmware/config.txt`:
      ```
-     dtoverlay=uart4
+     dtoverlay=uart4-pi5
      ```
+     (`uart4` is BCM2711/Pi 4 only, GPIOs 8-11; Pi 5 needs `uart4-pi5`, GPIO12/13. Neither overlay is loaded on the deployed Pi.)
 3. Reboot and verify devices:
    ```bash
    ls -l /dev/ttyAMA4 /dev/serial0 || true
@@ -124,7 +128,8 @@ Alternative drive controller (fallback): L298N dual H-Bridge (basic PWM/dir via 
 ```bash
 sudo apt install -y i2c-tools
 sudo i2cdetect -y 1
-# Expect addresses: 0x29 (VL53L0X Left), 0x30 (VL53L0X Right), 0x76 (BME280), 0x40 (INA3221)
+# Expect addresses: 0x29 (VL53L0X Left), 0x30 (VL53L0X Right), 0x3C (SSD1306 OLED), 0x76 (BME280), 0x40 (INA3221)
+# NOTE: the deployed Pi sets dtparam=i2c_arm=off (GPIO3 is the HaLow HAT WAKE line), so /dev/i2c-1 does not exist there.
 ```
 
 ## Emergency Stop Wiring
@@ -147,3 +152,6 @@ sudo i2cdetect -y 1
 - spec/hardware.yaml (pin map and device list)
 - docs/hardware-overview.md (system diagram)
 - docs/OPERATIONS.md (operational procedures)
+
+## Pin-conflict guard
+`python3 scripts/check_hardware_pin_conflicts.py` merges the claims in `spec/hardware.yaml` (GPIO rows incl. UART4 TXD/RXD and HaLow HAT lines), `config/tractor.yaml` relays/PCA9685, and the ultrasonic driver pins (only when `config/limits.yaml` has `ultrasonic_enabled: true`). Every conflict must be listed in `spec/known_conflicts.yaml` (pin, claimants, gap ID, reason, owner action); a new or stale entry fails the check, and an allow-listed conflict that involves a tractor claimant fails once `config/tractor.yaml` has `enabled: true`. The `deployment:` block in the spec records what the deployed Pi actually exposes (e.g. no header I2C bus 1) and drives the warnings. `claims with status: unverified` only warn.

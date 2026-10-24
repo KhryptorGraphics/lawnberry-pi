@@ -1,5 +1,5 @@
 rpi:
-  supported_models: ["Raspberry Pi 5 (4-16GB)", "Raspberry Pi 4B (4–8GB)"]
+  supported_models: ["Raspberry Pi 5 (4-16GB)", "Raspberry Pi 4B (4-8GB)"]
   os: "Raspberry Pi OS Bookworm (64-bit)"
   python: "3.11.x"
 
@@ -14,7 +14,7 @@ navigation:
       name: "u-blox Neo-8M"
       interface: "UART"
       rtk: false
-      accuracy: "3–5 m"
+      accuracy: "3-5 m"
       optional: true
 
 sensors:
@@ -68,10 +68,15 @@ power:
         channel_3:
           name: "Solar Input"
           attached_to: "Solar Panel"
+# NOTE: The channel mapping above (ch1=Battery, ch3=Solar) is per constitution/spec.
+# The driver (backend/src/drivers/sensors/ina3221_driver.py) and config/hardware.yaml
+# document the opposite assignment (ch1=Solar 0.0025 ohm, ch3=Battery 0.0015 ohm)
+# reflecting a deployed wiring revision. No physical measurement has confirmed which
+# shunt carries which current (open item; .github/workflows/hardware-guard.yml documents it).
 
 drive_system:
   preferred:
-    controller: "RoboHAT RP2040 → Cytron MDDRC10"
+    controller: "RoboHAT RP2040 -> Cytron MDDRC10"
     features: ["PWM control", "encoder feedback", "safety IO"]
   alternative:
     controller: "L298N Dual H-Bridge"
@@ -89,44 +94,36 @@ cutting_system:
 comms:
   wifi: { enabled: true }
   bluetooth: { version: "5.0", optional: true }
-  ethernet: { bench_only: true }   # Not for mower runtime
+  ethernet: { bench_only: true }
+  halow:
+    hat_model: "Heltec HT-HC01P HAT adapter + Heltec HC01P-V2 mini-PCIe card (Morse Micro MM6108)"
+    chipset: "Morse Micro MM6108"
+    interface: "SPI0 (RP1 DW hardware SPI, CS0 only)"
+    overlay: "halow-dw + spi0-1cs"
+    driver: "morse (dkms, kernel 6.12.21-morse+)"
+    evidence:
+      - "config.txt comments: Reset=GPIO5, IRQ=GPIO25, WAKE=GPIO3, BUSY=GPIO7"
+      - "runtime DT: reset-gpios=<5 0>, spi-irq-gpios=<25 0> (spi0/mm6108@0)"
+      - "pinctrl: GPIO8=spi0 CS0, GPIO9/10/11=spi0 alt0, GPIO25=mm610x_spi_irq_gpio irq 170"
+      - "gpioinfo: line 25 'mm610x_spi_irq_gpio', line 8 'spi0 CS0'"
+      - "config.txt: dtoverlay=spi0-1cs, dtoverlay=halow-dw, dtparam=i2c_arm=off (WAKE)"
+      - "vendor overlay heltec-hc01p-v2-overlay.dts (ref): WAKE=GPIO3, BUSY=GPIO7, TRST=GPIO4"
+      - "vendor schematic HT-HC01P_Raspberry_Pi_reference_design.PDF: WAKE=GPIO3, BUSY=GPIO7, RESET_N=GPIO5, SPI_INT=GPIO25, RGB=GPIO2/6/16, UART=GPIO14/15, BUTTON=GPIO21 (0R links, population unverified)"
+    note: "HAT identity inconsistent across docs (config.txt Heltec HC01P-V2, bringup.service Seeed WM6108); chipset Morse MM6108 confirmed; physical verification required"
 
 tractor:
-  # 50" Toro TimeCutter zero-turn mower conversion (gas engine, twin-lever hydrostatic
-  # drive) — a second constitutionally-recognized platform alongside the differential-drive
-  # mower above (Constitution Principle V). Stock engine and hydrostatic transaxles are
-  # unmodified; two servos push/pull the existing drive levers over PCA9685 PWM. See
-  # docs/tractor-platform.md for the actuator table and docs/tractor-acceptance-criteria.md
-  # for the safety sign-off checklist.
-  #
-  # This section documents STRUCTURE AND CONSTRAINTS only. Final channel/pin/address
-  # numbers are owned by config/tractor.yaml (actuation workstream) and are cross-checked
-  # against this registry by scripts/check_hardware_pin_conflicts.py — that script, not this
-  # comment, is the source of truth for "does the current tractor config conflict with the
-  # mower's pins/addresses above". Per Constitution Principle V, `config/tractor.yaml`'s
-  # `enabled: true` is valid only while that script reports zero conflicts.
   config_file: "config/tractor.yaml"
   actuators:
     positional:
-      # Driven over PCA9685 PWM channels; channel numbers live in config/tractor.yaml,
-      # not here — this list is the fixed actuator set only. Direction is intrinsic to
-      # each lever's own position on a hydrostatic drive — there is no separate
-      # steering, gas-pedal, clutch, or gear actuator. Reverse is defined as BOTH
-      # levers negative; one lever negative with the other at/above neutral is a
-      # zero-radius pivot turn, not reverse.
       - left_lever
       - throttle
       - right_lever
     relay:
-      # GPIO relays; gpio numbers live in config/tractor.yaml relays.*.gpio.
       - starter
       - blade_pto
   pca9685:
     bus: "I2C"
-    address: 0x41  # Set by the actuation workstream; 0x40 (the board default) collides
-                    # with INA3221 in i2c_addresses below, so the A0 jumper must be bridged
-                    # to reach 0x41. Verified conflict-free by
-                    # scripts/check_hardware_pin_conflicts.py against config/tractor.yaml.
+    address: 0x41
   constraints:
     - "config/tractor.yaml relays.*.gpio MUST NOT collide with any pins.gpio_used[].gpio entry below."
     - "config/tractor.yaml pca9685.address (once set) MUST NOT collide with any key in i2c_addresses below, and MUST NOT be 0x40."
@@ -134,14 +131,33 @@ tractor:
 
 pins:
   gpio_used:
-    - { pin: 15, gpio: 22, role: "ToF Left Shutdown" }
-    - { pin: 16, gpio: 23, role: "ToF Right Shutdown" }
-    - { pin: 18, gpio: 24, role: "Blade IN1" }
-    - { pin: 22, gpio: 25, role: "Blade IN2" }
-    - { pin: 31, gpio: 6,  role: "ToF Left Interrupt" }
-    - { pin: 32, gpio: 12, role: "ToF Right Interrupt" }
-    - { pin: 33, rxd: 4,  role: "BNO085 RX", rpi4_alt_pin: 21 }
-    - { pin: 32, txd: 4,  role: "BNO085 TX", rpi4_alt_pin: 24 }
+    - { pin: 15, gpio: 22, role: "ToF Left Shutdown", status: "documented", evidence: ["docs/hardware-integration.md ToF XSHUT GPIO22; config/hardware.yaml tof_config left_shutdown_gpio; gpioinfo line 22 held by lg"] }
+    - { pin: 16, gpio: 23, role: "ToF Right Shutdown", status: "documented", evidence: ["docs/hardware-integration.md ToF XSHUT GPIO23; config/hardware.yaml tof_config right_shutdown_gpio; gpioinfo line 23 held by lg"] }
+    - { pin: 18, gpio: 24, role: "Blade IN1", status: "documented", evidence: ["docs/hardware-integration.md IBT-4 IN1 GPIO24; driver is a stub (ibt4_gpio.py), no electrical measurement"] }
+    - { pin: 22, gpio: 25, role: "Blade IN2", status: "documented", evidence: ["docs/hardware-integration.md IBT-4 IN2 GPIO25; driver is a stub (ibt4_gpio.py), no electrical measurement"] }
+    - { pin: 31, gpio: 6,  role: "ToF Left Interrupt", status: "documented", evidence: ["docs/hardware-integration.md optional ToF IRQ GPIO6; no driver code reads it"] }
+    - { pin: 32, gpio: 12, role: "ToF Right Interrupt", status: "documented", evidence: ["docs/hardware-integration.md optional ToF IRQ GPIO12; no driver code reads it"] }
+    - { pin: 33, rxd: 4,  role: "BNO085 RX", rpi4_alt_pin: 21, status: "documented", evidence: ["docs/hardware-integration.md UART4 RXD GPIO13; uart4-pi5 overlay not loaded on deployed Pi; driver is a sim stub"] }
+    - { pin: 32, txd: 4,  role: "BNO085 TX", rpi4_alt_pin: 24, status: "documented", evidence: ["docs/hardware-integration.md UART4 TXD GPIO12; uart4-pi5 overlay not loaded on deployed Pi; driver is a sim stub"] }
+    - { pin: 29, gpio: 5,  role: "HaLow HAT RESET_N", status: "verified", evidence: ["runtime DT reset-gpios=<5 0>", "config.txt comment: Reset=GPIO5"] }
+    - { pin: 22, gpio: 25, role: "HaLow HAT SPI_INT", status: "verified", evidence: ["runtime DT spi-irq-gpios=<25 0>", "gpioinfo line 25 mm610x_spi_irq_gpio irq 170"] }
+    - { pin: 24, gpio: 8,  role: "HaLow HAT SPI0 CS0", status: "verified", evidence: ["pinctrl pinmux GPIO8=spi0 CS0", "config.txt dtoverlay=spi0-1cs"] }
+    - { pin: 21, gpio: 9,  role: "HaLow HAT SPI0 MISO", status: "verified", evidence: ["pinctrl pinmux GPIO9=spi0 alt0", "config.txt dtoverlay=halow-dw"] }
+    - { pin: 19, gpio: 10, role: "HaLow HAT SPI0 MOSI", status: "verified", evidence: ["pinctrl pinmux GPIO10=spi0 alt0", "config.txt dtoverlay=halow-dw"] }
+    - { pin: 23, gpio: 11, role: "HaLow HAT SPI0 SCLK", status: "verified", evidence: ["pinctrl pinmux GPIO11=spi0 alt0", "config.txt dtoverlay=halow-dw"] }
+    - { pin: 5, gpio: 3, role: "HaLow HAT WAKE", status: "documented", evidence: ["config.txt comment: Heltec HT-HC01P HAT uses GPIO3 (pin 5) as WAKE"], note: "Conflicts with I2C1 SCL; dtparam=i2c_arm=off in deployed config" }
+    - { pin: 26, gpio: 7, role: "HaLow HAT BUSY", status: "documented", evidence: ["config.txt comment: HAT wires GPIO7 to radio BUSY output"], note: "spi0-1cs disables CS1 contention; pinctrl shows unclaimed" }
+    - { pin: 7, gpio: 4, role: "HaLow HAT TRST", status: "unverified", evidence: ["vendor overlay heltec-hc01p-v2-overlay.dts morse_trst=GPIO4"], measure: "Continuity pin 7 -> HAT TRST net (powered off); gpioinfo level/pull with driver loaded" }
+    - { pin: 3, gpio: 2, role: "HaLow HAT RGB_R (vendor schematic)", status: "unverified", evidence: ["vendor schematic HT-HC01P_Raspberry_Pi_reference_design.PDF GPIO2=RGB_R via 0R link"], measure: "Continuity pin 3 -> HAT RGB_R; operator ledtest.py toggles GPIO2" }
+    - { pin: 31, gpio: 6, role: "HaLow HAT RGB_G (vendor schematic)", status: "unverified", evidence: ["vendor schematic HT-HC01P_Raspberry_Pi_reference_design.PDF GPIO6=RGB_G via 0R link", "operator halow-hat-ledtest.py toggles GPIO6"], measure: "Continuity pin 31 -> HAT RGB_G; ledtest.py behaviour" }
+    - { pin: 36, gpio: 16, role: "HaLow HAT RGB_B (vendor schematic)", status: "unverified", evidence: ["vendor schematic HT-HC01P_Raspberry_Pi_reference_design.PDF GPIO16=RGB_B via 0R link", "operator halow-hat-ledtest.py toggles GPIO16"], measure: "Continuity pin 36 -> HAT RGB_B; ledtest.py behaviour" }
+    - { pin: 8, gpio: 14, role: "HaLow HAT UART0 TX (header shared)", status: "unverified", evidence: ["vendor schematic HT-HC01P_Raspberry_Pi_reference_design.PDF GPIO14=UART TX via 0R link"], measure: "Continuity pin 8 -> HAT UART_TX; note: ttyAMA0 GPS uses same pins" }
+    - { pin: 10, gpio: 15, role: "HaLow HAT UART0 RX (header shared)", status: "unverified", evidence: ["vendor schematic HT-HC01P_Raspberry_Pi_reference_design.PDF GPIO15=UART RX via 0R link"], measure: "Continuity pin 10 -> HAT UART_RX; note: ttyAMA0 GPS uses same pins" }
+    - { pin: 40, gpio: 21, role: "HaLow HAT CONFIG BUTTON", status: "unverified", evidence: ["vendor schematic HT-HC01P_Raspberry_Pi_reference_design.PDF GPIO21=BUTTON via 0R link", "operator README 2026-09-03: BUTTON pull present"], measure: "Continuity pin 40 -> HAT BUTTON; gpioinfo pull state" }
+    - { pin: 8, gpio: 14, role: "GPS UART0 TXD (ttyAMA0 LC29H-DA)", status: "verified", evidence: ["pinctrl pinmux GPIO14=uart0 alt4", "config/hardware.yaml gps uart_device=/dev/ttyAMA0"] }
+    - { pin: 10, gpio: 15, role: "GPS UART0 RXD (ttyAMA0 LC29H-DA)", status: "verified", evidence: ["pinctrl pinmux GPIO15=uart0 alt4", "config/hardware.yaml gps uart_device=/dev/ttyAMA0"] }
+    - { pin: 3, gpio: 2, role: "I2C1 SDA (header bus 1)", status: "documented", evidence: ["docs/hardware-integration.md: I2C1 SDA=GPIO2 (pin 3)", "config/tractor.yaml pca9685 bus=1", "config/hardware.yaml tof_config bus=1", "INA3221 driver default bus=1"], note: "Header I2C1 disabled on deployed Pi (dtparam=i2c_arm=off)" }
+    - { pin: 5, gpio: 3, role: "I2C1 SCL (header bus 1)", status: "documented", evidence: ["docs/hardware-integration.md: I2C1 SCL=GPIO3 (pin 5)", "config/tractor.yaml pca9685 bus=1", "config/hardware.yaml tof_config bus=1", "INA3221 driver default bus=1"], note: "Header I2C1 disabled on deployed Pi (dtparam=i2c_arm=off); GPIO3 also HaLow WAKE" }
 
   i2c_addresses:
     "0x29": "VL53L0X Left"
@@ -159,3 +175,46 @@ pins:
     - { role: "GPS", notes: "u-blox ZED-F9P via SparkFun GPS-RTK-SMA" }
     - { role: "Coral TPU", notes: "Google Coral USB Accelerator" }
     - { role: "High Gain WiFi Adapter", notes: "preferred" }
+
+  uart_overlays:
+    uart0:
+      pi5: { txd_gpio: 14, rxd_gpio: 15, pin: 8, pin_rxd: 10, overlay: "enable_uart=1" }
+      pi4: { txd_gpio: 14, rxd_gpio: 15, pin: 8, pin_rxd: 10, overlay: "enable_uart=1" }
+    uart1:
+      pi5: { txd_gpio: 14, rxd_gpio: 15, pin: 8, pin_rxd: 10, overlay: "dtoverlay=uart1" }
+      pi4: { txd_gpio: 14, rxd_gpio: 15, pin: 8, pin_rxd: 10, overlay: "dtoverlay=uart1" }
+    uart4:
+      pi5: { txd_gpio: 12, rxd_gpio: 13, pin: 32, pin_rxd: 33, overlay: "uart4-pi5" }
+      pi4: { txd_gpio: 8, rxd_gpio: 9, pin: 24, pin_rxd: 21, overlay: "uart4" }
+      note: "Pi 5 uses uart4-pi5 overlay (GPIO12/13); Pi 4 uses uart4 (GPIO8/11). rpi4_alt_pin in gpio_used rows = physical pin numbers on Pi 4."
+
+  ultrasonic:
+    enabled_by: "limits.yaml:ultrasonic_enabled"
+    sensors:
+      front_left:  { trig_gpio: 4, echo_gpio: 17, pin_trig: 7, pin_echo: 11 }
+      front_center: { trig_gpio: 27, echo_gpio: 10, pin_trig: 13, pin_echo: 19 }
+      front_right: { trig_gpio: 11, echo_gpio: 9, pin_trig: 23, pin_echo: 21 }
+    note: "ECHO pins require voltage dividers (5V->3.3V). Current guide (docs/ultrasonic-wiring-guide.md) documents 3x HC-SR04; owner plans 4x JSN-SR04T - guide superseded. Pin 17 in guide says 5V but pin 17 is 3.3V rail (H-01)."
+
+deployment:
+  inspected: "2026-10-24"
+  host: "pi5"
+  kernel: "6.12.21-morse+"
+  dtb: "bcm2712-rpi-5-b-morse.dtb"
+  boot_config:
+    i2c_arm: "off"
+    spi: "on"
+    overlays:
+      - "spi0-1cs"
+      - "halow-dw"
+      - "vc4-kms-v3d"
+      - "dwc2"
+  i2c_buses_present:
+    - 11
+    - 13
+    - 14
+  header_i2c_bus: 1
+  header_i2c_bus_enabled: false
+  uart_overlays_enabled:
+    - "uart0"
+  evidence_source: "read-only SSH inspection: config.txt, /proc/device-tree, /sys/kernel/debug/pinctrl, gpioinfo, dtoverlay list"

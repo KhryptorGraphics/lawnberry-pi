@@ -11,10 +11,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Check GPIO/I2C pin conflicts across spec/hardware.yaml + config/tractor.yaml
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Pin-conflict checker self-test and real-repo check (reviewed allow-list)
         run: |
-          python3 -m pip install --quiet pyyaml
-          python3 scripts/check_hardware_pin_conflicts.py
+          uv run python scripts/check_hardware_pin_conflicts.py --self-test
+          uv run python scripts/check_hardware_pin_conflicts.py
+
+      - name: Pin-conflict, docs-drift-script and tractor-config tests
+        run: |
+          SIM_MODE=1 uv run pytest -q \
+            tests/unit/test_hardware_pin_conflicts.py \
+            tests/unit/test_docs_drift_script.py \
+            tests/unit/test_tractor_config_file.py
 
       - name: Ensure required hardware appears in spec/hardware.yaml
         run: |
@@ -51,7 +63,11 @@ jobs:
           grep -qi "0x40" spec/hardware.yaml
           grep -qi "0x76" spec/hardware.yaml
 
-      - name: Verify INA3221 fixed channel mapping
+      # INA3221 mapping: constitution/spec say ch1=Battery, ch3=Solar, but the driver and
+      # config/hardware.yaml use ch1=Solar, ch3=Battery. No shunt has been measured, so the
+      # evidence is not clear enough to change either side; this step only keeps the spec's
+      # documented mapping from silently disappearing. Resolve with a bench measurement.
+      - name: Verify INA3221 documented channel mapping is present in spec
         run: |
           f=spec/hardware.yaml
           grep -q "channel_1" "$f" && grep -qi "Battery" "$f"

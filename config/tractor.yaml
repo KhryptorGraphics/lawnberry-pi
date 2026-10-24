@@ -28,11 +28,16 @@ actuators:
 
 relays:
   # Momentary starter solenoid (crank for pulse_ms, then release).
+  # KNOWN CONFLICT (audit H-02b): GPIO5 is the HaLow HAT RESET_N line (runtime DT
+  # reset-gpios=<&gpio 5>). Listed in spec/known_conflicts.yaml; the pin checker fails
+  # if this relay is enabled (enabled: true) while the conflict stands. Do not wire the
+  # starter relay to GPIO5 until an alternative pin is chosen and measured.
   starter:    { gpio: 5, active_high: true, pulse_ms: 800 }
   # Electric PTO clutch (blade engage/disengage), latching on/off.
   # GPIO 6 (the old default) collides with spec/hardware.yaml's ToF Left
-  # Interrupt. Reassigned to GPIO 26, which is not in spec/hardware.yaml's
-  # gpio_used list today.
+  # Interrupt. Reassigned to GPIO 26: no verified claim on it today. The Heltec reference
+  # overlay (not loaded on the deployed Pi) would also configure GPIO26 as a pulled-up
+  # input, so confirm the pin state with the HAT fitted before wiring the relay.
   blade_pto:  { gpio: 26, active_high: true }
 
 # Standard interlocks (ANSI/OPEI-style), adapted for a hydrostatic ZTR with

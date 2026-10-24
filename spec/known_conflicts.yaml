@@ -1,0 +1,54 @@
+# Known hardware pin/address conflicts allow-list
+# Version 1 schema:
+#   version: 1
+#   conflicts: list of entries, each with:
+#     kind: "gpio" | "i2c_address"
+#     pin: int (required for gpio)
+#     i2c_address: string (required for i2c_address, canonical "0xNN")
+#     claimants: list of claimant labels (must match checker output exactly, >=2 unique)
+#     gap: list of gap IDs (pattern H-XX or H-XX[a-z])
+#     reason: string (evidence summary)
+#     owner_action: string (what the human must measure/decide)
+# The checker reconciles detected conflicts against this list. Exit 1 if:
+#   - a detected conflict has no matching allow-list entry (NEW)
+#   - an allow-list entry's (kind, key) no longer matches any live conflict (STALE)
+#   - an allow-list entry's claimant set differs from live conflict (CHANGED -> NEW + STALE)
+#   - tractor.enabled: true and any conflict involves a tractor claimant (BLOCKED)
+# Unverified claims (status=unverified in spec) never produce hard conflicts; only warnings.
+version: 1
+conflicts:
+  - kind: "gpio"
+    pin: 3
+    claimants:
+      - "spec/hardware.yaml: HaLow HAT WAKE"
+      - "spec/hardware.yaml: I2C1 SCL (header bus 1)"
+    gap: ["H-17", "H-25"]
+    reason: "Header I2C1 SCL (GPIO3) is also the HaLow HAT WAKE line per config.txt comments and vendor schematic. Deployed config disables i2c_arm=off to avoid WAKE toggling by I2C traffic. Conflict is acknowledged but avoided by disabling the bus."
+    owner_action: "If I2C1 is re-enabled (i2c_arm=on), relocate I2C1 devices to another bus (e.g., GPIO12/13 software I2C, or RP1 I2C4) or use a different WAKE GPIO via HAT jumper if available. Physical verification of WAKE routing required."
+
+  - kind: "gpio"
+    pin: 5
+    claimants:
+      - "spec/hardware.yaml: HaLow HAT RESET_N"
+      - "config/tractor.yaml relays.starter"
+    gap: ["H-02b"]
+    reason: "Tractor starter relay uses GPIO5 (pin 29) per config/tractor.yaml. HaLow HAT RESET_N is wired to GPIO5 per runtime DT reset-gpios=<5 0> and config.txt comment. Energizing the starter will drive the HaLow reset line; HaLow reset will toggle the starter input."
+    owner_action: "Select an alternative free GPIO for the starter relay (measure with gpioinfo on deployed Pi with HAT fitted). Update config/tractor.yaml relays.starter.gpio and re-validate. Tractor must remain enabled: false until resolved."
+
+  - kind: "gpio"
+    pin: 12
+    claimants:
+      - "spec/hardware.yaml: ToF Right Interrupt"
+      - "spec/hardware.yaml: BNO085 TX"
+    gap: ["H-03"]
+    reason: "Physical pin 32 is listed twice in spec/hardware.yaml gpio_used: once as gpio=12 ToF Right Interrupt, once as txd=4 BNO085 TX (UART4). These are the same BCM GPIO12. UART4 on Pi 5 (uart4-pi5 overlay) uses GPIO12/13 for TX/RX. ToF Right IRQ is optional and unused by driver; BNO085 UART4 is preferred but overlay not enabled on deployed Pi."
+    owner_action: "If BNO085 UART4 is enabled (uart4-pi5 overlay), move ToF Right IRQ to a free GPIO (e.g., GPIO17/27 if available) or disable ToF interrupt. Physical verification of ToF IRQ pin requirement needed."
+
+  - kind: "gpio"
+    pin: 25
+    claimants:
+      - "spec/hardware.yaml: Blade IN2"
+      - "spec/hardware.yaml: HaLow HAT SPI_INT"
+    gap: ["H-02c"]
+    reason: "Blade driver IN2 uses GPIO25 (pin 22) per spec/hardware.yaml cutting_system.blade_driver.gpio_in2. HaLow HAT SPI_INT is wired to GPIO25 per runtime DT spi-irq-gpios=<25 0> and gpioinfo line 25 'mm610x_spi_irq_gpio'. IBT-4 blade driver is currently a stub (no GPIO drive), so no active contention, but conflict exists in wiring."
+    owner_action: "If IBT-4 driver is implemented, move blade IN2 to a free GPIO (e.g., GPIO26 if not used for PTO) or verify HaLow SPI_INT can share. Measure GPIO25 level/pull with HaLow driver loaded and IBT-4 connected. Tractor must remain enabled: false until resolved."
