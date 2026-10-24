@@ -17,19 +17,28 @@ Environment=LAWNBERRY_LOG_DIR=@LB_ROOT@/logs
 Environment=LAWNBERRY_DATA_DIR=@LB_ROOT@/data
 Environment=SIM_MODE=0
 Environment=PYTHONUNBUFFERED=1
-# Operator auth is ENFORCED (was 0 = disabled, 2026-10-24 safety audit): login,
-# operator-auth-gated writes (tractor/control/missions) and the manual-control
-# unlock step are required. The E-stop endpoints stay unauthenticated by design
-# (POST /api/v2/control/emergency, /control/emergency-stop, /tractor/emergency-stop);
-# clearing an E-stop or latch is authenticated. See api/deps.py::require_operator_auth.
-# CREDENTIAL: there is no built-in default any more. systemd/install_services.sh refuses to
-# finish until LAWN_BERRY_OPERATOR_CREDENTIAL (>= 12 characters, not a known default) is set
-# in @LB_ROOT@/.env (EnvironmentFile below), and it generates the persistent
-# LAWN_BERRY_AUTH_SECRET (token signing key) there. With no usable credential the backend
-# still starts but nobody can log in (fail closed); the E-stop endpoints keep working.
-# The web UI login form posts {username, password}: the password is that credential
-# (any username). Scripts need a bearer token (scripts/teleop.py --token).
-# To disable again (LAN bench only): set this to 0 and restart.
+# Operator auth is ENFORCED (it was 0 = disabled until the 2026-10-24 safety audit). Every
+# state-changing route needs `Authorization: Bearer <token>` from POST /api/v2/auth/login:
+# tractor, control (drive, blade), missions, AI, navigation, maintenance, map, recording, the
+# debug injectors and the manual-control unlock (which also re-checks the credential). Open by
+# design: the E-stop POSTs (/api/v2/control/emergency, /control/emergency-stop,
+# /tractor/emergency-stop; also exempt from every rate limiter) and the login routes; clearing an
+# E-stop or latch is authenticated. See api/deps.py::require_operator_auth,
+# docs/authentication-config.md and tests/integration/test_operator_auth_coverage.py (lists
+# every open route and why).
+# Only 0, false, no or off disable it; any other value (an empty line, a typo) keeps it ON.
+# @LB_ROOT@/.env (EnvironmentFile below) overrides this line, and the backend logs CRITICAL at
+# start-up (GET /health reports operator_auth) whenever auth is disabled outside SIM_MODE.
+# CREDENTIAL: there is no built-in default. systemd/install_services.sh refuses to finish until
+# LAWN_BERRY_OPERATOR_CREDENTIAL (>= 12 characters, not a known default) is set in
+# @LB_ROOT@/.env (EnvironmentFile below), and it generates the persistent
+# LAWN_BERRY_AUTH_SECRET (token signing key) there. With no usable credential the backend still
+# starts but nobody can log in (fail closed); the E-stop endpoints keep working.
+# The web UI login form posts {username, password}: the password is that credential (any
+# username). Scripts need a bearer token (scripts/teleop.py --token).
+# SIM_MODE=0 above on purpose: SIM_MODE=1 alone no longer accepts any credential, and the
+# LAWN_BERRY_SIM_OPEN_AUTH opt-in is ignored while LAWNBERRY_ENV=production.
+# To disable auth (LAN bench only): set OPERATOR_AUTH_REQUIRED to 0 and restart (CRITICAL logged).
 Environment=OPERATOR_AUTH_REQUIRED=1
 # Auto-upload recorded mowing sessions to the Thor training server.
 # Set THOR_UPLOAD_ENABLED=1 and THOR_BASE_URL to Thor's receiver (host:port).
