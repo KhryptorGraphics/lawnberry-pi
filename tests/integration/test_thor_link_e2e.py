@@ -599,7 +599,9 @@ async def test_tilt_latch_wins_and_the_blade_stays_off_until_an_operator_clears_
             return (tilt["deg"], 0.0)
 
         class _Heartbeat:
-            def heartbeat(self) -> None:
+            required_sources = ("actuation", "safety_monitor")
+
+            def heartbeat(self, source: str = "default") -> None:
                 pass
 
         monitor = TractorSafetyMonitor(

@@ -36,17 +36,17 @@ class _Tractor:
         self.emergency_stops = 0
         self.on_apply = None
 
-    async def apply(self, cmd):
+    async def apply(self, cmd, **_kw):
         self.applied.append(cmd)
         if self.on_apply is not None:
             self.on_apply()
         return {"status": "applied"}
 
-    async def set_levers(self, left, right):
+    async def set_levers(self, left, right, **_kw):
         self.levers_calls.append((left, right))
         return {"status": "ok"}
 
-    async def emergency_stop(self):
+    async def emergency_stop(self, **_kw):
         self.emergency_stops += 1
 
 
