@@ -36,3 +36,20 @@ This register separates **observed documentation/configuration contradictions** 
 - **No remote VR driving:** until authentication, dead-man, measured latency and local safety override are proven.
 
 See `docs/2026-10-24-physical-integration-plan.md` and `docs/2026-10-24-development-roadmap.md` for proposed integration and phases.
+
+
+## Recovered omissions and corrections from the October 24 conversation
+| ID | Priority | Omitted requirement / conflict | Required follow-up |
+|---|---|---|---|
+| H-19 | P0 | Actual ultrasonic requirement is **four JSN-SR04T waterproof sensors**, not HC-SR04. The earlier draft wrongly referred to HC-SR04 as the intended hardware. | Audit exact JSN revisions, pinouts, electrical interface and close-range blind zone; correct all bill-of-materials and wiring documents. |
+| H-20 | P0 | Two matching owner-reported **150 kg-cm 10–12.6 V steering servos**, possible high stall current; older docs mention 24 V. | Verify part label and current, provide separately fused servo power budget, wiring gauge and thermal margin. |
+| H-21 | P0 | Owner reports **momentary PTO toggle**; tractor config assumes latching relay output. | Inspect OEM switch logic and design a fail-safe OFF strategy without bypassing protections. |
+| H-22 | P1 | **Pi Zero RTK base + Orange Pi HaLow intermediary** house topology omitted. | Confirm actual parts, map serial/network links and power, test correction forwarding and intermediary failures. |
+| H-23 | P1 | Owner wants Thor as **primary navigation/decision compute** while Pi retains local emergency-stop authority; prior docs frame Thor mostly as optional/offline. | Reconcile intended decision split with current `thor_link` implementation, data budget and link-loss policy. |
+| H-24 | P1 | Required visual package missing: annotated hardware photos, 3D-style assembly, Toro front overlay with four angled ultrasonic mounts, Pi GPIO riser/HAT pin accessibility, USB-C/CSI/PCIe wiring. | Gather real reference photos and measurements; produce accurately labeled visual and connector-to-connector as-built documentation. |
+| H-25 | P1 | GPIO HAT stacking may block physical access to required signals. | Confirm Hailo/HaLow carrier revisions, safe riser/breakout and pin continuity; no blind stacked connections. |
+| H-26 | P1 | No measured fused obstacle model; ultrasonic cone distance is not a 2D/3D occupancy map. | Evaluate stereo depth, 2D LiDAR, IMU/RTK frames, optional ROS 2/Nav2 and independent stop distances. |
+| H-27 | P2 | Multi-agent automation was discussed, including GitHub task queue, approvals, retries and PR #16. | Inspect actual PR #16 and integration code; never claim Codex/Claude/OMP remote orchestration until tested. |
+| H-28 | P2 | HPE server migration/simulation benchmarking mentioned but absent from roadmap. | Document as future optional deployment with portability tests; do not conflate with Thor's current role. |
+
+**Corrections to H-10 and H-18:** H-10 refers to **four JSN-SR04T** units, not HC-SR04; H-18 describes only a defect in the **legacy HC-SR04 guide**, not a validated divider for the actual JSN hardware. Exact purchased JSN board variant and output logic level must be checked.
