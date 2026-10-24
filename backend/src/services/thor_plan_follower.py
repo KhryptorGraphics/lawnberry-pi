@@ -160,8 +160,10 @@ class FollowerConfig:
     def __post_init__(self) -> None:
         if not 1 <= self.speed_percent <= 100:
             raise ValueError("speed_percent must be within 1..100")
-        if self.max_position_age_s <= 0 or self.poll_s <= 0 or self.neutral_timeout_s <= 0:
-            raise ValueError("max_position_age_s, poll_s, neutral_timeout_s must be > 0")
+        ages = (self.max_position_age_s, self.poll_s, self.neutral_timeout_s)
+        if not all(_finite(a) and a > 0 for a in ages):
+            # NaN or infinity would make a freshness limit never trigger: refuse, do not run.
+            raise ValueError("max_position_age_s, poll_s, neutral_timeout_s must be > 0 and finite")
         if not self.require_fix or any(f not in FIX_LABELS[1:] for f in self.require_fix):
             raise ValueError(f"require_fix must be a non-empty subset of {FIX_LABELS[1:]}")
 
@@ -331,8 +333,9 @@ class ThorPlanFollower:
         mode = getattr(nav.navigation_mode, "value", nav.navigation_mode)
         if mode not in _FREE_NAV_MODES:
             return f"nav_mode_{mode}"
-        if nav.current_position is None:
-            return "no_position"
+        pos = nav.current_position
+        if pos is None or not (_finite(pos.latitude) and _finite(pos.longitude)):
+            return "no_position"  # a NaN or infinite fix is no fix: never steer on it
         if nav.heading is None or not _finite(nav.heading):
             return "no_heading"
         if self._age_s(nav.timestamp) > self._cfg.max_position_age_s:

@@ -41,7 +41,7 @@ from backend.src.services.tractor_service import TractorControlService
 
 LAT0, LON0 = 45.0, -93.0
 M = 111_195.0
-KEY = bytes.fromhex("42" * 32)
+KEY = bytes.fromhex("1e71193fa1cbab9eba6acf94a01c2ec47368e7f8961624bae01765a8d11fdf6c")
 
 
 def ll(east: float, north: float) -> tuple[float, float]:
@@ -711,3 +711,24 @@ async def test_status_reports_what_the_follower_is_doing_and_why_it_is_not():
     assert st["state"] == "idle" and st["reason"] == "nav_mode_auto" and st["plan_id"] == "p"
     assert st["stand_downs"] == {"nav_mode_auto": 1} and st["driving"] is False
     await r.tractor.shutdown()
+
+
+async def test_a_non_finite_navigation_position_is_no_position_even_without_a_fence():
+    r = Rig(fenced=False)  # with a fence the fence check would have caught it by accident
+    r.nav.navigation_state.current_position = Position(latitude=math.nan, longitude=math.nan)
+    await r.step()
+    assert r.follower.reason == "no_position" and r.nav.calls == []
+    r.nav.navigation_state.current_position = Position(latitude=math.inf, longitude=-93.0)
+    await r.step()
+    assert r.follower.reason == "no_position" and r.nav.calls == []
+    r.nav.fresh()  # a real fix again: the leg is driven
+    await r.step()
+    assert len(r.nav.calls) == 1
+    await r.tractor.shutdown()
+
+
+@pytest.mark.parametrize("name", ["max_position_age_s", "poll_s", "neutral_timeout_s"])
+@pytest.mark.parametrize("bad", [math.inf, math.nan])
+def test_a_follower_timing_that_is_not_finite_would_never_expire_and_is_refused(name, bad):
+    with pytest.raises(ValueError, match="finite"):
+        FollowerConfig(**{name: bad})
