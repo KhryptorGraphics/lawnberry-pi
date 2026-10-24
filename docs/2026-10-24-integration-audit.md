@@ -1656,3 +1656,34 @@ unverified (gates G0-G1).
 
 The suite rewrites the tracked `verification_artifacts/001-integrate-hardware-and/telemetry_integration_evidence.json`
 on every run; it was restored and is not part of this PR.
+
+### Finish track deploy
+
+Branch `finish/deploy` (goal T3: deployment and security hygiene, repo side). Software behaviour proven by tests that run
+the real scripts against temp directories (`--dry-run`, `--destdir`); nothing was installed on the mower Pi, which was
+unreachable (last row). Test counts are in the final summary of the PR.
+
+| Item | What changed | Evidence | Rows advanced |
+|---|---|---|---|
+| Units are templates | `User=pi`, `Group=pi`, `chown -R pi:pi` and `/apps/lawnberry-pi` replaced by `@LB_USER@`, `@LB_GROUP@`, `@LB_ROOT@` in every unit (camera keeps `Group=video`); unit descriptions no longer carry a version | `tests/unit/test_install_services.py::test_repo_units_carry_no_hard_coded_account_or_checkout` | A.14 "Installer", N-21, A.12 "Version naming" |
+| Installer renders and installs | `systemd/install_services.sh --user/--group/--root/--destdir/--dry-run`; account defaults to `$SUDO_USER`, then the checkout owner, never root; values validated before they reach `sed`; explicit unit manifest plus a drift test; `<unit>.d/*.conf` drop-ins are rendered and installed; the removed `lawnberry-sensors.service` is disabled and deleted on upgrade | 43 tests in `test_install_services.py`: rendering, modes, manifest drift, drop-ins, unknown-token abort, `systemd-analyze verify` of every rendered unit | A.14, N-21 |
+| `--dry-run` | prints every rendered unit and action, writes nothing, needs no root; its exit status is what a real run would return (0 ok, 3 refused) | `test_dry_run_*` | T3 acceptance |
+| Persistent signing secret | `scripts/provision_env.py`: `LAWN_BERRY_AUTH_SECRET` (64 hex) generated once into `<root>/.env` (0600), kept across installs, replaced only by `--rotate-auth-secret`; a short existing secret is refused; atomic write, every other line untouched, never printed | `test_provision_env.py` (41), `test_the_signing_secret_is_generated_once_and_persists_across_installs` | A.9 "JWT secret persistence", N-21 |
+| Credential refusal | the installer exits 3, with nothing installed or written, for a missing, empty, published-default or weak operator credential (under 12 characters, under 5 distinct characters, or a default word plus digits or punctuation), whether it comes from the environment, `--operator-credential-file` or an existing `.env` | `test_default_weak_or_empty_credentials_refuse_the_install` (8 cases), `test_no_credential_at_all_refuses_and_says_how_to_fix_it`; mutation checks (refusal ignored, default list emptied, minimum length 3) fail the suite | A.9 "Default credentials", N-17 |
+| No built-in credential in code | `AuthService` and `/api/v1/auth/login` no longer fall back to `operator123`; unset or a published default disables operator login (fail closed, E-stop routes unaffected, CRITICAL log without the value); `JWTManager` warns once about an ephemeral or weak signing key; `backend/src/core/credential_policy.py` is the single policy; the suite configures an explicit credential | `test_auth_no_default_credential.py` (18), `test_credential_policy.py` (27) | A.9, N-17 |
+| Placeholder unit | `lawnberry-sensors.service` (`ExecStart` = echo + `sleep infinity`) removed; backup/restore scripts and docs drop it; guard: no unit's `ExecStart` may be a placeholder | `test_no_unit_runs_a_placeholder_command` | A.1 "Sensor-manager systemd unit", N-20 |
+| Unit defects found by verifying timers | `lawnberry-cert-renewal.timer` had `Documentation=README.md` (invalid URI); `lawnberry-acme-renew.timer` fired at 00:00 and 00:12, not 12:00 | `test_installed_units_have_valid_systemd_syntax`; `systemd-analyze calendar` | A.13 |
+| CI | `config-lint` verifies the units the installer renders, timers included, and shellchecks the installer | `.github/workflows/config-lint.yml` | A.13 "config-lint" |
+| Documentation (A.12) | `deployment-guide.md`: ports 8081/3000, unit names, installer, E-stop and interlock claims as audited, "Names and versions"; `OPERATIONS.md`: `/control/emergency-stop` described as the software E-stop it is; `PRODUCT.md`: auth enforced, Toro variant, safety and fusion statements; `authentication-config.md`: "emergency123" and the default credential removed; README API intro, installation guide | A.12 rows below | A.12 |
+| Live-only HaLow units | **Not done, blocked on owner action O-8.** `halow-bringup`, `halow-failover`, `halow-lan-routes.{service,timer}`, `wifi-halow-*`, `wificommand`, the `wpa_supplicant@halow0` drop-in and `lawnberry-backend.service.d/thor-upload.conf` were not read: on 2026-10-24 `ssh kp@10.8.0.2` gave `ssh: connect to host 10.8.0.2 port 22: Connection timed out`, `ssh kp@192.168.50.20` gave `ssh: connect to host 192.168.50.20 port 22: No route to host`, and the AP forward `ssh -p 2222 kp@192.168.1.140` gave `No route to host` while the AP itself answered ping (2/2). Reading them from the workshop box is not possible and nothing is invented. The installer already carries `<unit>.d/*.conf` drop-ins; once the Pi is reachable run (read-only) `ssh kp@<pi> 'systemctl cat lawnberry-backend.service wpa_supplicant@halow0.service halow-bringup.service halow-failover.service halow-lan-routes.service halow-lan-routes.timer wificommand.service; systemctl list-units --all "wifi-halow-*" --no-legend'`, strip credentials (PSK/SAE), add the files under `systemd/` and to the installer manifest (the drift test fails until it is). | `ssh` output above | A.14 "HaLow units" and "Backend unit vs deployed" stay UNVERIFIED |
+
+| A.12 row | After this track |
+|---|---|
+| Ports 8000/3001 vs 8081/3000 in `docs/deployment-guide.md` | Closed: 8081 (API) and 3000 (UI), `ws://.../api/v2/ws/telemetry` |
+| `/control/emergency-stop` listed as an e-stop (`docs/OPERATIONS.md`) | Closed: described as the software E-stop with its per-subsystem reply, not as a hardware stop |
+| Version naming v2 / v3 | Closed for the units: descriptions carry no version; the README "v3" (project generation), `/api/v2` (API) and constitution 4.0.0 are documented as separate axes in `deployment-guide.md`. Whether the product should be renamed is the owner's call |
+| `PRODUCT.md:25` Craftsman tractor | Closed: Toro TimeCutter, bench-only, `enabled: false` |
+| `docs/authentication-config.md` "emergency123" | Closed: no such feature; the real recovery is the installer |
+
+Deployed Pi after merge (T4, not done): `OPERATOR_AUTH_REQUIRED` stays `0` there and no `.env` exists until the owner runs
+`sudo bash systemd/install_services.sh --operator-credential-file ...` with the credential from O-2.
