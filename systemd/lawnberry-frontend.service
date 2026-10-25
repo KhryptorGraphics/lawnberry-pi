@@ -22,9 +22,24 @@ Environment=BACKEND_URL=http://127.0.0.1:8081
 # 127.0.0.1 (never with ssh -R, socat, frp). An invalid value trusts nobody (ERROR in the journal).
 Environment=BACKEND_SOURCE_ADDRESS=127.0.0.2
 Environment=UI_TRUSTED_PROXIES=127.0.0.3=last
-# Sockets that connect and send nothing are reaped and, at this many open sockets, the longest idle
-# one makes room for a new one (so the E-stop POST can always connect).
+# The socket table (docs/deployment-guide.md, "Connection limits and the E-stop"). At most this many
+# sockets are open. A socket is PRODUCTIVE from the moment its request is completely received until
+# its response is finished (an upgraded WebSocket for good) and is never closed to make room. Every
+# other socket (silent, headers or body still arriving, idle keep-alive) is evictable: at the cap
+# the one that has been evictable the longest makes room for a new socket, and a new socket is
+# refused only when every socket is productive.
 Environment=UI_MAX_CONNECTIONS=512
+# So the E-stop POST can always connect. An E-stop is a POST to /api/v2/control/emergency,
+# /api/v2/control/emergency-stop or /api/v2/tractor/emergency-stop. Any other request makes its
+# socket productive only while fewer than UI_MAX_CONNECTIONS - UI_CONNECTION_RESERVE sockets are,
+# and is answered 503 with `Retry-After: 1` otherwise: so at least this many slots are always free
+# or evictable, and the reserve never refuses an E-stop. Integer, 4 to UI_MAX_CONNECTIONS - 1.
+Environment=UI_CONNECTION_RESERVE=128
+# The headers of every request (the next request of a keep-alive socket too) must arrive within
+# UI_HEADER_DEADLINE_MS (default 10000) and the whole request, body included, within this many ms
+# (Node's default is 300000), or the socket is closed: a client that announces a body and never
+# sends it cannot hold a socket. Integer, 1000 or more. Responses and WebSockets have no deadline.
+Environment=UI_REQUEST_DEADLINE_MS=15000
 ExecStart=/usr/bin/node @LB_ROOT@/frontend/server.mjs
 Restart=always
 RestartSec=5

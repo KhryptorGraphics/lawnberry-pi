@@ -590,3 +590,113 @@ def test_a_bad_environment_value_is_logged_once_and_the_server_still_serves_the_
         log = server.log_text()
     for name in env:
         assert log.count(name) == 1, (name, log)
+
+
+# ---- SEC3-02: a request to an E-stop PATH is not an E-stop; "productive" ends with the response
+
+
+SECOND_REQUEST_HEADERS_UNFINISHED = b"GET /x HTTP/1.1\r\nHost: t\r\nX-Hold: a"
+SECOND_REQUEST_BODY_UNFINISHED = (
+    b"POST /api/v1/x HTTP/1.1\r\nHost: t\r\nContent-Type: application/json\r\n"
+    b"Content-Length: 1000\r\n\r\n{"
+)
+DEADLINES = {**SMALL, "LAWN_BERRY_BODY_DEADLINE_S": "2"}
+
+
+def _hold_the_table(port: int, first: bytes, second: bytes, count: int) -> list[socket.socket]:
+    """``count`` connections that each complete ``first`` (answered), then start ``second``
+    and fall silent: the review's way of spending the reserve that keeps the E-stop reachable."""
+    held = []
+    for _ in range(count):
+        conn = socket.create_connection(("127.0.0.1", port), timeout=5)
+        conn.sendall(first)
+        assert conn.recv(4096).startswith(b"HTTP/1.1 200")
+        conn.sendall(second)
+        held.append(conn)
+    return held
+
+
+@pytest.mark.parametrize(
+    "second, label",
+    [
+        pytest.param(SECOND_REQUEST_HEADERS_UNFINISHED, "headers", id="second-headers-unfinished"),
+        pytest.param(SECOND_REQUEST_BODY_UNFINISHED, "body", id="second-body-unfinished"),
+    ],
+)
+def test_clients_that_got_one_answer_and_then_went_silent_do_not_hold_the_estop_out(
+    stub_dir, second, label
+):
+    """Old: 24 'E-stop' GETs (a path-only classification) filled the table with connections that
+    were productive for ever, and the real E-stop POST on a new connection was reset (the reviewer
+    measured ReadError at 2 s, 12 s and 30 s). Now each connection falls back to evictable when its
+    response is done and its second request is judged by its own deadline."""
+    first = b"GET /api/v2/tractor/emergency-stop HTTP/1.1\r\nHost: t\r\n\r\n"
+    with Server(stub_dir, GUARDED, env=DEADLINES, extra=("--timeout-keep-alive", "30")) as server:
+        held = _hold_the_table(server.port, first, second, 24)
+        started = time.monotonic()
+        try:
+            for path in (ESTOP, "/api/v2/control/emergency-stop", ESTOP_BODY_PATH):
+                during = post(server.port, path, timeout=3.0)
+                assert during.status == 202, (label, path, during, server.log_text())
+            closed = closure_times(held, started, timeout=8)
+            # every holder is gone: evicted by the newcomers or closed by its own deadline
+            assert len(closed) == 24, (label, len(closed), server.log_text())
+            assert post(server.port).status == 202
+        finally:
+            for conn in held:
+                conn.close()
+        snapshot = server.snapshot()
+        assert snapshot["evicted"] + snapshot["deadline_closed"] >= 24
+        assert snapshot["refused"] == 0
+
+
+def test_clients_that_keep_asking_a_stop_path_with_get_do_not_hold_the_estop_out(stub_dir):
+    """The reviewer's second shape: no unfinished request, just a complete GET to an E-stop path
+    every second on every connection (64 x 405 in the live run). A GET stops nothing: it is an
+    ordinary request and its connection is evictable between two of them."""
+    get_stop_path = b"GET /api/v2/tractor/emergency-stop HTTP/1.1\r\nHost: t\r\n\r\n"
+    with Server(stub_dir, GUARDED, env=DEADLINES, extra=("--timeout-keep-alive", "30")) as server:
+        conns = []
+        for _ in range(24):
+            conn = socket.create_connection(("127.0.0.1", server.port), timeout=5)
+            conn.sendall(get_stop_path)
+            assert conn.recv(4096).startswith(b"HTTP/1.1 200")
+            conns.append(conn)
+        try:
+            for round_number in range(4):
+                for conn in conns:
+                    try:
+                        conn.sendall(get_stop_path)
+                    except OSError:
+                        pass  # the server evicted it: that is the point
+                during = post(server.port, timeout=3.0)
+                assert during.status == 202, (round_number, during, server.log_text())
+                time.sleep(0.5)
+        finally:
+            for conn in conns:
+                conn.close()
+        assert server.snapshot()["refused"] == 0
+
+
+def test_a_request_body_that_stops_arriving_is_cut_at_the_body_deadline(stub_dir):
+    env = {**SMALL, "LAWN_BERRY_BODY_DEADLINE_S": "1"}
+    with Server(stub_dir, GUARDED, env=env, extra=("--timeout-keep-alive", "30")) as server:
+        with socket.create_connection(("127.0.0.1", server.port), timeout=5) as conn:
+            started = time.monotonic()
+            conn.sendall(SECOND_REQUEST_BODY_UNFINISHED)
+            gone = closure_times([conn], started, timeout=6)
+            assert 0 in gone and 0.8 <= gone[0] < 4.0, (gone, server.log_text())
+        assert server.snapshot()["deadline_closed"] >= 1
+
+
+def test_a_second_request_on_a_keep_alive_connection_gets_the_header_deadline_again(stub_dir):
+    env = {**SMALL, "LAWN_BERRY_HEADER_DEADLINE_S": "1"}
+    with Server(stub_dir, GUARDED, env=env, extra=("--timeout-keep-alive", "30")) as server:
+        with socket.create_connection(("127.0.0.1", server.port), timeout=5) as conn:
+            conn.sendall(b"GET /x HTTP/1.1\r\nHost: t\r\n\r\n")
+            assert conn.recv(4096).startswith(b"HTTP/1.1 200")
+            started = time.monotonic()
+            conn.sendall(SECOND_REQUEST_HEADERS_UNFINISHED)
+            gone = closure_times([conn], started, timeout=6)
+            assert 0 in gone and 0.8 <= gone[0] < 4.0, (gone, server.log_text())
+        assert server.snapshot()["deadline_closed"] >= 1

@@ -41,6 +41,9 @@ from ..deps import require_operator_auth
 
 logger = logging.getLogger(__name__)
 
+# Audit rows of the open stop routes are coalesced per this window (same value as api/rest.py).
+ESTOP_AUDIT_WINDOW_S = 5.0
+
 router = APIRouter()
 
 
@@ -148,7 +151,7 @@ async def tractor_revoke() -> dict[str, Any]:
 
 
 @router.post("/tractor/emergency-stop")
-async def tractor_emergency_stop() -> dict[str, Any]:
+async def tractor_emergency_stop(request: Request = None) -> dict[str, Any]:
     """Latch the E-stop and drive the blade/levers/throttle to safe (always available).
 
     The body reports each output's actual result (``complete``, ``subsystems``,
@@ -157,8 +160,24 @@ async def tractor_emergency_stop() -> dict[str, Any]:
     disabled in ``config/tractor.yaml`` and nothing was touched. The stop is shielded from a
     cancelled request: once started it runs to completion. ``latch_persisted: false`` means
     the latch could not be saved to disk (a restart would release it).
+
+    The route is open, so its audit row is the only record of WHO stopped the machine: it is
+    written after the stop (never before, never able to delay or fail it), off the event loop and
+    coalesced per 5 s window like the REST stop routes (``core/persistence.py::AuditCoalescer``),
+    attributed to the connection's peer address (``client_host``), never to a client header.
     """
-    return await asyncio.shield(get_tractor_service().emergency_stop())
+    result = await asyncio.shield(get_tractor_service().emergency_stop())
+    try:
+        persistence.add_audit_log_coalesced(
+            "tractor.emergency_stop",
+            client_id=client_host(request),
+            resource="tractor_emergency_stop",
+            details={"response": result},
+            window_s=ESTOP_AUDIT_WINDOW_S,
+        )
+    except Exception:
+        logger.exception("Audit log write failed for the tractor E-stop")
+    return result
 
 
 @router.post("/tractor/clear-emergency", dependencies=[Depends(require_operator_auth)])

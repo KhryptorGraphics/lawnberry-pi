@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from ..core.peer_address import client_host
 from ..core.persistence import persistence
 from ..services import emergency_stop_service as ess
 from .deps import require_operator_auth
@@ -63,11 +64,14 @@ def _audit_clear(
     request: Request, payload: EmergencyClearRequest, outcome: str, **details: Any
 ) -> None:
     """Record an E-stop clear (or a refused one) with its reason: triggers were audited, clears
-    were not (audit SEC-11). A failing audit store must not strand the operator."""
+    were not (audit SEC-11). A failing audit store must not strand the operator.
+
+    The row is attributed to the connection's peer address (``client_host``: the TCP peer, or the
+    address a declared forwarder recorded), never to ``X-Client-Id``: that header is whatever the
+    caller writes, and this row is the record of WHO cleared a stop (SEC3-08, the twin of the
+    tractor route's SEC20-14 fix)."""
     try:
-        client = request.headers.get("X-Client-Id") or (
-            request.client.host if request.client else None
-        )
+        client = client_host(request)
         persistence.add_audit_log(
             "control.emergency_clear",
             client_id=client,

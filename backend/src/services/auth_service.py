@@ -14,7 +14,7 @@ import hashlib
 import logging
 import os
 import secrets
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -27,7 +27,7 @@ import pyotp
 from ..core.auth_posture import sim_open_auth_enabled
 from ..core.context import get_correlation_id
 from ..core.credential_policy import assess_signing_secret, known_default_reason
-from ..core.peer_address import peer_key
+from ..core.peer_address import ipv6_group_key, peer_key
 from ..core.simulation import is_simulation_mode
 from ..models import (
     AuthenticationMethod,
@@ -188,7 +188,8 @@ class JWTManager:
                 algorithms=[self.algorithm],
                 options={"require": ["exp", "sid", "sub"]},
             )
-        except jwt.InvalidTokenError:
+        except (jwt.InvalidTokenError, jwt.ExpiredSignatureError):
+            # PyJWT's ExpiredSignatureError is an InvalidTokenError; the compat stub's is not
             return None
 
 
@@ -365,6 +366,37 @@ class RateLimiter:
         return [key for key, until in self._lockout_until.items() if until > now]
 
 
+# The coarse backstop of the per-address login lockout (SEC3-11): see GroupFailureLimiter.
+IPV6_GROUP_FAILURE_LIMIT = 25
+IPV6_GROUP_LOCKOUT_SECONDS = 30
+# How long a session termination listener (the WebSocket closer) may take before it is abandoned:
+# ending a login must never hang on a peer that does not answer a close (ws_policy.CLOSE_TIMEOUT_S
+# is 1 s per socket, all sockets at once).
+TERMINATION_LISTENER_TIMEOUT_S = 2.0
+
+
+class GroupFailureLimiter(RateLimiter):
+    """The failure lockout of a GROUP of clients (an IPv6 /64), with limits that are fixed.
+
+    An IPv6 address that is not global is counted per address (``core/peer_address.py::peer_key``:
+    on a LAN every device of the /64 would otherwise share one lockout, so one device's typos
+    would lock the others out). A host can alias as many addresses of its own /64 as it likes,
+    though, and a fresh address is a fresh five guesses: this counter, keyed by the /64 of EVERY
+    IPv6 client, is what stops that. It is deliberately coarse (a few devices' typos do not
+    reach it, a guesser does) and deliberately NOT tunable: ``AUTH_LOCKOUT_FAILURES`` and
+    ``AUTH_LOCKOUT_SECONDS`` size the per-address lockout, and a per-address limit raised above
+    this one would make the group lock first, which is the very DoS it exists to avoid.
+    """
+
+    @property
+    def failure_limit(self) -> int:
+        return self._failure_limit_default
+
+    @property
+    def lockout_seconds(self) -> int:
+        return self._lockout_seconds_default
+
+
 class AuthService:
     """Main authentication service"""
 
@@ -373,6 +405,10 @@ class AuthService:
         self.password_manager = PasswordManager()
         self.jwt_manager = JWTManager()
         self.rate_limiter = RateLimiter(failure_limit=5, lockout_seconds=30)
+        # The coarse per-IPv6-/64 failure backstop of ``rate_limiter`` (GroupFailureLimiter).
+        self.group_limiter = GroupFailureLimiter(
+            failure_limit=IPV6_GROUP_FAILURE_LIMIT, lockout_seconds=IPV6_GROUP_LOCKOUT_SECONDS
+        )
         # SIM_MODE=1 is not enough to accept any credential: that also needs the explicit
         # LAWN_BERRY_SIM_OPEN_AUTH=1 opt-in and is never honoured in a production environment
         # (core/auth_posture.sim_open_auth_enabled). Read once, at construction.
@@ -411,6 +447,9 @@ class AuthService:
         self.require_https = False  # Would be True in production
         self.audit_logging_enabled = True
 
+        # What has to happen when a session ends (``add_termination_listener``).
+        self._termination_listeners: list[Callable[[str, str], Awaitable[None]]] = []
+
     def _hash_credential(self, credential: str) -> str:
         """Hash the operator credential"""
         return self.password_manager.hash_password(credential)
@@ -419,6 +458,27 @@ class AuthService:
     def _client_key(client_ip: str | None) -> str:
         """The limiter key: the TCP peer, never a header the client writes (SEC-03)."""
         return peer_key(client_ip)
+
+    @staticmethod
+    def group_key(client_ip: str | None) -> str | None:
+        """The coarse failure-counter key: the IPv6 /64 of ANY IPv6 client, else ``None``.
+
+        Layered on top of :meth:`_client_key` (see :class:`GroupFailureLimiter`): IPv4 and
+        IPv4-mapped clients have no group, their own address is already the right unit.
+        """
+        return ipv6_group_key(client_ip)
+
+    def _record_failure(self, key: str, group: str | None) -> int | None:
+        """Count a failed login against the client and, for an IPv6 client, its /64.
+
+        The seconds of the lockout this failure started (the longer one if both did), else
+        ``None``.
+        """
+        lockouts = [self.rate_limiter.record_failure(key)]
+        if group is not None:
+            lockouts.append(self.group_limiter.record_failure(group))
+        started = [seconds for seconds in lockouts if seconds is not None]
+        return max(started) if started else None
 
     def login_available(self) -> bool:
         """``True`` when some credential can log in (a configured one, or the simulator opt-in)."""
@@ -472,13 +532,17 @@ class AuthService:
         """Authenticate with the shared operator credential.
 
         Throttling is per TCP peer (``client_ip``); the old ``client_identifier`` argument, fed
-        from the client-writable ``X-Client-Id`` header, is gone (SEC-03). ``accept_simulated``
-        is ``False`` for callers (the v1 login) that must stay strict even under the simulator
-        opt-in.
+        from the client-writable ``X-Client-Id`` header, is gone (SEC-03). An IPv6 client also
+        counts toward the coarse failure lockout of its /64 (:class:`GroupFailureLimiter`).
+        ``accept_simulated`` is ``False`` for callers (the v1 login) that must stay strict even
+        under the simulator opt-in.
         """
 
         key = self._client_key(client_ip)
+        group = self.group_key(client_ip)
         self.rate_limiter.assert_not_locked(key)
+        if group is not None:
+            self.group_limiter.assert_not_locked(group)
 
         # Throttle the attempt rate (counts successes and failures alike).
         retry_after = self.rate_limiter.record_attempt(key)
@@ -494,7 +558,7 @@ class AuthService:
             )
 
         if not credential:
-            retry_after = self.rate_limiter.record_failure(key)
+            retry_after = self._record_failure(key, group)
             logger.warning(
                 "auth.login.failure",
                 extra={
@@ -510,7 +574,7 @@ class AuthService:
             )
 
         if not await self.verify_operator_credential(credential, accept_simulated=accept_simulated):
-            retry_after = self.rate_limiter.record_failure(key)
+            retry_after = self._record_failure(key, group)
             logger.warning(
                 "auth.login.failure",
                 extra={
@@ -527,6 +591,8 @@ class AuthService:
 
         # Successful credential validation clears any accumulated failure state
         self.rate_limiter.reset(key)
+        if group is not None:
+            self.group_limiter.reset(group)
 
         session = UserSession.create_operator_session(client_ip, user_agent)
         session.security_context.authentication_method = AuthenticationMethod.SHARED_CREDENTIAL
@@ -556,9 +622,17 @@ class AuthService:
 
         return result
 
-    async def verify_token(self, token: str) -> UserSession | None:
-        """Verify JWT token and return session"""
-        payload = self.jwt_manager.verify_token(token)
+    async def verify_token(self, token: str, *, quiet: bool = False) -> UserSession | None:
+        """Verify JWT token and return session.
+
+        ``quiet`` is for a caller that sees every credential a flood can send (the WebSocket
+        handshake): the token is checked silently (:meth:`JWTManager.peek_token`), where the
+        default logs a WARNING for each expired or invalid one. The checks are the same and an
+        expired session is still terminated on contact.
+        """
+        payload = (
+            self.jwt_manager.peek_token(token) if quiet else self.jwt_manager.verify_token(token)
+        )
         if not payload:
             return None
 
@@ -612,7 +686,9 @@ class AuthService:
         return session
 
     async def terminate_session(self, session_id: str, reason: str = "user_logout") -> bool:
-        """Terminate a session"""
+        """Terminate a session (the one place a login ends: logout, an expiry found on contact,
+        ``cleanup_expired_sessions``, a credential change) and tell the termination listeners.
+        """
         if session_id not in self.active_sessions:
             return False
 
@@ -623,11 +699,58 @@ class AuthService:
         if self.audit_logging_enabled:
             session.update_activity("logout", metadata={"reason": reason})
 
-        # Remove from active sessions
+        # Remove from active sessions (before the listeners run: whatever they ask, it is over)
         del self.active_sessions[session_id]
 
         logger.info(f"Session {session_id} terminated: {reason}")
+        await self._notify_session_ended(session_id, reason)
         return True
+
+    def add_termination_listener(self, listener: Callable[[str, str], Awaitable[None]]) -> None:
+        """Have ``await listener(session_id, reason)`` run whenever a session is terminated.
+
+        For whatever outlives the session and must end with it (the open WebSockets of a login:
+        ``api/routers/auth.py``). Adding the same listener twice is a no-op.
+        """
+        if listener not in self._termination_listeners:
+            self._termination_listeners.append(listener)
+
+    def remove_termination_listener(self, listener: Callable[[str, str], Awaitable[None]]) -> None:
+        """Stop calling ``listener`` (no-op if it was never added)."""
+        if listener in self._termination_listeners:
+            self._termination_listeners.remove(listener)
+
+    async def _notify_session_ended(self, session_id: str, reason: str) -> None:
+        """Run the termination listeners; a listener never fails or holds up the termination.
+
+        Each is given :data:`TERMINATION_LISTENER_TIMEOUT_S`; an error or a timeout is logged
+        and the next listener still runs. (Cancellation is not swallowed.)
+        """
+        for listener in tuple(self._termination_listeners):
+            try:
+                async with asyncio.timeout(TERMINATION_LISTENER_TIMEOUT_S):
+                    await listener(session_id, reason)
+            except TimeoutError:
+                logger.error(
+                    "A session termination listener took longer than %.1f s and was abandoned",
+                    TERMINATION_LISTENER_TIMEOUT_S,
+                )
+            except Exception:
+                logger.exception("A session termination listener failed")
+
+    async def session_seconds_left(self, session_id: str) -> float | None:
+        """Seconds until the live session ``session_id`` expires, ``None`` if it is gone or over.
+
+        An expired session is terminated on the spot (like :meth:`verify_session`, but without
+        its idle bookkeeping and log line: the WebSocket expiry timers ask this repeatedly).
+        """
+        session = self.active_sessions.get(session_id)
+        if session is None:
+            return None
+        if session.is_expired():
+            await self.terminate_session(session_id, "expired")
+            return None
+        return (session.expires_at - datetime.now(UTC)).total_seconds()
 
     async def extend_session(self, session_id: str, hours: int = 8) -> bool:
         """Extend session expiration"""

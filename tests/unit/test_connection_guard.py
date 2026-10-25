@@ -284,6 +284,7 @@ def test_snapshot_reports_every_counter_and_gauge_with_a_fake_clock():
         "reserve": 1,
         "soft_cap": 3,
         "header_deadline_s": 7.5,
+        "body_deadline_s": 15.0,
         "connections": 3,
         "productive": 1,
         "unproductive": 2,
@@ -625,11 +626,11 @@ ok_app.paths = []
 BASES = [pytest.param(HttpToolsProtocol, id="httptools"), pytest.param(H11Protocol, id="h11")]
 
 
-def build(base, guard: ConnectionGuard, *, ws="none"):
+def build(base, guard: ConnectionGuard, *, ws="none", app=None):
     """One guarded protocol instance on top of ``base`` plus its (not yet connected) transport."""
     cg.reset_process_guard(guard)
     cls = type(f"Guarded{base.__name__}", (up.GuardedHttpProtocolMixin, base), {})
-    config = uvicorn.Config(ok_app, http=cls, ws=ws, lifespan="off", log_level="critical")
+    config = uvicorn.Config(app or ok_app, http=cls, ws=ws, lifespan="off", log_level="critical")
     config.load()
     proto = cls(
         config=config,
@@ -742,11 +743,14 @@ async def test_a_request_whose_body_never_arrives_stays_evictable_even_on_the_es
     proto, _ = connect(base, guard)
     proto.data_received(post_head(path, 10))
     assert not guard.is_productive(proto)
-    assert proto._deadline_handle is None  # the request began: a slow upload is not reaped
+    # the headers are in, so the header deadline is over; the BODY has a deadline of its own now
+    # (SEC3-02: a slow upload used to be left alone for ever)
+    assert proto._deadline_kind == "body"
     proto.data_received(b"{" + b" " * 3)  # part of the body
     assert not guard.is_productive(proto)
     proto.data_received(b" " * 5 + b"}")  # the rest
     assert guard.is_productive(proto)
+    assert proto._deadline_handle is None  # the body arrived in time: nothing left to race
 
 
 @pytest.mark.parametrize("base", BASES)
@@ -775,16 +779,18 @@ async def test_the_header_deadline_is_total_so_dribbling_one_byte_at_a_time_does
 
 
 @pytest.mark.parametrize("base", BASES)
-async def test_a_request_cancels_the_deadline_so_a_keep_alive_connection_is_left_alone(base):
+async def test_a_request_cancels_the_header_deadline_so_a_slow_response_is_left_alone(base):
     guard = guard_of(8, 2, deadline=0.08)
     proto, transport = connect(base, guard)
     await asyncio.sleep(0.02)
     proto.data_received(get())
-    await asyncio.sleep(0.25)  # well past the deadline
+    await asyncio.sleep(0.25)  # well past the deadline; the application has answered long ago
     assert not transport.aborted
-    assert guard.deadline_closed == 0 and guard.is_productive(proto)
+    assert guard.deadline_closed == 0
+    # the response is finished: the connection waits for its next request, evictable again
+    assert not guard.is_productive(proto) and len(guard) == 1
     # a timer that fires anyway (queued before the request began) must not cut the connection
-    proto._on_header_deadline()
+    proto._on_deadline("headers")
     assert not transport.aborted and guard.deadline_closed == 0
 
 
@@ -951,17 +957,19 @@ async def test_an_estop_under_a_root_path_prefix_is_still_exempt(base):
 
 
 @pytest.mark.parametrize("base", BASES)
-async def test_a_connection_that_is_already_productive_keeps_being_served_at_full_quota(base):
-    guard = guard_of(6, 2)
-    proto, _ = connect(base, guard)
-    proto.data_received(get())  # delivers a complete request: productive
-    await asyncio.sleep(0.01)  # let its application task finish before the next one is observed
-    assert guard.is_productive(proto)
-    for i in range(3):  # the other three quota slots
+async def test_the_request_that_fills_the_quota_is_itself_served_not_shed(base):
+    """Productive means "a complete request is in flight": the one that takes the last quota
+    slot must not be answered 503 by the check that sees the quota full right after it."""
+    guard = guard_of(6, 2)  # soft cap 4
+    for i in range(3):
         assert guard.mark_productive(admit(guard, f"p{i}"))
-    assert guard.over_soft_cap()
-    sent, ran = await run_app(proto, http_scope("/api/v1/jobs"))
-    assert ran == ["/api/v1/jobs"] and sent[0]["status"] == 200
+    proto, transport = connect(base, guard)
+    proto.data_received(get())  # delivers a complete request: the 4th and last quota slot
+    assert guard.is_productive(proto) and guard.over_soft_cap()
+    await asyncio.sleep(0.02)  # the application task answers
+    written = b"".join(transport.written)
+    assert b"200 OK" in written and b"503" not in written
+    assert guard.shed == 0
 
 
 @pytest.mark.parametrize("base", BASES)
@@ -1093,3 +1101,279 @@ async def test_the_listener_budget_warning_is_logged_once_per_process(proto_log,
         connect(HttpToolsProtocol, guard)
     warnings = [r for r in proto_log.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1 and "--backlog" in warnings[0].getMessage()
+
+
+# --------------------------------------------------------------------------------------
+# SEC3-02: the state follows the REQUEST, an E-stop is a POST, every request has a deadline
+# --------------------------------------------------------------------------------------
+
+
+def guard_with(max_connections=8, reserve=2, deadline=10.0, body_deadline=10.0, **kw):
+    return ConnectionGuard(max_connections, reserve, deadline, body_deadline_s=body_deadline, **kw)
+
+
+async def early_app(scope, receive, send):
+    """Answers at once and never reads the request body (a stop that does not need it, a 413)."""
+    if scope["type"] != "http":
+        return
+    await send(
+        {"type": "http.response.start", "status": 200, "headers": [(b"content-length", b"2")]}
+    )
+    await send({"type": "http.response.body", "body": b"ok"})
+
+
+def slow_app(gate: asyncio.Event):
+    """An application whose response only finishes once ``gate`` is set (a streaming response)."""
+
+    async def app(scope, receive, send):
+        if scope["type"] != "http":
+            return
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"x", "more_body": True})
+        await gate.wait()
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    return app
+
+
+SECOND_REQUEST_START = b"GET /api/v1/second HTTP/1.1\r\nHost: t\r\nX-Hold: a"  # headers unfinished
+
+
+def test_a_connection_that_went_idle_is_the_newest_evictable_one():
+    clock = Clock(100.0)
+    guard = guard_of(3, 1, clock=clock)
+    a, b, c = (admit(guard, name) for name in "abc")
+    assert guard.mark_productive(a)  # a arrived first and is now being served
+    clock.now = 200.0
+    assert guard.mark_idle(a) is True  # its response is done
+    assert not guard.is_productive(a) and len(guard) == 3
+    # a is the oldest by arrival but the newest by idleness: b goes first, then c, then a
+    evicted_after_each = []
+    for i in range(3):
+        newcomer = Conn(f"n{i}")
+        assert guard.register(newcomer, newcomer.close)
+        evicted_after_each.append([conn.name for conn in (a, b, c) if conn.closed])
+    assert evicted_after_each == [["b"], ["b", "c"], ["a", "b", "c"]]
+
+
+def test_mark_idle_ignores_connections_that_are_not_productive_or_not_tracked():
+    guard = guard_of(4, 1)
+    silent = admit(guard, "silent")
+    assert guard.mark_idle(silent) is False and not guard.is_productive(silent)
+    assert guard.mark_idle(Conn("stranger")) is False
+    assert len(guard) == 1
+
+
+def test_a_connection_that_went_idle_gives_its_quota_slot_back():
+    guard = guard_of(4, 1)  # soft cap 3
+    conns = [admit(guard, str(i)) for i in range(3)]
+    for conn in conns:
+        assert guard.mark_productive(conn)
+    fourth = admit(guard, "fourth")
+    assert guard.over_soft_cap() and guard.mark_productive(fourth) is False
+    guard.mark_idle(conns[0])
+    assert not guard.over_soft_cap()
+    assert guard.mark_productive(fourth) is True
+
+
+def test_when_every_connection_has_gone_idle_a_newcomer_evicts_one_instead_of_being_refused():
+    guard = guard_of(3, 1)  # soft cap 2
+    a, b, c = (admit(guard, name) for name in "abc")
+    assert guard.mark_productive(a) and guard.mark_productive(b)
+    assert guard.mark_productive(c, estop=True)  # a stop being served, beyond the quota
+    refused = Conn("refused")
+    assert guard.register(refused, refused.close) is False and guard.refused == 1
+    for conn in (a, b, c):
+        guard.mark_idle(conn)
+    admitted = Conn("admitted")
+    assert guard.register(admitted, admitted.close) is True
+    assert guard.refused == 1 and guard.evicted == 1 and a.closed == 1
+
+
+@pytest.mark.parametrize("base", BASES)
+async def test_a_table_of_clients_that_each_started_a_second_request_still_admits_a_newcomer(base):
+    """The review's scenario: every connection completed ONE request, then started a second that it
+    never finishes. The first request used to make the connection productive for ever, so the
+    table was full of untouchable connections and the E-stop's connection was refused."""
+    guard = guard_of(4, 1)
+    holders = [connect(base, guard) for _ in range(4)]
+    for proto, _ in holders:
+        proto.data_received(get())
+    await asyncio.sleep(0.05)  # every application task has answered
+    for proto, _ in holders:
+        proto.data_received(SECOND_REQUEST_START)
+    newcomer, newcomer_transport = connect(base, guard)
+    assert not newcomer_transport.aborted
+    assert guard.refused == 0 and guard.evicted == 1
+    assert sum(transport.aborted for _, transport in holders) == 1
+
+
+@pytest.mark.parametrize("base", BASES)
+async def test_the_header_deadline_runs_again_for_every_request_of_a_keep_alive_connection(base):
+    guard = guard_of(8, 2, deadline=0.08)
+    proto, transport = connect(base, guard)
+    proto.data_received(get())
+    await asyncio.sleep(0.03)  # the first request is served
+    assert not transport.aborted
+    proto.data_received(SECOND_REQUEST_START)  # the first bytes of the next request, then silence
+    await asyncio.sleep(0.25)
+    assert transport.aborted and guard.deadline_closed == 1
+
+
+@pytest.mark.parametrize("base", BASES)
+async def test_the_second_requests_header_deadline_is_total_and_ends_when_its_headers_do(base):
+    # dribbling: one more byte every 20 ms does not keep a request alive past its deadline
+    guard = guard_of(8, 2, deadline=0.1)
+    proto, transport = connect(base, guard)
+    proto.data_received(get())
+    await asyncio.sleep(0.03)
+    proto.data_received(SECOND_REQUEST_START)
+    for _ in range(30):
+        if transport.aborted:
+            break
+        proto.data_received(b"b")
+        await asyncio.sleep(0.02)
+    assert transport.aborted and guard.deadline_closed == 1
+
+    # headers that complete in time end the deadline: the same connection is then left alone
+    guard = guard_of(8, 2, deadline=0.1)
+    proto, transport = connect(base, guard)
+    proto.data_received(get())
+    await asyncio.sleep(0.03)
+    proto.data_received(SECOND_REQUEST_START)
+    proto.data_received(b"\r\n\r\n")
+    await asyncio.sleep(0.3)
+    assert not transport.aborted and guard.deadline_closed == 0
+
+
+@pytest.mark.parametrize("base", BASES)
+@pytest.mark.parametrize("path", ["/api/v1/jobs", ESTOP_PATH])
+async def test_a_request_body_that_does_not_arrive_in_time_closes_the_connection(base, path):
+    guard = guard_with(deadline=10.0, body_deadline=0.08)
+    proto, transport = connect(base, guard)
+    proto.data_received(post_head(path, 100) + b"{")
+    assert not transport.aborted
+    await asyncio.sleep(0.25)
+    assert transport.aborted and guard.deadline_closed == 1
+    assert len(guard) == 1  # the abort is asyncio's to report: connection_lost releases the slot
+    proto.connection_lost(None)
+    assert len(guard) == 0
+
+
+@pytest.mark.parametrize("base", BASES)
+async def test_a_dribbled_body_does_not_extend_the_body_deadline(base):
+    guard = guard_with(body_deadline=0.1)
+    proto, transport = connect(base, guard)
+    proto.data_received(post_head("/api/v1/jobs", 1000))
+    for _ in range(30):
+        if transport.aborted:
+            break
+        proto.data_received(b"x")
+        await asyncio.sleep(0.02)
+    assert transport.aborted and guard.deadline_closed == 1
+
+
+@pytest.mark.parametrize("base", BASES)
+async def test_a_body_that_arrives_in_time_is_left_alone(base):
+    guard = guard_with(body_deadline=0.1)
+    proto, transport = connect(base, guard)
+    proto.data_received(post_head("/api/v1/jobs", 10) + b"{   ")
+    await asyncio.sleep(0.03)
+    proto.data_received(b"     }")  # 4 + 6 = the announced 10 bytes
+    await asyncio.sleep(0.25)
+    assert not transport.aborted and guard.deadline_closed == 0
+
+
+@pytest.mark.parametrize("base", BASES)
+async def test_a_response_sent_before_the_body_ended_keeps_the_body_deadline(base):
+    """A 413 or a stop that ignores its body answers at once; the body may never come."""
+    guard = guard_with(body_deadline=0.1)
+    proto, transport = connect(base, guard, app=early_app)
+    proto.data_received(post_head("/api/v1/jobs", 100) + b"{")
+    await asyncio.sleep(0.03)
+    assert b"200 OK" in b"".join(transport.written)  # answered
+    assert not transport.aborted
+    await asyncio.sleep(0.25)
+    assert transport.aborted and guard.deadline_closed == 1
+
+
+@pytest.mark.parametrize("base", BASES)
+async def test_a_streaming_response_keeps_the_slot_until_it_ends(base):
+    gate = asyncio.Event()
+    guard = guard_of(6, 2)
+    proto, _ = connect(base, guard, app=slow_app(gate))
+    proto.data_received(get())
+    await asyncio.sleep(0.03)
+    assert guard.is_productive(proto)  # the response is still in flight
+    gate.set()
+    await asyncio.sleep(0.03)
+    assert not guard.is_productive(proto) and len(guard) == 1  # finished: evictable again
+
+
+@pytest.mark.parametrize("base", BASES)
+@pytest.mark.parametrize("method", [b"GET", b"HEAD", b"PUT", b"DELETE", b"OPTIONS", b"PATCH"])
+async def test_only_a_post_to_an_estop_path_earns_priority_over_the_quota(base, method):
+    guard = guard_of(8, 2)  # soft cap 6
+    for i in range(6):
+        assert guard.mark_productive(admit(guard, f"p{i}"))
+    other, _ = connect(base, guard)
+    other.data_received(method + b" " + ESTOP_PATH.encode() + b" HTTP/1.1\r\nHost: t\r\n\r\n")
+    assert not guard.is_productive(other)
+    assert guard.over_quota == 1
+    stop, _ = connect(base, guard)
+    stop.data_received(post_head(ESTOP_PATH, 2) + b"{}")
+    assert guard.is_productive(stop)
+
+
+@pytest.mark.parametrize("base", BASES)
+@pytest.mark.parametrize("method", ["GET", "HEAD", "PUT", "DELETE", "OPTIONS", "PATCH"])
+@pytest.mark.parametrize("path", ["/api/v2/control/emergency", "/api/v2/tractor/emergency-stop"])
+async def test_a_request_to_an_estop_path_that_is_not_a_post_is_shed_like_any_other(
+    base, method, path
+):
+    guard = guard_of(6, 2)
+    for i in range(4):
+        assert guard.mark_productive(admit(guard, f"p{i}"))
+    proto, _ = connect(base, guard)
+    sent, ran = await run_app(proto, http_scope(path, method=method))
+    assert ran == [] and sent[0]["status"] == 503 and guard.shed == 1
+
+
+@pytest.mark.parametrize("base", BASES)
+async def test_an_estop_post_on_a_served_keep_alive_connection_is_served_at_full_quota(base):
+    guard = guard_of(6, 2)
+    proto, transport = connect(base, guard)
+    proto.data_received(get())
+    await asyncio.sleep(0.03)  # the first request is done; the connection waits for the next
+    for i in range(4):
+        assert guard.mark_productive(admit(guard, f"p{i}"))
+    assert guard.over_soft_cap()
+    transport.written.clear()
+    proto.data_received(post_head(ESTOP_PATH, 2) + b"{}")
+    assert guard.is_productive(proto)
+    await asyncio.sleep(0.03)
+    assert b"200 OK" in b"".join(transport.written) and guard.shed == 0
+
+
+@pytest.mark.parametrize("bad", ["0.9", "301", "300.5", "abc", "-5", "nan", "10s", "0", ".5"])
+def test_a_bad_body_deadline_logs_one_error_naming_the_variable_and_uses_fifteen_seconds(
+    bad, caplog
+):
+    caplog.set_level(logging.DEBUG, logger="backend.src.core.connection_guard")
+    guard = cg.guard_from_environment({cg.BODY_DEADLINE_ENV: bad}, soft_nofile=4096)
+    assert guard.body_deadline_s == 15.0
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1 and cg.BODY_DEADLINE_ENV in errors[0].getMessage()
+
+
+@pytest.mark.parametrize("good, expected", [("1", 1.0), ("2.5", 2.5), ("300", 300.0)])
+def test_the_body_deadline_accepts_its_whole_range_inclusive(good, expected, caplog):
+    guard = cg.guard_from_environment({cg.BODY_DEADLINE_ENV: good}, soft_nofile=4096)
+    assert guard.body_deadline_s == expected and guard.header_deadline_s == 10.0
+    assert not caplog.records
+
+
+@pytest.mark.parametrize("deadline", [0, -1.0, float("nan"), float("inf")])
+def test_the_constructor_refuses_a_body_deadline_that_is_not_a_positive_finite_number(deadline):
+    with pytest.raises(ValueError, match="body_deadline_s"):
+        ConnectionGuard(8, 2, 10.0, body_deadline_s=deadline)

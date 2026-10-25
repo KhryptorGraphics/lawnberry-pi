@@ -32,6 +32,9 @@ sudo systemctl start lawnberry-cert-renewal.service
 # Dry-run renewal test
 sudo certbot renew --dry-run
 
+# What the renewal job will read from .env (no root needed; nothing is changed)
+bash scripts/renew_certificates.sh --print-config
+
 # Backend health and metrics for TLS status
 curl -s http://127.0.0.1:8081/api/v2/health | jq '.subsystems.tls'
 curl -s http://127.0.0.1:8081/metrics | grep lawnberry_tls_cert_
@@ -42,6 +45,33 @@ Environment variables (set in `.env`):
 - `LETSENCRYPT_EMAIL` – contact email for Let’s Encrypt
 - `ALT_DOMAINS` – optional SANs (comma-separated), e.g., `www.example.com,api.example.com`
 - `CLOUDFLARE_API_TOKEN` – optional, for DNS-01 (wildcards or no port 80)
+
+The renewal job runs as **root**, but the checkout and its `.env` belong to the service account (the
+backend runs as that account and can write both). So the job never runs anything from the checkout
+and never executes `.env`:
+- `lawnberry-cert-renewal.service` runs only `/usr/local/sbin/lawnberry-renew-certificates.sh`, a
+  root-owned copy (`root:root`, 0755) that `systemd/install_services.sh` makes from
+  `scripts/renew_certificates.sh` on every run. **Run the installer again after changing the script.**
+  Until it has run, the unit is skipped (its `ConditionPathExists` is false), not failed.
+- From `.env` the job takes only `LB_DOMAIN` and `DOMAIN` (`LB_DOMAIN` wins), read as data by a strict
+  line parser: `KEY=value`, `KEY='value'` or `KEY="value"`, the last assignment of a key wins, no
+  `export ` prefix and no inline comments. The value must be a host name (letters, digits, dots and
+  hyphens, up to 253 characters, starting and ending with a letter or digit, no `..`); anything else
+  is ignored and logged as a warning that does not repeat it. A symbolic link or a file that is not a
+  regular file is not read, and only the first 32 KiB are. `LETSENCRYPT_EMAIL`, `ALT_DOMAINS`, the
+  ports and every other line are ignored by the job (`scripts/setup_lets_encrypt.sh` uses them).
+- `bash scripts/renew_certificates.sh --print-config` prints the `domain=` and `env_file=` that run
+  would use (from the checkout it is in: `<checkout>/.env`, which is what the installer puts in the
+  unit unless you installed with another `--root`) and changes nothing. The unit's own value is
+  in `systemctl show -p Environment lawnberry-cert-renewal.service`. A `LB_DOMAIN` in the job's
+  environment (`sudo systemctl edit lawnberry-cert-renewal`, then `Environment=LB_DOMAIN=...`) wins
+  over the file.
+- The unit's sandbox leaves `/etc` read-only except `/etc/lawnberry`, `/etc/nginx` and
+  `/etc/letsencrypt` (the self-signed fallback, the nginx configs it edits, certbot's state) and keeps
+  a checkout under `/home` readable (`ProtectHome=read-only`). The job cannot install packages:
+  install certbot first (`scripts/setup_lets_encrypt.sh` does). It cannot create `/etc/lawnberry`
+  either: `scripts/setup_https.sh` makes `/etc/lawnberry/certs/selfsigned`, and a run on a host
+  without it stops with an error that says so.
 
 ## Health & Status
 - GET http://127.0.0.1:8081/health → { status: "healthy" }
@@ -89,7 +119,8 @@ listens on port 8081. See `docs/deployment-guide.md`. On the shed Pi do not stop
 `lawnberry-backend` without physical access (it also stops `lawnberry-camera`).
 
 Certificate renewal units:
-- `lawnberry-cert-renewal.service` — on-demand renewal/validation + nginx reload + fallback
+- `lawnberry-cert-renewal.service` — on-demand renewal/validation + nginx reload + fallback; runs as
+  root, and only the root-owned copy installed by `systemd/install_services.sh` (see above)
 - `lawnberry-cert-renewal.timer` — runs the renewal daily with randomized delay
 
 ## WebSocket Topics

@@ -2,7 +2,8 @@
 
 Enforces basic constraints before handlers run:
 - Content-Type must be application/json for modifying methods
-- Maximum body size limit
+- Maximum body size limit (a backstop: ``middleware/body_limit.py`` is registered together with
+  this middleware, right outside it, and refuses an oversized body BEFORE any of it is buffered)
 - Rejects invalid JSON payloads early with clear errors
 
 The E-stop POSTs (``middleware/emergency_paths.py``) are never refused here: a stop request
@@ -21,6 +22,12 @@ from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
+from .body_limit import (
+    DEFAULT_MAX_BODY_BYTES,
+    MAX_BODY_ENV,
+    env_int,
+    register_body_limit_middleware,
+)
 from .emergency_paths import is_emergency_stop_path
 
 
@@ -76,10 +83,12 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
 
 
 def register_input_validation_middleware(app: FastAPI) -> None:
-    max_body = int(os.getenv("INPUT_MAX_BODY_BYTES", "1000000"))
+    max_body = env_int(MAX_BODY_ENV, DEFAULT_MAX_BODY_BYTES)
     skip = os.getenv("INPUT_VALIDATION_SKIP", "/health,/metrics,/docs,/openapi.json")
     app.add_middleware(
         InputValidationMiddleware,
         max_body_bytes=max_body,
         skip_prefixes=[s.strip() for s in skip.split(",") if s.strip()],
     )
+    # Added second, so it is the OUTER one: a body is bounded before this middleware reads it.
+    register_body_limit_middleware(app)

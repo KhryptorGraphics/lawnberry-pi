@@ -5,7 +5,9 @@
 # @LB_ROOT@ instead of a hard-coded account and checkout path. This script renders them for
 # the real service account and checkout, provisions <root>/.env (a persistent
 # LAWN_BERRY_AUTH_SECRET and a validated operator credential, see scripts/provision_env.py),
-# installs the units and enables them.
+# installs the units and enables them. The scripts the root-run units execute are installed too,
+# as root-owned copies under /usr/local/sbin (see ROOT_SCRIPTS): root never runs a file that the
+# service account, which owns the checkout, could rewrite.
 #
 #   sudo bash systemd/install_services.sh                  # account = $SUDO_USER, root = this checkout
 #   sudo bash systemd/install_services.sh --user kp --operator-credential-file /root/cred
@@ -39,6 +41,16 @@ INSTALL_UNITS=(
   lawnberry-backup.timer
   halow-link-watch.service
   halow-link-watch.timer
+)
+# Scripts that root-run units execute, "<source in this repository>:<name under /usr/local/sbin>".
+# Each is copied there as root:root 0755 on every run (a re-run replaces the copy) and the unit
+# names that copy, never the checkout: the service account owns the checkout (the backend unit
+# can write all of it), so a file inside it must not be what root runs.
+# tests/unit/test_install_services.py fails when a root-run unit executes anything but a file
+# installed from this list or a system binary.
+ROOT_SCRIPTS=(
+  scripts/halow_link_watch.sh:halow-link-watch.sh
+  scripts/renew_certificates.sh:lawnberry-renew-certificates.sh
 )
 # Enabled at boot. Nothing is started here (see the note printed at the end).
 ENABLE_UNITS=(
@@ -124,6 +136,11 @@ On a real run (not --dry-run, not --destdir) it also creates <root>/data, <root>
 service account, once. It never follows a symbolic link there (a link is an error), never
 crosses into another filesystem and changes nothing else under the root: the units run no
 boot-time chown.
+
+It also copies the scripts the root-run units execute (halow-link-watch.sh and
+lawnberry-renew-certificates.sh) to /usr/local/sbin as root:root 0755, replacing any earlier
+copy: root never runs a file from the checkout, which the service account can rewrite. Run it
+again after changing scripts/halow_link_watch.sh or scripts/renew_certificates.sh.
 Exit status: 0 ok, 1 error, 2 usage (including a --root that is a system directory or not a
 LawnBerry checkout), 3 refused (credential or secret policy). With --dry-run the status is what
 a real run would return.
@@ -314,6 +331,9 @@ for unit in "${INSTALL_UNITS[@]}"; do
     done
   fi
 done
+for entry in "${ROOT_SCRIPTS[@]}"; do # a missing source stops the run before anything is written
+  [[ -f "$REPO_DIR/${entry%%:*}" ]] || die "${entry%%:*} is listed in install_services.sh but is not in $REPO_DIR"
+done
 
 if [[ ! -x "$LB_ROOT/.venv/bin/uvicorn" ]]; then
   echo "install_services.sh: WARNING: $LB_ROOT/.venv/bin/uvicorn not found; the backend unit" \
@@ -447,7 +467,9 @@ if ((DRY_RUN)); then
       echo "cd $LB_ROOT && $(printf '%q ' "${OWN_ARGV[@]}")"
     done
   fi
-  echo "################ would install $SBIN_DIR/halow-link-watch.sh (0755) from scripts/halow_link_watch.sh"
+  for entry in "${ROOT_SCRIPTS[@]}"; do
+    echo "################ would install $SBIN_DIR/${entry#*:} (0755 root:root) from ${entry%%:*}"
+  done
   echo "################ would install $SYSTEMD_CONF_DIR/10-watchdog.conf (0644) from systemd/10-watchdog.conf"
   for unit in "${REMOVED_UNITS[@]}"; do
     if [[ -e "$SYSTEMD_DIR/$unit" ]]; then
@@ -516,8 +538,12 @@ for dropin in "${DROPINS[@]}"; do
   mkdir -p "$SYSTEMD_DIR/$(dirname "$dropin")"
   install -m 0644 "${INSTALL_OWNER[@]}" "$STAGE/units/$dropin" "$SYSTEMD_DIR/$dropin"
 done
-# HaLow link recovery (the shed Pi's only link) and the hardware watchdog
-install -m 0755 "${INSTALL_OWNER[@]}" "$REPO_DIR/scripts/halow_link_watch.sh" "$SBIN_DIR/halow-link-watch.sh"
+# The scripts the root-run units execute (HaLow link recovery for the shed Pi's only link,
+# certificate renewal): root-owned copies, never the checkout
+for entry in "${ROOT_SCRIPTS[@]}"; do
+  install -m 0755 "${INSTALL_OWNER[@]}" "$REPO_DIR/${entry%%:*}" "$SBIN_DIR/${entry#*:}"
+done
+# the hardware watchdog
 install -m 0644 "${INSTALL_OWNER[@]}" "$SCRIPT_DIR/10-watchdog.conf" "$SYSTEMD_CONF_DIR/10-watchdog.conf"
 
 if [[ -z "$DESTDIR" ]]; then

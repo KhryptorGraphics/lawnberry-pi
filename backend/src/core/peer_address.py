@@ -53,8 +53,20 @@ address uvicorn already chose. :func:`log_proxy_posture` says so at start-up whe
 
 Other consequences, all deliberate:
 
-* An IPv6 client is counted per /64, the smallest prefix a single subscriber normally owns, so
-  rotating the low 64 bits does not mint fresh budgets.
+* Which IPv6 addresses share a key. A GLOBAL UNICAST address (inside ``2000::/3`` and
+  ``ipaddress``'s ``is_global``, so not the documentation, 6to4 or Teredo blocks) is counted per
+  /64 (``ip6:<prefix>/64``): that is what an ISP delegates to one subscriber, so rotating the low
+  64 bits does not mint fresh budgets. EVERY OTHER IPv6 address (unique-local ``fc00::/7``,
+  link-local, loopback, unspecified, site-local, NAT64, the special-purpose blocks) is counted
+  per ADDRESS (``ip:<address>``, zone id dropped): on a LAN every device of a SLAAC network is in
+  one /64, and a per-/64 key made one device's five wrong logins lock the login for all of them.
+  The price is that a host can alias as many addresses of its own /64 as it likes, each a fresh
+  budget, so :func:`ipv6_group_key` names the /64 of EVERY IPv6 client for the one counter that
+  must not be rotated around, the login failure lockout (``services/auth_service.py``,
+  ``GroupFailureLimiter``: 25 failures lock the whole /64 for 30 s). Residuals, design limits: a
+  LAN whose devices all hold GLOBAL addresses from one ISP /64 still shares that /64's budget,
+  and a LAN host rotating its own non-global addresses gets a fresh rate-limit bucket per
+  address (the tables are bounded, there is no group backstop for them).
 * An IPv4-mapped IPv6 address (``::ffff:a.b.c.d``, what a dual-stack socket reports) counts as
   that IPv4 address.
 
@@ -112,6 +124,35 @@ class TrustedProxy:
         return f"{self.network}={self.shape}"
 
 
+_GLOBAL_UNICAST = ipaddress.IPv6Network("2000::/3")
+
+
+def _slash64(address: ipaddress.IPv6Address) -> ipaddress.IPv6Address:
+    return ipaddress.IPv6Network(f"{address}/64", strict=False).network_address
+
+
+def _is_global_unicast(address: ipaddress.IPv6Address) -> bool:
+    """``True`` for an address an ISP delegates a prefix of to ONE subscriber.
+
+    Inside ``2000::/3`` (the allocated global unicast space) and ``is_global`` (not one of the
+    IANA special-purpose blocks that are not globally reachable: documentation ``2001:db8::/32``
+    and ``3fff::/20``, Teredo, 6to4, benchmarking, ORCHID...). ``is_global`` alone is not
+    enough: it is also true for multicast and for the deprecated site-local ``fec0::/10``.
+    """
+    return address in _GLOBAL_UNICAST and address.is_global
+
+
+def _parse_ip(host: str | None) -> IPAddress | None:
+    """The IP address of a peer host string (zone id dropped), else ``None``."""
+    text = (host or "").strip()
+    if not text:
+        return None
+    try:
+        return ipaddress.ip_address(text.split("%", 1)[0])  # drop an IPv6 zone id
+    except ValueError:
+        return None
+
+
 def peer_key(host: str | None) -> str:
     """Stable, bounded key for a client host.
 
@@ -119,20 +160,39 @@ def peer_key(host: str | None) -> str:
     directly) maps to :data:`ANONYMOUS_PEER`. Anything that is not an IP address (the ASGI
     test client reports ``"testclient"``, a unix socket reports its path) is lower-cased and
     truncated, never used verbatim as an unbounded dictionary key.
+
+    The address forms (module docstring has the why):
+
+    * IPv4, and IPv4-mapped IPv6 (``::ffff:a.b.c.d``): ``ip:a.b.c.d``;
+    * a GLOBAL UNICAST IPv6 address (:func:`_is_global_unicast`): its /64, ``ip6:<prefix>/64``;
+    * any other IPv6 address (unique-local, link-local, loopback, ...): itself, ``ip:<address>``.
     """
     text = (host or "").strip()
     if not text:
         return ANONYMOUS_PEER
-    try:
-        address = ipaddress.ip_address(text.split("%", 1)[0])  # drop an IPv6 zone id
-    except ValueError:
+    address = _parse_ip(text)
+    if address is None:
         return f"host:{text.lower()[:_MAX_NAME_LENGTH]}"
     if isinstance(address, ipaddress.IPv6Address):
         if address.ipv4_mapped is not None:
             return f"ip:{address.ipv4_mapped}"
-        network = ipaddress.ip_network(f"{address}/64", strict=False)
-        return f"ip6:{network.network_address}/64"
+        if _is_global_unicast(address):
+            return f"ip6:{_slash64(address)}/64"
     return f"ip:{address}"
+
+
+def ipv6_group_key(host: str | None) -> str | None:
+    """The /64 of ANY IPv6 client (``ip6:<prefix>/64``), ``None`` for IPv4, mapped IPv4 and
+    anything that is not an address.
+
+    Where :func:`peer_key` splits a LAN's /64 into its devices, this joins them again for the
+    counters that must not be dodged by rotating source addresses (the login failure lockout).
+    For a global address it is the same /64 :func:`peer_key` already uses.
+    """
+    address = _parse_ip(host)
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is None:
+        return f"ip6:{_slash64(address)}/64"
+    return None
 
 
 def _parse_address(text: str) -> IPAddress | None:

@@ -343,3 +343,57 @@ def test_an_invalid_value_shows_up_in_the_posture_log_as_an_error(caplog):
         log_proxy_posture(argv=["pytest"], environ={TRUSTED_PROXIES_ENV: "0.0.0.0/0"})
     assert any(r.levelno >= logging.ERROR for r in caplog.records)
     assert any("none" in r.getMessage() for r in caplog.records)
+
+
+# ---- which IPv6 addresses share a key (SEC3-11) --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("host", "key", "group"),
+    [
+        # global unicast: one subscriber per /64
+        ("2606:4700:4700::1111", "ip6:2606:4700:4700::/64", "ip6:2606:4700:4700::/64"),
+        ("2a00:1450:4001:81b::200e", "ip6:2a00:1450:4001:81b::/64", "ip6:2a00:1450:4001:81b::/64"),
+        ("2001:4860:4860::8888", "ip6:2001:4860:4860::/64", "ip6:2001:4860:4860::/64"),
+        # a LAN: one key per address, one GROUP per /64
+        ("fd00:1234:5678:1::a1", "ip:fd00:1234:5678:1::a1", "ip6:fd00:1234:5678:1::/64"),
+        ("fc00::1", "ip:fc00::1", "ip6:fc00::/64"),
+        ("fe80::1%eth0", "ip:fe80::1", "ip6:fe80::/64"),
+        ("::1", "ip:::1", "ip6:::/64"),
+        ("::", "ip:::", "ip6:::/64"),
+        ("fec0::1", "ip:fec0::1", "ip6:fec0::/64"),  # deprecated site-local: is_global lies
+        ("64:ff9b::c000:201", "ip:64:ff9b::c000:201", "ip6:64:ff9b::/64"),  # NAT64
+        # special-purpose blocks inside 2000::/3 that are not globally reachable
+        ("2001:db8:1:2::9", "ip:2001:db8:1:2::9", "ip6:2001:db8:1:2::/64"),
+        ("2002:c000:204::1", "ip:2002:c000:204::1", "ip6:2002:c000:204::/64"),
+        (
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+            "ip:2001:0:4136:e378:8000:63bf:3fff:fdd2",
+            "ip6:2001:0:4136:e378::/64",
+        ),
+        # IPv4 and mapped IPv4: no group
+        ("203.0.113.9", "ip:203.0.113.9", None),
+        ("::ffff:203.0.113.9", "ip:203.0.113.9", None),
+        ("testclient", "host:testclient", None),
+        (None, "anon", None),
+        ("", "anon", None),
+    ],
+)
+def test_the_ipv6_key_and_group_rule(host, key, group):
+    from backend.src.core.peer_address import ipv6_group_key
+
+    assert peer_key(host) == key
+    assert ipv6_group_key(host) == group
+
+
+def test_a_multicast_source_is_never_keyed_per_prefix():
+    assert peer_key("ff02::1") == "ip:ff02::1" and peer_key("ff0e::1") == "ip:ff0e::1"
+
+
+def test_two_devices_of_one_lan_prefix_have_different_keys_but_one_group():
+    from backend.src.core.peer_address import ipv6_group_key
+
+    a, b = "fd00:1234:5678:1::a1", "fd00:1234:5678:1::b2"
+    assert peer_key(a) != peer_key(b)
+    assert ipv6_group_key(a) == ipv6_group_key(b) == "ip6:fd00:1234:5678:1::/64"
+    assert peer_key("fd00:1234:5678:2::a1") != peer_key(a)

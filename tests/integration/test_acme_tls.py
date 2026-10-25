@@ -584,13 +584,40 @@ def _runs_per_day(on_calendar: str) -> int:
     return len(match.group(1).split(","))
 
 
-def test_acme_systemd_timer_configuration():
+def _installer_script_sources(tmp_path: Path) -> dict[str, Path]:
+    """Installed path -> its source file in the repository, as the installer itself plans it.
+
+    ``systemd/install_services.sh --dry-run`` lists every script it copies to /usr/local/sbin
+    (``would install <path> (0755 root:root) from <source>``). The renewal unit runs as root and
+    executes one of those root-owned copies, never the checkout the service account owns, so the
+    script the unit names is found through this plan. A refusal (exit 3: no operator credential
+    in this environment) still prints the whole plan.
+    """
+    root = tmp_path / "checkout"
+    (root / "backend" / "src").mkdir(parents=True)
+    (root / "backend" / "src" / "main.py").touch()  # the marker the installer requires
+    done = subprocess.run(
+        ["bash", str(REPO / "systemd" / "install_services.sh"), "--dry-run"]
+        + ["--user", "lawnberry", "--root", str(root)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    plan = re.findall(r"would install (/\S+) \(0755 root:root\) from (\S+)", done.stdout)
+    assert plan, done.stdout + done.stderr
+    return {installed: REPO / source for installed, source in plan}
+
+
+def test_acme_systemd_timer_configuration(tmp_path):
     """The renewal timer exists, fires daily, survives power-off and runs a real script.
 
     ``lawnberry-acme-renew.*`` is legacy: ``systemd/install_services.sh`` and ``scripts/setup.sh``
     disable it in favour of ``lawnberry-cert-renewal.timer`` (renew <30 d, fall back to self-signed
     <7 d) plus certbot's own timers, so that is the chain checked here. A daily run gives ~30
     attempts inside the 30-day renewal window.
+
+    The unit runs as root, so it executes the root-owned copy the installer puts in
+    /usr/local/sbin; the script that copy is made from must exist in the repository.
     """
     timer = _unit(REPO / "systemd" / "lawnberry-cert-renewal.timer")
     unit = _unit(REPO / "systemd" / "lawnberry-cert-renewal.service")
@@ -602,11 +629,16 @@ def test_acme_systemd_timer_configuration():
     assert timer["Install"]["WantedBy"] == "timers.target"
     assert unit["Service"]["Type"] == "oneshot"
 
-    script_rel = re.search(r"scripts/[\w.\-]+\.sh", unit["Service"]["ExecStart"]).group(0)
-    script = REPO / script_rel
-    assert script.is_file(), f"the unit runs {script_rel}, which does not exist"
-    if unit.has_option("Unit", "ConditionPathExists"):
-        assert unit["Unit"]["ConditionPathExists"].endswith(script_rel)
+    exec_start = unit["Service"]["ExecStart"]
+    assert re.fullmatch(r"/[\w./\-]+", exec_start), f"one installed path, no shell: {exec_start!r}"
+    sources = _installer_script_sources(tmp_path)
+    assert exec_start in sources, (
+        f"the unit runs {exec_start}; the installer installs {sorted(sources)}"
+    )
+    script = sources[exec_start]
+    assert script.is_file(), f"the unit runs {exec_start}, made from {script}, which does not exist"
+    # the unit is skipped (not failed) until the installer has put this very file there
+    assert unit["Unit"]["ConditionPathExists"] == exec_start
     syntax = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True, timeout=30)
     assert syntax.returncode == 0, syntax.stderr
 

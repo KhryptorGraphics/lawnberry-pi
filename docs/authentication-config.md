@@ -74,6 +74,39 @@
 > grew the backend from 241 MiB to 612 MiB, the unit's cap is 512 MiB). No WebSocket handler
 > changes mower state today (`/ws/control` only acknowledges).
 >
+> **A socket lives as long as its login (SEC3-07).** Every socket opened with a ticket or a bearer
+> is bound to that login session (`core/ws_policy.py`). Logout (`POST /auth/logout`), an expiry
+> found on any contact or by the socket's own timer, `cleanup_expired_sessions` and a credential
+> change all end a session in one place (`AuthService.terminate_session`), which closes every
+> socket of that session with close code **1008** within about a second (a peer that does not
+> answer the closing handshake is cut off after 1 s; the logout never waits longer). Each socket
+> also has a timer at the session's `expires_at` that asks the session again: `POST /auth/refresh`
+> extends the session, so the socket then stays and the timer re-arms, while a session that is
+> gone or over closes it (the timer also asks at least every 30 s, so a wall-clock step cannot
+> keep a socket past its expiry). A UI that is logged out therefore sees 1008 on every open
+> socket; it reconnects with a fresh ticket after logging in. Anonymous sockets (the opt-in) and
+> the simulator opt-in's throw-away session have no login to end and are not bound.
+>
+> **Handshakes are budgeted too (SEC3-09).** The 32 / 8 limits above count OPEN sockets, and a
+> refused handshake never holds one, so a LAN host could make 670 junk handshakes a second, each
+> with its own WARNING line, on the event loop that carries the E-stop. Now every handshake first
+> spends a token (2 a second, burst 20, constants in `core/ws_policy.py`) from the bucket of its
+> LOGIN SESSION when the ticket or bearer it presents belongs to a live one (looked up silently:
+> nothing is redeemed, logged or terminated), else from the bucket of its PEER: the rule the HTTP
+> limiter uses, so junk from an address the operator shares empties its own bucket and never the
+> operator's. An empty bucket is an HTTP 429 with `Retry-After` at the handshake, before any
+> credential is parsed. A bad bearer is checked silently, and every refusal (401, 429, 503) is
+> logged at most once per peer per minute with the number of refusals it stands for (and at most
+> 30 such lines a minute in all). Residuals: uvicorn itself writes its own INFO line per refused
+> handshake (not changed here), and a LAN host that rotates its own non-global IPv6 source
+> addresses gets a fresh bucket per address (the tables are bounded).
+>
+> **Switching `OPERATOR_AUTH_REQUIRED` off does not open the sockets (SEC3-16).** With it off the
+> HTTP routes stop asking for a bearer, but a socket with no credential is refused exactly as
+> before (pinned by `tests/integration/test_ws_admission_limits.py`). Only the explicit
+> simulator opt-in (`SIM_MODE=1` and `LAWN_BERRY_SIM_OPEN_AUTH=1`, never in production) and
+> `LAWN_BERRY_ANONYMOUS_TELEMETRY` admit a socket without a credential.
+>
 > **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate) is a
 > step-up for a logged-in operator: it needs the bearer token AND the credential again in the
 > body (`{"method": "password", "password": ...}`; the shape the UI already sends). The password
@@ -95,8 +128,9 @@
 > table is bounded. A request that carries a bearer for a LIVE login session is counted in its own
 > bucket, `session:<id>` (looked up silently by `AuthService.peek_session`: no log line, no side
 > effect); every other request (no bearer, an invalid, expired or revoked one) is counted against
-> the client's address (IPv6 per /64). That split is what keeps anonymous junk from a shared
-> address (every visitor behind an undeclared same-host forwarder is one address) from draining
+> the client's address (IPv6: see "IPv6 addresses" below). That split is what keeps anonymous
+> junk from a shared address (every visitor behind an undeclared same-host forwarder is one
+> address) from draining
 > the bucket the operator's lever POSTs use, and the login lockout only ever gates the login
 > routes, never a request that carries a valid bearer. The client address is the TCP peer, or,
 > only behind a forwarder DECLARED in `LAWN_BERRY_TRUSTED_PROXIES`, the `X-Forwarded-For` hop that
@@ -207,6 +241,63 @@ counted against your real address. Six `401`s mean the forwarder lets the client
 address: remove it from the list. The start-up log (`journalctl -u lawnberry-backend | grep -i
 "forwarder\|WebSocket"`) states the resolved trusted list, the uvicorn proxy-headers state and the
 anonymous-WebSocket mode.
+
+### IPv6 addresses (SEC3-11)
+
+The counters above need one key per client. For IPv4 (and IPv4-mapped IPv6, `::ffff:a.b.c.d`,
+which a dual-stack socket reports) that is the address. For IPv6 the rule is:
+
+* a **global unicast** address (inside `2000::/3` and not one of the special-purpose blocks that
+  Python's `ipaddress` marks as not globally reachable: the documentation ranges `2001:db8::/32`
+  and `3fff::/20`, 6to4, Teredo, ...) is counted per **/64**, `ip6:<prefix>/64`: a /64 is what an
+  ISP delegates to one subscriber, and rotating the low 64 bits must not mint fresh budgets;
+* **every other IPv6 address** (unique-local `fd00::/8`, link-local `fe80::/10`, loopback,
+  site-local, NAT64, the special-purpose blocks) is counted per **address**, `ip:<address>` (a
+  zone id such as `%eth0` is dropped). On a LAN every device of a SLAAC network sits in ONE /64,
+  and per /64 one device's five wrong logins locked the login for all of them for 30 s.
+
+Because a LAN host can alias as many addresses of its own /64 as it likes (each one a fresh
+five guesses), the **login failure lockout and the manual-unlock throttle** also count failures
+per /64 for EVERY IPv6 client, private or global: 25 failures from one /64 lock that /64 for 30 s
+(`AuthService.group_limiter`; fixed, not tunable with `AUTH_LOCKOUT_FAILURES`, which only sizes
+the per-address lockout; a success from the /64 resets it; IPv4 has no such group). So one device
+typing its password wrong no longer locks its neighbours, and one host rotating 100 addresses is
+still locked after 25 wrong guesses.
+
+Residuals, design limits: (1) a LAN whose devices all hold GLOBAL addresses from one ISP /64
+(privacy extensions, SLAAC with a delegated /64) still shares that /64's budget, as before (the
+shipped nginx forwards the IPv6 client in `X-Forwarded-For`; the backend and UI server listen on
+IPv4); (2) the rate-limit buckets (not the login lockout) of a LAN host that rotates its own
+non-global source addresses are per address: the tables are bounded and a bucket costs only
+requests the global limiter would have allowed anyway.
+
+### What a tunnel agent inherits (SEC3-10)
+
+`cloudflared`, `ngrok` and the **custom** tunnel command (`bash -lc <command>`) are third-party
+programs on the internet edge, started by the backend, whose environment holds every secret of
+`<root>/.env` (`LAWN_BERRY_OPERATOR_CREDENTIAL`, `LAWN_BERRY_AUTH_SECRET`, `NTRIP_PASSWORD`,
+`MANUAL_CONTROL_PASSWORD`, ...). They used to inherit all of it. Now the child gets **the
+allow-list plus what the operator wrote under `custom.env`, nothing else**:
+
+* inherited from the backend: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LANGUAGE`,
+  `TZ`, `TMPDIR`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`,
+  `ALL_PROXY` (and the lower-case spellings) and every name starting `LC_`, `XDG_`, `TUNNEL_`
+  (cloudflared's own settings, e.g. `TUNNEL_TOKEN`) or `NGROK_` (`NGROK_AUTHTOKEN`). A name that
+  looks like one of the backend's own secrets is not inherited even under an allowed prefix:
+  `LAWN_BERRY_*`, `NTRIP_*`, `GOOGLE_*`, `MANUAL_CONTROL_PASSWORD`, `API_KEY_SECRET`,
+  `JWT_SECRET`, `CLOUDFLARE_API_TOKEN` and any name containing `secret`, `password`, `passwd` or
+  `credential` (case-insensitive);
+* `custom.env` (the Remote Access settings, custom provider only) is the operator's explicit
+  choice and is passed as written, over an inherited value of the same name, **including a name
+  the rules above would not inherit**: write a secret there only if the command needs it;
+* the log line that starts a tunnel names the program only for the custom command (a tunnel tool
+  takes its token on the command line, `--token ...`); cloudflared and ngrok are logged with
+  their (secret-free) arguments.
+
+**Residual, a design limit, not a promise:** this limits ACCIDENTAL leakage to the agent's
+process. A hostile or compromised agent that runs as the SAME account as the backend can still
+read `<root>/.env` and `/proc/<backend pid>/environ` (same uid). Run tunnel agents as another
+account if the agent is not trusted that far.
 
 This guide covers setting up and configuring the multi-level authentication system in LawnBerry Pi v2, from basic password authentication to enterprise-grade security.
 

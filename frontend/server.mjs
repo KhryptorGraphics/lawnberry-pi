@@ -13,10 +13,14 @@
 // this server from every other process on the host, which all connect from 127.0.0.1. Plain HTTP
 // and WebSocket upgrades alike.
 //
-// Connection handling. A socket that connects and sends nothing never ends on its own, and with
-// every descriptor held the E-stop POST cannot connect. Sockets get a deadline for their first
-// request and for their headers, and when UI_MAX_CONNECTIONS are open the socket that has been
-// idle the longest makes room for the new one (see SocketGuard in proxy-trust.mjs).
+// Connection handling. A socket that connects and sends nothing, or announces a request body it
+// never delivers, never ends on its own, and with every descriptor held the E-stop POST cannot
+// connect. SocketGuard (proxy-trust.mjs: read its comment first) keeps room for it. A socket is
+// protected only while it is serving a completely received request; at UI_MAX_CONNECTIONS the
+// socket that has been evictable the longest makes room for a new one; UI_CONNECTION_RESERVE
+// slots are kept for the E-stop (a request that is not one is answered 503 here, without being
+// proxied, while only those are left); the headers of every request must arrive within
+// UI_HEADER_DEADLINE_MS and the whole request within UI_REQUEST_DEADLINE_MS.
 
 import express from 'express'
 import http from 'http'
@@ -28,9 +32,13 @@ import { createProxyMiddleware } from 'http-proxy-middleware'
 import {
   SocketGuard,
   canBind,
+  defaultConnectionReserve,
   describeTrustedProxies,
+  isEmergencyStopRequest,
   parseTrustedProxies,
   resolveClient,
+  rewriteApiPath,
+  rewriteApiV2Path,
 } from './proxy-trust.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -67,26 +75,46 @@ if (requestedSource) {
 }
 console.log(`Backend source address: ${backendSourceAddress ?? '(default)'}`)
 
-function intFromEnv(name, fallback, min) {
+// An integer setting from the environment. A value that is not one in [min, max] is logged and
+// replaced by the default: the server that carries the E-stop is never refused a start over it.
+function intFromEnv(name, fallback, min, max = Number.POSITIVE_INFINITY) {
   const raw = process.env[name]
   if (raw === undefined || raw.trim() === '') return fallback
   const value = Number(raw)
-  if (!Number.isInteger(value) || value < min) {
-    console.error(`${name}=${JSON.stringify(raw)} is not an integer >= ${min}: using ${fallback}`)
+  if (!Number.isInteger(value) || value < min || value > max) {
+    const bound = max === Number.POSITIVE_INFINITY ? `>= ${min}` : `between ${min} and ${max}`
+    console.error(`${name}=${JSON.stringify(raw)} is not an integer ${bound}: using ${fallback}`)
     return fallback
   }
   return value
 }
 const MAX_CONNECTIONS = intFromEnv('UI_MAX_CONNECTIONS', 512, 16)
-const HEADER_DEADLINE_MS = intFromEnv('UI_HEADER_DEADLINE_MS', 10_000, 1000)
+// Slots kept for the E-stop POST: any other request is answered 503 while only these are left.
+const CONNECTION_RESERVE = intFromEnv(
+  'UI_CONNECTION_RESERVE',
+  defaultConnectionReserve(MAX_CONNECTIONS),
+  4,
+  MAX_CONNECTIONS - 1
+)
+// The whole request (Node's requestTimeout) and, within it, its headers.
+const REQUEST_DEADLINE_MS = intFromEnv('UI_REQUEST_DEADLINE_MS', 15_000, 1000)
+let HEADER_DEADLINE_MS = intFromEnv('UI_HEADER_DEADLINE_MS', 10_000, 1000)
+if (HEADER_DEADLINE_MS > REQUEST_DEADLINE_MS) {
+  console.error(
+    `UI_HEADER_DEADLINE_MS=${HEADER_DEADLINE_MS} is longer than UI_REQUEST_DEADLINE_MS=` +
+      `${REQUEST_DEADLINE_MS} and the headers are part of the request: using ${REQUEST_DEADLINE_MS}`
+  )
+  HEADER_DEADLINE_MS = REQUEST_DEADLINE_MS
+}
 
-// One warning per message per minute: a flood of odd headers must not be a flood of log lines.
+// One warning per key per minute (the key is the message unless given): a flood of odd headers or
+// of sockets must not be a flood of log lines. A message that carries a counter needs a fixed key.
 const lastWarned = new Map()
-function warnLimited(message) {
+function warnLimited(message, key = message) {
   const now = Date.now()
-  if (now - (lastWarned.get(message) ?? 0) < 60_000) return
+  if (now - (lastWarned.get(key) ?? 0) < 60_000) return
   if (lastWarned.size >= 64) lastWarned.delete(lastWarned.keys().next().value)
-  lastWarned.set(message, now)
+  lastWarned.set(key, now)
   console.warn(message)
 }
 
@@ -194,7 +222,7 @@ app.use(
   createProxyMiddleware({
     ...proxyBase,
     logLevel: 'debug',
-    pathRewrite: (path) => '/api/v2' + path,
+    pathRewrite: rewriteApiV2Path,
   })
 )
 
@@ -202,6 +230,7 @@ app.use(
 // this middleware, `path` will start with '/v2/...' or '/something'.
 // - If it's '/v2/...', prepend '/api' -> '/api/v2/...'
 // - Else, prepend '/api/v2' -> '/api/v2/...'
+// (rewriteApiPath, shared with the E-stop classification of the socket guard: proxy-trust.mjs)
 app.use('/api', (req, _res, next) => {
   console.log(`[proxy] match /api -> ${req.method} ${req.originalUrl}`)
   next()
@@ -211,10 +240,7 @@ app.use(
   createProxyMiddleware({
     ...proxyBase,
     logLevel: 'debug',
-    pathRewrite: (path) => {
-      if (path.startsWith('/v2/')) return '/api' + path
-      return '/api/v2' + path
-    },
+    pathRewrite: rewriteApiPath,
   })
 )
 
@@ -241,32 +267,79 @@ app.get('*', (req, res) => {
 })
 
 // ---- the server ----------------------------------------------------------------------------------
-const server = http.createServer({ connectionsCheckingInterval: 1000 }, app)
-// Slow or stalled requests: the headers within the deadline, the whole request within two minutes
-// (Node's defaults are 60 s and 300 s); an idle keep-alive connection is closed after 5 s.
+const guard = new SocketGuard(MAX_CONNECTIONS, CONNECTION_RESERVE, {
+  headerDeadlineMs: HEADER_DEADLINE_MS,
+})
+console.log(
+  `Connection guard: ${MAX_CONNECTIONS} sockets, ${CONNECTION_RESERVE} kept for the E-stop ` +
+    `(any other request is answered 503 beyond ${guard.softCap} busy sockets), headers within ` +
+    `${HEADER_DEADLINE_MS} ms, whole request within ${REQUEST_DEADLINE_MS} ms`
+)
+
+// What a client is told when only the sockets kept for the E-stop are left (the backend's own
+// guard answers the same way).
+const BUSY_BODY = JSON.stringify({ detail: 'Server busy, retry shortly' })
+
+function noteShed() {
+  warnLimited(
+    `request limit reached: ${guard.productive.size} of ${MAX_CONNECTIONS} sockets are serving ` +
+      `requests and the last ${CONNECTION_RESERVE} are kept for the E-stop: answered 503 to ` +
+      `${guard.shed} request(s) so far`,
+    'request-limit'
+  )
+}
+
+function answerBusy(res) {
+  noteShed()
+  res.writeHead(503, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(BUSY_BODY),
+    Connection: 'close',
+    'Retry-After': '1',
+  })
+  res.end(BUSY_BODY)
+}
+
+// The headers of a request are complete: admit it, or answer it here, before anything else runs.
+// The classification as an E-stop is made now, from the method and the target as received.
+function handleRequest(req, res) {
+  const ticket = guard.begin(req.socket, isEmergencyStopRequest(req.method, req.url))
+  if (ticket === null) {
+    answerBusy(res)
+    return
+  }
+  const finished = () => guard.end(ticket)
+  res.once('finish', finished)
+  res.once('close', finished)
+  // Completely received: `complete` is true once the parser holds the whole request, which for one
+  // without a body is as soon as this call returns; 'end' follows when a request with a body has
+  // been read to its end, which the proxies do at once (an unread one only after its response).
+  const received = () => guard.received(ticket)
+  req.once('end', received)
+  process.nextTick(() => {
+    if (req.complete) received()
+  })
+  app(req, res)
+}
+
+const server = http.createServer({ connectionsCheckingInterval: 1000 }, handleRequest)
+// Slow or stalled requests: the headers within their deadline (the guard destroys a socket that
+// misses it, for the second request of a keep-alive socket as for the first; Node's own check is
+// a second line), the whole request within its deadline (Node's defaults are 60 s and 300 s); an
+// idle keep-alive connection is closed after 5 s.
 server.headersTimeout = HEADER_DEADLINE_MS
-server.requestTimeout = 120_000
+server.requestTimeout = REQUEST_DEADLINE_MS
 server.keepAliveTimeout = 5_000
 
-const guard = new SocketGuard(MAX_CONNECTIONS)
 server.on('connection', (socket) => {
   const destroyed = guard.register(socket)
   if (destroyed.length) {
     warnLimited(
-      `connection limit (${MAX_CONNECTIONS}) reached: closed ${destroyed.length} idle socket(s) ` +
-        `(evicted ${guard.evicted}, refused ${guard.refused} so far)`
+      `connection limit (${MAX_CONNECTIONS}) reached: closed ${destroyed.length} socket(s) that ` +
+        `were not serving a request (evicted ${guard.evicted}, refused ${guard.refused} so far)`,
+      'connection-limit'
     )
   }
-  if (!socket.destroyed) {
-    // A socket that never sends a request line is not covered by headersTimeout: give it a deadline.
-    socket.setTimeout(HEADER_DEADLINE_MS, () => socket.destroy())
-  }
-})
-server.on('request', (req, res) => {
-  const socket = req.socket
-  socket.setTimeout(0) // it has spoken: keep-alive and request timeouts take over
-  guard.begin(socket)
-  res.once('close', () => guard.end(socket))
 })
 
 server.listen(PORT, '0.0.0.0', () => {
@@ -274,11 +347,29 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Proxying API to ${BACKEND_URL}`)
 })
 
+// The upgrade listener took the socket over: Node no longer handles its errors, so the refusal of
+// an upgrade must. The reply is the one `answerBusy` gives, written by hand.
+function refuseUpgrade(socket) {
+  noteShed()
+  socket.on('error', () => {})
+  socket.end(
+    'HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n' +
+      `Content-Length: ${Buffer.byteLength(BUSY_BODY)}\r\nConnection: close\r\nRetry-After: 1\r\n\r\n` +
+      BUSY_BODY,
+    () => socket.destroy()
+  )
+}
+
 // The one 'upgrade' listener: replace client-supplied forwarding headers with ours, then hand the
 // upgrade to the proxy that owns the path. Anything else is not a WebSocket endpoint of this app.
+// An upgraded socket is productive for good and out of reach of the deadlines; like any request
+// that is not an E-stop it is refused (503) while only the sockets kept for the E-stop are left.
 server.on('upgrade', (req, socket, head) => {
   socket.setTimeout(0)
-  guard.begin(socket) // an upgraded socket is busy for good
+  if (!guard.upgrade(socket)) {
+    refuseUpgrade(socket)
+    return
+  }
   applyForwardingHeaders(req)
   const url = req.url || ''
   if (url.startsWith('/api/v2/ws/')) {

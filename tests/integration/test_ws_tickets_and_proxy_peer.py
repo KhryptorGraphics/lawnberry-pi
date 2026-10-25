@@ -370,6 +370,18 @@ def test_the_ticket_table_is_bounded_and_forgets_expired_tickets(monkeypatch):
     assert stale not in auth_router._ws_tickets
 
 
+def test_the_shipped_ticket_table_bound_holds(monkeypatch):
+    """U22: the bound the product ships (256), written as a literal, not the constant: a mutant
+    that raises it to 256000 passes the test above, which lowers it to 8 first."""
+    monkeypatch.setattr(auth_router, "_ws_tickets", {})
+    for n in range(700):
+        auth_router._mint_ws_ticket(f"s{n}")
+        assert len(auth_router._ws_tickets) <= 256
+    assert len(auth_router._ws_tickets) == 256
+    newest = auth_router._mint_ws_ticket("newest")
+    assert newest in auth_router._ws_tickets, "the table drops the oldest, not the newest"
+
+
 # ---- the admission helper, directly ------------------------------------------------------------
 
 
