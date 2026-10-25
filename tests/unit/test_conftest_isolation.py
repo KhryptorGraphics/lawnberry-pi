@@ -281,12 +281,16 @@ def test_the_tests_that_need_the_anonymous_websocket_are_skipped_only_without_th
     listed = sorted(conftest.NEEDS_SIM_OPEN_AUTH)
     bystander = "tests/unit/test_something_else.py::test_x"
 
-    for value, skipped in (("0", True), ("false", True), ("", True), ("1", False), ("true", False)):
+    leaky = sorted(conftest.ORDER_DEPENDENT_IN_STRICT)
+    for value, marked in (("0", True), ("false", True), ("", True), ("1", False), ("true", False)):
         monkeypatch.setenv("LAWN_BERRY_SIM_OPEN_AUTH", value)
-        items = [_Item(n) for n in [*listed, bystander]]
+        items = [_Item(n) for n in [*listed, *leaky, bystander]]
         conftest.pytest_collection_modifyitems(None, items)
-        assert [bool(i.markers) for i in items[:-1]] == [skipped] * len(listed), value
-        assert items[-1].markers == [], "only the listed tests are skipped"
+        assert [bool(i.markers) for i in items[:-1]] == [marked] * (len(listed) + len(leaky))
+        assert items[-1].markers == [], "only the listed tests are marked"
+        if marked:
+            assert {m.name for i in items[: len(listed)] for m in i.markers} == {"skip"}
+            assert {m.name for i in items[len(listed) : -1] for m in i.markers} == {"xfail"}
     monkeypatch.delenv("LAWN_BERRY_SIM_OPEN_AUTH")
     items = [_Item(listed[0])]
     conftest.pytest_collection_modifyitems(None, items)
@@ -296,11 +300,11 @@ def test_the_tests_that_need_the_anonymous_websocket_are_skipped_only_without_th
 def test_every_test_the_strict_run_skips_still_exists():
     conftest = _root_conftest()
     stale = []
-    for nodeid in sorted(conftest.NEEDS_SIM_OPEN_AUTH):
+    for nodeid in sorted(conftest.NEEDS_SIM_OPEN_AUTH | conftest.ORDER_DEPENDENT_IN_STRICT):
         path, _, name = nodeid.partition("::")
         tree = ast.parse((REPO / path).read_text())
         if name not in {
             n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
         }:
             stale.append(nodeid)
-    assert stale == [], "remove them from NEEDS_SIM_OPEN_AUTH in tests/conftest.py"
+    assert stale == [], "remove them from the strict-mode lists in tests/conftest.py"
