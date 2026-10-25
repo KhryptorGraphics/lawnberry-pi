@@ -742,7 +742,7 @@ lawnberry-pi config auth --validate
 
 ### Recovery Procedures
 
-#### Emergency Access
+#### Recovering operator access
 
 No emergency password and no `lawnberry-pi auth emergency-access` command exist. With shell
 access to the Pi, set a new credential and re-run the installer (it keeps the signing secret;
