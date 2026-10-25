@@ -16,6 +16,9 @@ HAL contract (duck typed):
 * ``write(data)``                      send bytes to the host (must not block for long)
 * ``boot_id() -> int``                 random 32-bit id, new on every boot
 * ``reset_reason() -> int``            one of the ``RESET_*`` codes
+* ``feed_watchdog()``                  feed the hardware watchdog (``usonic_main.run``: each pass)
+* ``reboot()``                         reset the MCU now; never returns on hardware. Only
+                                       ``usonic_main.run`` calls it, after an unexpected exception
 
 Safety posture: the MCU never decides what a reading means and never actuates anything. It only
 reports. Every enabled sensor is fired once per cycle, always: a silent or faulted sensor is never

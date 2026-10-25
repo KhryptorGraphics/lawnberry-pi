@@ -133,6 +133,8 @@ class FakeUsbData:
         self.connected = True
         self.timeout = None
         self.write_timeout = None
+        self.write_calls = 0
+        self.fail_after: int | None = None  # raise from write() once this many calls were made
 
     @property
     def in_waiting(self) -> int:
@@ -144,6 +146,9 @@ class FakeUsbData:
         return data
 
     def write(self, data: bytes) -> int:
+        if self.fail_after is not None and self.write_calls >= self.fail_after:
+            raise OSError("usb write failed")
+        self.write_calls += 1
         self.written.extend(data)
         return len(data)
 
@@ -166,6 +171,24 @@ class FakeResetReason:
     BROWNOUT = "brownout"
 
 
+class FakeReset(BaseException):
+    """What ``microcontroller.reset()`` does on the board: nothing after it ever runs."""
+
+
+class FakeMcu:
+    """The ``microcontroller`` module."""
+
+    def __init__(self, watchdog: FakeWatchdog, cpu: types.SimpleNamespace) -> None:
+        self.watchdog = watchdog
+        self.cpu = cpu
+        self.ResetReason = FakeResetReason
+        self.resets = 0
+
+    def reset(self) -> None:
+        self.resets += 1
+        raise FakeReset
+
+
 @pytest.fixture
 def cp(monkeypatch):
     """Inject fake CircuitPython modules, import the CP HAL, and clean up afterwards."""
@@ -173,6 +196,7 @@ def cp(monkeypatch):
     usb_data = FakeUsbData()
     wdt = FakeWatchdog()
     cpu = types.SimpleNamespace(reset_reason=FakeResetReason.POWER_ON)
+    mcu = FakeMcu(wdt, cpu)
 
     fakes = {
         "board": FakeBoard(),
@@ -186,9 +210,7 @@ def cp(monkeypatch):
             )
         ),
         "usb_cdc": types.SimpleNamespace(data=usb_data),
-        "microcontroller": types.SimpleNamespace(
-            watchdog=wdt, cpu=cpu, ResetReason=FakeResetReason
-        ),
+        "microcontroller": mcu,
         "watchdog": types.SimpleNamespace(
             WatchDogMode=types.SimpleNamespace(RESET="reset", RAISE="raise")
         ),
@@ -204,7 +226,7 @@ def cp(monkeypatch):
     # Replace the module's own reference only: the real ``time`` module must stay untouched.
     monkeypatch.setattr(hal_mod, "time", types.SimpleNamespace(monotonic_ns=world.monotonic_ns))
     ns = types.SimpleNamespace(
-        world=world, usb=usb_data, wdt=wdt, cpu=cpu, hal_mod=hal_mod, fakes=fakes
+        world=world, usb=usb_data, wdt=wdt, cpu=cpu, mcu=mcu, hal_mod=hal_mod, fakes=fakes
     )
     yield ns
     for name in ("usonic_hal_cp", "usonic_main", "usonic_config"):
@@ -362,6 +384,13 @@ def test_watchdog_is_fed_through_the_hal(cp):
     assert cp.wdt.fed == 2
 
 
+def test_reboot_resets_the_microcontroller(cp):
+    hal = make_hal(cp)
+    with pytest.raises(FakeReset):  # the real reset never returns
+        hal.reboot()
+    assert cp.mcu.resets == 1
+
+
 # ---- the whole firmware loop on the fake board ------------------------------------------------
 
 
@@ -413,6 +442,21 @@ def test_main_loop_without_pins_still_talks_and_fires_nothing(cp):
     assert [m.sensor_count for m in msgs if isinstance(m, host.Info)][0] == 0
     assert not [m for m in msgs if isinstance(m, host.Reading)]
     assert cp.world.trig_log == []
+
+
+def test_a_crash_in_the_main_loop_resets_the_fake_board(cp, monkeypatch):
+    # US-12a through the real CpHal: the USB link raising out of write() is a crash of core.poll().
+    usonic_config = sys.modules["usonic_config"]
+    monkeypatch.setattr(usonic_config, "TRIG_PINS", TRIG)
+    monkeypatch.setattr(usonic_config, "ECHO_PINS", ECHO)
+    cp.usb.fail_after = 6  # the boot INFO and a few READINGs go out, then the link raises
+    with pytest.raises(FakeReset):
+        sys.modules["usonic_main"].run(iterations=100_000)
+    assert cp.mcu.resets == 1
+    msgs = _decode(cp)
+    assert isinstance(msgs[0], host.Info)
+    assert any(isinstance(m, host.Reading) for m in msgs)
+    assert 0 < cp.wdt.fed < 100_000  # it was running, and stopped at the crash
 
 
 def test_firmware_directory_is_a_plain_copy_to_circuitpy_layout():

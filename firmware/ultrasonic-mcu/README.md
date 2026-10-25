@@ -24,7 +24,7 @@ JSN-SR04T x4 --TRIG/ECHO--> RP2040 (CircuitPython)  --USB CDC "data" port-->  Pi
 |---|---|
 | `boot.py` | enables the second USB serial port (`usb_cdc.data`) and sets the USB product string. Needs a power cycle |
 | `code.py` | CircuitPython entry point: `usonic_main.run()` |
-| `usonic_main.py` | builds the HAL and the core, runs the loop, feeds the hardware watchdog |
+| `usonic_main.py` | builds the HAL and the core, runs the loop, feeds the hardware watchdog, resets the MCU after an unexpected exception |
 | `usonic_core.py` | sequential firing, health, protocol handling (hardware independent, fully unit tested) |
 | `usonic_proto.py` | frame codec and payload packing (hardware independent) |
 | `usonic_hal_cp.py` | the only file that touches pins: `digitalio` TRIG, `pulseio.PulseIn` ECHO, `usb_cdc`, watchdog |
@@ -51,6 +51,7 @@ the MCU; which `/dev/ttyACM*` or `/dev/serial/by-id/*` name that is on the Pi is
 | Echo window, quiet gap, firing order | `ultrasonic.echo_window_ms`, `inter_sensor_gap_ms`, `FIRING_ORDER` | M-40 timing; order depends on the physical layout (mount design, M-01) |
 | Sensor positions, yaw, pitch | not in the repository | mount survey (B.5) |
 | Host serial path of the data port | `ultrasonic.port` in `config/hardware.yaml` | `ls -l /dev/serial/by-id/` on the Pi with the MCU attached |
+| CircuitPython release on the board (not pinned) and what the watchdog does after an exception there | `CIRCUITPY/boot_out.txt`; behaviour of `microcontroller.watchdog` | Read the first line of `boot_out.txt` and record the release. On a spare board run a `code.py` that arms the watchdog (`timeout = 2`, `mode = WatchDogMode.RESET`) and then raises `RuntimeError`: a reset about 2 s after the traceback means it stays armed (the 10.0 behaviour, adafruit/circuitpython#7722); a board that sits at "Code done running" means it is disarmed, and only an exception that ends `code.py` outside the loop is exposed (see Firing, health and the safety posture). Also confirm the `reset_reason` the host logs: SOFTWARE after a forced reset, WATCHDOG after a hang |
 
 ## Wire protocol, version 1
 
@@ -98,8 +99,27 @@ never answered, so it cannot start a NAK storm.
 * The MCU reports raw echo widths and electrical outcomes. **It does not decide what a reading
   means.** The host applies the blind zone, range, staleness, link supervision and the owner's
   open-air policy (`JsnSr04tMcuDriver`): anything not positively established is UNKNOWN, never clear.
-* Hardware watchdog (`WATCHDOG_TIMEOUT_S`, reset): a hung or crashed MCU resets, announces a new
-  `boot_id` and `reset_reason`, and the host drops all earlier data and re-sends the configuration.
+* Hang and crash handling (`WATCHDOG_TIMEOUT_S` = 4 s, reset mode, fed once per loop pass):
+  * A **hung** loop is reset by the hardware watchdog. It is armed for as long as `usonic_main.run()`
+    has not returned, so this does not depend on the CircuitPython release.
+  * A **crash** (any `Exception` out of the boot INFO, the watchdog feed or `core.poll()`) is caught in
+    `run()`, which calls `CpHal.reboot()` (`microcontroller.reset()`): USB re-enumerates and INFO
+    carries a new `boot_id` and reset reason SOFTWARE. The console shows
+    `usonic: crashed, resetting: <exception>` when it can (the reset may cut it off). If the reset
+    call itself fails, `run()` stops feeding the watchdog and spins, so the watchdog resets the MCU
+    within 4 s (reset reason WATCHDOG).
+  * After either reset the host drops all earlier data, re-handshakes and re-sends the configuration.
+    Ctrl-C, Ctrl-D and autoreload (`KeyboardInterrupt`, `SystemExit`, the reload exception) are not
+    caught and stop the program as usual.
+  * **Not guaranteed:** an exception that ends `code.py` before the loop, for example a pin name that
+    is not on the board or a missing `boot.py` in `build()`. These are configuration errors and keep
+    their traceback on the console. Whether the watchdog then stays armed depends on the CircuitPython
+    release (adafruit/circuitpython#7722: staying armed after an exception other than Ctrl-C or
+    reload is the 10.0 behaviour); on an older release the MCU stays enumerated and silent until a
+    power cycle. The host sees every channel UNKNOWN (fail closed) either way. **The CircuitPython
+    release is not pinned and not verified on the board** (see the TBD table).
+  * A reset is as abrupt as a power cycle. The firmware never writes to the CIRCUITPY drive, so the
+    only exposure is a host that has that drive mounted read-write and is writing to it.
 * Limits of this HAL, reported honestly: `pulseio.PulseIn` only records a pulse that has ended, so a
   line stuck high or a pulse longer than the window both read as NO_EDGE; NO_FALL and the pre-trigger
   STUCK check are in the protocol for HALs that can tell them apart.

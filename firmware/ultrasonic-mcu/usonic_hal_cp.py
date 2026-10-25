@@ -84,6 +84,15 @@ class CpHal:
     def feed_watchdog(self):
         self._wdt.feed()
 
+    def reboot(self):
+        """Reset the RP2040 now (``microcontroller.reset()``); on the MCU this never returns.
+
+        ``usonic_main.run`` calls it after an unexpected exception. USB re-enumerates, the host sees
+        a new ``boot_id`` and reset reason SOFTWARE, and the handshake starts again. Like a watchdog
+        reset it is abrupt: nothing here writes to the CIRCUITPY drive.
+        """
+        microcontroller.reset()
+
     # ---- measuring -------------------------------------------------------------------------
 
     def measure(self, index, window_us):

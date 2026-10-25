@@ -18,7 +18,7 @@ from tests.unit._usonic_fakes import (
     load_module,
 )
 from tests.unit._usonic_fakes import P as fw
-from tests.unit._usonic_fw_fakes import RecordingHal
+from tests.unit._usonic_fw_fakes import Rebooted, RecordingHal
 
 OK, NO_EDGE, NO_FALL, STUCK = fw.ST_OK, fw.ST_NO_EDGE, fw.ST_NO_FALL, fw.ST_STUCK
 
@@ -541,3 +541,78 @@ def test_main_build_survives_a_firing_order_that_does_not_match_the_sensor_count
 
     _hal, core = usonic_main.build(Hal)
     assert core.order == (0, 1, 2)
+
+
+# ---- the main loop must never leave a silent MCU ----------------------------------------------
+
+
+class _ReloadException(BaseException):
+    """Stand-in for CircuitPython's reload exception (``supervisor.reload()``, Ctrl-D, autoreload)."""
+
+
+def _run(hal, iterations):
+    load_module("usonic_config")
+    return load_module("usonic_main").run(lambda *a, **k: hal, iterations=iterations)
+
+
+def test_run_makes_exactly_the_requested_passes_when_nothing_fails():
+    hal = RecordingHal(n=0)
+    assert _run(hal, 25) == 25
+    assert (hal.fed, hal.calls["read"], hal.reboots) == (25, 25, 0)
+
+
+def test_an_exception_out_of_poll_forces_a_reset_instead_of_ending_code_py(capsys):
+    # US-12a: an uncaught exception ends code.py, and whether the hardware watchdog is still armed
+    # then depends on the CircuitPython release (adafruit/circuitpython#7722). The loop must reset
+    # the MCU itself rather than leave it enumerated and silent.
+    hal = RecordingHal(n=0)
+    hal.arm("read", 5, RuntimeError("poll blew up"))  # core.poll() reads the host link first
+    with pytest.raises(Rebooted):  # a real reset never returns
+        _run(hal, 1000)
+    assert hal.reboots == 1
+    assert hal.fed == 5  # fed on every pass up to and including the one that crashed
+    out = capsys.readouterr().out
+    assert "RuntimeError" in out and "poll blew up" in out  # the console says why
+
+
+def test_an_exception_out_of_feed_watchdog_also_forces_a_reset():
+    hal = RecordingHal(n=0)
+    hal.arm("feed_watchdog", 3, RuntimeError("watchdog object is gone"))
+    with pytest.raises(Rebooted):
+        _run(hal, 1000)
+    assert hal.reboots == 1
+    assert (hal.fed, hal.calls["read"]) == (2, 2)  # nothing ran after the failing feed
+
+
+def test_a_failure_while_announcing_the_boot_also_forces_a_reset():
+    hal = RecordingHal(n=0)
+    hal.arm("write", 1, OSError("usb write failed"))  # the boot INFO is the first write
+    with pytest.raises(Rebooted):
+        _run(hal, 1000)
+    assert hal.reboots == 1
+    assert hal.fed == 0
+
+
+@pytest.mark.parametrize("mode", ["returns", "raises", "absent"])
+def test_when_the_reset_itself_fails_the_loop_stops_feeding_and_keeps_spinning(mode):
+    # No reset available (it raised, returned, or the HAL has no reboot at all): the loop must not
+    # end (code.py ending is exactly what may disarm the watchdog), must not feed the watchdog
+    # again, and must not poll a core whose state is unknown: the armed watchdog resets the MCU.
+    hal = RecordingHal(n=0, reboot_mode=mode)
+    hal.arm("read", 5, RuntimeError("poll blew up"))
+    assert _run(hal, 50) == 50  # still spinning when the test's pass budget ran out
+    assert hal.fed == 5
+    assert hal.calls["read"] == 5
+    assert hal.reboots == (0 if mode == "absent" else 1)
+
+
+@pytest.mark.parametrize("exc", [KeyboardInterrupt(), SystemExit(), _ReloadException()])
+@pytest.mark.parametrize("where", ["read", "feed_watchdog"])
+def test_keyboard_interrupt_system_exit_and_reload_are_never_swallowed(exc, where):
+    # Ctrl-C into the REPL, Ctrl-D and an autoreload must still stop the program: they are not
+    # crashes, and resetting the MCU there would make the board impossible to work on.
+    hal = RecordingHal(n=0, reboot_mode="returns")
+    hal.arm(where, 3, exc)
+    with pytest.raises(type(exc)):
+        _run(hal, 1000)
+    assert hal.reboots == 0
