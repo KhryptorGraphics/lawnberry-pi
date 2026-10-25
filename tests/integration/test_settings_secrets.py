@@ -17,6 +17,7 @@ import stat
 import httpx
 import pytest
 import pytest_asyncio
+from fastapi import FastAPI
 
 from backend.src.main import app
 
@@ -261,3 +262,31 @@ async def test_writes_still_need_the_login(client):
     for path in (REMOTE, MAPS, SECURITY, SYSTEM):
         denied = await client.put(path, json={"google_api_key": MAPS_KEY})
         assert denied.status_code == 401, path
+
+
+# ---- the response sanitizer is the backstop -----------------------------------------------------
+
+
+async def test_the_sanitizer_backstops_the_settings_path_but_not_the_auth_tokens(monkeypatch):
+    """Only the auth routes are exempt from body redaction: they must return usable tokens. The
+    settings path used to be exempt too ("the operator UI must see the key")."""
+    from backend.src.middleware.sanitization import register_sanitization_middleware
+
+    monkeypatch.delenv("SANITIZE_SKIP", raising=False)
+    sub = FastAPI()
+    register_sanitization_middleware(sub)
+
+    @sub.get("/api/v2/settings/leaky")
+    def leaky() -> dict:
+        return {"api_key": "must-not-leave", "token": "nor-this", "provider": "osm"}
+
+    @sub.get("/api/v2/auth/token")
+    def token() -> dict:
+        return {"access_token": "usable-token"}
+
+    transport = httpx.ASGITransport(app=sub)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        settings = (await http.get("/api/v2/settings/leaky")).json()
+        auth = (await http.get("/api/v2/auth/token")).json()
+    assert settings == {"api_key": "***REDACTED***", "token": "***REDACTED***", "provider": "osm"}
+    assert auth == {"access_token": "usable-token"}
