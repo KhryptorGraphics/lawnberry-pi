@@ -159,6 +159,10 @@ ABORT_UNWIND_TIMEOUT_S = 1.0
 #: A blade-on that failed is not retried more often than this (the RC to USB handshake behind
 #: it can take seconds, and the control loop must keep its period).
 BLADE_RETRY_S = 2.0
+#: An AI run whose model produces output that is not a finite number this many ticks in a row is
+#: ended (blade off, neutral), not held for ever (audit NAV-07). UNVALIDATED: at the 5 Hz AI loop
+#: it is one second of a broken model; tune on the bench.
+MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS = 5
 
 
 class LegResult(StrEnum):
@@ -236,6 +240,7 @@ class NavigationService:
         self._ai_epoch: int | None = None  # stop_events epoch when the AI run started
         self._ai_datum: tuple[float, float] | None = None
         self._ai_loop_hz = 5.0  # inference cadence (Hz)
+        self._unusable_predictions = 0  # consecutive AI ticks whose model output was not finite
 
         # Safety inputs, attached by the lifespan (see attach_safety). None = not gated:
         # unit/bench configuration only; main.py never serves a mission without them.
@@ -1501,6 +1506,7 @@ class NavigationService:
         self._ai_datum = self._select_ai_datum()
         self._coverage = CoverageMap(self._ai_datum)
         self._ai_epoch = run_epoch
+        self._unusable_predictions = 0
         self._ai_task = asyncio.create_task(self._ai_inference_loop())
 
         logger.info("Started AI-controlled navigation (datum=%s)", self._ai_datum)
@@ -1637,23 +1643,32 @@ class NavigationService:
             self.abort_autonomy("a safety stop happened during the AI run")
             return False
 
-        # Check confidence threshold
-        if prediction.confidence < 0.5:
-            logger.warning(f"AI prediction confidence too low: {prediction.confidence:.2f}")
-            return False
-
         from .tractor_service import get_tractor_service
 
         tractor = get_tractor_service()
 
-        # Check for safety override
+        # A model run whose output is not a finite number is not a prediction: the confidence
+        # gate below would drop it as "low confidence" and leave whatever the last tick commanded
+        # in force, the blade included (audit NAV-07). Stand the platform down now, and end the
+        # run when the model keeps producing it.
+        if getattr(prediction, "unusable", False) is True:
+            return await self._stand_down_for_unusable_prediction()
+        self._unusable_predictions = 0
+
+        # A safety override is a stop, not a suggestion: it is honoured whatever the model's
+        # confidence is (a low-confidence tick used to drop it with the rest).
         if prediction.safety_override:
             logger.warning("AI prediction has safety override - stopping")
             if tractor.enabled:
                 await tractor.emergency_stop()
             else:
-                await self.set_speed(0.0, 0.0)
+                await self._stop_platform()  # blade off first, then the drive to neutral
             return True
+
+        # Check confidence threshold
+        if prediction.confidence < 0.5:
+            logger.warning(f"AI prediction confidence too low: {prediction.confidence:.2f}")
+            return False
 
         # Obstacle guard: a hold stops the machine whatever the model predicts; a cap is
         # enforced again in the actuation chokepoints (tractor.set_levers / set_speed).
@@ -1689,6 +1704,29 @@ class NavigationService:
         await self.set_speed(left_speed, right_speed)
 
         return True
+
+    async def _stand_down_for_unusable_prediction(self) -> bool:
+        """A NaN or infinite model output: blade off, levers neutral; the run ends if it goes on.
+
+        The same stand-down as a held safety gate (``_hold_motion``: blade first, then neutral,
+        retried by every further tick), because a prediction that could not be read says nothing
+        about what the last command should have been: its blade and its levers must not stay in
+        force. A single bad tick is a hold; ``MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS`` of them in a
+        row end the run (the operator starts it again once the model is fixed). It is not an
+        E-stop: nothing latches and no clear is needed. Returns ``False``: nothing was applied.
+        """
+        self._unusable_predictions += 1
+        count = self._unusable_predictions
+        logger.error(
+            "AI model output is not a finite number (%d in a row): standing the platform down",
+            count,
+        )
+        await self._hold_motion(MotionGate(True, 0.0, ("AI model output is not a finite number",)))
+        if count >= MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS:
+            self._unusable_predictions = 0
+            self.abort_autonomy(f"the AI model produced no usable output {count} times in a row")
+            await self._stop_platform()
+        return False
 
     async def emergency_stop(self) -> bool:
         """Emergency stop navigation"""
