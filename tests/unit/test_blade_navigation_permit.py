@@ -48,12 +48,19 @@ class Rig:
         self.gnss = StubGnss()
         self.nav.attach_safety(obstacle_guard=self.guard, gps_monitor=self.gnss)
         self.blade.attach_permit(BLADE_PERMIT_NAME, self.nav.blade_permit)
+        self.ai_task: asyncio.Task | None = None
 
     async def open(self) -> None:
         assert await self.blade.initialize() is True
 
     def autonomy(self, mode: NavigationMode = NavigationMode.AUTO) -> None:
+        """A run owns the machine: its mode AND its loop (the permit keys on the loop, NAV-03)."""
         self.nav.navigation_state.navigation_mode = mode
+        if mode is NavigationMode.AI:
+            self.ai_task = asyncio.get_running_loop().create_task(asyncio.sleep(3600))
+            self.nav._ai_task = self.ai_task
+        else:
+            self.nav._mission_loop_active = True
 
     async def hammer_on(self, seconds: float = 0.4) -> list[bool]:
         """A client that repeats ON every 50 ms for ``seconds``."""
@@ -64,6 +71,10 @@ class Rig:
         return results
 
     async def close(self) -> None:
+        self.nav._mission_loop_active = False
+        if self.ai_task is not None:
+            self.ai_task.cancel()
+            await asyncio.gather(self.ai_task, return_exceptions=True)
         await self.blade.park()
 
 

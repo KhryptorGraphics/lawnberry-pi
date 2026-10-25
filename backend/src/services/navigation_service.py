@@ -300,8 +300,17 @@ class NavigationService:
         self.gps_monitor = gps_monitor
 
     def autonomy_active(self) -> bool:
-        """True while a mission/AI run is the thing moving the machine."""
-        return self.navigation_state.navigation_mode in AUTONOMOUS_MODES
+        """True while a loop of this service (a mission, the AI run) is what moves the machine.
+
+        It keys on the loops, never on the mode field (audit NAV-03): the field can say
+        ``return_home`` or ``auto`` with nothing driving (a planned path, a run that ended without
+        resetting it), and every consumer of this answer ACTS on the machine: the GNSS and obstacle
+        hold handlers stand the platform down, the blade permit refuses a blade ON. That is right
+        while a run owns the machine and a seizure of a person's own manual drive and blade when
+        none does.
+        """
+        ai = self._ai_task
+        return self._mission_loop_active or (ai is not None and not ai.done())
 
     def heading_age_s(self) -> float | None:
         """Seconds since the IMU measured the current heading, ``None`` when it never did.
@@ -380,7 +389,7 @@ class NavigationService:
         manual driving included, the blade is the operator's own call, as it is for the motion
         limiter: that exemption is a policy, kept on purpose.
         """
-        autonomous = self.autonomy_active() or self._mission_loop_active
+        autonomous = self.autonomy_active()
         if not (autonomous or self._scripted_drive_active):
             return None
         # A scripted open-loop drive leaves the GNSS monitor and the heading age out of its gate
@@ -654,10 +663,7 @@ class NavigationService:
         """
         from .tractor_service import get_tractor_service
 
-        if (
-            self.navigation_state.navigation_mode not in AUTONOMOUS_MODES
-            and not self._scripted_drive_active
-        ):
+        if not (self.autonomy_active() or self._scripted_drive_active):
             return
         now = time.monotonic()
         if now - self._last_hold_assert < 0.25:
@@ -1759,40 +1765,57 @@ class NavigationService:
         return True
 
     async def return_home(self) -> bool:
-        """Navigate back to home position"""
+        """Plan the way back to the home position and publish it as the planned path.
+
+        Nothing drives that path: there is no return-to-base executor (a run with a task, a stop
+        epoch and a place in the mission service), so this sets NO autonomous mode (audit NAV-03).
+        It used to set ``return_home`` and ``executing`` and leave them for ever, a phantom run
+        that no loop owned and nothing ended: the GNSS and obstacle hold handlers and the blade
+        permit read it as autonomy and then acted on the operator's manual drive and blade. It is
+        refused while a stop is latched, while a scripted drive runs and while a mission or an AI
+        run owns the machine (their path and waypoint index are not this call's to overwrite).
+        Returns ``True`` when a path was planned.
+        """
         if (latched := self._start_refusal()) is not None:
             logger.error("Cannot return home: %s", latched)
+            return False
+        if self.autonomy_active():
+            logger.error("Cannot return home: an autonomous run owns the machine (end it first)")
             return False
         if not self.navigation_state.home_position:
             logger.error("No home position set")
             return False
+        if not self.navigation_state.current_position:
+            logger.error("Cannot return home: no current position")
+            return False
 
         # Plan path (with avoidance and boundary constraints if available)
-        if self.navigation_state.current_position:
-            boundaries = None
-            if self.navigation_state.safety_boundaries:
-                # Use the outer boundary (first polygon) if provided
-                boundaries = self.navigation_state.safety_boundaries[0]
-            obstacles = (
-                self.navigation_state.no_go_zones if self.navigation_state.no_go_zones else None
-            )
+        boundaries = None
+        if self.navigation_state.safety_boundaries:
+            # Use the outer boundary (first polygon) if provided
+            boundaries = self.navigation_state.safety_boundaries[0]
+        obstacles = self.navigation_state.no_go_zones if self.navigation_state.no_go_zones else None
 
-            waypoints = self.path_planner.return_to_base(
-                current=self.navigation_state.current_position,
-                home=self.navigation_state.home_position,
-                boundary=boundaries,
-                obstacles=obstacles,
-            )
+        waypoints = self.path_planner.return_to_base(
+            current=self.navigation_state.current_position,
+            home=self.navigation_state.home_position,
+            boundary=boundaries,
+            obstacles=obstacles,
+        )
+        if not waypoints:
+            logger.error("Cannot return home: the planner found no path")
+            return False
 
-            self.navigation_state.planned_path = waypoints
-            self.navigation_state.current_waypoint_index = 0
-            self.navigation_state.navigation_mode = NavigationMode.RETURN_HOME
-            self.navigation_state.path_status = PathStatus.EXECUTING
+        self.navigation_state.planned_path = waypoints
+        self.navigation_state.current_waypoint_index = 0
+        self.navigation_state.path_status = PathStatus.PLANNED
 
-            logger.info("Returning to home position")
-            return True
-
-        return False
+        logger.warning(
+            "Return to base: a path of %d waypoints is planned; nothing drives it (no "
+            "return-to-base executor exists), drive the machine or start a mission",
+            len(waypoints),
+        )
+        return True
 
     def set_home_position(self, position: Position):
         """Set the home/docking position"""

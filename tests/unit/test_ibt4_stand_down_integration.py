@@ -105,6 +105,7 @@ class Platform:
     def autonomy_owns_the_machine(self) -> None:
         """No loop: only the hold handlers can act (what the 20 Hz monitors rely on)."""
         self.nav.navigation_state.navigation_mode = NavigationMode.AUTO
+        self.nav._mission_loop_active = True  # what execute_mission sets: autonomy keys on it
 
     async def confirmed_off(self) -> None:
         await wait_until(lambda: self.pads.pad == OFF)
@@ -126,6 +127,7 @@ class Platform:
             assert result["status"] == "ok", result
 
     async def close(self) -> None:
+        self.nav._mission_loop_active = False
         if self.task is not None:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)

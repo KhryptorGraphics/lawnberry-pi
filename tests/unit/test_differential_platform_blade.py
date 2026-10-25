@@ -96,6 +96,7 @@ async def test_the_obstacle_monitors_handler_stands_a_running_mission_down_by_it
     nav = new_nav()
     nav.attach_safety(obstacle_guard=StubGuard(hold=True))
     nav.navigation_state.navigation_mode = NavigationMode.AUTO  # a mission owns the machine
+    nav._mission_loop_active = True  # ... its loop is what autonomy_active() keys on (NAV-03)
     nav._robohat_blade_on = True
     try:
         await nav.enforce_motion_hold()
