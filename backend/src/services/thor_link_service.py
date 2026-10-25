@@ -8,15 +8,28 @@ interlocked methods, without revoking authorization (the acceptance
 criteria's soft-stop path). It never moves the mower; waypoints are only
 stored for the navigation layer, and only while the plan is fresh.
 
-Trust model (protocol v2, ``models/thor_link.py``): a downlink is acted on only
-if it passes, in order, the optional source allowlist, the size cap, the
-HMAC-SHA256 tag, schema validation (waypoint count, ranges), the session
-check (it echoes this run's ``sid``), the ack check (it answers an uplink this
-run actually sent, newer than any already-accepted answer), the age check (that
-uplink was sent no more than ``plan_max_age_s`` ago) and, for plans, the
-optional geofence. Only a packet that passes all of them refreshes the
-heartbeat or replaces the plan; everything else is counted in ``rejects`` and
-logged at a bounded rate. A ``pause`` is never refused for its *content*.
+Trust model (protocol v2, ``models/thor_link.py``): a datagram clears three stages, each costing
+more than the one before, and only one that clears all of them refreshes the heartbeat or
+replaces the plan. Everything else is counted in ``rejects`` and logged at a bounded rate.
+
+1. *Free*: no HMAC and no budget. The optional source allowlist (``source``); the size cap
+   (``oversize``); an exact copy of a datagram already verified (``replay``); then what the
+   datagram claims in cleartext, read by byte search and never parsed: the ``sid`` must be this
+   run's (``session``) and the ``ack`` must name an uplink this run sent that no accepted answer
+   has answered and that is no older than ``plan_max_age_s`` (``replay``, ``future_ack``,
+   ``stale``). These can only refuse, never accept, and a forger can make any datagram claim
+   what it likes, so what they save is the work of verifying datagrams that could not be
+   answers anyway: blind junk and captured traffic.
+2. *Budgeted*: one token from the verification ceiling (``VerificationBudget``: this is what
+   bounds the HMAC work of the whole port, ``rate`` when it is spent), and for a source that has
+   not yet delivered an accepted datagram one from its own and the strangers' shared allowance
+   too. Then the HMAC-SHA256 tag (``auth``). A source address is whatever the sender writes, so
+   junk is never charged against the address of the peer: the peer draws on the ceiling alone.
+3. *Authentic*: the tag verified, so the sender holds the key. The datagram is charged to the
+   authentic bucket of its source, which junk cannot touch (``peer_rate``), then schema
+   validation (waypoint count, ranges: ``malformed``), the session, ack and age checks again on
+   the parsed values, and, for plans, the optional geofence (``geofence``). A ``pause`` is never
+   refused for its *content*.
 
 Safe hold is entered when no downlink has been accepted within ``timeout_s``,
 the accepted plan's information is older than ``plan_max_age_s``, or the Thor
@@ -34,7 +47,7 @@ import logging
 import math
 import secrets
 import time
-from collections import Counter
+from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterable
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -43,22 +56,27 @@ from ..core.secrets_manager import SecretsManager
 from ..core.simulation import is_simulation_mode
 from ..models.geofence import LatLng
 from ..models.thor_link import (
+    MAX_COUNTER,
+    MAX_DATAGRAM_BYTES,
     MAX_SESSION_ID,
     MAX_UPLINK_HZ,
     SIM_LINK_KEY,
+    TAG_BYTES,
     UPLINK_HZ,
-    DatagramBudget,
     Downlink,
     LinkAuthError,
     LinkBudgetError,
     LinkKeyError,
     Uplink,
+    VerificationBudget,
     Waypoint,
+    claimed_ack,
     decode_downlink,
     encode,
     fit_uplink,
     parse_key,
     refuse_published_key,
+    session_filter,
     validate_key,
 )
 from ..models.tractor_control import LEVER_NEUTRAL_EPS
@@ -84,6 +102,19 @@ _LOG_INTERVAL_S = 5.0
 MAX_SENT_UPLINKS = 1024
 # Least datagrams per second one source may have processed, whatever the uplink rate.
 MIN_RX_RATE_HZ = 20.0
+# What one datagram that gets as far as the HMAC costs, measured with ``time.perf_counter`` on the
+# development machine (a Neoverse-V3AE): 3.6 us for a worst-case 1,200 B forgery with the Arm SHA-2
+# instructions, 5.5 us without them (OpenSSL's NEON path, which is all a Raspberry Pi 5's
+# Cortex-A76 has: that core has no crypto extensions). A Pi 5 core is slower than this machine by
+# a factor that was not measured; plan on 30 us, five times the slower figure. At that cost
+# 1,000 checks a second are 3 % of one core and a full burst is 7.5 ms of the event loop, whatever
+# arrives. This is the ceiling for the whole port, authentic datagrams included (those need at
+# most ``MAX_UPLINK_HZ``, 5 % of it).
+VERIFY_CEILING_HZ = 1000.0
+VERIFY_BURST = 250
+# Verified datagrams remembered so that a copy of one costs a dictionary lookup instead of an HMAC:
+# 64 of at most 1,200 B is under 80 kB. Older copies are refused by their ack, also without one.
+VERIFIED_CACHE_SIZE = 64
 # Narrowest allowlist network accepted without acknowledgement, by IP version. An entry with a
 # shorter prefix names more than one LAN (a /8 is 16 million IPv4 addresses): that is a typo
 # far more often than a decision, so it needs ``allow_wide_sources``.
@@ -141,15 +172,18 @@ def parse_allowed_sources(
       unless ``allow_wide`` acknowledges it: ``10.0.0.0/8`` for ``10.0.0.0/28`` is a typo that
       silently admits 16 million addresses;
     * an empty list is an error, not "allow nobody" or "allow everybody".
+
+    An entry that is not an address is named by its position in the list and never repeated in the
+    error: it is whatever was pasted into the setting, a secret included, and errors reach the log.
     """
     if entries is None:
         return ()
     nets = []
-    for entry in entries:
+    for index, entry in enumerate(entries):
+        not_an_address = f"allowed_sources entry #{index} is not an IP address or CIDR network"
         if not isinstance(entry, str):
-            raise ValueError(
-                f"allowed_sources entry {entry!r} is not an IP address or CIDR network"
-            )
+            raise ValueError(not_an_address)
+        net = widened = host = None
         try:
             net = ipaddress.ip_network(entry, strict=True)
         except ValueError:
@@ -157,13 +191,16 @@ def parse_allowed_sources(
                 widened = ipaddress.ip_network(entry, strict=False)
                 host = ipaddress.ip_interface(entry).ip
             except ValueError:
-                raise ValueError(
-                    f"allowed_sources entry {entry!r} is not an IP address or CIDR network"
-                ) from None
+                widened = None
+        # Raised outside the ``except`` blocks: the exceptions above quote the entry, and nothing
+        # may chain to them.
+        if net is None:
+            if widened is None:
+                raise ValueError(not_an_address)
             raise ValueError(
                 f"allowed_sources entry {entry!r} has host bits set, so it would silently become "
                 f"{widened}: write {widened} for the whole network or {host} for the one host"
-            ) from None
+            )
         if net.prefixlen == 0:
             raise ValueError(
                 f"allowed_sources entry {entry!r} matches every address: "
@@ -214,9 +251,14 @@ class ThorLinkService:
             Without one, waypoints are only range-checked here and the navigation consumer must
             bound them.
 
-    Datagrams are admitted through a ``DatagramBudget`` (a token bucket per source, one for the
-    port) before any HMAC work, so a flood cannot make the loop pay for each packet; what it
-    sheds is counted in ``rejects["rate"]``.
+    Datagrams are filtered and budgeted before any HMAC work, so a flood cannot make the loop pay
+    for each packet: free filters first (source allowlist, size, copies of verified datagrams, the
+    cleartext ``sid`` and ``ack``), then at most ``VERIFY_CEILING_HZ`` HMAC checks a second for the
+    whole port (``VerificationBudget``). ``thor_addr``'s host is the expected peer from the start:
+    junk with that source address is bounded by the ceiling alone and never uses up the peer's
+    own share. What is shed is counted in ``rejects`` (``source``, ``oversize``, ``replay``,
+    ``session``, ``future_ack``, ``stale``, ``rate``, ``auth``, ``peer_rate``, ``malformed``,
+    ``geofence``, ``internal``) and ``verifications`` counts the HMAC checks made.
 
     Raises:
         LinkKeyError: no usable key, a weak one, or the public sim key outside SIM_MODE.
@@ -278,13 +320,21 @@ class ThorLinkService:
         # The legitimate Thor sends one datagram per uplink, so twice the uplink rate (and a
         # burst for the answers a radio stall queues up) is generous for it and tight for a flood.
         rx_rate = max(2.0 * uplink_hz, MIN_RX_RATE_HZ)
-        self._budget = DatagramBudget(
-            rx_rate,
-            self._sent_cap,
-            total_rate_hz=4.0 * rx_rate,
-            total_burst=4 * self._sent_cap,
+        self._budget = VerificationBudget(
+            verify_hz=VERIFY_CEILING_HZ,
+            verify_burst=VERIFY_BURST,
+            peer_hz=rx_rate,
+            peer_burst=self._sent_cap,
+            stranger_hz=rx_rate,
+            stranger_burst=self._sent_cap,
+            strangers_hz=4.0 * rx_rate,
+            strangers_burst=4 * self._sent_cap,
+            peers=(thor_addr[0],),
+            now=clock(),
         )
-        self._trusted_source: str | None = None  # source of the last accepted downlink
+        self._claims_session = session_filter(self.session_id)
+        # Datagrams whose tag verified, so that a copy costs a lookup, not an HMAC.
+        self._verified: OrderedDict[bytes, None] = OrderedDict()
         self._last_ack = -1  # newest uplink seq answered by an accepted downlink
         self._last_rx: float | None = None  # when that downlink arrived
         self._plan_basis = 0.0  # send time of the uplink the active plan answers
@@ -302,6 +352,7 @@ class ThorLinkService:
         self.bytes_received = 0
         self.rejected = 0  # total dropped datagrams
         self.rejects: Counter[str] = Counter()  # ... by reason
+        self.verifications = 0  # HMAC checks made, lifetime: what the ceiling bounds
         self.uplink_errors = 0  # uplinks that could not be encoded or sent at all
         self.builder_errors = 0  # uplinks sent bare because the state builder failed
         self.uplinks_degraded = 0  # uplinks thinned by ``fit_uplink`` to fit one datagram
@@ -353,34 +404,45 @@ class ThorLinkService:
 
     def _receive(self, data: bytes, addr: tuple) -> None:
         self.bytes_received += len(data)
-        # Cheapest checks first, each before any work a sender can cause: the source allowlist
-        # (no state), then the datagram budget (a bucket per source and one for the port), and
-        # only then the size check, HMAC and parse. A flood costs a few dict operations per
-        # datagram, never an HMAC or a log line.
+        # Cheapest first, and nothing before the HMAC may cost a sender's choice of more than a
+        # lookup, a byte search or one token of the verification ceiling: the source allowlist (no
+        # state), the free filters, the budget, and only then the HMAC. A flood costs a few
+        # microseconds per datagram, never an HMAC beyond the ceiling and never a log line.
         if not self._source_allowed(addr):
             self._reject("source", addr)
             return
+        if not isinstance(data, bytes):
+            data = bytes(data)
+        now = self._clock()
+        reason = self._prefilter(data, now)
+        if reason is not None:
+            self._reject(reason, addr)
+            return
         source = str(addr[0]) if addr else ""
-        # The peer that last delivered an accepted downlink is exempt from the shared bucket
-        # (still bounded by its own), so strangers flooding the port cannot starve it.
-        if not self._budget.admit(
-            source, self._clock(), exempt_total=source == self._trusted_source
-        ):
+        if not self._budget.admit_verification(source, now):
             self._reject("rate", addr)
             return
+        self.verifications += 1
         try:
             msg = decode_downlink(data, self._key)
-        except LinkBudgetError:
+        except LinkBudgetError:  # the size filter ran first: only the two limits drifting apart
             self._reject("oversize", addr)
             return
         except LinkAuthError:
             self._reject("auth", addr)
             return
         except ValueError:  # authentic bytes, invalid content (count, range, shape)
-            self._reject("malformed", addr)
-            return
-        now = self._clock()
-        reason = self._admit(msg, now)
+            msg = None
+        # The tag verified, so the sender holds the key. From here on the datagram is charged to
+        # the authentic bucket of its source, which a flood of junk (it never gets this far) cannot
+        # have drained. A peer that holds the key and still floods is bounded there too.
+        if not self._budget.admit_authentic(source, now):
+            reason = "peer_rate"
+        elif msg is None:
+            reason = "malformed"
+        else:
+            reason = self._admit(msg, now)
+        self._remember(data)  # not reached if ``_admit`` raised: that datagram may be retried
         if reason is not None:
             self._reject(reason, addr)
             return
@@ -392,22 +454,60 @@ class ThorLinkService:
         self._plan_basis = basis
         self._paused = msg.pause
         self.plan = None if msg.pause else msg
-        self._trusted_source = source
+        self._budget.trust(source, now)
+
+    def _prefilter(self, data: bytes, now: float) -> str | None:
+        """Why ``data`` cannot be an answer this run could accept, or None. No HMAC, no budget.
+
+        It reads the length, one dictionary and the cleartext ``sid`` and ``ack`` by byte search,
+        so it costs a few microseconds whoever sends the datagram, and it never changes link state.
+        It reports what the datagram *claims*, which a forger chooses: a datagram that claims a
+        sid or ack no uplink of this run can have is refused for free, and one that claims
+        something plausible is merely sent on to be verified. Only the HMAC accepts.
+        """
+        size = len(data)
+        if size > MAX_DATAGRAM_BYTES:
+            return "oversize"
+        if size <= TAG_BYTES:
+            return "auth"  # no room for a body behind a tag
+        if data in self._verified:
+            self._verified.move_to_end(data)
+            return "replay"  # a copy of a datagram whose tag already verified
+        if not self._claims_session(data):
+            return "session"  # not for this run: another run's, another Pi's, or blind junk
+        ack = claimed_ack(data)
+        if ack is None or ack > MAX_COUNTER:
+            return "malformed"  # a downlink always carries a counter inside the schema's bound
+        return self._ack_reason(ack, now)
+
+    def _ack_reason(self, ack: int, now: float) -> str | None:
+        """Why an answer to uplink ``ack`` cannot be accepted at ``now``, or None. Reads state."""
+        if ack >= self._seq:
+            return "future_ack"  # answers an uplink this run never sent
+        if ack <= self._last_ack:
+            return "replay"  # duplicate or reordered
+        sent_at = self._sent.get(ack)
+        if sent_at is None or now - sent_at > self._plan_max_age_s:
+            return "stale"  # too slow, or older than the uplinks we still remember
+        return None
 
     def _admit(self, msg: Downlink, now: float) -> str | None:
         """Why an authentic ``msg`` must be dropped, or None. Never changes link state."""
         if msg.sid != self.session_id:
             return "session"  # another run's (or another Pi's) traffic
-        if msg.ack >= self._seq:
-            return "future_ack"  # answers an uplink this run never sent
-        if msg.ack <= self._last_ack:
-            return "replay"  # duplicate or reordered
-        sent_at = self._sent.get(msg.ack)
-        if sent_at is None or now - sent_at > self._plan_max_age_s:
-            return "stale"  # too slow, or older than the uplinks we still remember
+        reason = self._ack_reason(msg.ack, now)
+        if reason is not None:
+            return reason
         if not msg.pause and not self._waypoints_in_geofence(msg.waypoints):
             return "geofence"
         return None
+
+    def _remember(self, data: bytes) -> None:
+        """Note that the tag of ``data`` verified, so that a copy is refused by lookup, not HMAC."""
+        self._verified[data] = None
+        self._verified.move_to_end(data)
+        while len(self._verified) > VERIFIED_CACHE_SIZE:
+            self._verified.popitem(last=False)
 
     def _source_allowed(self, addr: tuple) -> bool:
         if not self._allowed_sources:

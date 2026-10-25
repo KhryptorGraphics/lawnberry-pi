@@ -216,6 +216,20 @@ sudo systemctl start lawnberry-database lawnberry-backend lawnberry-health \
 sudo systemctl status lawnberry-backend
 ```
 
+`--root` is validated before anything is written, and a bad one exits 2 in every mode (`--dry-run`
+and `--destdir` included, before the privilege check): an absolute path of letters, digits and
+`_ . / -` naming a directory that contains `backend/src/main.py`, whose `realpath` passes the same
+checks (the resolved path is what goes into the units and `.env`; the installer prints a `NOTE`
+when it differs from what you typed). `/`, the system trees (`/bin /boot /dev /etc /lib* /proc
+/root /run /sbin /sys`), the containers `/home /media /mnt /opt /srv /tmp /usr /var` themselves,
+anything directly under `/usr` or `/var` (`/usr/local`, `/var/lib`, ...) and a symlink that
+resolves to any of these are refused; `/apps/lawnberry-pi`, `/opt/lawnberry-pi`, `/srv/lawnberry`,
+`/home/<user>/lawnberry-pi` and `/var/lib/lawnberry-pi` are fine. The database unit used to run
+`chown -R` on the root as root at every boot, so a wrong `--root` (`/usr/local`) re-owned a system
+tree; every line of that unit now runs as the service account, and the installer fixes the owner
+of the checkout's `data`, `logs` and `config` once, without following symlinks or leaving the
+filesystem (a symlink or non-directory in their place fails the install, exit 1).
+
 **On the shed Pi do not stop or restart `lawnberry-backend` without physical access**: it also
 stops `lawnberry-camera` (`PartOf=`), and on 2026-10-06 the HaLow radio failed about 10 s after
 such a stop and stayed dark until a power cycle (`autonomy-toolchain-matrix.md`).
@@ -243,13 +257,54 @@ There is no built-in credential: with none configured the backend still starts, 
 log in (the E-stop routes stay open by design). A 401 on every login means the credential in
 `<root>/.env` is missing, a published default, or not what you typed.
 
+### Reverse proxies, tunnels and client addresses
+
+The web UI server, nginx and every tunnel agent reach the backend from the loopback, so who the
+backend believes the client is has to be configured, not guessed. The shipped units declare the
+two forwarders the repository itself sets up (the UI server at `127.0.0.2`, nginx at `127.0.0.3`)
+and trust nobody else, and no WebSocket is admitted without a ticket or bearer, a browser on the
+mower included. The exact settings for a Cloudflare or ngrok agent, a tunnel pointed at port
+8081, a proxy on another host, and the check to run afterwards are in
+[`authentication-config.md`, "Forwarders, tunnels and client addresses"](authentication-config.md#forwarders-tunnels-and-client-addresses).
+Never list a forwarder that passes a client-written `X-Forwarded-For` through (`ssh -R`, `socat`,
+`frp`). After an update re-run `scripts/setup_https.sh` (or re-copy `config/nginx.conf`): its
+`proxy_bind 127.0.0.3` and the `X-Forwarded-For` line on the WebSocket locations are part of the
+trust model.
+
+### Connection limits and the E-stop
+
+An idle TCP connection costs a file descriptor, and stock uvicorn starts no timer for a connection
+that never sends a request: with the descriptor limit reached the next client is reset, and the
+next client may be the operator pressing the on-screen Stop button. Measured at `ulimit -n 256`
+with 400 idle sockets (the reviewed attack): stock uvicorn answered the E-stop POST with a reset
+(5 of 5 attempts, and 3 of 3 ten seconds later) and held 243 sockets; the shipped configuration
+answered 200 in 2 to 3 ms throughout and held 131. What the units set:
+
+| Setting | Where | Effect |
+|---|---|---|
+| `--http backend.src.core.uvicorn_protocol:LawnBerryHttpProtocol` (uvicorn 0.36 or newer, pinned in `pyproject.toml`) | backend `ExecStart` | caps live HTTP connections at half the descriptor limit (1024 at `LimitNOFILE=4096`, `LAWN_BERRY_MAX_CONNECTIONS`), keeps a quarter of that for the E-stop (`LAWN_BERRY_CONNECTION_RESERVE`), at the cap evicts the oldest connection that never delivered a complete request, closes one that does not deliver its request headers within 10 s (`LAWN_BERRY_HEADER_DEADLINE_S`) and answers 503 before any middleware to other requests when only the reserve is left; the three E-stop POSTs are never refused |
+| `--backlog 128`, `--timeout-keep-alive 5`, `--ws-max-size 65536` | backend `ExecStart` | bounds what one accept pass takes, closes an idle keep-alive after 5 s, bounds one WebSocket frame |
+| `--limit-concurrency` | deliberately unset | uvicorn would answer the E-stop POST 503 once it is reached |
+| `LimitNOFILE=4096` | backend and UI units | explicit descriptor budget (`max_connections + backlog + 64` must stay below it, a warning is logged otherwise) |
+| `UI_MAX_CONNECTIONS` (512), `UI_HEADER_DEADLINE_MS` (10000) | UI unit | the UI server closes silent sockets at the deadline and, at the cap, the longest-idle one to admit a new one |
+
+What this does **not** protect against: a connection flood faster than the event loop can judge,
+a SYN flood and a CPU-saturating request flood (use a per-source limit such as nftables
+`ct count` in the packet filter); up to the soft cap of clients that hold a request open on
+purpose (the UI answers 503 until they let go, the E-stop stays reachable); a TLS handshake that
+never finishes (terminate TLS in front of the backend, as the shipped nginx does). **Only the
+hardwired E-stop (O-7, audit D.1) is independent of host load**: every software path, this one
+included, shares a CPU, an event loop and a network stack with everything else on the Pi.
+
 ### Enabling AI Control
 
 Via REST API:
 
 ```bash
+# Log in first ($TOKEN, see "Operator authentication" above): every write needs the bearer.
 # Enable AI autonomous mode
 curl -X POST http://localhost:8081/api/v2/ai/enable \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"mode": "ai_autonomous"}'
 
@@ -392,7 +447,7 @@ Methods to stop the mower:
 3. API (unauthenticated by design): `POST /api/v2/control/emergency-stop` (alias of
    `/control/emergency`). It latches the software E-stop and drives every stop path that exists;
    the response says per subsystem what was actually confirmed
-   (`stopped`/`simulated`/`unconfirmed`/`failed`/`not_present`), so read it. Toro variant:
+   (`stopped`/`simulated`/`unconfirmed`/`failed`/`not_present`/`not_enabled`), so read it. Toro variant:
    `POST /api/v2/tractor/emergency-stop`.
 4. Loss of the operator link: the tractor command deadman and the RoboHAT command expiry return
    the drive to neutral/stop, but there is no general operator-link failsafe (audit D.5).

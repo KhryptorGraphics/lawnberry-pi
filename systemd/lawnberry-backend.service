@@ -29,8 +29,10 @@ Environment=PYTHONUNBUFFERED=1
 # WebSockets: a browser trades its bearer token for a 30 s single-use ticket
 # (POST /api/v2/auth/ws-ticket); /api/v2/ws/control needs a credential while auth is on.
 # Login lockout and the rate limiters count the client address: the TCP peer, or behind a
-# trusted proxy (LAWN_BERRY_TRUSTED_PROXIES, default the loopback, where the web UI server runs)
-# its last X-Forwarded-For hop; never an X-Client-Id header.
+# DECLARED forwarder its X-Forwarded-For hop; never an X-Client-Id header. Nobody is trusted unless
+# listed (below). Logged-in traffic is limited per login session, so anonymous junk from a shared
+# address cannot starve the operator. WebSockets need a ticket or bearer from EVERY peer, the
+# loopback included (LAWN_BERRY_ANONYMOUS_TELEMETRY=loopback|any in .env is the explicit opt-in).
 # Only 0, false, no or off disable it; any other value (an empty line, a typo) keeps it ON.
 # @LB_ROOT@/.env (EnvironmentFile below) overrides this line, and the backend logs CRITICAL at
 # start-up (GET /health reports operator_auth) whenever auth is disabled outside SIM_MODE.
@@ -45,6 +47,14 @@ Environment=PYTHONUNBUFFERED=1
 # LAWN_BERRY_SIM_OPEN_AUTH opt-in is ignored while LAWNBERRY_ENV=production.
 # To disable auth (LAN bench only): set OPERATOR_AUTH_REQUIRED to 0 and restart (CRITICAL logged).
 Environment=OPERATOR_AUTH_REQUIRED=1
+# Forwarders whose X-Forwarded-For is believed, ADDRESS=SHAPE (docs/authentication-config.md):
+# 127.0.0.2 is the web UI server (it connects from there, BACKEND_SOURCE_ADDRESS, and replaces the
+# header with exactly ONE hop: single); 127.0.0.3 is the repo's nginx (proxy_bind, appends the
+# address it saw: last). The loopback as a whole is NOT trusted: a tunnel agent, ssh -R or socat
+# connects from 127.0.0.1 and could let its client choose its identity. An invalid value trusts
+# nobody (ERROR at start-up). uvicorn's own proxy handling is off (--no-proxy-headers below): it
+# believes any X-Forwarded-For string from FORWARDED_ALLOW_IPS before this list is consulted.
+Environment=LAWN_BERRY_TRUSTED_PROXIES=127.0.0.2=single,127.0.0.3=last
 # Auto-upload recorded mowing sessions to the Thor training server.
 # Set THOR_UPLOAD_ENABLED=1 and THOR_BASE_URL to Thor's receiver (host:port).
 Environment=THOR_UPLOAD_ENABLED=0
@@ -53,7 +63,13 @@ Environment=THOR_BASE_URL=http://192.168.1.64:15454
 EnvironmentFile=-@LB_ROOT@/.env
 
 # Main service command
-ExecStart=@LB_ROOT@/.venv/bin/uvicorn backend.src.main:app --host 0.0.0.0 --port 8081 --workers 1
+# Connection limits (docs/deployment-guide.md, "Connection limits and the E-stop"): --http reaps
+# sockets that never send a request, caps open connections below LimitNOFILE and keeps the E-stop
+# reachable (backend/src/core/uvicorn_protocol.py); --ws-max-size bounds one WebSocket frame;
+# --limit-concurrency stays UNSET on purpose (it would answer the E-stop POST with 503).
+ExecStart=@LB_ROOT@/.venv/bin/uvicorn backend.src.main:app --host 0.0.0.0 --port 8081 --workers 1 \
+    --no-proxy-headers --http backend.src.core.uvicorn_protocol:LawnBerryHttpProtocol \
+    --ws-max-size 65536 --timeout-keep-alive 5 --backlog 128
 
 # Shutdown and monitoring
 # There is deliberately NO ExecReload: uvicorn --workers 1 exits with status 129 on SIGHUP WITHOUT

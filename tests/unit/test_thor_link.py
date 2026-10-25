@@ -330,7 +330,13 @@ async def test_unsigned_downlink_is_ignored():
     ).encode()  # perfectly well-formed protocol JSON, just not signed
     rig.deliver(raw)
     await rig.tick()
-    assert rig.link.rejects["auth"] == 1
+    # With no tag in front of it the sid is not where a downlink carries it, so it is refused
+    # before any HMAC is spent on it: "session", not "auth".
+    assert rig.link.rejects["session"] == 1 and rig.link.verifications == 0
+    # The same JSON behind a made-up tag does carry the sid: it costs one HMAC and fails it.
+    rig.deliver(b"\x00" * TAG_BYTES + raw)
+    await rig.tick()
+    assert rig.link.rejects["auth"] == 1 and rig.link.verifications == 1
     assert rig.link.plan is None and rig.link.safe_hold and not rig.link.link_fresh()
     assert rig.link.hold_reason is HoldReason.NO_LINK
 
@@ -349,7 +355,10 @@ async def test_spoofed_downlinks_are_ignored():
     for datagram in forged:
         rig.deliver(datagram)
     await rig.tick()
-    assert rig.link.rejects["auth"] == 3 and rig.link.rejected == 3
+    # The OTHER_KEY forgery and the altered body reach the HMAC and fail it. The Pi's own uplink
+    # reflected at it has no ``ack`` (it is not a downlink), so it is refused before the HMAC.
+    assert dict(rig.link.rejects) == {"auth": 2, "malformed": 1} and rig.link.rejected == 3
+    assert rig.link.verifications == 2
     assert rig.link.plan is None and rig.link.safe_hold
     rig.deliver(good)  # the real one still works afterwards
     await rig.tick()
@@ -368,7 +377,8 @@ async def test_forged_replayed_and_unsigned_packets_never_refresh_the_heartbeat(
     assert not rig.link.link_fresh()
     assert rig.link.safe_hold and rig.link.hold_reason is HoldReason.LINK_TIMEOUT
     assert rig.link.current_plan() is None
-    assert rig.link.rejects["auth"] == 16 and rig.link.rejects["replay"] == 8
+    assert rig.link.rejects["auth"] == 8 and rig.link.rejects["replay"] == 8
+    assert rig.link.rejects["session"] == 8, "raw JSON has no sid where a downlink carries it"
 
 
 async def test_replayed_downlink_is_ignored():
@@ -430,7 +440,7 @@ async def test_huge_counter_cannot_poison_the_link():
     rig.deliver(unsigned)  # unsigned: cannot be spoofed in the first place
     rig.deliver(rig.answer(up1, ack=MAX_COUNTER))  # authentic, in-schema, but from the future
     rig.deliver(rig.answer(up1, ack=2**62))  # authentic but outside the schema's bound
-    assert dict(rig.link.rejects) == {"auth": 1, "future_ack": 1, "malformed": 1}
+    assert dict(rig.link.rejects) == {"session": 1, "future_ack": 1, "malformed": 1}
     # Had any of them moved the replay baseline, this legitimate answer would now be "stale".
     rig.deliver(rig.answer(up1, plan_id="after"))
     assert rig.link.rejected == 3 and rig.link.plan.plan_id == "after"
@@ -833,7 +843,10 @@ async def test_oversized_and_malformed_datagrams_are_counted_and_do_not_move_sta
 
 async def test_rejection_logging_is_rate_limited(caplog):
     rig = Rig()
-    junk = (b"junk" * 20, ("203.0.113.9", 4000))
+    await rig.tick()  # uplink #0: the junk below claims to answer it, so it reaches the budget
+    # A stranger (not the Thor's address) forging answers: right sid, an ack the Pi still waits
+    # for, the wrong key. Junk that does not claim as much is refused for free, and says so once.
+    junk = (rig.answer(key=OTHER_KEY), ("203.0.113.9", 4000))
 
     def lines(cause: str) -> list[str]:
         return [r.getMessage() for r in caplog.records if f"({cause})" in r.getMessage()]
@@ -841,11 +854,13 @@ async def test_rejection_logging_is_rate_limited(caplog):
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         for _ in range(1000):
             rig.deliver(*junk)
-        # The datagram budget lets a burst reach the HMAC (auth); the rest are shed (rate).
+        # The stranger's allowance lets a burst reach the HMAC (auth); the rest are shed (rate).
         auth, rate = rig.link.rejects["auth"], rig.link.rejects["rate"]
         assert rig.link.rejected == 1000 and auth + rate == 1000 and auth > 0 and rate > 0
         assert len(lines("auth")) == 1 and len(lines("rate")) == 1  # one line per cause
         rig.clock.t += 6.0
+        await rig.tick()  # ack #0 is stale by now: the forger claims the new uplink
+        junk = (rig.answer(key=OTHER_KEY), junk[1])
         for _ in range(1000):
             rig.deliver(*junk)
     assert len(lines("auth")) == 2 and f"+{auth - 1} similar suppressed" in lines("auth")[1]
@@ -1001,7 +1016,7 @@ async def test_udp_round_trip_on_loopback():
             ).encode()
         )
         await asyncio.sleep(0.1)
-        assert link.rejects["auth"] == 1 and not link.safe_hold
+        assert link.rejects["session"] == 1 and link.rejected == 1 and not link.safe_hold
         thor_t.close()  # Thor goes silent
         await asyncio.sleep(0.8)
         assert link.safe_hold and link.hold_reason is HoldReason.LINK_TIMEOUT

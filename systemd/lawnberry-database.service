@@ -16,12 +16,17 @@ Environment=PYTHONPATH=@LB_ROOT@
 ExecStart=/bin/bash -lc 'mkdir -p ./data ./logs ./config && \
     ./.venv/bin/python ./scripts/init_database.py'
 
-# Permissions and directory setup
+# Directory setup. EVERY line of this unit runs as @LB_USER@: there is no root pre-start step
+# (no "+" prefix, no switch that exempts the pre-start commands from User=). In particular
+# there is no recursive chown of @LB_ROOT@ at boot: it ran as root on every boot over a tree
+# the service account controls and followed whatever was in it (and, with a wrong --root, it
+# rewrote ownership of a system directory). The service account only creates what is missing
+# inside its own checkout. Ownership of data/, logs/ and config/ is fixed once, bounded and
+# without following links, by systemd/install_services.sh; if files in them end up root-owned
+# after a manual sudo, run the installer again.
 ExecStartPre=/bin/mkdir -p @LB_ROOT@/data
 ExecStartPre=/bin/mkdir -p @LB_ROOT@/logs
 ExecStartPre=/bin/mkdir -p @LB_ROOT@/config
-PermissionsStartOnly=true
-ExecStartPre=/bin/chown -R @LB_USER@:@LB_GROUP@ @LB_ROOT@
 
 # Security
 NoNewPrivileges=true

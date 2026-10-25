@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ..core.peer_address import client_host
 from ..core.safety_status import collect_safety_status
 from ..services.auth_service import AuthenticationError, primary_auth_service
 from .deps import require_operator_auth
@@ -121,7 +122,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
     try:
         result = await _auth_service.authenticate(
             credential or "",
-            client_ip=request.client.host if request.client else None,
+            client_ip=client_host(request),
             user_agent=request.headers.get("User-Agent"),
             accept_simulated=False,
         )

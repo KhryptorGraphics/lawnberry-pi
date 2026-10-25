@@ -261,5 +261,10 @@ async def test_an_unverified_cloudflare_header_is_not_an_operator(clean_env, sim
     assert refused.value.status_code == 401
 
 
-async def test_a_loopback_websocket_keeps_working(clean_env):
+async def test_a_loopback_websocket_needs_the_explicit_opt_in(clean_env):
+    """The loopback is not a trust level (SEC20-02): every same-host forwarder is 127.0.0.1."""
+    with pytest.raises(HTTPException) as refused:
+        await _authorize_websocket(FakeWebSocket(host="127.0.0.1"))
+    assert refused.value.status_code == 401
+    clean_env.setenv("LAWN_BERRY_ANONYMOUS_TELEMETRY", "loopback")
     assert (await _authorize_websocket(FakeWebSocket(host="127.0.0.1"))).session_id

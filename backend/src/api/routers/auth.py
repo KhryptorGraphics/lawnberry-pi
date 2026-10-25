@@ -17,8 +17,10 @@ import logging
 import os
 import secrets
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, status
@@ -26,9 +28,23 @@ from pydantic import BaseModel
 
 from ...core.auth_posture import operator_auth_required, sim_open_auth_enabled
 from ...core.globals import _manual_control_sessions, _security_settings
-from ...core.peer_address import client_host, request_peer_key
+from ...core.peer_address import (
+    client_host,
+    is_loopback_address,
+    is_trusted_proxy_peer,
+    request_peer_key,
+)
+from ...core.ws_policy import (
+    ANON_ANY,
+    ANON_LOOPBACK,
+    WsLimitError,
+    WsSlot,
+    anonymous_telemetry_mode,
+    ws_registry,
+)
+from ...middleware.security import _default_allowed_origins
 from ...models.auth_security_config import SecurityLevel
-from ...models.user_session import UserSession
+from ...models.user_session import Permission, UserRole, UserSession
 from ...services.auth_service import AuthenticationError, primary_auth_service, run_password_check
 from ..deps import require_operator_auth
 from .settings import get_security_level
@@ -346,42 +362,77 @@ async def _session_for_ws_ticket(ticket: str) -> UserSession | None:
     return await primary_auth_service.verify_session(entry["session_id"])
 
 
-async def _authorize_websocket(
-    websocket: WebSocket, *, command_capable: bool = False
-) -> UserSession:
-    """Admit a WebSocket connection, or raise 401.
+def _anonymous_session(client_ip: str | None, user_agent: str | None) -> UserSession:
+    """The throw-away, read-only identity of an anonymous socket (never stored anywhere)."""
+    session = UserSession(client_ip=client_ip, user_agent=user_agent)
+    session.security_context.role = UserRole.VIEWER
+    session.security_context.permissions = [Permission.VIEW_STATUS, Permission.VIEW_TELEMETRY]
+    return session
 
-    A credential is honoured on every path: ``Authorization: Bearer <login token>`` (non-browser
-    clients) or a single-use ``?ticket=`` from ``POST /auth/ws-ticket`` (browsers). A presented
-    but invalid credential is always refused. The login token in a query string
-    (``access_token``/``token``/``auth_token``) is no longer read at all.
 
-    With no credential:
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
 
-    * ``command_capable`` paths (``/ws/control``) are refused whenever ``OPERATOR_AUTH_REQUIRED``
-      is on, whoever the peer is: a loopback peer and ``SIM_MODE`` included;
-    * everything else is admitted for a loopback peer (the read-only streams carry what the open
-      GET routes carry) or the explicit simulator opt-in (``SIM_MODE=1`` AND
-      ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in production), and refused for every other peer.
 
-    "Peer" is ``websocket.client``. This code never derives it from a header, but uvicorn's own
-    proxy-headers handling (on by default, trusting only 127.0.0.1: ``FORWARDED_ALLOW_IPS``)
-    replaces the TCP peer with the last ``X-Forwarded-For`` hop when the connection comes from
-    the UI server. So a LAN browser behind the UI server IS its own address (refused without a
-    credential, admitted with a ticket) and only a browser on the mower itself is a loopback peer.
+def _origin_parts(value: str) -> tuple[str, str, int | None] | None:
+    """``(scheme, host, port)`` of an ``Origin`` value (default ports filled in), else ``None``."""
+    try:
+        parts = urlsplit(value.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.scheme or not parts.hostname:
+        return None
+    scheme = parts.scheme.lower()
+    return scheme, parts.hostname.lower(), port or _DEFAULT_PORTS.get(scheme)
 
-    No WebSocket handler changes mower state today (``/ws/control`` only acknowledges), so an
-    anonymous connection cannot actuate anything.
 
-    A ``CF-Access-Jwt-Assertion`` header is deliberately NOT a credential: it was accepted
-    without any verification, so any client could name itself an operator.
+def _host_parts(value: str, scheme: str) -> tuple[str, int | None] | None:
+    """``(host, port)`` of a ``Host`` / ``X-Forwarded-Host`` value, the port defaulted by scheme."""
+    try:
+        parts = urlsplit("//" + value.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.hostname:
+        return None
+    return parts.hostname.lower(), port or _DEFAULT_PORTS.get(scheme)
+
+
+def _origin_allowed(websocket: WebSocket) -> bool:
+    """May a browser page at this ``Origin`` open an ANONYMOUS socket? (CORS does not cover WS.)
+
+    No ``Origin`` header means not a browser (a script, curl): allowed here, the other rules still
+    apply. A browser always sends it, and a page the operator opened in the browser that sits on
+    the mower (or on the LAN) must not be able to read the live stream cross-origin. Accepted:
+    an origin on the CORS allow-list (``LAWN_BERRY_ALLOWED_ORIGINS``, default the UI's own), or
+    the page's own origin, i.e. its host:port is the ``Host`` of the request (or the
+    ``X-Forwarded-Host`` a declared forwarder set: the UI server rewrites ``Host`` to the
+    backend's). ``Origin: null`` and anything unparseable is refused.
     """
+    origin = websocket.headers.get("origin")
+    if origin is None:
+        return True
+    parsed = _origin_parts(origin)
+    if parsed is None:
+        return False
+    if any(_origin_parts(allowed) == parsed for allowed in _default_allowed_origins()):
+        return True
+    scheme, host, port = parsed
+    hosts = [websocket.headers.get("host")]
+    if is_trusted_proxy_peer(websocket):
+        forwarded = websocket.headers.get("x-forwarded-host")
+        hosts.append(forwarded.split(",")[-1] if forwarded else None)
+    return any(h and _host_parts(h, scheme) == (host, port) for h in hosts)
+
+
+async def _admit(websocket: WebSocket, *, command_capable: bool) -> tuple[UserSession, bool]:
+    """The admission decision: ``(session, anonymous)``, or raise 401. See ``admit_websocket``."""
     token = _extract_bearer_token(websocket.headers.get("Authorization"))
     if token:
         session = await primary_auth_service.verify_token(token)
         if not session:
             raise HTTPException(status_code=401, detail="Unauthorized")
-        return session
+        return session, False
 
     ticket = None
     try:
@@ -393,29 +444,86 @@ async def _authorize_websocket(
         session = await _session_for_ws_ticket(str(ticket))
         if session is None:
             raise HTTPException(status_code=401, detail="Unauthorized")
-        return session
+        return session, False
 
+    # No credential from here on.
     if command_capable and operator_auth_required():
         raise HTTPException(status_code=401, detail="Unauthorized")
-
-    client = websocket.client
-    if client is not None:
-        host = (
-            client[0] if isinstance(client, (list, tuple)) else getattr(client, "host", None)
-        ) or ""
-    else:
-        host = websocket.headers.get("host", "")
-    host_lower = str(host).lower()
-    if (
-        host_lower.startswith("127.")
-        or host_lower in {"::1", "localhost", "testserver", "testclient"}
-        or sim_open_auth_enabled()
-    ):
-        return UserSession.create_operator_session(
-            client_ip=client_host(websocket), user_agent=websocket.headers.get("User-Agent")
-        )
-
+    client_ip = client_host(websocket)
+    user_agent = websocket.headers.get("User-Agent")
+    if sim_open_auth_enabled():
+        # The explicit simulator opt-in (never in production): nothing is enforced anywhere, the
+        # sockets follow. Switching OPERATOR_AUTH_REQUIRED off does NOT open the sockets: the
+        # anonymous streams below stay a separate, explicit opt-in.
+        return UserSession.create_operator_session(client_ip, user_agent), False
+    mode = anonymous_telemetry_mode()
+    if mode == ANON_ANY or (mode == ANON_LOOPBACK and is_loopback_address(client_ip)):
+        if _origin_allowed(websocket):
+            return _anonymous_session(client_ip, user_agent), True
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+async def _authorize_websocket(
+    websocket: WebSocket, *, command_capable: bool = False
+) -> UserSession:
+    """Who may open this socket (the policy only; ``admit_websocket`` also takes a slot).
+
+    A credential is honoured on every path: ``Authorization: Bearer <login token>`` (non-browser
+    clients) or a single-use ``?ticket=`` from ``POST /auth/ws-ticket`` (browsers). A presented
+    but invalid credential is always refused, whoever the peer is. The login token in a query
+    string (``access_token``/``token``/``auth_token``) is not read at all.
+
+    With no credential NO peer is admitted, the loopback included: a browser on the mower used to
+    count as "loopback", but every ingress the product ships (a Cloudflare or ngrok agent on the
+    Pi, nginx) reaches the backend from a loopback address, so remote visitors looked exactly like
+    the local browser. The exceptions, all explicit:
+
+    * operator authentication switched off (``OPERATOR_AUTH_REQUIRED=0``; CRITICAL at start-up)
+      or the simulator opt-in (``SIM_MODE=1`` AND ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in
+      production): nothing is enforced anywhere, so the sockets are open too;
+    * ``LAWN_BERRY_ANONYMOUS_TELEMETRY=loopback|any`` (``core/ws_policy.py``): the read-only
+      streams, never ``/ws/control`` while auth is on, for loopback clients or everybody, and
+      only for a page whose ``Origin`` is allowed (``_origin_allowed``).
+
+    "Client" is :func:`core.peer_address.client_host`: the TCP peer, or the address a DECLARED
+    forwarder recorded; never a header from an undeclared peer.
+
+    No WebSocket handler changes mower state (``/ws/control`` only acknowledges), so an
+    anonymous connection could not actuate anything even where one is admitted.
+
+    A ``CF-Access-Jwt-Assertion`` header is deliberately NOT a credential: it was accepted
+    without any verification, so any client could name itself an operator.
+    """
+    return (await _admit(websocket, command_capable=command_capable))[0]
+
+
+@dataclass(eq=False)
+class WsAdmission:
+    """An admitted socket: who it is, whether it is anonymous, and its place in the budget."""
+
+    session: UserSession
+    slot: WsSlot
+    anonymous: bool
+
+
+async def admit_websocket(websocket: WebSocket, *, command_capable: bool = False) -> WsAdmission:
+    """Authorize the socket AND take a slot in the connection budget (``core/ws_policy.py``).
+
+    Raises 401 (no or a bad credential) or 503 + ``Retry-After`` (a budget is full: too many
+    sockets overall, for this login session or, for anonymous ones, for this client). The
+    handler MUST hand the slot back (``ws_registry.release(admission.slot)``) in its ``finally``.
+    """
+    session, anonymous = await _admit(websocket, command_capable=command_capable)
+    try:
+        slot = ws_registry.acquire(
+            session_id=session.session_id, peer=request_peer_key(websocket), anonymous=anonymous
+        )
+    except WsLimitError as exc:
+        logger.warning("WebSocket refused: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="Too many WebSocket connections", headers={"Retry-After": "5"}
+        ) from exc
+    return WsAdmission(session=session, slot=slot, anonymous=anonymous)
 
 
 # Endpoints

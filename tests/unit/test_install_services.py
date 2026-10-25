@@ -56,12 +56,29 @@ def installer(
     )
 
 
+CHECKOUT_MARKER = "backend/src/main.py"  # the installer requires this file under --root
+UNTOUCHED = ["backend", "backend/src", CHECKOUT_MARKER]  # what tree() lists for a bare checkout
+
+
+def make_checkout(root: Path) -> Path:
+    """An application root the installer accepts: a directory holding the marker file."""
+    marker = root / CHECKOUT_MARKER
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    return root
+
+
+def tree(root: Path) -> list[str]:
+    """Everything under ``root`` (relative): proves a refused or dry run changed nothing."""
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*"))
+
+
 @pytest.fixture
 def site(tmp_path):
-    """An app root and a staging root, as the installer sees them."""
+    """An app root (a LawnBerry checkout) and a staging root, as the installer sees them."""
     root = tmp_path / "app"
     dest = tmp_path / "dest"
-    root.mkdir()
+    make_checkout(root)
     return root, dest
 
 
@@ -161,7 +178,7 @@ def test_no_unit_runs_a_placeholder_command():
 
 
 def test_dry_run_prints_every_unit_rendered_for_the_given_account_and_root(tmp_path):
-    root = tmp_path / "mower"
+    root = make_checkout(tmp_path / "mower")
     result = installer(
         "--dry-run", "--user", "alice", "--group", "staff", "--root", str(root), credential=STRONG
     )
@@ -171,7 +188,7 @@ def test_dry_run_prints_every_unit_rendered_for_the_given_account_and_root(tmp_p
     assert f"WorkingDirectory={root}" in out
     assert f"ExecStart={root}/.venv/bin/uvicorn backend.src.main:app" in out
     assert f"EnvironmentFile=-{root}/.env" in out
-    assert f"ExecStartPre=/bin/chown -R alice:staff {root}" in out
+    assert "chown -R" not in out and "PermissionsStartOnly" not in out
     assert out.count("User=alice") >= 7 and "Group=staff" in out
     assert "Group=video" in out, "the camera unit keeps its device group"
     for stale in ("@LB_", "User=pi", "Group=pi", "pi:pi", "/apps/lawnberry-pi"):
@@ -179,16 +196,19 @@ def test_dry_run_prints_every_unit_rendered_for_the_given_account_and_root(tmp_p
     for name in REPO_UNIT_FILES:
         if name not in LEGACY_UNITS:
             assert f"/etc/systemd/system/{name} (0644 root:root)" in out, name
-    assert not root.exists(), "--dry-run must write nothing"
+    assert tree(root) == UNTOUCHED, "--dry-run must write nothing"
 
 
 def test_dry_run_never_prints_the_credential(tmp_path):
-    result = installer("--dry-run", "--user", "alice", "--root", str(tmp_path), credential=STRONG)
+    result = installer(
+        "--dry-run", "--user", "alice", "--root", str(make_checkout(tmp_path)), credential=STRONG
+    )
     assert STRONG not in result.stdout + result.stderr
 
 
 def test_dry_run_reports_a_refusal_but_still_shows_the_units(tmp_path):
-    result = installer("--dry-run", "--user", "alice", "--root", str(tmp_path / "m"))
+    root = make_checkout(tmp_path / "m")
+    result = installer("--dry-run", "--user", "alice", "--root", str(root))
     assert result.returncode == 3
     assert "would REFUSE" in result.stdout
     assert "REFUSED: no operator credential is configured" in result.stderr
@@ -196,15 +216,16 @@ def test_dry_run_reports_a_refusal_but_still_shows_the_units(tmp_path):
 
 
 def test_the_account_defaults_to_the_owner_of_the_root(tmp_path):
-    result = installer("--dry-run", "--root", str(tmp_path), credential=STRONG)
+    result = installer("--dry-run", "--root", str(make_checkout(tmp_path)), credential=STRONG)
     assert result.returncode == 0, result.stderr
     assert f"service account : {ME}" in result.stdout
     assert f"User={ME}" in result.stdout
 
 
 def test_sudo_user_beats_the_owner_of_the_root(tmp_path):
+    root = make_checkout(tmp_path)
     result = installer(
-        "--dry-run", "--root", str(tmp_path), credential=STRONG, extra_env={"SUDO_USER": "bob"}
+        "--dry-run", "--root", str(root), credential=STRONG, extra_env={"SUDO_USER": "bob"}
     )
     assert "service account : bob" in result.stdout
 
@@ -313,7 +334,7 @@ def test_drop_ins_next_to_a_unit_are_rendered_and_installed(tmp_path):
     dropin.write_text("[Service]\nEnvironment=EXTRA_DIR=@LB_ROOT@/extra\nUser=@LB_USER@\n")
 
     root, dest = tmp_path / "app", tmp_path / "dest"
-    root.mkdir()
+    make_checkout(root)
     result = installer(*install_args(root, dest), credential=STRONG, repo=fake)
     assert result.returncode == 0, result.stderr
     out = unit_dir(dest) / "lawnberry-backend.service.d" / "10-test.conf"
@@ -326,11 +347,11 @@ def test_an_unknown_token_in_a_unit_aborts_the_install(tmp_path):
     unit = fake / "systemd/lawnberry-health.service"
     unit.write_text(unit.read_text().replace("@LB_GROUP@", "@LB_GRUOP@"))
     root, dest = tmp_path / "app", tmp_path / "dest"
-    root.mkdir()
+    make_checkout(root)
     result = installer(*install_args(root, dest), credential=STRONG, repo=fake)
     assert result.returncode == 1
     assert "@LB_GRUOP@" in result.stderr
-    assert not dest.exists() and list(root.iterdir()) == []
+    assert not dest.exists() and tree(root) == UNTOUCHED
 
 
 # ---- credential refusal ------------------------------------------------------------------
@@ -356,7 +377,7 @@ def test_default_weak_or_empty_credentials_refuse_the_install(site, bad):
     assert "REFUSED" in result.stderr
     assert "nothing was installed or changed" in result.stderr
     assert not dest.exists(), "no unit may be installed"
-    assert list(root.iterdir()) == [], "no .env may be created or modified"
+    assert tree(root) == UNTOUCHED, "no .env may be created or modified"
     if bad:
         assert bad not in result.stdout + result.stderr
 
@@ -372,7 +393,7 @@ def test_no_credential_at_all_refuses_and_says_how_to_fix_it(site):
     assert result.returncode == 3
     assert "no operator credential is configured" in result.stderr
     assert "--operator-credential-file" in result.stderr
-    assert not dest.exists() and list(root.iterdir()) == []
+    assert not dest.exists() and tree(root) == UNTOUCHED
 
 
 def test_a_default_already_sitting_in_the_env_file_refuses(site):
@@ -403,7 +424,7 @@ def test_a_weak_credential_file_is_refused_like_any_other(site, tmp_path):
     cred.chmod(0o600)
     result = installer(*install_args(root, dest, "--operator-credential-file", str(cred)))
     assert result.returncode == 3 and "REFUSED" in result.stderr
-    assert not dest.exists() and list(root.iterdir()) == []
+    assert not dest.exists() and tree(root) == UNTOUCHED
 
 
 def test_an_existing_good_env_file_needs_no_credential_option_and_keeps_its_lines(site):

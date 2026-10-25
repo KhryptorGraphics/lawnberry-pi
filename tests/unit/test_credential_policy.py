@@ -92,3 +92,95 @@ def test_signing_secret_policy():
     assert assess_signing_secret(None) == ["is empty"]
     assert any("distinct" in p for p in assess_signing_secret("a" * 64))
     assert any("default" in p for p in assess_signing_secret("change-me"))
+
+
+# ---- SEC20-11: the gate is structural, not a list of exact values -----------------------------
+
+# The review's reproduction (all of these used to pass) and the usual disguises of a default.
+TRIVIAL_VARIANTS = [
+    "123456789012",
+    "qwertyuiop12",
+    "abcdefghijkl",
+    "passwordpassword",
+    "Password-Password",
+    "lawnberry-pi-2026",
+    "operatoroperator",
+    "1qaz2wsx3edc",
+    "P@ssw0rd-P@ssw0rd",  # disguised with symbols and digits
+    "Lawnberry-Pi-2026!",
+    "mylawnberry2026",  # a default word plus a little filler
+    "0perat0r0perat0r",
+    "abcabcabcabcab",  # a block repeated
+    "x7q9x7q9x7q9",
+]
+
+
+@pytest.mark.parametrize("value", TRIVIAL_VARIANTS)
+def test_trivial_variants_of_a_default_are_refused(value):
+    assert assess_operator_credential(value), value
+    assert is_known_default_credential(value), value  # what the backend itself checks
+
+
+@pytest.mark.parametrize("value", ["qwertyuiop12", "passwordpassword", "123456789012"])
+def test_the_backend_refuses_a_variant_at_start_up_not_only_the_installer(monkeypatch, value):
+    from backend.src.services.auth_service import AuthService
+
+    monkeypatch.delenv("LAWN_BERRY_SIM_OPEN_AUTH", raising=False)
+    monkeypatch.setenv("SIM_MODE", "0")
+    service = AuthService(operator_credential=value)
+    assert service.operator_credential_hash is None  # login disabled, fail closed
+
+
+def test_filler_around_a_default_word_has_a_limit():
+    assert is_known_default_credential("xyzlawnberry")  # three letters of filler: still a default
+    assert not is_known_default_credential("xyzwlawnberry")  # four: a different credential
+
+
+def test_a_passphrase_that_merely_contains_a_default_word_is_fine():
+    for value in (
+        "password-correct-horse-9",
+        "Mower-Pi-Shed-Gate-2026",
+        "test-operator-credential",
+    ):
+        assert assess_operator_credential(value) == [], value
+
+
+def test_walk_thresholds_sit_where_documented():
+    # an eight-character run is below the refused length, nine is not
+    assert assess_operator_credential("abcdefgh7q2m") == []
+    assert is_known_default_credential("abcdefghi7q2")
+    # nine steps in twelve pairs (0.75) pass, nine in eleven (0.82) do not
+    assert assess_operator_credential("qwerasdfzxcv7") == []
+    assert is_known_default_credential("qwerasdfzxcv")
+
+
+def test_the_walk_check_is_not_applied_to_the_signing_secret():
+    """A 64-character generated secret may contain a long run by chance; refusing it would make
+    the installer fail at random."""
+    secret = "abcdefghijklmnop" + "7f3a9c1e5b2d8046" * 3
+    assert assess_signing_secret(secret) == []
+    assert any("keyboard walk" in p for p in assess_operator_credential(secret[:16]))
+
+
+def test_generated_credentials_are_not_refused_by_the_new_rules():
+    """The new rules look at structure only: random text must pass them. Fixed seed, so the
+    sample (and the answer) never changes; the measured rate over 300 000 per generator was
+    below 1 in 20 000 for the walk check and 0 for the dictionary and repetition checks."""
+    import random
+    import string
+
+    rng = random.Random(20261024)
+    alnum = string.ascii_letters + string.digits
+    generators = {
+        "hex12": lambda: "".join(rng.choice("0123456789abcdef") for _ in range(12)),
+        "alnum12": lambda: "".join(rng.choice(alnum) for _ in range(12)),
+        "lower12": lambda: "".join(rng.choice(string.ascii_lowercase) for _ in range(12)),
+        "digits12": lambda: "".join(rng.choice(string.digits) for _ in range(12)),
+        "urlsafe16": lambda: "".join(rng.choice(alnum + "-_") for _ in range(16)),
+        "printable20": lambda: "".join(rng.choice(alnum + string.punctuation) for _ in range(20)),
+    }
+    for name, make in generators.items():
+        refused = [v for v in (make() for _ in range(12000)) if known_default_reason(v)]
+        assert refused == [], (name, refused[:3])
+    for _ in range(3000):
+        assert assess_signing_secret(f"{rng.getrandbits(256):064x}") == []

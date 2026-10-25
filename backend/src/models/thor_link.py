@@ -33,9 +33,16 @@ replaces it outright with no compatibility path.
 The key is the only real control, so it must look like ``openssl rand -hex 32``:
 ``validate_key`` refuses short keys and keys that are a single repeated byte, a short
 repeating pattern or built from a handful of byte values, and ``refuse_published_key``
-refuses the public simulation key anywhere but in simulation. ``DatagramBudget`` bounds
-how many received datagrams per second get any real work done, so a flood of junk costs a
-dictionary lookup per datagram instead of an HMAC.
+refuses the public simulation key anywhere but in simulation.
+
+The tag is also the only thing a UDP source address cannot fake, and checking it costs an HMAC, so
+what a flood may make the Pi verify is bounded twice. ``session_filter`` and ``claimed_ack`` read
+the cleartext ``sid`` and ``ack`` of a datagram by byte search (never by parsing it), which lets
+the Pi discard anything that cannot answer one of its own recent uplinks before it spends an
+HMAC. ``VerificationBudget`` then caps the HMAC checks per second for the whole port and keeps
+what junk does to the budget of a *source address*, which a spoofer chooses, apart from what the
+authenticated peer is allowed to send. ``DatagramBudget`` is the plain per-source and per-port
+token bucket the Thor-side client puts in front of its own HMAC.
 """
 
 from __future__ import annotations
@@ -44,7 +51,9 @@ import functools
 import hmac
 import json
 import math
+import re
 from collections import OrderedDict
+from collections.abc import Callable, Iterable
 from hashlib import sha256
 from typing import Literal, TypeVar
 
@@ -260,13 +269,17 @@ def refuse_published_key(key: bytes, *, simulation: bool) -> bytes:
 def parse_key(text: str, *, simulation: bool = False) -> bytes:
     """Decode a hex-encoded key as stored in the environment or secrets file.
 
-    The value is never echoed in the error. Generate one with ``openssl rand -hex 32``. The
-    published sim key is refused unless ``simulation`` (SIM_MODE) is set by the caller.
+    The value is never echoed in the error, nor is the reason ``bytes.fromhex`` gives (it names a
+    position inside the key), and the error is raised outside the ``except`` so that nothing chains
+    to it. Generate one with ``openssl rand -hex 32``. The published sim key is refused unless
+    ``simulation`` (SIM_MODE) is set by the caller.
     """
     try:
-        raw = bytes.fromhex(text.strip())
+        raw: bytes | None = bytes.fromhex(text.strip())
     except ValueError:
-        raise LinkKeyError("link key must be hex-encoded") from None
+        raw = None
+    if raw is None:
+        raise LinkKeyError("link key must be hex-encoded")
     return refuse_published_key(validate_key(raw), simulation=simulation)
 
 
@@ -383,6 +396,61 @@ def decode_downlink(data: bytes, key: bytes) -> Downlink:
     return _decode(data, Downlink, _DOWNLINK_DOMAIN, key)
 
 
+# JSON allows whitespace around the colon. ``encode`` emits none, but a prefilter that insisted on
+# the encoder's exact bytes would turn a Thor that formats its JSON differently into a link that
+# never comes up; the HMAC, not the format, decides what is authentic.
+_WS = rb"[ \t\r\n]*"
+_ACK_FIELD = re.compile(rb'"ack"' + _WS + rb":" + _WS + rb"([0-9]+)")
+# An ack with more digits than ``MAX_COUNTER`` has is out of range whatever its digits are, and
+# is not converted: ``int`` on a datagram-sized digit string is not free.
+_MAX_ACK_DIGITS = len(str(MAX_COUNTER))
+
+
+def session_filter(session_id: int) -> Callable[[bytes], bool]:
+    """A predicate: does a datagram's body carry ``"sid":<session_id>``?
+
+    This is the cheapest test of whether a datagram can be a downlink for this run, and it costs
+    no HMAC. Every genuine downlink echoes the sid of the uplink it answers, in cleartext, as a
+    JSON member of its body (the bytes after the tag). The member is found by byte search, not by
+    parsing, so unauthenticated bytes still never reach the JSON layer: it does not depend on the
+    order of the members or on whitespace around the colon, and the number must end where the
+    sid does (``"sid":12`` is not sid 1). A match proves nothing (anyone who can read an uplink
+    knows the sid); a miss proves the datagram is not an authentic downlink for this run, so
+    the Pi may drop it without verifying anything.
+
+    A Thor that writes its JSON with the sid as a string or a float (``"123"``, ``1.2e2``)
+    would be treated as another run's: ``Downlink`` would accept them, ``encode`` never emits them.
+    """
+    if not 0 <= session_id <= MAX_SESSION_ID:
+        raise ValueError(f"session_id must be in 0..{MAX_SESSION_ID}")
+    search = re.compile(
+        rb'"sid"' + _WS + rb":" + _WS + str(session_id).encode("ascii") + rb"(?![0-9])"
+    ).search
+
+    def carries_session(data: bytes) -> bool:
+        return search(data, TAG_BYTES) is not None
+
+    return carries_session
+
+
+def claimed_ack(data: bytes) -> int | None:
+    """The ``ack`` a datagram's body claims, read as ``session_filter`` reads the sid.
+
+    ``None`` if the body has no readable ``"ack":<digits>`` member (a downlink always has one), and
+    ``MAX_COUNTER + 1`` for a number with too many digits to be a counter. Only the first such
+    member counts, so a datagram stuffed with ``"ack"`` members costs one match, not a hundred.
+    The result says what the datagram *claims*, which an attacker chooses: it can only be used to
+    refuse work (an ack that no outstanding uplink can have), never to accept anything.
+    """
+    match = _ACK_FIELD.search(data, TAG_BYTES)
+    if match is None:
+        return None
+    digits = match.group(1)
+    if len(digits) > _MAX_ACK_DIGITS:
+        return MAX_COUNTER + 1
+    return int(digits)
+
+
 def worst_case_link_bytes_per_second() -> float:
     """Upper bound on uplink bytes/s at ``UPLINK_HZ``; compare with measured HaLow throughput."""
     return MAX_DATAGRAM_BYTES * UPLINK_HZ
@@ -458,3 +526,151 @@ class DatagramBudget:
             total[0] -= 1.0
         bucket[0] -= 1.0
         return True
+
+
+def _refill(bucket: list[float], rate: float, burst: float, now: float) -> float:
+    """Top ``bucket`` (``[tokens, stamp]``) up to ``now`` and return its tokens.
+
+    A clock that steps backwards neither mints tokens nor moves the stamp back, so stepping forward
+    again later cannot mint them either.
+    """
+    if now > bucket[1]:
+        bucket[0] = min(burst, bucket[0] + (now - bucket[1]) * rate)
+        bucket[1] = now
+    return bucket[0]
+
+
+class VerificationBudget:
+    """What the Pi may spend on HMAC checks, so that junk cannot starve the peer it keeps out.
+
+    The source address of a UDP datagram is whatever its sender writes into it. A budget keyed only
+    on that address lets anyone who knows the Thor's address spend the Thor's share: 400 forged
+    datagrams a second took nine of the Thor's ten answers a second from the old per-source bucket,
+    though the forger never held the key. Nothing in the datagram tells forged from genuine before
+    the HMAC, so the limit on what a flood can cost has to be global, and the share of the peer has
+    to be one that junk cannot reach. Three layers, each taking ``now`` so a fake clock makes them
+    deterministic:
+
+    * **the verification ceiling** (``verify_hz``, ``verify_burst``): at most this many HMAC checks
+      per second for the whole port, whoever sends. This is the bound on CPU; size it from the
+      measured cost of one check (``admit_verification``).
+    * **peers and strangers**: a *peer* is a source that has delivered an accepted datagram, or is
+      named when the budget is built (the Thor the Pi is configured for). Any other source is a
+      *stranger*. A stranger also draws on a ``DatagramBudget`` of its own (a bucket per source
+      and one shared by all strangers), so however many addresses a flood rotates through, strangers
+      can never take more than ``strangers_hz`` of the ceiling. A peer draws on the ceiling alone: a
+      flood from strangers cannot starve it, and a flood that spoofs its address cannot either, for
+      as long as the whole flood stays inside the ceiling.
+    * **the authentic bucket of each peer** (``peer_hz``, ``peer_burst``, ``admit_authentic``):
+      taken only by datagrams that passed the HMAC. A flood of junk never gets that far, so it
+      cannot drain it, and a peer that holds the key but sends faster than it should (a
+      compromised or broken Thor) is still bounded in the work its datagrams cause afterwards.
+
+    Beyond the ceiling nothing here can tell the peer's genuine datagrams from a forger's, so they
+    compete for the same tokens and some genuine ones are shed: a forger that writes the peer's
+    address, the run's sid and an ack the Pi still waits for can do that at any rate above
+    ``verify_hz``. Only keeping such datagrams off the link (ingress filtering, link-layer
+    authentication) removes that; this class bounds what they cost and keeps everything else out.
+
+    Memory is bounded: ``max_strangers`` stranger buckets (the least recently used evicted first)
+    and ``max_peers`` peers, however many sources send.
+    """
+
+    def __init__(
+        self,
+        *,
+        verify_hz: float,
+        verify_burst: int,
+        peer_hz: float,
+        peer_burst: int,
+        stranger_hz: float,
+        stranger_burst: int,
+        strangers_hz: float,
+        strangers_burst: int,
+        max_strangers: int = 64,
+        max_peers: int = 8,
+        peers: Iterable[str] = (),
+        now: float = 0.0,
+    ) -> None:
+        rates = (
+            ("verify_hz", verify_hz),
+            ("peer_hz", peer_hz),
+            ("stranger_hz", stranger_hz),
+            ("strangers_hz", strangers_hz),
+        )
+        for name, value in rates:
+            if not (math.isfinite(value) and value > 0):
+                raise ValueError(f"{name} must be a finite number > 0")
+        bursts = (verify_burst, peer_burst, stranger_burst, strangers_burst, max_strangers)
+        if min(bursts) < 1 or max_peers < 1:
+            raise ValueError("every burst, max_strangers and max_peers must be >= 1")
+        self._verify_hz = float(verify_hz)
+        self._verify_burst = float(verify_burst)
+        self._peer_hz = float(peer_hz)
+        self._peer_burst = float(peer_burst)
+        self._max_peers = max_peers
+        self._verify = [self._verify_burst, now]
+        self._strangers = DatagramBudget(
+            stranger_hz,
+            stranger_burst,
+            total_rate_hz=strangers_hz,
+            total_burst=strangers_burst,
+            max_sources=max_strangers,
+        )
+        # peer -> [authentic tokens, stamp]; the configured ones start with a full bucket
+        self._peers: OrderedDict[str, list[float]] = OrderedDict()
+        for peer in peers:
+            self._peers[peer] = [self._peer_burst, now]
+            if len(self._peers) > max_peers:
+                self._peers.popitem(last=False)
+
+    def __len__(self) -> int:
+        """Number of stranger buckets currently kept (never more than ``max_strangers``)."""
+        return len(self._strangers)
+
+    @property
+    def peers(self) -> tuple[str, ...]:
+        """The peers, least recently trusted first (never more than ``max_peers``)."""
+        return tuple(self._peers)
+
+    def verify_tokens(self, now: float) -> float:
+        """HMAC checks that could start at ``now`` (the ceiling's bucket, refilled, not charged)."""
+        return _refill(self._verify, self._verify_hz, self._verify_burst, now)
+
+    def admit_verification(self, source: str, now: float) -> bool:
+        """May one datagram from ``source`` be HMAC-checked at ``now``? True spends the token.
+
+        It needs a token from the ceiling and, from a stranger, one from its own bucket and one
+        from the strangers' shared bucket as well. Nothing is spent unless all of them are there,
+        so a refusal costs the source nothing.
+        """
+        if _refill(self._verify, self._verify_hz, self._verify_burst, now) < 1.0:
+            return False
+        if source not in self._peers and not self._strangers.admit(source, now):
+            return False
+        self._verify[0] -= 1.0
+        return True
+
+    def admit_authentic(self, source: str, now: float) -> bool:
+        """A datagram from ``source`` passed the HMAC: may the Pi act on it? True spends the token.
+
+        Only a peer has an authentic bucket. A stranger's genuine datagram has already been paid
+        for at its own bucket, and it becomes a peer (``trust``) once one is accepted.
+        """
+        bucket = self._peers.get(source)
+        if bucket is None:
+            return True
+        if _refill(bucket, self._peer_hz, self._peer_burst, now) < 1.0:
+            return False
+        bucket[0] -= 1.0
+        return True
+
+    def trust(self, source: str, now: float) -> None:
+        """``source`` delivered a datagram the Pi accepted: it is a peer from now on."""
+        if source in self._peers:
+            self._peers.move_to_end(source)
+            return
+        # Its accepted datagram counts against the authentic rate, like any later one.
+        self._peers[source] = [self._peer_burst - 1.0, now]
+        while len(self._peers) > self._max_peers:
+            self._peers.popitem(last=False)
