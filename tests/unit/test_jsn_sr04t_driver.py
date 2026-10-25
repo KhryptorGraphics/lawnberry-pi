@@ -948,3 +948,24 @@ async def test_with_no_channel_fitted_the_aggregate_is_unknown_never_clear():
     assert agg["state"] == "unknown" and agg["reasons"] == ["no fitted channels"]
     assert agg["min_cm"] is None
     assert all(c["verdict"] == "disabled" for c in agg["channels"])
+
+
+# ---- US-11: a stopped or closed driver never reopens the port by itself ------------------------
+
+
+async def test_a_stopped_driver_never_reopens_the_port_until_it_is_initialised_again():
+    rig = await booted()
+    await rig.driver.stop()
+    assert rig.port.closed
+    rig.step(2.0)  # a late caller keeps polling; this used to reopen a port nobody closes
+    assert len(rig.factory.opens) == 1 and rig.driver.link_state is LinkState.DISCONNECTED
+    await rig.driver.initialize()
+    assert len(rig.factory.opens) == 2 and rig.driver.link_state is LinkState.ACTIVE
+
+
+async def test_a_closed_driver_does_not_reopen_the_port_either():
+    rig = await booted()
+    rig.driver.close()  # the script path: poll-only users have no async lifecycle
+    rig.step(2.0)
+    assert len(rig.factory.opens) == 1 and rig.driver.link_state is LinkState.DISCONNECTED
+    assert all(c.status is ChannelStatus.LINK_DOWN for c in rig.driver.snapshot())

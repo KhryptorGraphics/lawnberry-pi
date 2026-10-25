@@ -28,6 +28,7 @@ from tests.unit._usonic_fakes import (
 from tests.unit.test_ultrasonic_interface import make
 
 OUTER_LEFT = "ultrasonic:outer_left"
+NAMES = ["outer_left", "inner_left", "inner_right", "outer_right"]
 
 
 def far(cm: float = 200.0) -> SensorModel:
@@ -55,10 +56,11 @@ class Stack:
         assert await self.iface.initialize() is True
         return self
 
-    async def tick(self, dt: float = 0.02, *, read: bool = True):
+    async def tick(self, dt: float = 0.02, *, poll: bool = True, read: bool = True):
         """One guard cycle: service loop, (optionally) the telemetry read, sample, assess."""
         self.clock.advance(dt)
-        self.iface._driver.poll()
+        if poll:
+            self.iface._driver.poll()
         if read:
             await self.iface.read_ultrasonic()
         sample_sensor_manager(self.guard, self.manager)
@@ -111,3 +113,51 @@ async def test_after_the_hold_the_guard_may_release_for_an_owner_who_trusts_sile
     released = next(i for i, a in enumerate(ticks) if i > vanished and a.speed_cap_mps > 0)
     assert (released - vanished) * 0.02 >= 5.0, "released inside the hold"
     assert ticks[-1].status is ObstacleStatus.CLEAR and not ticks[-1].obstacles
+
+
+# ---- US-03: a channel that is not fitted must not hold the guard for ever ---------------------
+
+
+async def test_a_three_sensor_build_reaches_clear_with_the_unfitted_channel_disabled(monkeypatch):
+    sensors = [far(150), far(), far(), far(180)]
+    s = await stack(monkeypatch, sensors, cfg={"disabled_channels": ["inner_right"]})
+    ticks = await s.run(6.0)  # the 2 s clear dwell, then release
+    last = ticks[-1]
+    assert last.status is not ObstacleStatus.STOP and last.speed_cap_mps > 0 and not last.faults
+    assert "ultrasonic:inner_right" not in s.guard.sources
+    assert set(s.guard.sources) == {f"ultrasonic:{n}" for n in NAMES if n != "inner_right"}
+
+
+async def test_with_every_channel_disabled_the_guard_still_holds_and_the_aggregate_is_unknown(
+    monkeypatch,
+):
+    s = await stack(monkeypatch, [far()] * 4, cfg={"disabled_channels": NAMES})
+    ticks = await s.run(6.0)
+    assert {a.status for a in ticks} == {ObstacleStatus.STOP}
+    assert s.iface.obstacle_verdict()["state"] == "unknown"
+
+
+# ---- US-04: the guard's input must not depend on the telemetry cadence ------------------------
+
+
+@pytest.mark.parametrize("telemetry_hz", [10, 2, 1, 0.5])
+async def test_the_guard_is_not_held_by_a_slow_telemetry_loop(monkeypatch, telemetry_hz):
+    s = await stack(monkeypatch, [far(150), far(), far(), far(180)])
+    period, next_read, ticks = 1.0 / telemetry_hz, s.clock.now(), []
+    for _ in range(round(30.0 / 0.05)):  # the guard samples at 20 Hz, 30 s of clean air
+        due = s.clock.now() + 0.05 >= next_read
+        ticks.append(await s.tick(0.05, read=due))  # the UI-tunable telemetry loop reads rarely
+        if due:
+            next_read += period
+    settled = ticks[round(3.0 / 0.05) :]  # after the initial 2 s dwell
+    assert [a.reasons for a in settled if a.hold] == []
+    assert settled[-1].speed_cap_mps > 0
+
+
+async def test_a_dead_service_loop_still_ages_out_into_a_hold(monkeypatch):
+    s = await stack(monkeypatch, [far(150), far(), far(), far(180)])
+    warm = await s.run(4.0)
+    assert not warm[-1].hold
+    ticks = await s.run(2.0, dt=0.05, poll=False, read=False)  # nothing polls the driver any more
+    assert ticks[-1].hold and set(ticks[-1].faults) >= {"ultrasonic:outer_left"}
+    assert not any(a.hold for a in ticks[:2]), "the first 100 ms of data are still fresh"

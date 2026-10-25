@@ -353,3 +353,155 @@ async def test_recorder_fills_the_frame_from_the_four_channel_entries():
     )
     assert u.min_distance_cm == pytest.approx(70.0, abs=0.1)
     assert len(u.channels_cm) == 4
+
+
+# ---- US-03: a channel that is not fitted is not a channel the guard waits for -----------------
+
+
+async def test_channel_ids_list_only_the_fitted_channels_while_the_entries_still_show_all():
+    _clock, _f, iface = await active(disabled_channels=["inner_right"])
+    assert iface.channel_ids == ["outer_left", "inner_left", "outer_right"]
+    entries = {e["sensor_id"]: e for e in await iface.read_ultrasonic()}
+    assert list(entries) == NAMES  # the disabled channel stays visible, as "disabled"
+    assert entries["inner_right"]["verdict"] == "disabled"
+    assert iface.channel_ids == [n for n, e in entries.items() if e["verdict"] != "disabled"]
+    _c, _f, nothing = await active(disabled_channels=NAMES)
+    assert nothing.channel_ids == []
+
+
+# ---- US-04: the entries the guard reads do not depend on who calls read_ultrasonic() ----------
+
+
+async def test_last_readings_follow_the_driver_without_anyone_calling_read_ultrasonic():
+    clock, _f, iface = await active()  # read_ultrasonic() is never called in this test
+    assert [e["sensor_id"] for e in iface.last_readings] == NAMES
+    assert all(e["status"] == "ok" and e["valid"] for e in iface.last_readings)
+    before = {e["sensor_id"]: datetime.fromisoformat(e["timestamp"]) for e in iface.last_readings}
+    run(clock, iface, 0.5)  # the driver's service loop keeps polling, the telemetry loop is away
+    after = {e["sensor_id"]: datetime.fromisoformat(e["timestamp"]) for e in iface.last_readings}
+    assert all(after[name] > before[name] for name in NAMES)
+
+
+async def test_a_dead_service_loop_ages_the_entries_out_on_their_own():
+    clock, _f, iface = await active()
+    assert all(e["valid"] for e in iface.last_readings)
+    clock.advance(1.0)  # nothing polls the driver and nobody reads the interface
+    entries = iface.last_readings
+    assert all(e["status"] == "stale" and not e["valid"] for e in entries)
+    assert all(e["verdict"] == "unknown" and e["age_ms"] >= 1000 for e in entries)
+
+
+async def test_last_readings_is_the_cached_list_when_the_interface_is_not_serving_the_mcu():
+    iface = UltrasonicSensorInterface(SensorCoordinator(), config={"port": "/dev/ttyACM-usonic"})
+    assert iface.enabled is False and iface.last_readings == []
+    iface.last_readings = [{"sensor_id": "x"}]  # assignment stays possible (legacy backend, tests)
+    assert iface.last_readings == [{"sensor_id": "x"}]
+
+
+# ---- US-11: shutdown really shuts the interface down ------------------------------------------
+
+
+async def test_shutdown_disables_the_interface_so_a_late_tick_cannot_reopen_the_port():
+    clock, factory, iface = await active()
+    await iface.shutdown()
+    assert iface.enabled is False and factory.current.closed
+    clock.advance(1.0)
+    assert await iface.read_ultrasonic() == []  # the telemetry loop's next tick during teardown
+    assert len(factory.opens) == 1 and factory.current.closed
+    assert iface.last_readings == [] and iface.status == SensorStatus.OFFLINE
+    assert iface.obstacle_verdict()["state"] == "unknown"
+    assert await iface.initialize() is True  # an explicit initialize() brings it back
+    assert len(factory.opens) == 2 and iface.enabled is True
+
+
+# ---- I01 / I03: read_ultrasonic() polls the driver, and a failure is an ERROR ----------------
+
+
+async def test_read_ultrasonic_polls_the_driver_itself_when_nothing_else_does():
+    clock = FakeClock()
+    sensors = [SensorModel(distance_cm=d) for d in (80, 120, 200, 60)]
+    factory = FakeMcuFactory(clock, sensors=sensors)
+    iface = make(clock, factory)
+    iface.enabled = True  # what initialize() does, WITHOUT starting the driver's service loop
+    assert iface._driver.running is False
+    entries: list = []
+    for _ in range(60):  # 1.2 s in which only the telemetry read ever touches the driver
+        clock.advance(0.02)
+        entries = await iface.read_ultrasonic()
+    assert len(factory.opens) == 1
+    assert all(e["status"] == "ok" and e["valid"] for e in entries)
+
+
+async def test_an_exception_while_reading_leaves_status_error_and_returns_nothing(monkeypatch):
+    _clock, _f, iface = await active()
+    await iface.read_ultrasonic()
+    assert iface.status == SensorStatus.ONLINE
+
+    def boom() -> None:
+        raise RuntimeError("serial driver blew up")
+
+    monkeypatch.setattr(iface._driver, "poll", boom)
+    assert await iface.read_ultrasonic() == []
+    assert iface.status == SensorStatus.ERROR
+
+
+# ---- I04 / I05 / I06: the legacy HC-SR04 verdicts ---------------------------------------------
+
+
+class StubLegacyDriver:
+    """Stands in for the GPIO HC-SR04 driver: it just returns the readings it is given."""
+
+    def __init__(self, readings):
+        self.readings = readings
+
+    async def read_all(self):
+        return list(self.readings)
+
+
+def legacy_iface(*cms, threshold=30.0):
+    """A legacy interface whose three sensors read ``cms`` (None = no valid echo)."""
+    from backend.src.drivers.sensors.ultrasonic_driver import UltrasonicReading
+
+    iface = UltrasonicSensorInterface(
+        SensorCoordinator(), config={"backend": "gpio_hcsr04"}, obstacle_threshold_cm=threshold
+    )
+    iface.enabled, iface.status = True, SensorStatus.ONLINE
+    iface._driver = StubLegacyDriver(
+        [
+            UltrasonicReading(sensor_id=sid, distance_cm=cm or 0.0, valid=cm is not None)
+            for sid, cm in zip(iface.channel_ids, cms, strict=True)
+        ]
+    )
+    return iface
+
+
+async def test_legacy_reading_without_a_valid_echo_is_unknown_never_clear():
+    iface = legacy_iface(None, 200.0, 150.0)
+    entries = {e["sensor_id"]: e for e in await iface.read_ultrasonic()}
+    bad = entries["front_left"]
+    assert (bad["valid"], bad["distance_cm"], bad["verdict"]) == (False, 0.0, "unknown")
+    assert bad["clear_to_cm"] is None and bad["status"] == "no_echo"
+    assert entries["front_center"]["verdict"] == "clear"
+
+
+@pytest.mark.parametrize(
+    ("cm", "verdict"), [(29.9, "obstacle"), (30.0, "obstacle"), (30.1, "clear")]
+)
+async def test_legacy_threshold_boundary_is_inclusive(cm, verdict):
+    iface = legacy_iface(cm, 200.0, 200.0)
+    entries = await iface.read_ultrasonic()
+    assert entries[0]["verdict"] == verdict
+    assert iface.obstacle_verdict()["state"] == ("obstacle" if verdict == "obstacle" else "clear")
+
+
+async def test_legacy_aggregate_needs_every_fitted_channel_valid_to_be_clear():
+    clear = legacy_iface(200.0, 180.0, 150.0)
+    await clear.read_ultrasonic()
+    assert clear.obstacle_verdict()["state"] == "clear"
+    one_dead = legacy_iface(200.0, None, 150.0)  # two valid channels do not vouch for the third
+    await one_dead.read_ultrasonic()
+    verdict = one_dead.obstacle_verdict()
+    assert verdict["state"] == "unknown" and verdict["reasons"] == ["front_center:no_echo"]
+    near = legacy_iface(20.0, None, 150.0)  # an obstacle beats an unknown
+    await near.read_ultrasonic()
+    assert near.obstacle_verdict()["state"] == "obstacle"

@@ -744,8 +744,13 @@ class UltrasonicSensorInterface:
 
     ``read_ultrasonic()`` returns ONE dict per configured channel on every call once the interface
     has been initialised, also before the first echo and while the link is down, so a dead channel
-    is visible. Stable keys per entry: ``sensor_id``, ``distance_cm`` (0.0 unless ``valid``),
-    ``valid`` (True ONLY for a fresh in-range echo), ``timestamp`` (ISO-8601 UTC of the
+    is visible. ``last_readings`` is the same view: for the ``mcu_usb`` backend it is computed from
+    the driver (no I/O) at the moment it is read, so a consumer that samples it at its own rate,
+    like the obstacle guard, never depends on how often the telemetry loop calls
+    ``read_ultrasonic()``; otherwise it is the list last assigned. ``channel_ids`` lists the FITTED
+    channels: a channel in ``disabled_channels`` still has an entry, with verdict ``disabled``,
+    but nothing waits for it. Stable keys per entry: ``sensor_id``, ``distance_cm`` (0.0 unless
+    ``valid``), ``valid`` (True ONLY for a fresh in-range echo), ``timestamp`` (ISO-8601 UTC of the
     MEASUREMENT, host receive time of the MCU frame, or None if the channel never reported),
     ``status`` (``ok|stale|blind_zone|no_echo|out_of_range|fault|disabled|link_down|no_data``),
     ``age_ms``, ``health``, ``alive``, ``verdict`` (``clear|obstacle|unknown|disabled``, fail
@@ -772,7 +777,7 @@ class UltrasonicSensorInterface:
         )
         self.backend = self.config.backend
         self.obstacle_threshold_cm = float(obstacle_threshold_cm)
-        self.last_readings: list[dict[str, Any]] = []
+        self._cached_readings: list[dict[str, Any]] = []
         self.status = SensorStatus.OFFLINE
         self.enabled = False  # becomes True when the manager initialises the array
         self._driver: Any = None
@@ -795,10 +800,21 @@ class UltrasonicSensorInterface:
 
     @property
     def channel_ids(self) -> list[str]:
-        """Channels this array is configured to have, whether or not any has reported."""
+        """The FITTED channels: configured and not in ``disabled_channels`` (legacy: all three)."""
         if self.backend == "mcu_usb":
-            return list(self.config.channels)
+            return [c for c in self.config.channels if c not in self.config.disabled_channels]
         return list(self.LEGACY_CHANNELS)
+
+    @property
+    def last_readings(self) -> list[dict[str, Any]]:
+        """The current entries, one per configured channel (see the class docstring)."""
+        if self.enabled and self.backend == "mcu_usb" and self._driver is not None:
+            return [c.as_dict() for c in self._driver.snapshot()]
+        return self._cached_readings
+
+    @last_readings.setter
+    def last_readings(self, entries: list[dict[str, Any]]) -> None:
+        self._cached_readings = list(entries)
 
     async def initialize(self) -> bool:
         """Initialize ultrasonic sensors; True when the array is demonstrably present."""
@@ -847,7 +863,6 @@ class UltrasonicSensorInterface:
             if self.backend == "mcu_usb":
                 self._driver.poll()  # non-blocking: absorb whatever arrived since the last call
                 self._refresh_status()
-                self.last_readings = [c.as_dict() for c in self._driver.snapshot()]
                 return self.last_readings
             if self.status != SensorStatus.ONLINE:
                 self.last_readings = [self._legacy_unavailable(i) for i in self.LEGACY_CHANNELS]
@@ -949,8 +964,14 @@ class UltrasonicSensorInterface:
         return await self._driver.health_check()
 
     async def shutdown(self) -> None:
-        """Stop the service loop and release the port (called by ``SensorManager.shutdown``)."""
-        if self._driver is not None and self.enabled:
+        """Stop the service loop, release the port and disable the interface.
+
+        Called by ``SensorManager.shutdown``. After it ``read_ultrasonic()`` returns ``[]`` without
+        touching the driver (a late telemetry tick must not reopen the port); only an explicit
+        ``initialize()`` brings the interface back.
+        """
+        was_enabled, self.enabled = self.enabled, False
+        if self._driver is not None and was_enabled:
             try:
                 await self._driver.stop()
             except Exception:

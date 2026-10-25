@@ -396,6 +396,9 @@ class JsnSr04tMcuDriver(HardwareDriver):
         self._sim_last = -1e9
         self._sim_cycle = 0
         self._last_ping_nonce: int | None = None
+        #: True after ``stop()`` / ``close()``: ``poll()`` then never (re)opens the port, so a late
+        #: caller cannot leave a port open that nobody will close. ``initialize()`` clears it.
+        self._closed = False
         #: Optional observer called with ``(proto.Reading, wall datetime)`` for every accepted
         #: reading frame (used by ``scripts/ultrasonic_mcu_probe.py`` to log raw echo widths for
         #: audit M-40). A raising hook is logged and ignored: it must never disturb ingestion.
@@ -404,6 +407,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
     # ---- lifecycle -------------------------------------------------------------------------
 
     async def initialize(self) -> None:
+        self._closed = False
         self.simulated = (
             self._simulate_arg if self._simulate_arg is not None else is_simulation_mode()
         )
@@ -427,6 +431,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
 
     async def stop(self) -> None:
         self.running = False
+        self._closed = True
         task, self._task = self._task, None
         if task is not None and not task.done():
             task.cancel()
@@ -449,6 +454,8 @@ class JsnSr04tMcuDriver(HardwareDriver):
 
     def poll(self) -> None:
         """One non-blocking service step: connect if needed, read, dispatch, supervise."""
+        if self._closed:
+            return
         if self.simulated:
             self._poll_sim()
             return
@@ -706,6 +713,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
 
     def close(self) -> None:
         """Release the port without the async lifecycle (scripts that only ``poll()``)."""
+        self._closed = True
         self._close_transport()
         if not self.simulated:
             self.link_state = LinkState.DISCONNECTED
