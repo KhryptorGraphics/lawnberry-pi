@@ -879,6 +879,7 @@ def test_without_conf_the_report_says_it_was_measured_at_the_deployed_confidence
         False,
     )
     assert report["gate"]["conf_below_deployed"] is False
+    assert report["mean_infer_ms"] == 1.0, "the mean of the per-image times, not their sum"
 
 
 def test_a_gate_at_a_confidence_below_the_deployed_one_is_refused_and_writes_no_verdict(
@@ -1009,3 +1010,38 @@ def test_the_report_of_a_real_spec_file_records_the_sidecars_own_confidence(tmp_
     report = json.loads((root / "b.json").read_text())
 
     assert (report["conf"], report["spec_conf"], report["conf_overridden"]) == (0.5, 0.5, False)
+
+
+# ---- --predict --expect: the IoU boundary is a match (surviving mutants E11, E12) ---------------
+
+
+def _predict_at(tmp_path, monkeypatch, min_iou: str) -> int:
+    ref = tmp_path / "ref.json"
+    ref.write_text(json.dumps([{"class": "person", "bbox": [0, 0, 10, 10]}]))
+    det = {"class": "person", "class_id": PERSON, "confidence": 0.9, "bbox": [0.0, 0.0, 10.0, 5.0]}
+
+    class One:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def predict(self, rgb):
+            return [det], 1.0
+
+    (tmp_path / "m.onnx").write_bytes(b"onnx")
+    monkeypatch.setattr(ev, "_backend", lambda a, s: One())
+    monkeypatch.setattr(ev, "_load_spec", lambda a: SPEC)
+    monkeypatch.setattr(ev, "_read_rgb", lambda p: np.zeros((H, W, 3), dtype=np.uint8))
+    return ev.main(
+        [*("--backend", "onnx"), *("--model", str(tmp_path / "m.onnx")), *("--predict", "x.jpg")]
+        + [*("--expect", str(ref)), *("--min-iou", min_iou)]
+    )
+
+
+def test_an_expected_box_matched_at_exactly_min_iou_passes_and_a_hair_below_fails(
+    tmp_path, monkeypatch
+):
+    assert _predict_at(tmp_path, monkeypatch, "0.5") == 0  # IoU of the detection is exactly 0.5
+    assert _predict_at(tmp_path, monkeypatch, "0.5000001") == 1

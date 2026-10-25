@@ -20,6 +20,7 @@ from workshop.detector_eval import (
     evidence_problems,
     finite_number,
     gate_status,
+    iou,
     load_baseline,
     load_yolo_labels,
     match,
@@ -497,3 +498,13 @@ def test_the_gt_floor_of_the_baseline_check_is_inclusive():
     got = baseline_status(per_class, {"person": {"recall": 1.0}}, max_drop=0.10, min_gt=20)
 
     assert got["compared"] == ["person"] and len(got["failures"]) == 1
+
+
+def test_a_prediction_at_exactly_the_iou_threshold_matches_and_one_hair_below_does_not():
+    gt = [(0, (0.0, 0.0, 10.0, 10.0))]
+    pred = [{"class_id": 0, "confidence": 0.9, "bbox": [0.0, 0.0, 10.0, 5.0]}]  # IoU 50/100
+
+    assert iou([0.0, 0.0, 10.0, 5.0], (0.0, 0.0, 10.0, 10.0)) == 0.5
+    assert match(pred, gt, 0.5)[0]["tp"] == 1, "the threshold itself is a match"
+    assert match(pred, gt, 0.5000001)[0]["tp"] == 0
+    assert match(pred, gt, 0.5000001)[0]["fp"] == 1 and match(pred, gt, 0.5000001)[0]["fn"] == 1

@@ -168,7 +168,7 @@ async def test_a_watchdog_trip_on_a_platform_with_no_tractor_stops_the_robohat_a
         assert stop_events.epoch() > epoch, "the trip must be recorded as a stop"
         assert service.mission_statuses[mission.id].status == "aborted"
         assert svc.emergency_latched is True
-        assert fw.sent[-2:] == ["blade=off", NEUTRAL_LINE] or "blade=off" in fw.sent
+        assert fw.sent[-2:] == ["blade=off", NEUTRAL_LINE], fw.sent[-6:]
         await asyncio.wait_for(task, timeout=3.0)
         report = await main._watchdog_stop()
         assert report["subsystems"]["tractor"]["status"] == "not_enabled"
