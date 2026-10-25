@@ -18,6 +18,7 @@ import pytest
 from backend.src.drivers.sensors import ultrasonic_mcu_protocol as proto
 from backend.src.drivers.sensors.jsn_sr04t_driver import (
     ChannelStatus,
+    Disposition,
     Health,
     JsnSr04tMcuDriver,
     LinkState,
@@ -445,16 +446,17 @@ def steady(clock, port, driver, seconds=1.0, sensors=(0, 1, 2, 3)):
 def test_handshake_order_and_readings_before_the_config_echo_are_not_trusted():
     clock, port, driver, _ = scripted_rig()
     driver.poll()
-    assert port.types() == [proto.FrameType.HELLO] and driver.link_state is LinkState.HANDSHAKE
+    # listen first: the MCU announces itself, so the host writes nothing to a port it has not heard
+    assert port.types() == [] and driver.link_state is LinkState.HANDSHAKE
     port.info()
     port.reading(sensor=0)  # arrives before the CONFIG echo: the MCU may still be on old settings
     driver.poll()
-    assert port.types() == [proto.FrameType.HELLO, proto.FrameType.CONFIG]
+    assert port.types() == [proto.FrameType.CONFIG]
     assert driver.link_state is LinkState.HANDSHAKE
     assert driver.stats.readings_ignored == 1
     assert driver.snapshot()[0].status is ChannelStatus.LINK_DOWN
     wanted = driver.expected_mcu_config()
-    assert proto.McuConfig(*struct.unpack("<BHHB", port.sent[1].payload)) == wanted
+    assert proto.McuConfig(*struct.unpack("<BHHB", port.sent[0].payload)) == wanted
     port.ack(wanted)
     driver.poll()
     assert driver.link_state is LinkState.ACTIVE
@@ -560,9 +562,13 @@ def test_open_failures_are_retried_with_growing_backoff_and_then_succeed():
 
 
 def test_an_mcu_that_never_answers_times_out_and_the_port_is_reopened():
-    clock, port, driver, opens = scripted_rig(handshake_timeout_s=1.0)
+    clock, port, driver, opens = scripted_rig(handshake_timeout_s=2.0)
     driver.poll()
     for _ in range(80):
+        clock.advance(0.02)
+        driver.poll()
+    assert not port.closed, "1.6 s is inside the 2.0 s handshake window"
+    for _ in range(45):
         clock.advance(0.02)
         driver.poll()
     assert port.closed and driver.stats.link_losses == 1
@@ -1107,10 +1113,10 @@ def test_a_duplicated_or_replayed_frame_on_a_channel_is_rejected_and_counted():
     driver.poll()
     assert (driver.stats.readings, driver.stats.readings_stale_mcu) == (n, rejected + 2)
     seen = []
-    driver.reading_hook = lambda r, wall: seen.append(r)
+    driver.reading_hook = lambda r, wall, fate: seen.append((r.sensor, fate))
     port.reading(sensor=2, t_ms=mcu_ms(clock))
     driver.poll()
-    assert seen == [], "a rejected frame never reaches the reading hook"
+    assert seen == [(2, Disposition.REFUSED_CLOCK)], "the raw log still holds the refused frame"
 
 
 def test_the_uint32_mcu_clock_wraps_without_breaking_freshness_or_ordering():
@@ -1381,15 +1387,15 @@ def test_a_lost_link_blanks_every_channel_until_fresh_readings_arrive():
 
 
 def test_info_heartbeats_do_not_extend_the_handshake_deadline():
-    clock, port, driver, _ = scripted_rig(handshake_timeout_s=1.0)
-    driver.poll()  # port open, HELLO sent
+    clock, port, driver, _ = scripted_rig(handshake_timeout_s=2.0)
+    driver.poll()  # port open, nothing written yet
     lost_at = None
-    for i in range(1, 150):  # the MCU heartbeats every 0.4 s but never acknowledges CONFIG
+    for i in range(1, 200):  # the MCU heartbeats every 0.4 s but never acknowledges CONFIG
         clock.advance(0.02)
         if i % 20 == 0:
             port.info()
         driver.poll()
         if lost_at is None and driver.stats.link_losses:
             lost_at = i * 0.02
-    assert lost_at is not None and lost_at <= 1.1
+    assert lost_at is not None and 2.0 <= lost_at <= 2.1
     assert driver.last_error == "handshake_timeout"

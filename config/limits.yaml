@@ -12,11 +12,19 @@ geofence_buffer_meters: 0.5
 high_temperature_celsius: 80.0
 tof_obstacle_distance_meters: 0.2
 
-# Ultrasonic sensor safety thresholds (HC-SR04)
+# Ultrasonic obstacle sensing: four JSN-SR04T behind a USB microcontroller (the `ultrasonic:` block
+# of hardware.yaml, firmware/ultrasonic-mcu/); that backend uses no Raspberry Pi header pin.
 # A reading at or below this raises the ultrasonic obstacle interlock and HOLDS autonomous
 # motion (levers neutral, blade off; see obstacle_stop below). It is a hold, not an E-stop.
+# The same number sets the array's NEAR line (twice this distance, or twice the blind zone when
+# that is larger): a channel that goes silent after a NEAR echo reads blind-zone / unknown for
+# `near_hold_s` (hardware.yaml) whatever the *_is_clear flags say, because an object that enters
+# a sensor's dead zone is silent too.
 ultrasonic_obstacle_distance_cm: 30.0
-ultrasonic_enabled: false  # Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi
+# Master switch. Ships false: the array is unmeasured (audit M-40) and ultrasonic.port is TBD.
+# (The legacy 3x HC-SR04 backend, ultrasonic.backend: gpio_hcsr04, would also collide with the
+# Heltec HaLow HAT, which owns GPIO4/9/10/11 on this Pi.)
+ultrasonic_enabled: false
 
 # Obstacle stop + stopping-distance model (backend/src/safety/obstacle_stop.py,
 # backend/src/safety/stopping_distance.py). Autonomous motion (missions, AI, Thor plans) is

@@ -13,7 +13,11 @@ import io
 import sys
 from pathlib import Path
 
+import pytest
+
+from backend.src.drivers.sensors import ultrasonic_mcu_protocol as proto
 from tests.unit._usonic_fakes import FakeClock, FakeMcuFactory, SensorModel
+from tests.unit.test_jsn_sr04t_driver import MCU_BASE_MS, ScriptedPort
 
 spec = importlib.util.spec_from_file_location(
     "scripts.ultrasonic_mcu_probe", Path("scripts/ultrasonic_mcu_probe.py")
@@ -140,3 +144,118 @@ def test_probe_cli_requires_the_port():
 
     with pytest.raises(SystemExit):
         probe.main([])
+
+
+# ---- the CSV is the raw frame log (US3-10) -----------------------------------------------------
+
+
+def rows_of(path):
+    return list(csv.DictReader(path.open(encoding="utf-8")))
+
+
+def test_probe_logs_the_frames_the_driver_refuses_and_says_what_it_did_with_each(tmp_path):
+    clock = FakeClock()
+    base = FakeMcuFactory(clock, sensors=[SensorModel(distance_cm=100.0)] * 4)
+
+    def duplicating(path, baud):
+        port = base(path, baud)
+        port.corrupt_next(10**9, lambda frame: frame + frame if frame[3] == 0x83 else frame)
+        return port
+
+    out = io.StringIO()
+    path = tmp_path / "m40.csv"
+    code = probe.run(
+        "/dev/ttyACM-usonic", 3.0, str(path),
+        serial_factory=duplicating, clock=clock.now, sleep=clock.advance, out=out,
+    )  # fmt: skip
+    rows = rows_of(path)
+    fates = [r["disposition"] for r in rows]
+    assert code == 0 and set(fates) == {"accepted", "refused_clock"}
+    assert fates.count("accepted") == fates.count("refused_clock"), "every frame was sent twice"
+    last = out.getvalue().strip().splitlines()[-1]
+    assert f"frames={len(rows)} refused={fates.count('refused_clock')} ignored=0 " in last
+    assert last.endswith(f"readings={fates.count('accepted')}")
+    assert rows[0]["disposition"] == "accepted" and rows[1]["disposition"] == "refused_clock"
+    assert rows[0]["echo_us"] == rows[1]["echo_us"] == "5828"
+
+
+def scripted_probe(tmp_path, steps, seconds=3.0):
+    """The probe against a scripted port: ``steps`` is ``[(seconds since start, push(port))]``."""
+    clock = FakeClock()
+    port = ScriptedPort()
+    pending = sorted(steps, key=lambda s: s[0])
+
+    def sleep(dt):
+        clock.advance(dt)
+        while pending and pending[0][0] <= clock.now() - 1000.0:
+            pending.pop(0)[1](port)
+
+    out = io.StringIO()
+    path = tmp_path / "m40.csv"
+    code = probe.run(
+        "/dev/ttyACM-usonic", seconds, str(path),
+        serial_factory=lambda _p, _b: port, clock=clock.now, sleep=sleep, out=out,
+    )  # fmt: skip
+    return code, rows_of(path), out.getvalue()
+
+
+def handshake(port):
+    port.info()
+
+
+def ack(port):
+    port.ack(proto.McuConfig(enable_mask=0b1111, echo_window_ms=30, gap_ms=30, quiet_after=8))
+
+
+def test_probe_logs_readings_that_arrive_during_the_handshake_and_marks_them_ignored(tmp_path):
+    steps = [
+        (0.05, handshake),
+        (0.06, lambda p: p.reading(sensor=0, t_ms=MCU_BASE_MS + 60)),  # before the CONFIG echo
+        (0.10, ack),
+        (0.20, lambda p: p.reading(sensor=0, t_ms=MCU_BASE_MS + 200)),
+    ]
+    code, rows, out = scripted_probe(tmp_path, steps)
+    assert code == 0
+    assert [r["disposition"] for r in rows] == ["ignored_link", "accepted"]
+    assert [r["mcu_t_ms"] for r in rows] == [str(MCU_BASE_MS + 60), str(MCU_BASE_MS + 200)]
+    assert "frames=2 refused=0 ignored=1 " in out and out.strip().endswith("readings=1")
+
+
+def test_probe_exits_3_when_frames_arrive_but_the_driver_accepts_none(tmp_path):
+    steps = [(0.05, handshake), (0.10, ack)] + [
+        (0.2 + 0.1 * k, lambda p, k=k: p.reading(sensor=7, t_ms=MCU_BASE_MS + 200 + 100 * k))
+        for k in range(10)  # a sensor index the host has no channel for
+    ]
+    code, rows, out = scripted_probe(tmp_path, steps)
+    assert code == 3
+    assert {r["disposition"] for r in rows} == {"bad_sensor"} and len(rows) == 10
+    assert {r["sensor"] for r in rows} == {"7"}
+    assert "frames=10 refused=0 ignored=10 " in out and out.strip().endswith("readings=0")
+
+
+def test_probe_exits_2_only_when_no_reading_frame_arrived_at_all(tmp_path):
+    code, rows, out = scripted_probe(tmp_path, [(0.05, handshake), (0.10, ack)])
+    assert code == 2 and rows == []
+    assert "frames=0 " in out and out.strip().endswith("readings=0")
+
+
+def test_probe_can_measure_the_slowest_timings_the_firmware_accepts(tmp_path):
+    # M-40 has to be able to look at 100 ms windows and 500 ms gaps: the default stale_after_ms
+    # (700 ms) is shorter than their 2.4 s cycle, which the configuration refuses
+    code, path, out, factory = run_probe(
+        tmp_path, [SensorModel(distance_cm=120.0)] * 4, seconds=8.0, echo_window_ms=100, gap_ms=500
+    )
+    assert code == 0 and "link=active" in out
+    assert (factory.current.core.window_ms, factory.current.core.gap_ms) == (100, 500)
+    assert {r["status"] for r in rows_of(path)} == {"OK"}
+    assert {r["disposition"] for r in rows_of(path)} == {"accepted"}
+
+
+@pytest.mark.parametrize(
+    "timings", [{"echo_window_ms": 5}, {"gap_ms": 1}, {"echo_window_ms": 1000}],
+    ids=lambda t: next(iter(t)),
+)  # fmt: skip
+def test_probe_says_plainly_that_timings_the_configuration_refuses_are_not_valid(tmp_path, timings):
+    code, path, out, factory = run_probe(tmp_path, [SensorModel(distance_cm=120.0)] * 4, **timings)
+    assert code == 64 and "not a valid configuration" in out and "Traceback" not in out
+    assert factory.opens == [], "nothing was opened"

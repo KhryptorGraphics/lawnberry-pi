@@ -75,9 +75,19 @@ ibt4:
 # Four JSN-SR04T behind a dedicated USB microcontroller (firmware/ultrasonic-mcu/). No Raspberry Pi
 # header pin is used. The master switch is ultrasonic_enabled in config/limits.yaml (shipped false).
 # Every number here is an UNVALIDATED placeholder until the JSN-SR04T measurements (audit M-40).
+# How a reading is judged (jsn_sr04t_driver.py, all on the host; the MCU only reports the echo):
+#   CLEAR needs a fresh in-range echo beyond ultrasonic_obstacle_distance_cm, or the owner's flags
+#   below; stale, blind-zone, silent, out-of-range, faulted, wrongly sized, impossible (wider than
+#   the echo window) and never-heard channels are UNKNOWN. After a NEAR echo (closer than twice the
+#   stop distance or the blind-zone line, whichever is larger) silence is the dead zone, not open
+#   air: BLIND_ZONE / UNKNOWN for near_hold_s or until a far echo, whatever the flags say.
 ultrasonic:
   backend: mcu_usb            # mcu_usb | gpio_hcsr04 (legacy 3x HC-SR04 on Pi pins, DO NOT WIRE)
-  port: null                  # TBD (owner): USB CDC *data* port of the MCU, e.g. /dev/serial/by-id/...
+  port: null                  # TBD (owner): the MCU's *data* serial port (its 2nd CDC interface),
+                              # e.g. /dev/serial/by-id/...
+                              # NEVER its REPL console or another service's port (the RoboHAT's): the driver
+                              # writes nothing until a valid MCU frame has arrived on the port, so a wrong
+                              # path is only read (and shows as handshake_timeout), but reading steals bytes
   baudrate: 115200            # ignored by USB CDC
   channels: [outer_left, inner_left, inner_right, outer_right]   # labels only; positions are TBD
   disabled_channels: []       # channels not fitted
@@ -88,10 +98,13 @@ ultrasonic:
   max_range_cm: 400.0         # longest usable echo (TBD, M-40)
   stale_after_ms: 700         # a channel not refreshed for this long is UNKNOWN
   link_timeout_ms: 1500       # no valid frame from the MCU for this long: link down, all UNKNOWN
-  handshake_timeout_s: 2.0
-  alive_window_s: 10.0
+  handshake_timeout_s: 2.0    # the host speaks only after the MCU's INFO (repeated every 1 s): never below 1.5 s
+  alive_window_s: 10.0        # "alive" = a FAR echo pulse this recent (a near echo proves nothing about open air)
+  near_hold_s: 30.0           # dead-zone hold after a NEAR echo (5..600): silent = blind zone / unknown for this long
   out_of_range_is_clear: false   # keep false until M-40 shows what a healthy sensor does in open air
-  no_echo_is_clear: false        # keep false: a silent line cannot tell open air from a dead sensor
+  no_echo_is_clear: false        # keep false: a silent line cannot tell open air from a dead or stuck sensor.
+                                 # Opt in only after M-40, with alive_window_s near 1 s: a sensor that dies reads
+                                 # clear for up to alive_window_s, and never inside near_hold_s of a near echo
   no_echo_requires_alive: true   # with no_echo_is_clear: still need a real echo within alive_window_s
 
 # Camera configuration

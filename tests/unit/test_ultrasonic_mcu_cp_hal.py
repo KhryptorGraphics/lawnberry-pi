@@ -34,6 +34,9 @@ class World:
         # echo pin -> width a broken PulseIn reports the moment it is armed (a glitch, a pulse
         # already in progress, a saturated counter): a value no echo can have produced
         self.instant_entry: dict[str, int] = {}
+        # echo pin -> width of a SECOND pulse that follows the first one in the queue (a far
+        # reflection behind the nearest object: PulseIn(maxlen=2) holds both)
+        self.second_pulse: dict[str, int] = {}
         self.trig_log: list[tuple[str, int, bool]] = []  # (pin, time_ns, value) edges only
         self.echo_by_pin: dict[str, FakePulseIn] = {}
         self.pulsein_calls: list[tuple[str, str]] = []  # (pin, "resume"/"pause"/"clear") in order
@@ -106,6 +109,9 @@ class FakePulseIn:
             rise_ns, width_us = self._pending
             if self.world.now_ns >= rise_ns + width_us * 1000:
                 self._pulses.append(width_us)
+                second = self.world.second_pulse.get(self.pin.name)
+                if second is not None:
+                    self._pulses.append(second)
                 self._pending = None
 
     def pause(self) -> None:
@@ -436,6 +442,27 @@ def test_an_impossible_pulse_width_is_never_reported_as_a_distance(cp, width):
     hal = make_hal(cp)
     assert hal.measure(0, 30_000) == (host.EchoStatus.STUCK, width)
     assert cp.world.echo_by_pin[ECHO[0]].paused  # and the capture is not left running
+
+
+@pytest.mark.parametrize("window_us", [65_536, 100_000])
+def test_a_saturated_counter_is_a_fault_even_when_the_window_is_wider_than_it_can_count(
+    cp, window_us
+):
+    # PulseIn stores 16 bit widths: a longer pulse reads exactly 65535. With a window beyond 65.5 ms
+    # the window check cannot catch it, so the saturation value itself must be refused
+    cp.world.instant_entry[ECHO[0]] = 65_535
+    hal = make_hal(cp)
+    assert hal.measure(0, window_us) == (host.EchoStatus.STUCK, 65_535)
+
+
+def test_the_first_echo_is_the_one_reported_not_a_later_reflection(cp):
+    # two pulses in the queue: the NEAREST object's echo comes first. Reporting the later one
+    # would show a distant wall and hide the object in front of it.
+    cp.world.distance_cm[0] = 50.0
+    cp.world.second_pulse[ECHO[0]] = 20_000  # a reflection from 343 cm
+    hal = make_hal(cp)
+    assert hal.measure(0, 30_000) == (host.EchoStatus.OK, round(50.0 * 20000 / SPEED_OF_SOUND))
+    assert len(cp.world.echo_by_pin[ECHO[0]]) == 0, "and the second one is not left for next time"
 
 
 @pytest.mark.parametrize(

@@ -143,6 +143,25 @@ def test_hello_is_answered_with_info_and_ping_with_pong():
     assert pong.nonce == 0xFEEDF00D
 
 
+def test_pong_reports_the_time_since_boot_not_the_absolute_clock():
+    hal = RecordingHal(n=0, start_ms=5000)
+    core = CORE.Core(hal, 0, info_period_ms=100_000)
+    core.start()
+    _poll_until(hal, core, 5300)
+    hal.queue_rx(_ping(0x0102))
+    _poll_until(hal, core, 5320)
+    ((_t, pong),) = hal.messages(host.FrameType.PONG)
+    assert pong.nonce == 0x0102
+    assert 300 <= pong.uptime_ms <= 305, f"uptime {pong.uptime_ms} ms: it is not the 5300 ms clock"
+
+
+def test_a_core_polled_before_it_is_started_still_announces_itself():
+    hal = RecordingHal(n=0, start_ms=500)
+    core = CORE.Core(hal, 0)
+    core.poll()
+    assert len(hal.messages(host.FrameType.INFO)) == 1
+
+
 def test_info_heartbeat_continues_even_with_every_sensor_disabled():
     rig = Rig(info_period_ms=1000)
     rig.run(0.05)
@@ -207,6 +226,18 @@ def test_wrong_version_unknown_type_and_wrong_length_are_each_refused():
     assert (host.FrameType.HELLO, host.NakReason.BAD_VERSION) in reasons
     assert (0x55, host.NakReason.UNKNOWN_TYPE) in reasons
     assert (host.FrameType.CONFIG, host.NakReason.BAD_LENGTH) in reasons
+
+
+def test_every_refusal_is_counted_and_answered_once():
+    hal = RecordingHal(n=4, start_ms=1000)
+    core = CORE.Core(hal, 4, info_period_ms=100_000)
+    core.start()
+    hal.queue_rx(host.encode_frame(host.FrameType.HELLO, 0, host.build_hello(), version=2))
+    hal.queue_rx(host.encode_frame(0x7E, 1, b""))
+    hal.queue_rx(host.encode_frame(host.FrameType.PING, 2, b"\x00"))  # a PING with a short payload
+    for _ in range(20):
+        core.poll()
+    assert core.naks_sent == 3 and len(hal.messages(host.FrameType.NAK)) == 3
 
 
 def test_a_looped_back_line_does_not_start_a_nak_storm():
@@ -404,6 +435,24 @@ def test_reading_timestamp_is_the_end_of_the_measurement():
 # ---- per-sensor health ------------------------------------------------------------------------
 
 
+def test_a_disabled_channel_takes_its_slot_and_is_announced_once_per_gap_not_once_per_poll():
+    # A masked-off channel is reported DISABLED once per cycle, but its slot lasts one gap like any
+    # other: without that the loop would write a frame per pass (about 1000 a second) and starve
+    # the USB link the real readings need.
+    hal = RecordingHal(n=4, start_ms=1000)
+    core = CORE.Core(hal, 4, gap_ms=30, echo_window_ms=30, info_period_ms=100_000)
+    core.start()
+    hal.queue_rx(
+        host.encode_frame(host.FrameType.CONFIG, 0, host.build_config(host.McuConfig(0, 30, 30, 8)))
+    )
+    _poll_until(hal, core, 1100)
+    before = len(hal.messages(host.FrameType.READING))
+    _poll_until(hal, core, 3100)  # two seconds with every channel disabled
+    readings = [m for _t, m in hal.messages(host.FrameType.READING)][before:]
+    assert {r.status for r in readings} == {fw.ST_DISABLED}
+    assert 2000 // 30 - 2 <= len(readings) <= 2000 // 30 + 2, f"{len(readings)} frames in 2 s"
+
+
 def test_a_dead_sensor_never_slows_or_silences_the_others_and_is_reported_quiet():
     models = [echo(80.0), echo(120.0), SensorModel(mode="silent"), echo(60.0)]
     rig = Rig(sensors=models)
@@ -514,6 +563,72 @@ def test_main_build_without_pins_makes_a_zero_sensor_core(monkeypatch):
     assert core.n == 0 and seen["trig"] == () and seen["echo"] == ()
     usonic_main.run(Hal, iterations=3)
     assert seen["fed"] == 3
+
+
+class _Hal:
+    """A HAL that remembers what ``usonic_main.build`` handed it."""
+
+    sensor_count = 0
+
+    def __init__(self, trig, echo_pins, **kw):
+        self.args = (trig, echo_pins, kw)
+
+    def now_ms(self):
+        return 0
+
+    def boot_id(self):
+        return 1
+
+    def reset_reason(self):
+        return 0
+
+
+@pytest.mark.parametrize("which", ["TRIG_PINS", "ECHO_PINS"])
+def test_main_build_with_only_one_of_the_two_pin_lists_set_makes_a_zero_sensor_core(
+    monkeypatch, which
+):
+    # half a wiring decision is no wiring decision: the MCU must come up with no sensors and keep
+    # its link, not crash while handing a None to the HAL
+    cfg = load_module("usonic_config")
+    usonic_main = load_module("usonic_main")
+    monkeypatch.setattr(cfg, "TRIG_PINS", None)
+    monkeypatch.setattr(cfg, "ECHO_PINS", None)
+    monkeypatch.setattr(cfg, which, ("GP2", "GP4"))
+    hal, core = usonic_main.build(_Hal)
+    assert hal.args[:2] == ((), ()) and core.n == 0
+
+
+def test_main_build_hands_the_owners_timing_constants_to_the_core(monkeypatch):
+    cfg = load_module("usonic_config")
+    usonic_main = load_module("usonic_main")
+    monkeypatch.setattr(cfg, "INFO_PERIOD_MS", 333)
+    monkeypatch.setattr(cfg, "PARTIAL_FRAME_TIMEOUT_MS", 17)
+    monkeypatch.setattr(cfg, "DEFAULT_ECHO_WINDOW_MS", 45)
+    monkeypatch.setattr(cfg, "DEFAULT_GAP_MS", 55)
+    monkeypatch.setattr(cfg, "DEFAULT_QUIET_AFTER", 6)
+    monkeypatch.setattr(cfg, "TRIGGER_PULSE_US", 12)
+    monkeypatch.setattr(cfg, "WATCHDOG_TIMEOUT_S", 3)
+    hal, core = usonic_main.build(_Hal)
+    assert (core.info_period_ms, core.dec.partial_timeout) == (333, 17)
+    assert (core.window_ms, core.gap_ms, core.quiet_after) == (45, 55, 6)
+    assert hal.args[2] == {"trigger_pulse_us": 12, "watchdog_s": 3}
+
+
+def test_the_heartbeat_and_the_partial_frame_timeout_the_owner_sets_are_the_ones_that_run(
+    monkeypatch,
+):
+    cfg = load_module("usonic_config")
+    usonic_main = load_module("usonic_main")
+    monkeypatch.setattr(cfg, "INFO_PERIOD_MS", 250)
+    monkeypatch.setattr(cfg, "PARTIAL_FRAME_TIMEOUT_MS", 20)
+    hal = RecordingHal(n=0, start_ms=1000)
+    hal.queue_rx(_BOGUS_HEADER)  # a corrupted length: a good frame behind it is held hostage
+    hal.queue_rx(_ping(0x42), at_ms=1005)
+    usonic_main.run(lambda *a, **k: hal, iterations=1100)
+    uptimes = [m.uptime_ms for _t, m in hal.messages(host.FrameType.INFO)]
+    assert uptimes[:5] == [0, 250, 500, 750, 1000], "INFO_PERIOD_MS is the heartbeat"
+    ((t, pong),) = hal.messages(host.FrameType.PONG)
+    assert pong.nonce == 0x42 and 1020 <= t <= 1040, "released by PARTIAL_FRAME_TIMEOUT_MS"
 
 
 def test_main_build_survives_a_firing_order_that_does_not_match_the_sensor_count(monkeypatch):

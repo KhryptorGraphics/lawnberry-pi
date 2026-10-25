@@ -76,7 +76,7 @@ Little-endian. One frame:
 
 | Type | Dir | Payload | Meaning |
 |---|---|---|---|
-| `0x01 HELLO` | host to MCU | `host_version u8, flags u8` | answered with INFO |
+| `0x01 HELLO` | host to MCU | `host_version u8, flags u8` | answered with INFO; the host sends it only to probe a link that has already identified itself and gone silent |
 | `0x02 CONFIG` | host to MCU | `enable_mask u8, echo_window_ms u16, gap_ms u16, quiet_after u8` | applied, then echoed in CONFIG_ACK. Out-of-range values: NAK, nothing changes |
 | `0x03 PING` | host to MCU | `nonce u32` | answered with PONG |
 | `0x81 INFO` | MCU to host | `fw_major u8, fw_minor u8, proto u8, sensor_count u8, boot_id u32, uptime_ms u32, reset_reason u8, enable_mask u8` | at boot, on HELLO, and every second as a heartbeat |
@@ -153,10 +153,36 @@ never answered, so it cannot start a NAK storm.
 `backend/src/drivers/sensors/jsn_sr04t_driver.py` (link, handshake, reconnect, evaluation) and
 `ultrasonic_mcu_protocol.py` (independent host codec). Configuration: the `ultrasonic:` block of
 `config/hardware.yaml`; master switch `ultrasonic_enabled` in `config/limits.yaml` (**ships false**).
-The handshake is HELLO, INFO (version and sensor count checked), CONFIG, CONFIG_ACK (compared with
-what was asked); readings are ignored until it completes. A version or channel-count mismatch, a
+The handshake is INFO (version and sensor count checked), CONFIG, CONFIG_ACK (compared with what
+was asked); readings are ignored until it completes. A version or channel-count mismatch, a
 rejected or mismatching configuration, a silent link and a vanished port each leave every channel
 UNKNOWN and are reported in `health_check()`.
+
+* **The host listens first.** It writes nothing to a port until a valid MCU frame has arrived on it
+  (the MCU announces itself with INFO at boot and every second). Every binary frame contains the
+  console control bytes Ctrl-A..Ctrl-D (0x01..0x04), so one write to the MCU's own REPL console or
+  to the RoboHAT's port would stop the program there. A wrong or renumbered `ultrasonic.port` is
+  only read and shows as `handshake_timeout`: point it at the MCU's **data** port
+  (`/dev/serial/by-id/...`, its second CDC interface) and never at a port another service reads
+  (reading steals that service's bytes). A handshake waits at least one INFO period plus 0.5 s
+  (1.5 s) whatever `handshake_timeout_s` says.
+* **What a reading means is decided on the host.** CLEAR needs a fresh in-range echo beyond the
+  stop threshold (or the owner's `*_is_clear` flags). An echo closer than the NEAR line (twice the
+  larger of the stop threshold and `min_range_cm`: 60 cm with the shipped numbers) followed by
+  silence is the sensor's dead zone, not open air: BLIND_ZONE / UNKNOWN for `near_hold_s` (30 s) or
+  until a far echo, whatever the flags say, and a NEAR echo is never proof of life. An OK pulse
+  wider than the echo window never happened and is a FAULT. `no_echo_is_clear` is the owner's
+  explicit risk: a sensor that dies or sticks keeps reading CLEAR for up to `alive_window_s`
+  (10 s as shipped, keep it near 1 s if you opt in; the HAL cannot return STUCK for a line stuck
+  high) and never inside the near-hold.
+* **Readings are dated by the MCU's own clock** (`t_ms`, against one baseline per link). A reading
+  out of step with it (older than the newest by more than a cycle, a replay, or ahead of a settled
+  baseline by more than twice the longest spacing of two readings) is refused and counted in
+  `readings_stale_mcu` and moves nothing; readings refused for 2 s (two cycles at least) while their
+  own clock kept pace with the host's rebuild the baseline (`mcu_rebases`). Limit: the first reading
+  of a baseline is dated "now" (the MCU clock has no absolute reference).
+* **The raw frame log** is `scripts/ultrasonic_mcu_probe.py`: one CSV row per valid reading frame,
+  also the ones the driver ignored or refused, with its `disposition`.
 
 ## Testing
 
@@ -183,6 +209,10 @@ the by-id name, the JSN-SR04T's electrical behaviour, the cycle time actually ac
 detection distance. Until M-40 is done the shipped policy keeps a silent channel UNKNOWN.
 
 Bench helper for M-40: `python scripts/ultrasonic_mcu_probe.py --port <data port> --seconds 60 --csv out.csv`
-logs every reading with the raw `echo_us`. The host driver opens the data port exclusively, so stop
+logs every reading frame with the raw `echo_us` and what the driver did with it (`disposition`:
+accepted, ignored_link, ignored_channel, bad_sensor, refused_clock). Exit code 0 if readings were
+accepted, 2 if no reading frame arrived, 3 if frames arrived but none was accepted, 64 for timings
+the configuration refuses (`--echo-window-ms 100 --gap-ms 500` works). The host driver opens the
+data port exclusively, so stop
 the backend (and any other probe) first; otherwise the probe prints `open_failed` with a plain-words
 hint, keeps retrying until its time is up and exits 2.

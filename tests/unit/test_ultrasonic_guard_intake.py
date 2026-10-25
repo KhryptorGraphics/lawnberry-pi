@@ -17,7 +17,13 @@ from types import SimpleNamespace
 import pytest
 
 from backend.src.models.safety_limits import ObstacleStopLimits
-from backend.src.safety.obstacle_stop import ObstacleGuard, ObstacleStatus, sample_sensor_manager
+from backend.src.safety.obstacle_stop import (
+    TOF_KIND,
+    TOF_SOURCES,
+    ObstacleGuard,
+    ObstacleStatus,
+    sample_sensor_manager,
+)
 from tests.unit._usonic_fakes import (
     FakeClock,
     FakeMcuFactory,
@@ -43,14 +49,37 @@ def blind_latched(assessment) -> bool:
 class Stack:
     """MCU + driver + interface + manager + guard on one fake clock."""
 
-    def __init__(self, monkeypatch, sensors, cfg=None, limits=None, wrap=None):
+    def __init__(self, monkeypatch, sensors, cfg=None, limits=None, wrap=None, tof_clear=False):
         self.clock = FakeClock()
         patch_guard_wall_clock(monkeypatch, self.clock)
         self.factory = FakeMcuFactory(self.clock, sensors=sensors)
         self.iface = make(self.clock, self.factory, **(cfg or {}))
         ultrasonic = wrap(self.iface) if wrap else self.iface
-        self.manager = SimpleNamespace(tof=None, ultrasonic=ultrasonic, ultrasonic_enabled=True)
+        self.tof = self._clear_tof() if tof_clear else None
+        self.manager = SimpleNamespace(tof=self.tof, ultrasonic=ultrasonic, ultrasonic_enabled=True)
         self.guard = ObstacleGuard(ObstacleStopLimits(**(limits or {})), clock=self.clock.now)
+        if tof_clear:  # what build_obstacle_guard does: the ToF sources are required sources
+            for source in TOF_SOURCES:
+                self.guard.register_source(source, TOF_KIND)
+        self._ticks = 0
+
+    def _clear_tof(self):
+        """Two ToF sensors that always see 2 m: the only thing left to hold the guard is us."""
+
+        def reading():
+            return SimpleNamespace(distance=2000, range_status="valid", timestamp=self.clock.wall())
+
+        return SimpleNamespace(
+            status=SimpleNamespace(value="online"), left_reading=reading(), right_reading=reading()
+        )
+
+    def _refresh_tof(self) -> None:
+        if self.tof is None:
+            return
+        self._ticks += 1
+        for side in (self.tof.left_reading, self.tof.right_reading):
+            side.timestamp = self.clock.wall()
+            side.distance = 2000 + self._ticks % 7  # a frozen reading would be unknown
 
     async def start(self) -> Stack:
         assert await self.iface.initialize() is True
@@ -59,6 +88,7 @@ class Stack:
     async def tick(self, dt: float = 0.02, *, poll: bool = True, read: bool = True):
         """One guard cycle: service loop, (optionally) the telemetry read, sample, assess."""
         self.clock.advance(dt)
+        self._refresh_tof()
         if poll:
             self.iface._driver.poll()
         if read:
@@ -128,12 +158,28 @@ async def test_a_three_sensor_build_reaches_clear_with_the_unfitted_channel_disa
     assert set(s.guard.sources) == {f"ultrasonic:{n}" for n in NAMES if n != "inner_right"}
 
 
+async def test_the_rig_with_clear_tof_sensors_reaches_clear_when_the_ultrasonics_are_fitted(
+    monkeypatch,
+):
+    # the control of the test below: if this rig could not reach CLEAR, "still holds" proves nothing
+    s = await stack(monkeypatch, [far(150), far(), far(), far(180)], tof_clear=True)
+    last = (await s.run(6.0))[-1]
+    assert last.status is ObstacleStatus.CLEAR and not last.hold and not last.faults
+    assert {"tof_left", "tof_right"} <= set(s.guard.sources)
+
+
 async def test_with_every_channel_disabled_the_guard_still_holds_and_the_aggregate_is_unknown(
     monkeypatch,
 ):
-    s = await stack(monkeypatch, [far()] * 4, cfg={"disabled_channels": NAMES})
+    # US3-04: with no ToF sources registered an ObstacleGuard already answers STOP ("no obstacle
+    # sources configured"), so this could not fail. With two clear ToF sensors registered, only
+    # the ultrasonic side of the intake can hold the guard: every channel disabled is no free pass
+    s = await stack(monkeypatch, [far()] * 4, cfg={"disabled_channels": NAMES}, tof_clear=True)
     ticks = await s.run(6.0)
-    assert {a.status for a in ticks} == {ObstacleStatus.STOP}
+    assert {a.status for a in ticks[-100:]} == {ObstacleStatus.STOP}
+    last = ticks[-1]
+    assert all("tof" not in fault for fault in last.faults), "the ToF side is healthy"
+    assert set(last.faults) == {f"ultrasonic:{n}" for n in NAMES}
     assert s.iface.obstacle_verdict()["state"] == "unknown"
 
 
@@ -208,6 +254,15 @@ async def test_g10_a_valid_entry_without_a_distance_is_unknown_never_clear(monke
     assert f"{OUTER_LEFT}: valid reading without a distance" in last.reasons
 
 
+async def test_g11_an_entry_dated_in_the_future_is_unusable_not_fresh_for_ever(monkeypatch):
+    # O01: a measured_mono beyond "now" would age as negative: fresh until the clock caught up
+    sensors = [far(150), far(), far(), far()]
+    s = await stack(monkeypatch, sensors, wrap=tamper("outer_left", measured_mono=1e9))
+    last = (await s.run(4.0))[-1]
+    assert last.hold and OUTER_LEFT in last.faults
+    assert any("no usable timestamp" in r and OUTER_LEFT in r for r in last.reasons)
+
+
 async def test_g07_the_ultrasonic_enabled_gate_keeps_a_switched_off_array_out_of_the_guard(
     monkeypatch,
 ):
@@ -233,3 +288,22 @@ async def test_g06_the_guard_ages_a_valid_range_entry_by_its_own_timestamp(monke
     assert a.hold and 0.6 < s.clock.now() - t_quiet < 1.3
     assert any("stale" in reason for reason in a.reasons)
     assert all(e["valid"] and e["status"] == "ok" for e in s.iface.last_readings)
+
+
+async def test_g12_an_entry_whose_status_is_not_ok_is_never_taken_as_a_measured_range(
+    monkeypatch,
+):
+    # O04: `valid` True next to a status that is not "ok" (a tampered or foreign entry) must not
+    # become a measured 20 cm obstacle: it is what its status and verdict say, a clear horizon
+    sensors = [far(150), far(), far(), far()]
+    tampered = tamper(
+        "outer_left",
+        status="out_of_range",
+        distance_cm=20.0,
+        verdict="clear",
+        clear_to_cm=400.0,
+    )
+    s = await stack(monkeypatch, sensors, wrap=tampered)
+    last = (await s.run(4.0))[-1]
+    assert last.nearest_m == pytest.approx(2.0)
+    assert not last.hold

@@ -22,6 +22,15 @@ Fail-closed rules (all tested with a fake serial port and the real firmware core
   the dead zone, not open air: BLIND_ZONE / UNKNOWN for ``near_hold_s`` or until a far echo is
   heard, whatever the ``*_is_clear`` policy flags say. Only a complete, non-near echo pulse is
   proof of life (never NO_FALL, never a 0 us width).
+* The host never writes to a port that has not first sent a valid MCU frame. The MCU announces
+  itself (INFO at boot and every second), so the host listens first: a ``ultrasonic.port`` that
+  points at something else (the MCU's own REPL console, the RoboHAT's port, a renumbered ttyACM)
+  is only read, never written to. A binary frame contains the console control bytes 0x01..0x04
+  (Ctrl-A..D), so one write to the wrong port can stop the program on the other end.
+* A reading is dated by the MCU's own clock against one baseline per link. A reading that is out
+  of step with that baseline (a wild timestamp, a replay) is refused and counted, and a baseline
+  that turns out to be wrong is rebuilt from the live stream that kept being refused, so one bad
+  timestamp can neither make data look fresher nor silence every channel for good.
 
 Every number in :class:`~backend.src.models.hardware_config.UltrasonicConfig` is an unvalidated
 placeholder until audit measurement M-40.
@@ -32,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import random
 import time
 from collections.abc import Awaitable, Callable
@@ -68,6 +78,27 @@ MAX_DRAIN_READS = 64
 #: Relative drift between the host's and the MCU's clock that the age estimate tolerates (NTP
 #: slew plus two crystals); a backlog that grows slower than this is not detectable, nor harmful.
 MCU_CLOCK_DRIFT = 5e-4
+#: How often the MCU repeats its INFO frame (``INFO_PERIOD_MS`` in ``firmware/ultrasonic-mcu``).
+#: The host never speaks first, it waits for this announcement, so a handshake gets at least this
+#: long (plus ``HANDSHAKE_MARGIN_S``) whatever ``handshake_timeout_s`` says.
+MCU_INFO_PERIOD_S = 1.0
+#: What a handshake gets on top of one INFO period (the CONFIG round trip, scheduling jitter).
+HANDSHAKE_MARGIN_S = 0.5
+#: Accepted readings a clock baseline needs before a reading can be refused for running AHEAD of
+#: it. The first readings of a baseline may be a backlog that is still being drained, and every
+#: newer frame of such a backlog legitimately lowers the offset until the stream has caught up.
+MCU_SETTLE_FRAMES = 8
+#: A reading whose MCU timestamp puts it more than this far ahead of a settled baseline (the MCU
+#: cannot have outrun the host's clock) is refused without touching the baseline, so one wild
+#: timestamp moves nothing. Never below twice the longest spacing of two readings (see
+#: ``_future_slack_s``). The bias a reading just inside the limit can add to every later age stays
+#: under the 100 ms margin ``UltrasonicConfig`` keeps between ``stale_after_ms`` and one cycle.
+MCU_FUTURE_SLACK_S = 0.1
+#: Refused readings that kept pace with the host clock for this long (never less than twice a
+#: measurement cycle) are a live stream whose BASELINE is wrong, not noise: it is rebuilt from them.
+MCU_REBASE_S = 2.0
+#: The run needs at least this many refused readings that advanced the MCU clock.
+MCU_REBASE_FRAMES = 8
 #: Seconds between simulated measurement cycles.
 SIM_CYCLE_S = 0.12
 _SIM_BASE_CM = (150.0, 200.0, 200.0, 180.0)
@@ -138,6 +169,16 @@ class Health(StrEnum):
     LINK_DOWN = "link_down"
     NO_DATA = "no_data"
     DISABLED = "disabled"
+
+
+class Disposition(StrEnum):
+    """What the driver did with one CRC-valid READING frame (for ``reading_hook``, the raw log)."""
+
+    ACCEPTED = "accepted"  # became the channel's newest reading
+    IGNORED_LINK = "ignored_link"  # the link is not ACTIVE: handshake, or the configuration drifted
+    IGNORED_CHANNEL = "ignored_channel"  # a channel the host did not enable (not fitted)
+    BAD_SENSOR = "bad_sensor"  # a sensor index beyond the configured channels
+    REFUSED_CLOCK = "refused_clock"  # out of step with the MCU clock baseline (replay, wild stamp)
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +254,39 @@ class _Channel:
 
 
 @dataclass(slots=True)
+class _RefusedRun:
+    """The readings refused since the last accepted one, read as one candidate MCU clock.
+
+    ``span_ms`` is how far the MCU clock advanced from the first refused reading to the newest
+    one that advanced it; ``off`` the lowest ``receive time - mcu time`` over the run (the best
+    case latency of that stream). Duplicates and replays do not advance it.
+    """
+
+    first_at: float  # host monotonic time of the first refused reading
+    first_raw: int  # its MCU timestamp (uint32), the origin of ``span_ms``
+    last_at: float = 0.0  # host monotonic time of the newest reading that advanced the run
+    last_raw: int = 0
+    span_ms: int = 0
+    frames: int = 1
+    off: float = 0.0
+
+    def __post_init__(self) -> None:
+        self.last_at = self.first_at
+        self.last_raw = self.first_raw
+        self.off = self.first_at - self.first_raw / 1000.0
+
+    def advance(self, raw: int, now: float) -> None:
+        step = mcu_delta(raw, self.last_raw)
+        if step <= 0:
+            return
+        self.span_ms += step
+        self.last_raw = raw
+        self.last_at = now
+        self.frames += 1
+        self.off = min(self.off, now - (self.first_raw + self.span_ms) / 1000.0)
+
+
+@dataclass(slots=True)
 class LinkStats:
     frames_rx: int = 0
     readings: int = 0
@@ -232,6 +306,7 @@ class LinkStats:
     partial_timeouts: int = 0
     readings_stale_mcu: int = 0  # readings refused: older than the MCU's newest, or a replay
     config_drifts: int = 0  # the MCU ran a configuration other than the verified one (US-06)
+    mcu_rebases: int = 0  # clock baseline rebuilt from a live stream that kept being refused
 
 
 def echo_to_cm(echo_us: float, speed_of_sound_mps: float) -> float:
@@ -247,6 +322,30 @@ def mcu_delta(new: int, ref: int) -> int:
     """Signed milliseconds from ``ref`` to ``new`` on the MCU's wrapping uint32 clock."""
     d = (new - ref) & 0xFFFFFFFF
     return d - (1 << 32) if d >= 1 << 31 else d
+
+
+def max_echo_us(cfg: UltrasonicConfig) -> int:
+    """The longest echo pulse a healthy sensor can report: the echo window the MCU was set to.
+
+    The host verified that window through the CONFIG echo, so an OK pulse wider than it never
+    happened (the shipped firmware refuses to send one); one that arrives anyway is a fault.
+    """
+    return min(MAX_SANE_ECHO_US, cfg.echo_window_ms * 1000)
+
+
+def _checked_threshold(value: Any, what: str = "obstacle_threshold_cm") -> float:
+    """A stop threshold that is a finite number above 0 cm, or ``ValueError``.
+
+    NaN compares false with everything, so a NaN threshold never reports an obstacle; 0 and
+    negatives never do either (a 27 cm echo read CLEAR), and infinity makes everything an obstacle.
+    """
+    try:
+        threshold = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{what} must be a number, got {value!r}") from None
+    if not math.isfinite(threshold) or threshold <= 0.0:
+        raise ValueError(f"{what} must be finite and above 0 cm, got {value!r}")
+    return threshold
 
 
 def evaluate_channel(
@@ -296,7 +395,7 @@ def evaluate_channel(
 
     s = ch.status
     if s is proto.EchoStatus.OK:
-        if not 0 < ch.echo_us <= MAX_SANE_ECHO_US:
+        if not 0 < ch.echo_us <= max_echo_us(cfg):
             return make(ChannelStatus.FAULT, Health.FAULT, Verdict.UNKNOWN)
         dist = round(echo_to_cm(ch.echo_us, cfg.speed_of_sound_mps), 1)
         if dist < cfg.min_range_cm:
@@ -391,7 +490,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
         super().__init__(config=cfg.model_dump())
         self.cfg = cfg
         self.channel_ids: list[str] = list(cfg.channels)
-        self.obstacle_threshold_cm = float(obstacle_threshold_cm)
+        self.obstacle_threshold_cm = _checked_threshold(obstacle_threshold_cm)
         self._serial_factory = serial_factory or open_pyserial
         self._clock = clock
         self._wall = wall_clock or (lambda: datetime.now(UTC))
@@ -422,7 +521,6 @@ class JsnSr04tMcuDriver(HardwareDriver):
         self._task: asyncio.Task[None] | None = None
         self._sim_last = -1e9
         self._sim_cycle = 0
-        self._last_ping_nonce: int | None = None
         # MCU clock bookkeeping (US-05). READING.t_ms is uint32 ms on the MCU's clock and wraps.
         # ``_mcu_top`` is the newest unwrapped t_ms accepted on this link, ``_clock_off`` the host
         # monotonic time of MCU time zero (the lowest ``receive time - t_ms`` seen, see _place).
@@ -430,13 +528,24 @@ class JsnSr04tMcuDriver(HardwareDriver):
         self._mcu_top: int | None = None
         self._clock_off: float | None = None
         self._clock_off_at = 0.0
+        # Longest spacing of two readings (one window plus one gap): the offset can only fall by
+        # about that much per reading while a backlog is drained, so more than twice it is wild.
+        frame_gap_s = (cfg.echo_window_ms + cfg.inter_sensor_gap_ms) / 1000.0
+        self._future_slack_s = max(MCU_FUTURE_SLACK_S, 2 * frame_gap_s)
+        self._rebase_s = max(MCU_REBASE_S, 2 * self._cycle_ms / 1000.0)
+        self._settled = 0  # readings the current baseline has accepted
+        self._refused: _RefusedRun | None = None  # readings refused since the last accepted one
+        # The MCU repeats INFO every MCU_INFO_PERIOD_S and the host speaks only after hearing it.
+        self._handshake_s = max(cfg.handshake_timeout_s, MCU_INFO_PERIOD_S + HANDSHAKE_MARGIN_S)
         #: True after ``stop()`` / ``close()``: ``poll()`` then never (re)opens the port, so a late
         #: caller cannot leave a port open that nobody will close. ``initialize()`` clears it.
         self._closed = False
-        #: Optional observer called with ``(proto.Reading, wall datetime)`` for every accepted
-        #: reading frame (used by ``scripts/ultrasonic_mcu_probe.py`` to log raw echo widths for
-        #: audit M-40). A raising hook is logged and ignored: it must never disturb ingestion.
-        self.reading_hook: Callable[[proto.Reading, datetime], None] | None = None
+        #: Optional observer called with ``(proto.Reading, wall datetime, Disposition)`` for EVERY
+        #: CRC-valid READING frame, also the ones the driver ignores (handshake, a channel that is
+        #: not fitted, an unknown sensor) or refuses (replay, wild timestamp): it is the raw frame
+        #: log of ``scripts/ultrasonic_mcu_probe.py`` for audit M-40. A raising hook is logged and
+        #: ignored: it must never disturb ingestion.
+        self.reading_hook: Callable[[proto.Reading, datetime, Disposition], None] | None = None
 
     # ---- lifecycle -------------------------------------------------------------------------
 
@@ -449,8 +558,19 @@ class JsnSr04tMcuDriver(HardwareDriver):
             self.link_state = LinkState.ACTIVE
             self.initialized = True
             return
+        if self.cfg.no_echo_is_clear:
+            logger.warning(
+                "ultrasonic no_echo_is_clear is ON: a silent channel reads CLEAR, and a sensor "
+                "that dies or sticks keeps reading CLEAR for up to alive_window_s=%.1f s after "
+                "its last far echo%s. Keep alive_window_s short and independent obstacle "
+                "sensing in place (audit M-40).",
+                self.cfg.alive_window_s,
+                ""
+                if self.cfg.no_echo_requires_alive
+                else " (no_echo_requires_alive is OFF: always)",
+            )
         # Bounded wait for the handshake; a missing MCU is a reported state, not an exception.
-        deadline = self._clock() + self.cfg.handshake_timeout_s
+        deadline = self._clock() + self._handshake_s
         while self._clock() < deadline:
             self.poll()
             if self.link_state in (LinkState.ACTIVE, LinkState.FAULT):
@@ -521,14 +641,16 @@ class JsnSr04tMcuDriver(HardwareDriver):
             return
         self._decoder.reset()
         self._rx_seq = None
+        self._tx_seq = 0
         self._reset_mcu_clock()
         self._boot_id = None
         self._last_rx = None
         self.info = None
         self.link_state = LinkState.HANDSHAKE
         self.link_fault = None
-        self._hs_deadline = now + self.cfg.handshake_timeout_s
-        self._send(proto.FrameType.HELLO, proto.build_hello(), now)
+        # Listen first: the MCU announces itself, and until it has (see ``_send``) nothing is
+        # written to a port that might be a console, another service's port or a wrong device.
+        self._hs_deadline = now + self._handshake_s
 
     def _read_and_dispatch(self, now: float) -> None:
         transport = self._transport
@@ -641,7 +763,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
         if self.link_state is not LinkState.HANDSHAKE:
             # Entering the handshake. A re-send while already waiting (the next INFO heartbeat)
             # must not extend the deadline, or an MCU that never acknowledges would wait forever.
-            self._hs_deadline = now + self.cfg.handshake_timeout_s
+            self._hs_deadline = now + self._handshake_s
         self.link_state = LinkState.HANDSHAKE
         self._send(proto.FrameType.CONFIG, proto.build_config(self._requested), now)
 
@@ -702,13 +824,21 @@ class JsnSr04tMcuDriver(HardwareDriver):
     def _on_reading(self, r: proto.Reading, now: float, wall: datetime) -> None:
         if self.link_state is not LinkState.ACTIVE:
             self.stats.readings_ignored += 1
-            return
-        self._ingest(r, now, wall)
+            fate = Disposition.IGNORED_LINK
+        else:
+            fate = self._ingest(r, now, wall)
+        if self.reading_hook is not None:
+            try:
+                self.reading_hook(r, wall, fate)
+            except Exception:
+                logger.exception("ultrasonic reading hook failed")
 
     def _reset_mcu_clock(self) -> None:
         """Forget the MCU clock baseline (new connection or MCU boot: its clock starts over)."""
         self._mcu_top = None
         self._clock_off = None
+        self._settled = 0
+        self._refused = None
         for ch in self._channels:
             ch.mcu_ms = None  # the same coordinate system: the last timestamps mean nothing now
 
@@ -719,12 +849,23 @@ class JsnSr04tMcuDriver(HardwareDriver):
         ``receive time - t_ms`` it has seen (its best-case latency; it creeps up by the worst
         clock drift so a slow MCU clock cannot make fresh data look old) and dates every reading
         ``t_ms`` after that: a backlog of old frames drained in one poll is as old as the MCU says,
-        not "just received". Returns None for a frame that is out of order by more than one
-        measurement cycle, or not newer than its own channel's last one (replayed, duplicated).
+        not "just received". Returns None, and changes nothing, for a frame that is out of order
+        by more than one measurement cycle, not newer than its own channel's last one (replayed,
+        duplicated), or, once the baseline has settled, ahead of it by more than the longest
+        spacing of two readings: the MCU cannot have outrun the host's clock, so such a timestamp
+        is wild (US3-01) and must not move the baseline.
 
-        Known limit: a CRC-valid but corrupted frame with a wild ``t_ms`` poisons the baseline until
-        the next reconnect or MCU boot; readings then age out (fail closed, counted in
-        ``stats.readings_stale_mcu``). The odds are about one in 65536 per corrupted READING.
+        A baseline that is itself wrong refuses a healthy stream for good (a wild first
+        timestamp, an MCU clock that restarted under the same ``boot_id``); ``_ingest`` rebuilds
+        it from the refused stream once that has kept pace with the host's clock for a while.
+
+        Known limit (US3-11): the MCU clock has no absolute reference, so the very first reading
+        of a baseline is dated "now" whatever its age. What bounds it: nothing sent before the
+        CONFIG echo is ever used (``readings_ignored``), the first readings of a baseline are
+        accepted without the "ahead of the baseline" check, so a later reading of the same stream
+        lowers the offset and re-dates the channel at once, and a backlog drained in one poll ends
+        with each channel's NEWEST frame. What is left is a stall of the host's own loop between
+        its CONFIG and its first poll, and then at most one measurement cycle per channel.
         """
         top = self._mcu_top
         u = t_ms if top is None else top + mcu_delta(t_ms, top)
@@ -732,26 +873,78 @@ class JsnSr04tMcuDriver(HardwareDriver):
             return None
         if ch.mcu_ms is not None and u <= ch.mcu_ms:
             return None
-        self._mcu_top = u if top is None else max(top, u)
         sample = now - u / 1000.0
         if self._clock_off is None:
             off = sample
         else:
-            creep = MCU_CLOCK_DRIFT * max(0.0, now - self._clock_off_at)
-            off = min(self._clock_off + creep, sample)
+            held = self._clock_off + MCU_CLOCK_DRIFT * max(0.0, now - self._clock_off_at)
+            if self._settled >= MCU_SETTLE_FRAMES and sample < held - self._future_slack_s:
+                return None
+            off = min(held, sample)
+        self._mcu_top = u if top is None else max(top, u)
         self._clock_off, self._clock_off_at = off, now
+        self._settled += 1
         ch.mcu_ms = u
         return min(now, off + u / 1000.0)
 
-    def _ingest(self, r: proto.Reading, now: float, wall: datetime) -> None:
+    def _note_refused(self, t_ms: int, now: float) -> bool:
+        """Count one refused reading; True once the refused stream proves the baseline wrong.
+
+        A wrong baseline refuses every reading of a healthy stream, for good. What tells that from
+        noise is that the refused readings are themselves a live stream: for ``_rebase_s`` they
+        kept pace with the host's clock. Duplicates and replays stand still, so they never
+        qualify, and any accepted reading ends the run.
+        """
+        run = self._refused
+        if run is None or now - run.last_at > self._rebase_s:
+            self._refused = _RefusedRun(first_at=now, first_raw=t_ms)
+            return False
+        run.advance(t_ms, now)
+        host_s = run.last_at - run.first_at
+        if host_s < self._rebase_s:
+            return False
+        mcu_s = run.span_ms / 1000.0
+        if run.frames >= MCU_REBASE_FRAMES and abs(mcu_s - host_s) <= 0.25 + 0.1 * host_s:
+            return True
+        self._refused = _RefusedRun(first_at=now, first_raw=t_ms)  # not a live stream: start over
+        return False
+
+    def _rebase_clock(self, now: float) -> None:
+        """Rebuild the clock baseline from the live stream that kept being refused."""
+        run = self._refused
+        assert run is not None
+        self.stats.mcu_rebases += 1
+        logger.warning(
+            "ultrasonic MCU clock baseline rebuilt: %d readings over %.1f s were refused although "
+            "the MCU clock kept pace with the host's (wild timestamp, or the MCU clock restarted)",
+            run.frames,
+            run.last_at - run.first_at,
+        )
+        self._reset_mcu_clock()
+        self._mcu_top = run.first_raw + run.span_ms
+        self._clock_off = run.off
+        self._clock_off_at = now
+
+    def _ingest(self, r: proto.Reading, now: float, wall: datetime) -> Disposition:
         if r.sensor >= len(self._channels):
             self.stats.bad_readings += 1
-            return
+            return Disposition.BAD_SENSOR
         ch = self._channels[r.sensor]
+        if not ch.enabled:
+            # Not fitted: nothing about this channel is ever used, so its timestamps must not be
+            # able to move the clock baseline the fitted ones are dated by.
+            self.stats.readings_ignored += 1
+            return Disposition.IGNORED_CHANNEL
         measured_at = self._place(r.t_ms, ch, now)
         if measured_at is None:
             self.stats.readings_stale_mcu += 1
-            return
+            if not self._note_refused(r.t_ms, now):
+                return Disposition.REFUSED_CLOCK
+            self._rebase_clock(now)
+            measured_at = self._place(r.t_ms, ch, now)
+            if measured_at is None:  # not newer than the run's own newest: still out of step
+                return Disposition.REFUSED_CLOCK
+        self._refused = None
         self.stats.readings += 1
         try:
             status = proto.EchoStatus(r.status)
@@ -766,24 +959,26 @@ class JsnSr04tMcuDriver(HardwareDriver):
         ch.t_ms = r.t_ms
         ch.measured_at = measured_at
         ch.measured_wall = wall - timedelta(seconds=now - measured_at)
-        if status is proto.EchoStatus.OK and 0 < r.echo_us <= MAX_SANE_ECHO_US:
+        if status is proto.EchoStatus.OK and 0 < r.echo_us <= max_echo_us(self.cfg):
             # A complete echo pulse is the only proof of life (NO_FALL is no echo: a line stuck
-            # high looks the same). Remember whether it came from something right in front.
+            # high looks the same; a pulse wider than the echo window never happened). Remember
+            # whether it came from something right in front.
             ch.pulse_at = measured_at
             near_line_cm = NEAR_ECHO_FACTOR * max(self.cfg.min_range_cm, self.obstacle_threshold_cm)
             near = echo_to_cm(r.echo_us, self.cfg.speed_of_sound_mps) < near_line_cm
             ch.near_at = measured_at if near else None
-        if self.reading_hook is not None:
-            try:
-                self.reading_hook(r, wall)
-            except Exception:
-                logger.exception("ultrasonic reading hook failed")
+        return Disposition.ACCEPTED
 
     # ---- link bookkeeping ------------------------------------------------------------------
 
     def _send(self, ftype: proto.FrameType, payload: bytes, now: float) -> bool:
         transport = self._transport
         if transport is None:
+            return False
+        if self._last_rx is None:
+            # Nothing valid has been heard on this link, so it is not known to be the MCU's data
+            # port. A binary frame contains the console control bytes Ctrl-A..D (0x01..0x04): on
+            # the MCU's REPL or the RoboHAT's port one write stops the program there (US3-02).
             return False
         frame = proto.encode_frame(ftype, self._tx_seq, payload)
         self._tx_seq = (self._tx_seq + 1) & 0xFF
@@ -797,8 +992,10 @@ class JsnSr04tMcuDriver(HardwareDriver):
         return True
 
     def ping(self, nonce: int = 0) -> bool:
-        """Diagnostic round trip request; the answer is counted in ``stats.pongs``."""
-        self._last_ping_nonce = nonce
+        """Diagnostic round trip request; the answer is counted in ``stats.pongs``.
+
+        False, and nothing written, until a valid MCU frame has been heard on this link.
+        """
         return self._send(proto.FrameType.PING, proto.build_ping(nonce), self._clock())
 
     def _set_fault(self, why: str) -> None:
@@ -888,13 +1085,21 @@ class JsnSr04tMcuDriver(HardwareDriver):
 
     def snapshot(self, threshold_cm: float | None = None) -> list[ChannelReading]:
         now = self._clock()
-        thr = self.obstacle_threshold_cm if threshold_cm is None else float(threshold_cm)
+        thr = (
+            self.obstacle_threshold_cm
+            if threshold_cm is None
+            else _checked_threshold(threshold_cm, "threshold_cm")
+        )
         link = self.link_ok(now)
         return [evaluate_channel(self.cfg, ch, now, link, thr) for ch in self._channels]
 
     def obstacle_verdict(self, threshold_cm: float | None = None) -> dict[str, Any]:
         """Aggregate over the fitted channels. OBSTACLE beats UNKNOWN beats CLEAR."""
-        thr = self.obstacle_threshold_cm if threshold_cm is None else float(threshold_cm)
+        thr = (
+            self.obstacle_threshold_cm
+            if threshold_cm is None
+            else _checked_threshold(threshold_cm, "threshold_cm")
+        )
         channels = self.snapshot(thr)
         fitted = [c for c in channels if c.verdict is not Verdict.DISABLED]
         reasons = [
