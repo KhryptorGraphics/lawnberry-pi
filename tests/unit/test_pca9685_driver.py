@@ -245,6 +245,8 @@ def _install_register_file_smbus2(monkeypatch):
             return False
 
         def write_byte_data(self, addr, reg, val):
+            if reg == 0x00:
+                val &= 0x7F  # MODE1 bit 7 RESTART: writing 1 restarts and the bit clears itself
             regs[reg] = val
 
         def write_i2c_block_data(self, addr, reg, data):
