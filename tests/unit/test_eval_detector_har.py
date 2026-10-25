@@ -8,6 +8,7 @@ so the letterbox input, the output pairing and the decode are checked end to end
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import enum
 import sys
 import types
@@ -43,7 +44,8 @@ def _heads(as_dict: bool):
     return out if as_dict else list(out.values())
 
 
-def _fake_dfc(monkeypatch, heads):
+def _fake_dfc(monkeypatch, heads, fed=None):
+    """A stand-in ``hailo_sdk_client``; every array handed to ``infer`` is appended to ``fed``."""
     calls = []
 
     class InferenceContext(enum.Enum):
@@ -62,6 +64,8 @@ def _fake_dfc(monkeypatch, heads):
 
         def infer(self, ctx, data):
             calls.append(("infer", ctx, data.dtype, data.shape))
+            if fed is not None:
+                fed.append(data)
             return heads
 
     module = types.ModuleType("hailo_sdk_client")
@@ -145,3 +149,108 @@ def test_backend_factory_passes_the_context(tmp_path):
     backend = ev._backend(args, SPEC)
 
     assert isinstance(backend, ev.HarBackend) and backend.context == "bit-exact"
+
+
+def _gradient_image() -> np.ndarray:
+    """640x640 RGB with a different value in every pixel/channel position (catches any reorder)."""
+    return (np.arange(640 * 640 * 3) % 251).astype(np.uint8).reshape(640, 640, 3)
+
+
+def test_har_backend_feeds_raw_0_to_255_pixels_in_nhwc(monkeypatch, tmp_path):
+    # The runner gets the letterbox output as float32, NOT divided by 255: the zoo's model script
+    # normalizes inside the network (the HEF's uint8 input path relies on the same layer), so a
+    # /255 here would feed the emulated network a dark image and every recall would drop.
+    # [UNVERIFIED against a real HAR: needs the DFC env; see the audit, TOOL-06.]
+    fed: list[np.ndarray] = []
+    _fake_dfc(monkeypatch, _heads(False), fed)
+    image = _gradient_image()
+
+    async def go():
+        async with ev.HarBackend(tmp_path / "m.har", SPEC) as be:
+            await be.predict(image)
+
+    asyncio.run(go())
+
+    [data] = fed
+    assert data.dtype == np.float32 and data.shape == (1, 640, 640, 3)
+    np.testing.assert_array_equal(data, image[np.newaxis].astype(np.float32))
+    assert data.max() > 200  # i.e. still 0..255 pixels, not 0..1
+
+
+def test_onnx_backend_feeds_nchw_pixels_scaled_to_0_1(monkeypatch, tmp_path):
+    # The other side of "directly comparable": ONNX takes NCHW floats in 0..1 while the HAR and
+    # the HEF take 0..255 NHWC. Pinned so a change to either side is deliberate.
+    fed: dict[str, np.ndarray] = {}
+
+    class Session:
+        def __init__(self, path, providers):
+            assert providers == ["CPUExecutionProvider"]
+
+        def get_inputs(self):
+            return [types.SimpleNamespace(name="images")]
+
+        def run(self, outputs, feed):
+            fed.update(feed)
+            return [np.zeros((1, 3, 6), np.float32)]
+
+    fake = types.ModuleType("onnxruntime")
+    fake.InferenceSession = Session
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake)
+    image = _gradient_image()
+
+    async def go():
+        async with ev.OnnxBackend(tmp_path / "m.onnx", SPEC) as be:
+            return await be.predict(image)
+
+    dets, _ = asyncio.run(go())
+
+    x = fed["images"]
+    assert dets == [] and x.dtype == np.float32 and x.shape == (1, 3, 640, 640)
+    np.testing.assert_allclose(x, image.transpose(2, 0, 1)[np.newaxis] / 255.0, rtol=1e-6)
+
+
+def test_onnx_output_with_a_class_id_the_spec_does_not_have_is_a_setup_error(monkeypatch, tmp_path):
+    # A stale spec with fewer names than the model has classes: an IndexError traceback exits 1,
+    # which a script reads as "the model failed the gate".
+    class Session:
+        def __init__(self, path, providers):
+            pass
+
+        def get_inputs(self):
+            return [types.SimpleNamespace(name="images")]
+
+        def run(self, outputs, feed):
+            return [np.array([[[10, 10, 50, 50, 0.9, 30]]], np.float32)]  # class 30 of 24
+
+    fake = types.ModuleType("onnxruntime")
+    fake.InferenceSession = Session
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake)
+
+    async def go():
+        async with ev.OnnxBackend(tmp_path / "m.onnx", SPEC) as be:
+            await be.predict(_gradient_image())
+
+    with pytest.raises(ev.SetupError, match="class id 30 but the spec has 24 classes"):
+        asyncio.run(go())
+
+
+def test_a_model_whose_heads_do_not_fit_the_spec_exits_2_not_1(monkeypatch, tmp_path, capsys):
+    # decode_yolo26 raises ValueError for head tensors that cannot be paired with the class count.
+    _fake_dfc(monkeypatch, _heads(False))
+    images, labels = tmp_path / "images", tmp_path / "labels"
+    images.mkdir()
+    labels.mkdir()
+    (images / "a.jpg").write_bytes(b"x")
+    (labels / "a.txt").write_text("")
+    (tmp_path / "m.har").write_bytes(b"har")
+    short = dataclasses.replace(SPEC, class_names=tuple(NAMES[:10]))  # 10 names, 24-class heads
+    monkeypatch.setattr(ev, "_load_spec", lambda a: short)
+    monkeypatch.setattr(ev, "_read_rgb", lambda p: np.zeros((640, 640, 3), dtype=np.uint8))
+
+    rc = ev.main(
+        ["--backend", "har", "--model", str(tmp_path / "m.har"), "--spec", "s.json"]
+        + ["--images", str(images), "--labels", str(labels), "--out", str(tmp_path / "r.json")]
+    )
+
+    assert rc == 2
+    assert "the model output does not fit the spec" in capsys.readouterr().err

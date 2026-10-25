@@ -332,7 +332,7 @@ an `nvcr.io` credential in `~/.docker/config.json`, so re-pulling the 17.6 GB im
 | `$LB/data/hailo/compiled` | `yolo26s_smoke.hef` + sidecar (opt level 2; failed its on-device gate on 2026-10-13) |
 | `$LB/data/captures`, `$LB/data/datasets` | **empty** — no real imagery has been collected |
 | `workshop.autolabel` | deps present in `$LB/env` (`transformers==4.57.1`, imagehash, PIL); MM-Grounding-DINO weights are **not** cached; huggingface.co reachable from the box |
-| `workshop.train_detector` | requires `--real` for a valid validation split; `--smoke-sdg-val` is documented as "metrics are NOT a recall gate" |
+| `workshop.train_detector` | requires `--real` for a valid validation split; `--smoke-sdg-val` is documented as "metrics are NOT a recall gate", and the run manifest agrees: its `gate.status` is `passed` / `failed` / `not_evaluated`, and a smoke split, a failed per-class extraction or a tier-1 class without validation samples is `not_evaluated`, never a pass (`gate_failures: []` is gone; manifest schema `train-v2`) |
 | `$LB/repo` | a 32 MB snapshot dated 2026-10-13, **not a git checkout** (no `.git`) |
 
 ## Workshop `$LB/env` re-verified on the P100 (2026-10-24)

@@ -83,6 +83,42 @@ def test_a_missing_ina3221_channel_name_fails_its_step(tmp_path, name):
     assert _failing_steps(tmp_path, _remove(SPEC_TEXT, name)) == {INA_STEP}
 
 
+def _rename(text: str, channel: str, old: str, new: str) -> str:
+    """Change the ``name:`` that follows ``channel:`` in the INA3221 block of the spec."""
+    pattern = rf'({channel}:\s*\n\s*name: ")({re.escape(old)})'
+    assert re.search(pattern, text), f"{channel} no longer carries {old!r}"
+    return re.sub(pattern, rf"\g<1>{new}", text, count=1)
+
+
+def test_swapping_which_channel_is_battery_and_solar_fails_its_step(tmp_path):
+    # The step only checked that `channel_N` and the words appeared somewhere in the file, so a
+    # spec with ch1 = Solar and ch3 = Battery passed (audit review PR #20, mutant G3).
+    swapped = _rename(SPEC_TEXT, "channel_1", "Battery", "Solar Input")
+    swapped = _rename(swapped, "channel_3", "Solar Input", "Battery")
+
+    assert _failing_steps(tmp_path, swapped) == {INA_STEP}
+
+
+@pytest.mark.parametrize(
+    "channel, old, new",
+    [
+        ("channel_1", "Battery", "Unused"),
+        ("channel_2", "Unused", "Battery"),
+        ("channel_3", "Solar Input", "Unused"),
+    ],
+)
+def test_a_channel_carrying_another_channels_name_fails_its_step(tmp_path, channel, old, new):
+    # `Battery` etc. are still present elsewhere in the file; only the pairing is wrong.
+    assert _failing_steps(tmp_path, _rename(SPEC_TEXT, channel, old, new)) == {INA_STEP}
+
+
+def test_the_ina3221_pairing_is_read_from_the_line_after_its_key(tmp_path):
+    # The key and the word may not be satisfied by two unrelated places in the file.
+    moved = SPEC_TEXT.replace("channel_2:", "channel_9:") + "\n# channel_2:\n# Unused\n"
+
+    assert _failing_steps(tmp_path, moved) == {INA_STEP}
+
+
 @pytest.mark.parametrize(
     "term",
     [

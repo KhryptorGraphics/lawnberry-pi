@@ -4,7 +4,10 @@
 # (scripts/eval_detector.py --backend hef, scripts/pi_detector_ctl.py).
 #
 #   scripts/hailo_compile.sh --tag smoke [--calib DIR] [--gpu N] [--opt-level N] [--dry-run]
-#     --calib      calibration images (>= 1024, the zoo alls calibset_size); default SDG v1
+#     --calib      calibration images, at least 1024 (the zoo alls calibset_size; the zoo reads
+#                  only the first 1024 files in sorted order); default SDG v1. Build a folder from
+#                  several datasets with `python -m workshop.make_calib`: its calib_manifest.json
+#                  is checked here (files on disk = manifest, every source in the first 1024)
 #     --gpu        CUDA_VISIBLE_DEVICES under PCI_BUS_ID order (0 P100, 1 3080 Ti, 2 V100);
 #                  "" compiles on CPU (much slower)
 #     --opt-level  override the zoo alls (optimization_level=4 + adaround, 116 adaround
@@ -83,6 +86,23 @@ if [[ -d $CALIB ]]; then
   echo "[compile] calibration images: $n_calib in $CALIB"
   if (( n_calib < MIN_CALIB )); then
     if [[ $DRY -eq 1 ]]; then warn "need >= $MIN_CALIB calibration images"; else fatal "need >= $MIN_CALIB calibration images, found $n_calib"; fi
+  fi
+  # The zoo's ImageFeed lists the folder sorted and keeps the first MIN_CALIB (calibset_size)
+  # files: whatever sorts after them is never seen. A make_calib folder names its files so that
+  # prefix holds every source; check that it still does (and that nobody added or removed
+  # files). A folder without a manifest cannot be vouched for.
+  CALIB_PY="$LB/env/bin/python"
+  [[ -x $CALIB_PY ]] || CALIB_PY="$(command -v python3 || true)"
+  if [[ -f $CALIB/calib_manifest.json ]]; then
+    if calib_report="$(cd "$REPO" && "$CALIB_PY" -m workshop.make_calib --verify "$CALIB" --calibset-size "$MIN_CALIB" 2>&1)"; then
+      echo "[compile] $calib_report"
+    elif [[ $DRY -eq 1 ]]; then
+      warn "calibration folder: $calib_report"
+    else
+      fatal "calibration folder: $calib_report"
+    fi
+  elif (( n_calib > MIN_CALIB )); then
+    warn "the zoo calibrates on the first $MIN_CALIB of the $n_calib sorted files in $CALIB and ignores the rest; if that folder joins several datasets, build it with 'python -m workshop.make_calib'"
   fi
 fi
 

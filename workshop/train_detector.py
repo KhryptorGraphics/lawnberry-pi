@@ -15,6 +15,16 @@ imagery.
 Writes ``$LB/data/models/yolo26s_<tag>/``: ``dataset/data.yaml``, weights,
 ``best.onnx`` (opset 17, simplified, end2end for the Hailo zoo yolo26 parser),
 and ``run_manifest.json`` (split assignment counts + per-class recall vs gates).
+
+The manifest's ``gate`` block is a tri-state, because an empty list of failures proves nothing
+when nothing was measured: ``status`` is ``passed`` only when every tier-1 class has validation
+samples, none is below its tier's gate and the validation set is real imagery; ``failed`` when a
+class is below its gate; ``not_evaluated`` otherwise (per-class extraction failed, a tier-1 class
+has no validation sample, or ``--smoke-sdg-val`` made the validation set synthetic). ``reasons``
+says which, ``failures`` names the classes below their gate and ``classes_without_samples`` the
+ones nothing was measured for. The recall here is Ultralytics' value at the F1-maximising
+confidence on the float model: ``scripts/eval_detector.py --gate`` on the compiled model is the
+decision, and it refuses thin evidence too.
 """
 
 from __future__ import annotations
@@ -22,8 +32,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 
 from workshop.classes import CLASSES, NAMES, RECALL_GATE
@@ -151,6 +163,50 @@ def per_class_metrics(box, names: dict[int, str] | list[str]) -> dict[str, dict]
     return out
 
 
+def evaluate_gate(
+    per_class: Mapping[str, Mapping], per_class_error: str | None, *, smoke_sdg_val: bool
+) -> dict:
+    """The manifest's ``gate`` block: ``passed`` / ``failed`` / ``not_evaluated`` and why.
+
+    A class counts as measured only when its recall is a finite number (the extraction leaves a
+    class out, or reports no recall, when the validation set has no sample of it). A class below
+    its tier's gate makes the status ``failed`` whatever else is missing: a measured failure is
+    not hidden by coverage gaps. Without one, anything that stops the numbers from being a
+    verdict (a failed extraction, a tier-1 class nobody measured, a synthetic validation set)
+    makes it ``not_evaluated``; only a clean run is ``passed``.
+    """
+    failures, without = [], []
+    for c in CLASSES:
+        recall = (per_class.get(c.name) or {}).get("recall")
+        if not isinstance(recall, int | float) or not math.isfinite(recall):
+            without.append(c.name)
+        elif recall < RECALL_GATE[c.tier]:
+            failures.append(c.name)
+    reasons = []
+    for name in failures:
+        c = next(c for c in CLASSES if c.name == name)
+        reasons.append(
+            f"{name} (tier {c.tier}) recall {per_class[name]['recall']:.3f} < {RECALL_GATE[c.tier]}"
+        )
+    blockers = []
+    if per_class_error:
+        blockers.append(f"per-class extraction failed: {per_class_error}")
+    tier1_missing = [c.name for c in CLASSES if c.tier == 1 and c.name in without]
+    if tier1_missing:
+        blockers.append(f"tier-1 classes without validation samples: {', '.join(tier1_missing)}")
+    if smoke_sdg_val:
+        blockers.append(
+            "the validation set is synthetic (--smoke-sdg-val): a recipe check, not a recall gate"
+        )
+    status = "failed" if failures else ("not_evaluated" if blockers else "passed")
+    return {
+        "status": status,
+        "reasons": reasons + blockers,
+        "failures": failures,
+        "classes_without_samples": without,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -238,25 +294,24 @@ def main() -> None:
         per_class_error = f"{type(exc).__name__}: {exc}"
         print(f"WARNING: per-class extraction failed: {per_class_error}")
 
+    gate = evaluate_gate(per_class, per_class_error, smoke_sdg_val=sdg_split)
     print(f"{'class':16} {'tier':4} {'recall':7} {'gate':6} verdict")
-    failures = []
     for c in CLASSES:
-        m = per_class.get(c.name)
-        if m is None or m.get("recall") is None:
+        if c.name in gate["classes_without_samples"]:
             print(f"{c.name:16} {c.tier:<4} {'-':7} {RECALL_GATE[c.tier]:<6} no samples")
             continue
-        ok = m["recall"] >= RECALL_GATE[c.tier]
-        if not ok:
-            failures.append(c.name)
+        recall = per_class[c.name]["recall"]
+        ok = c.name not in gate["failures"]
         print(
-            f"{c.name:16} {c.tier:<4} {m['recall']:<7.3f} {RECALL_GATE[c.tier]:<6} "
+            f"{c.name:16} {c.tier:<4} {recall:<7.3f} {RECALL_GATE[c.tier]:<6} "
             f"{'PASS' if ok else 'BELOW GATE'}"
         )
+    print(f"gate: {gate['status']}" + "".join(f"\n  - {r}" for r in gate["reasons"]))
 
     onnx_path = export_hailo_onnx(best, device=a.device)
 
     manifest = {
-        "schema": "train-v1",
+        "schema": "train-v2",
         "tag": a.tag,
         "base_weights": str(weights),
         "datasets": stats,
@@ -273,7 +328,7 @@ def main() -> None:
         "smoke_sdg_val": sdg_split,
         "per_class_val": per_class,
         "per_class_val_error": per_class_error,
-        "gate_failures": failures,
+        "gate": gate,
         "onnx": str(onnx_path),
         "onnx_opset": 17,
         "onnx_end2end": True,

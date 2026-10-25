@@ -12,8 +12,14 @@ numbers its frames from ``000000``; files are hardlinked when the filesystem all
 Shards are only merged when their manifests agree on everything that changes what an image
 means (renderer, resolution, label mode, asset config, class order), when each image has a
 label file, and when the manifest's per-class instance counts equal what is on disk, which also
-catches a shard that was killed mid-run. The merged ``manifest.json`` sums the counters and keeps
-each shard's manifest under ``shards``.
+catches a shard that was killed mid-run. The same shard given twice (however its path is
+spelled) or two shards rendered with one seed would put every frame in the set twice, so both
+are refused. A ``--labels both`` shard carries a second label set in ``labels_idpass/`` (and
+``--save-id`` the ID-pass images in ``idpass/``): they are merged under the same ``sh<k>_``
+names, and the manifest must agree that the directory should exist. Anything else found in a
+shard directory is not merged; it is named on stderr and under ``not_merged`` in the merged
+manifest. The merged ``manifest.json`` sums the counters and keeps each shard's manifest under
+``shards``.
 """
 
 from __future__ import annotations
@@ -23,11 +29,14 @@ import json
 import shutil
 import sys
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 from workshop.classes import NAMES
 
 IMG_EXTS = (".jpg", ".jpeg", ".png")
+# What ``isaac_sdg.py`` writes into ``--out``; anything else in a shard is reported, not merged.
+SHARD_ENTRIES = ("images", "labels", "rejected", "labels_idpass", "idpass", "manifest.json")
 # Manifest fields that must be identical in every shard.
 SAME_ACROSS_SHARDS = (
     "stage",
@@ -71,8 +80,16 @@ def _label_counts(labels: list[Path]) -> Counter[int]:
     return counts
 
 
-def _check_shard(shard: Path, manifest: dict) -> tuple[list[Path], list[Path]]:
-    """Return (images, labels) of one shard after verifying it against its manifest."""
+@dataclass
+class ShardFiles:
+    images: list[Path]
+    labels: list[Path]
+    id_labels: list[Path]  # labels_idpass/*.txt of a ``--labels both`` shard
+    extras: list[str]  # shard entries this module does not know and so does not merge
+
+
+def _check_shard(shard: Path, manifest: dict) -> ShardFiles:
+    """Return the files of one shard after verifying them against its manifest."""
     if manifest.get("classes") != list(NAMES):
         raise SystemExit(f"{shard}: manifest class order differs from workshop.classes.NAMES")
     images = sorted(p for p in (shard / "images").glob("*") if p.suffix.lower() in IMG_EXTS)
@@ -90,7 +107,38 @@ def _check_shard(shard: Path, manifest: dict) -> tuple[list[Path], list[Path]]:
             f"{shard}: manifest instance_counts {declared} != label files {found} "
             "(shard killed mid-run or edited)"
         )
-    return images, labels
+    both = manifest.get("labels") == "both"
+    has_second_set = (shard / "labels_idpass").is_dir()
+    if both != has_second_set:
+        raise SystemExit(
+            f"{shard}: manifest labels is {manifest.get('labels')!r} but "
+            f"labels_idpass/ {'exists' if has_second_set else 'is missing'}"
+        )
+    id_labels = sorted((shard / "labels_idpass").glob("*.txt")) if both else []
+    stems = {img.stem for img in images}
+    stray = [p.name for p in id_labels if p.stem not in stems]
+    if stray:
+        raise SystemExit(f"{shard}: labels_idpass/ has labels without an image: {stray[:3]}")
+    extras = sorted(p.name for p in shard.iterdir() if p.name not in SHARD_ENTRIES)
+    return ShardFiles(images, labels, id_labels, extras)
+
+
+def _check_distinct(shards: list[Path], manifests: list[dict]) -> None:
+    """The same shard twice, or two shards rendered with one seed, would double every frame."""
+    resolved = Counter(s.resolve() for s in shards)
+    twice = sorted(str(p) for p, n in resolved.items() if n > 1)
+    if twice:
+        raise SystemExit(f"the same shard is given more than once: {', '.join(twice)}")
+    for shard, m in zip(shards, manifests, strict=True):
+        if "seed" not in m:
+            raise SystemExit(f"{shard}: manifest has no seed")
+    seeds = Counter(m["seed"] for m in manifests)
+    same = sorted(str(seed) for seed, n in seeds.items() if n > 1)
+    if same:
+        raise SystemExit(
+            f"shards share a seed ({', '.join(same)}): they were rendered with the same "
+            "random stream and would hold the same frames"
+        )
 
 
 def merge(out: Path, shards: list[Path], *, link: bool = True) -> dict:
@@ -99,21 +147,27 @@ def merge(out: Path, shards: list[Path], *, link: bool = True) -> dict:
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"{out} exists and is not empty")
     manifests = [_shard_manifest(s) for s in shards]
+    _check_distinct(shards, manifests)
     for key in SAME_ACROSS_SHARDS:
         values = {json.dumps(m.get(key), sort_keys=True) for m in manifests}
         if len(values) != 1:
             raise SystemExit(f"shards disagree on {key!r}: {sorted(values)}")
     checked = [_check_shard(s, m) for s, m in zip(shards, manifests, strict=True)]
 
-    for sub in ("images", "labels", "rejected"):
+    subdirs = ["images", "labels", "rejected"]
+    for sub in ("labels_idpass", "idpass"):
+        if any((s / sub).is_dir() for s in shards):
+            subdirs.append(sub)
+    for sub in subdirs:
         (out / sub).mkdir(parents=True, exist_ok=True)
-    for k, (shard, (images, labels)) in enumerate(zip(shards, checked, strict=True)):
-        for src in [*images, *labels]:
+    for k, (shard, files) in enumerate(zip(shards, checked, strict=True)):
+        for src in [*files.images, *files.labels]:
             sub = "images" if src.suffix.lower() in IMG_EXTS else "labels"
             _place(src, out / sub / f"sh{k}_{src.name}", link)
-        rejected = shard / "rejected"
-        for src in sorted(rejected.glob("*")) if rejected.is_dir() else []:
-            _place(src, out / "rejected" / f"sh{k}_{src.name}", link)
+        for sub in ("rejected", "labels_idpass", "idpass"):
+            if (shard / sub).is_dir():
+                for src in sorted((shard / sub).glob("*")):
+                    _place(src, out / sub / f"sh{k}_{src.name}", link)
 
     merged = {key: manifests[0].get(key) for key in SAME_ACROSS_SHARDS}
     merged["stage"] = f"{manifests[0]['stage']}+merge_sdg"
@@ -121,7 +175,7 @@ def merge(out: Path, shards: list[Path], *, link: bool = True) -> dict:
     merged["seeds"] = [m["seed"] for m in manifests]
     for key in SUMMED:
         merged[key] = sum(m[key] for m in manifests)
-    merged["images"] = sum(len(images) for images, _ in checked)
+    merged["images"] = sum(len(files.images) for files in checked)
     merged["instance_counts"] = {
         n: sum(m["instance_counts"].get(n, 0) for m in manifests) for n in NAMES
     }
@@ -131,9 +185,13 @@ def merge(out: Path, shards: list[Path], *, link: bool = True) -> dict:
     merged["asset_sources_note"] = "sum over shards; a file used by n shards counts n times"
     merged["seconds"] = max(m["seconds"] for m in manifests)
     merged["seconds_note"] = "wall clock of the slowest shard (shards ran concurrently)"
+    merged["subdirs"] = subdirs
+    merged["not_merged"] = {
+        str(s): f.extras for s, f in zip(shards, checked, strict=True) if f.extras
+    }
     merged["shards"] = [
-        {"dir": str(s), "images": len(images), **m}
-        for s, (images, _), m in zip(shards, checked, manifests, strict=True)
+        {"dir": str(s), "images": len(files.images), **m}
+        for s, files, m in zip(shards, checked, manifests, strict=True)
     ]
     (out / "manifest.json").write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return merged
@@ -155,6 +213,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     if missing:
         print(f"WARNING: zero instances of: {', '.join(missing)}", file=sys.stderr)
+    for shard, extras in merged["not_merged"].items():
+        print(
+            f"WARNING: {shard}: not merged (not written by isaac_sdg.py): {', '.join(extras)}",
+            file=sys.stderr,
+        )
     return 0
 
 
