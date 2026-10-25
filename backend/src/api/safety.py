@@ -134,11 +134,16 @@ async def clear_emergency_stop(payload: EmergencyClearRequest, request: Request)
     # release; its own latch of _safety_state is already back in place).
     superseded = "an emergency stop started while the clear was running"
 
-    # Release the IBT-4 blade latch (the blade stays off until explicitly re-enabled)
+    # Release the IBT-4 blade latch (the blade stays off until explicitly re-enabled). The service
+    # releases it only over a CONFIRMED off; when it could not confirm, the latch stays and is
+    # reported below instead of being answered as cleared (audit BL-04).
     try:
         await blade_service.clear_emergency()
     except Exception:
         logger.warning("Blade service E-stop latch release failed", exc_info=True)
+    if blade_service.emergency_latched:
+        reason = getattr(blade_service, "clear_refusal", None) or "IBT-4 OFF not confirmed"
+        still_latched.append(f"blade_service_latched: {reason}")
 
     if ess.stop_epoch() != epoch or ess.stop_in_flight():
         return _clear_refused(request, payload, superseded)

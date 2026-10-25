@@ -17,15 +17,23 @@ from typing import Any
 GPIOCHIP_ENV = "LAWNBERRY_GPIOCHIP"
 
 
-def open_gpiochip(lgpio: Any) -> int:
+def open_gpiochip(lgpio: Any, *, fallback: bool = True) -> int:
     """Open the usable GPIO bank via lgpio, returning its handle.
 
     Probes candidate chip numbers (Pi 5 chip 4 first, then chip 0) so the same
     code works across Pi models and udev layouts. Raises the last error if none
     open, matching lgpio.gpiochip_open() semantics for callers that catch it.
+
+    ``fallback=False`` probes ONLY the first candidate (chip 4 by default, or the first entry
+    of ``LAWNBERRY_GPIOCHIP``). For an output whose "confirmed" state is a safety statement
+    (the IBT-4 blade inputs) a silent fall back to another bank would read back the lines of
+    the WRONG chip and report them as the header pins; a Pi 4 then needs an explicit
+    ``LAWNBERRY_GPIOCHIP=0``.
     """
     override = os.environ.get(GPIOCHIP_ENV)
     chips = [int(c) for c in override.split(",") if c.strip()] if override else [4, 0]
+    if not fallback:
+        chips = chips[:1]
     last_err: Exception = RuntimeError("no gpiochip candidates")
     for chip in chips:
         try:

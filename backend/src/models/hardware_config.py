@@ -107,12 +107,26 @@ class Ibt4Pins(BaseModel):
 class Ibt4Levels(BaseModel):
     """Logic level each IBT-4 input is driven to when the blade is ON (OFF is all inputs low).
 
+    Exactly ONE input must be high: (0, 0) equals OFF and (1, 1) is the brake state of the usual
+    half-bridge input scheme, so neither can mean "blade on". OFF (both low) lets the blade
+    COAST down on such a bridge; whether a brake is needed is an owner decision.
+
     UNVERIFIED: the IBT-4 truth table (which input must be high for the blade direction, whether
     PWM or an enable line is needed) has not been read from the fitted board or measured.
     """
 
     in1: Literal[0, 1] = 1
     in2: Literal[0, 1] = 0
+
+    @model_validator(mode="after")
+    def _exactly_one_high(self):
+        if self.in1 == self.in2:
+            raise ValueError(
+                f"ibt4.on_levels in1={self.in1}, in2={self.in2}: exactly one input must be high "
+                "(both low is the OFF state, both high is the brake state of a half-bridge; "
+                "the fitted board's truth table is unmeasured)"
+            )
+        return self
 
 
 class Ibt4Config(BaseModel):
@@ -122,11 +136,23 @@ class Ibt4Config(BaseModel):
     ``False``: the driver is then a flag-only stub and the E-stop reports the blade output as
     ``unconfirmed``. Turn it on only after the pins are approved (O-5) and the truth table and the
     pin state at process exit are measured. Nothing here has been run on hardware.
+
+    ``deadman_ms`` is the blade ON deadman: a blade ON command holds the blade on for this long,
+    and the blade is switched OFF (confirmed by readback) unless the command is repeated before
+    it expires. A dead client, a lost connection or a stopped operator UI therefore cannot leave
+    the blade running; a client that wants it to keep running re-sends ON about every
+    ``deadman_ms / 3``.
     """
 
     gpio_enabled: bool = Field(default=False)
     pins: Ibt4Pins = Field(default_factory=Ibt4Pins)
     on_levels: Ibt4Levels = Field(default_factory=Ibt4Levels)
+    deadman_ms: int = Field(
+        default=2000,
+        ge=200,
+        le=10_000,
+        description="Blade ON lasts this long unless repeated; then it is driven OFF",
+    )
 
     @model_validator(mode="after")
     def _distinct_pins(self):

@@ -220,5 +220,9 @@ async def test_ibt4_health_check_reports_the_gate_and_confirmation_state(monkeyp
         "hardware_backed": False,
         "gpio_enabled": False,
         "state_confirmed": True,
+        # A flag-only stub has no pad to read: nothing is observed, and the dict says so.
+        "observed": "unobservable",
+        "pad": None,
+        "observe_error": None,
         "last_error": None,
     }

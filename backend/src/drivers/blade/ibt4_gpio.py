@@ -24,6 +24,7 @@ adapter interface that can be stubbed.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from ...core.simulation import is_simulation_mode
@@ -50,6 +51,8 @@ class _GPIOAdapter:
     """
 
     hardware_backed = False
+    #: True for an adapter that drives real GPIO once it is set up (the lgpio adapter).
+    real_hardware = False
 
     def __init__(self, in1: int, in2: int):
         self.in1 = in1
@@ -68,9 +71,33 @@ class _GPIOAdapter:
     def is_active(self) -> bool:
         return self._active
 
+    @property
+    def on_pins(self) -> tuple[int, int]:
+        """The (IN1, IN2) levels of the ON state; meaningful only for a real adapter."""
+        return (1, 0)
+
+    def read_pins(self) -> tuple[int, int] | None:
+        """The pad levels read right now, or ``None``: a flag-only adapter cannot observe any."""
+        return None
+
     def cleanup(self) -> None:
         self._initialized = False
         self._active = False
+
+
+@dataclass(frozen=True, slots=True)
+class PadObservation:
+    """What the IBT-4 inputs read RIGHT NOW (never a cached command).
+
+    ``state`` is ``off`` (both low), ``on`` (the ON levels), ``mixed`` (anything else, e.g. one
+    pad forced by something else), ``unobservable`` (flag-only adapter, or the lines are not
+    claimed) or ``error`` (a readback failed): only ``off`` is a statement that the blade
+    inputs are low.
+    """
+
+    state: str
+    pins: tuple[int, int] | None
+    error: str | None = None
 
 
 class IBT4BladeDriver(HardwareDriver):
@@ -95,7 +122,10 @@ class IBT4BladeDriver(HardwareDriver):
         self.gpio_enabled = self.config.get("gpio_enabled") is True
         # Last failure text, cleared by the next confirmed success (health_check()/E-stop report).
         self.last_error: str | None = None
+        # The last CONFIRMED state, and the state the last command ASKED for (they differ after
+        # a failed write): the readback is compared with the latter.
         self._blade_active = False
+        self._intended_on = False
         self._estop_latched = False
         # False once a command could not be confirmed: the output state is then UNKNOWN.
         self._state_confirmed = True
@@ -121,6 +151,15 @@ class IBT4BladeDriver(HardwareDriver):
         return bool(getattr(self._gpio, "hardware_backed", False))
 
     @property
+    def drives_hardware(self) -> bool:
+        """Is the adapter a real GPIO one (whether or not it has been set up yet)?
+
+        An armed driver whose setup failed, or that was stopped, is still ``drives_hardware``:
+        the blade inputs belong to the machine, so its state is UNKNOWN there, not "off".
+        """
+        return bool(getattr(self._gpio, "real_hardware", False))
+
+    @property
     def estop_latched(self) -> bool:
         return self._estop_latched
 
@@ -128,6 +167,23 @@ class IBT4BladeDriver(HardwareDriver):
     def state_confirmed(self) -> bool:
         """Was the last blade command applied AND confirmed? False => the blade may be ON."""
         return self._state_confirmed
+
+    def observe(self) -> PadObservation:
+        """Read the blade inputs now (see ``PadObservation``); never raises, never writes."""
+        if not (self.initialized and self.hardware_backed):
+            return PadObservation("unobservable", None)
+        try:
+            pins = self._gpio.read_pins()
+        except Exception as exc:
+            return PadObservation("error", None, f"{type(exc).__name__}: {exc}")
+        if pins is None:
+            return PadObservation("unobservable", None)
+        pins = (int(pins[0]), int(pins[1]))
+        if pins == (0, 0):
+            return PadObservation("off", pins)
+        if pins == tuple(self._gpio.on_pins):
+            return PadObservation("on", pins)
+        return PadObservation("mixed", pins)
 
     async def initialize(self) -> None:
         if self.initialized:
@@ -154,44 +210,93 @@ class IBT4BladeDriver(HardwareDriver):
         self.running = True
 
     async def stop(self) -> None:
-        """Drive the blade OFF, release the GPIO lines and stop. Never raises."""
+        """Drive the blade OFF, release the GPIO lines and stop. Never raises.
+
+        After the lines are released the pad state is UNKNOWN (it may float or revert to a
+        default pull, audit M-26), so a real adapter leaves ``state_confirmed`` False.
+        """
         if self.initialized:
             self._apply(False)
         try:
             self._gpio.cleanup()
         except Exception as e:
             logger.error("IBT-4 GPIO cleanup failed: %s", e)
+        if self.drives_hardware:
+            self._state_confirmed = False
         self.running = False
         self.initialized = False
 
     async def health_check(self) -> dict[str, Any]:
+        """The blade output as it reads NOW, not as it was last commanded.
+
+        With a real adapter the inputs are read back on every call (``observed``, ``pad``): a
+        pad forced high by something else shows ``active`` True and ``state_confirmed`` False
+        although no command was issued. ``active`` is conservative: it is False only when the
+        inputs were READ low (or, for the flag-only stub, nothing was ever turned on); a failed
+        readback, an uninitialised real adapter and an unconfirmed command all read as "may be
+        on". ``state_confirmed`` is True only when what was observed equals what was commanded.
+        """
+        obs = self.observe()
+        if obs.state in ("off", "on", "mixed"):
+            active = obs.state != "off"
+            state_confirmed = obs.state == ("on" if self._intended_on else "off")
+        elif self.drives_hardware:
+            # Lines unclaimed (setup failed, never initialised, released) or unreadable: unknown.
+            active, state_confirmed = True, False
+        else:
+            # Flag-only stub: there is nothing to read, only the last command to report.
+            active = self._blade_active or not self._state_confirmed
+            state_confirmed = self._state_confirmed
         return {
             "driver": "ibt4",
             "initialized": self.initialized,
             "running": self.running,
-            # Conservative: after a command that was not confirmed the blade MAY be on.
-            "active": self._blade_active or not self._state_confirmed,
+            "active": active,
             "pins": {"in1": self.in1, "in2": self.in2},
             "estop_latched": self._estop_latched,
             "hardware_backed": self.hardware_backed,
             "gpio_enabled": self.gpio_enabled,
-            "state_confirmed": self._state_confirmed,
+            "state_confirmed": state_confirmed,
+            "observed": obs.state,
+            "pad": None if obs.pins is None else {"in1": obs.pins[0], "in2": obs.pins[1]},
+            "observe_error": obs.error,
             "last_error": self.last_error,
         }
 
     async def set_estop(self, active: bool) -> bool:
         """Set/clear the E-stop latch; setting it also drives the blade OFF.
 
-        Returns the result of the OFF write when latching (True only if it was confirmed),
-        and True when releasing the latch. The latch is set whether or not the write works.
+        Latching returns the result of the OFF write (True only if it was confirmed); the latch
+        is set whether or not the write works. Releasing returns True only when the latch was
+        released, and that needs a CONFIRMED OFF: the inputs are driven low once more and read
+        back, so a clear can never reopen the blade path over an output that was never seen
+        off (audit BL-04). An armed driver whose lines are not claimed cannot confirm anything,
+        so its latch stays (``last_error`` says why); the service claims the lines first.
         """
-        self._estop_latched = bool(active)
         if active:
+            self.latch_estop()
             return await self.set_active(False)
+        if self.initialized:
+            if not self._apply(False):
+                return False
+        elif self.drives_hardware:
+            self.last_error = (
+                "IBT-4 lines are not claimed: the blade OFF cannot be confirmed, E-stop latch kept"
+            )
+            return False
+        self._estop_latched = False
         return True
 
+    def latch_estop(self) -> None:
+        """Set the E-stop latch (synchronous, no hardware access): ON is refused until cleared."""
+        self._estop_latched = True
+
     async def set_active(self, active: bool) -> bool:
-        """Engage/disengage the blade.
+        """Engage/disengage the blade (see :meth:`drive`)."""
+        return self.drive(active)
+
+    def drive(self, active: bool) -> bool:
+        """Engage/disengage the blade; synchronous, so nothing can interleave with it.
 
         Returns True only when the adapter confirmed the new state; respects the E-stop latch.
         On any failure the previous state is kept, ``state_confirmed`` turns False and
@@ -206,6 +311,7 @@ class IBT4BladeDriver(HardwareDriver):
 
     def _apply(self, active: bool) -> bool:
         """Write ``active`` through the adapter and record whether it was confirmed."""
+        self._intended_on = active
         try:
             self._gpio.set_active(active)
         except Exception as e:

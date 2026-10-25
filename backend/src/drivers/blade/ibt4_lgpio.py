@@ -41,7 +41,11 @@ UNVERIFIED / TBD (nothing below was measured; each item names the measurement ne
 1. IBT-4 truth table. The ``on_levels`` default ``(1, 0)`` is a PLACEHOLDER. Needed: the fitted
    board's markings or datasheet (are IN1/IN2 direction inputs or per-half-bridge inputs, are
    there enable pins), then a bench check with the blade motor DISCONNECTED: a meter on the
-   driver's output terminals for each (IN1, IN2) combination.
+   driver's output terminals for each (IN1, IN2) combination. Until then ``on_levels`` must
+   have EXACTLY ONE input high: (0, 0) equals OFF and (1, 1) is the brake state of the usual
+   half-bridge input scheme, so neither is accepted as "blade ON". OFF is both inputs low,
+   which on such a bridge lets the blade COAST down (it is not braked): whether a brake is
+   needed is an owner decision that needs the truth table and a measured coast-down time.
 2. PWM or enable line. Only static levels are driven: no PWM, no soft start, no enable pin.
    Whether the 997 DC blade motor needs PWM or a separate enable line is unknown; an extra pin
    would need the owner's approval (O-5).
@@ -49,7 +53,9 @@ UNVERIFIED / TBD (nothing below was measured; each item names the measurement ne
    input with a default pull). Needed: the audit M-26 measurement ("relay pin state at process
    exit and at SIGKILL": scope, backend stopped and then killed) repeated on GPIO24/25 with the
    IBT-4 unpowered, plus whether the IBT-4 inputs have pull-downs. Until then nothing here keeps
-   the output off once the process is gone; ``cleanup()`` only drives low just before releasing.
+   the output off once the process is gone; ``cleanup()`` only drives low just before
+   releasing, ``BladeService.startup()`` claims both lines low again at the next start-up, and
+   only a pull-down on the IBT-4 inputs (hardware, O-7) covers SIGKILL and power loss.
 4. That a readback of an OUTPUT pin on the Pi 5's RP1 reflects the PAD level (so a pin held
    high by something else, or shorted, reads as a mismatch) is ASSUMED, not verified. Two
    other outcomes are possible and both are bad: if lgpio returns the last written value, the
@@ -67,10 +73,16 @@ UNVERIFIED / TBD (nothing below was measured; each item names the measurement ne
    ``gpio_read``, ``gpio_free`` and ``gpiochip_close``) are taken from the lgpio documentation.
    lgpio is not installed in the development environment, so none of it has run against the
    real library.
+7. Which gpiochip carries GPIO24/25. The chip is opened WITHOUT fallback (``open_gpiochip(
+   fallback=False)``: chip 4 on a Pi 5, or the first entry of ``LAWNBERRY_GPIOCHIP``), because
+   reading back the lines of another bank would "confirm" pins that are not the header. Needed
+   on the Pi: ``gpiodetect`` / ``gpioinfo`` to see which chip label owns the header GPIO24/25
+   (expected ``pinctrl-rp1`` = gpiochip4 on a Pi 5), then ``LAWNBERRY_GPIOCHIP`` if it differs.
 """
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -81,6 +93,9 @@ from .ibt4_gpio import _GPIOAdapter
 logger = logging.getLogger(__name__)
 
 _OFF = (0, 0)
+
+#: The header bank only: no silent fall back to another chip (see UNVERIFIED item 7).
+_open_header_chip: Callable[[Any], int] = functools.partial(open_gpiochip, fallback=False)
 
 
 class IBT4GpioError(RuntimeError):
@@ -100,6 +115,8 @@ class LgpioBladeAdapter(_GPIOAdapter):
     ``IBT4GpioError`` otherwise.
     """
 
+    real_hardware = True
+
     def __init__(
         self,
         in1: int,
@@ -107,7 +124,7 @@ class LgpioBladeAdapter(_GPIOAdapter):
         on_levels: tuple[int, int] = (1, 0),
         *,
         lgpio_module: Any = None,
-        open_chip: Callable[[Any], int] = open_gpiochip,
+        open_chip: Callable[[Any], int] = _open_header_chip,
     ) -> None:
         super().__init__(in1, in2)
         # Stored as given and validated in setup(): construction never raises or touches hardware.
@@ -181,6 +198,12 @@ class LgpioBladeAdapter(_GPIOAdapter):
             raise IBT4GpioError(
                 f"invalid IBT-4 on_levels {self.on_levels!r}: identical to OFF (ON would "
                 "never differ)"
+            )
+        if on == (1, 1):
+            raise IBT4GpioError(
+                f"invalid IBT-4 on_levels {self.on_levels!r}: both inputs high is the brake "
+                "state of the usual half-bridge input scheme, not 'blade on' (the fitted "
+                "board's truth table is unmeasured)"
             )
         return self.in1, self.in2, on
 
@@ -305,6 +328,38 @@ class LgpioBladeAdapter(_GPIOAdapter):
     def is_active(self) -> bool:
         """True only for the last CONFIRMED-ON state (see ``state_confirmed`` for 'unknown')."""
         return self._active
+
+    @property
+    def on_pins(self) -> tuple[int, int]:
+        """The (IN1, IN2) levels of the ON state (``(0, 0)`` until a successful ``setup()``)."""
+        return self._on
+
+    def read_pins(self) -> tuple[int, int]:
+        """Read both inputs NOW (a real ``gpio_read`` each), never a cached command.
+
+        This is what the health view and the supervision loop compare with the commanded state:
+        a pad forced by something else, or a line that stopped following the writes, shows up
+        here even though no command was issued. Raises ``IBT4GpioError`` when the adapter is
+        not set up or a line cannot be read (the caller then treats the state as unknown).
+        """
+        if not self.hardware_backed:
+            raise IBT4GpioError(
+                "IBT-4 GPIO adapter is not set up (setup() failed, was never called, or "
+                "cleanup() ran): the pads cannot be read"
+            )
+        lgpio, handle = self._lgpio, self._handle
+        levels: list[int] = []
+        for pin in (self.in1, self.in2):
+            try:
+                level = lgpio.gpio_read(handle, pin)
+            except Exception as exc:
+                raise IBT4GpioError(
+                    f"GPIO{pin} readback raised {type(exc).__name__}: {exc}"
+                ) from exc
+            if level not in (0, 1):
+                raise IBT4GpioError(f"GPIO{pin} readback returned {level!r}, expected 0 or 1")
+            levels.append(int(level))
+        return levels[0], levels[1]
 
     # ---------------------------------------------------------------- cleanup
 
