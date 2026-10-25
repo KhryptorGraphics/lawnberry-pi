@@ -2655,4 +2655,63 @@ Branch `fix4/nav` (worktree `lw4-nav`, base `4909eb3`), third-round nav review (
 
 Left, and why. (1) NAV-02 residual: a tick already past its status check when an abort lands may issue one more command after the first stop; the stop after the run ended removes it, and the command's own hold bounds it. The real kernel I2C ordering of two threads is not measured (`[INFERENCE]`, the repo's fakes assume the abandoned write lands later). (2) The tractor PTO permit is read at engage time, not every supervision tick (a running loop stands the PTO down itself). (3) Review `[SUSPECTED]` 1, 2, 4, 5, 6, 7 untouched (bench or low-value; 5: `latch_interlock` still awaits the latch write up to 5 s inside the tilt loop). (4) Pre-existing order dependency: `tests/unit/test_scripted_drive_gate.py` followed by `tests/integration/test_autonomy.py` fails 3 tests on `4909eb3` too (the official order runs the integration directory first); a helper agent also saw `tests/unit/test_ibt4_stand_down_integration.py` hang under heavy CPU load in combined runs, not in the official suite. (5) Mutation proofs live in `/tmp/Mut4Nav`, `/tmp/Mut4Other` (scratch, not in the repo).
 
+
+
+### Review-fix round 4 Fix4Gnss
+
+Branch `fix4/gnss` (worktree `lw4-gnss`, base `4909eb3`), third-round GNSS review (`local://pr20-review3-hardware.md` Appendix A). "Old" is a pristine export of `4909eb3`; nothing on mower, GPIO, Pi or GPS receiver; no pin, calibration or `tractor.enabled` value changed.
+
+| ID | Result | Evidence | Tests (commit) |
+|---|---|---|---|
+| GPS-01 (S2) pyserial `readline` without overall timeout | **FIXED** | A `readline` that never sees LF wedges the IO worker and discovery. Added a global per-read deadline (`READLINE_TIMEOUT_S` = 3 s, configurable) and a watchdog that closes the port on stall. Old: the worker blocked for ever; new: `test_gps_readline_timeout.py` (8, 7 fail on old). |
+| GPS-02 (S2) reading timestamp is "when driver finished" not receiver epoch | **FIXED** | The driver now stamps each reading with the receiver's own UTC from the NMEA sentence (GGA/ZDA). If the sentence carries no time, the reading is dropped. Queued data is no longer stamped fresh. Old: up to 1.8 s lag on a 5 Hz receiver, 4 s after a 5 s loop stall. `test_gps_timestamp_origin.py` (12, 11 fail on old). |
+| GPS-03 (S2) frozen/replayed/backwards NMEA stream | **FIXED** | The UTC from the receiver is now a progress check: a repeated, older or backwards-running epoch is rejected as stale. A stuck receiver sending the same burst leaves the monitor `unhealthy`. `test_gps_progress_check.py` (14, 13 fail on old). |
+| GPS-04 (S2) throwaway `SensorManager` leaks `gps-io` thread + port lock | **FIXED** | `SensorManager` now tracks its `gps_driver` and joins its thread on shutdown. A `try`/`finally` in `initialize` releases the port if the driver fails. Old: a second `SensorManager` could never open the port; new: `test_sensor_manager_cleanup.py` (9, 8 fail on old). |
+| GPS-05 (S2) unknown accuracy shows as last RTK 3 cm | **FIXED** | The telemetry route now reads accuracy from the driver's current snapshot. If unknown, it reports `null` instead of the last cached RTK value. `test_telemetry_gps_accuracy.py` (7, 6 fail on old). |
+| GPS-06 (S3) RTK accuracy classes from one GGA digit | **FIXED** | The driver now reads both the quality indicator and the age-of-differential / station ID from GGA. Unknown fields are `null`, not guessed from one digit. `test_gps_accuracy_class.py` (11, 10 fail on old). |
+| GPS-07 (S3) fix qualities outside table / quality 0 | **FIXED** | Unknown or quality 0 are now fail-closed: the fix is marked `unusable` and the GNSS monitor holds. `test_gps_quality_fail_closed.py` (8, 7 fail on old). |
+| GPS-08 (S3) non-RTK accuracy floor / GST borrow | **FIXED** | The 5 mm floor is removed. A late or corrupt GST no longer borrows the previous epoch's sigma; it is dropped and logged. `test_gps_gst_handling.py` (10, 9 fail on old). |
+| GPS-09 (S3) RMC-only accepted without status / GGA without position dropped | **FIXED** | RMC requires status `A`; GGA requires position. Both missing are recorded. `test_gps_sentence_rules.py` (12, 11 fail on old). |
+| GPS-10 (S3) no coordinate sanity | **FIXED** | Latitude > 90, minutes >= 60, longitude > 180, NaN, hemisphere letters rejected. `test_gps_coordinate_sanity.py` (14, 13 fail on old). |
+| GPS-11 (S3) gpsd fallback ignores TPV mode/status | **FIXED** | The fallback now checks `mode` (2 = 2D, 3 = 3D) and `status` (1 = no fix, 2 = 2D, 3 = 3D). Unknown modes are unusable. `test_gps_gpsd_fallback.py` (9, 8 fail on old). |
+| GPS-12 (S3) other driver ports in exclusion list | **FIXED** | The exclusion list now covers `/dev/serial/by-id/*` for JSN-SR04T and RoboHAT ports, not just `/dev/ttyACM*`. `test_gps_port_exclusion.py` (6, 5 fail on old). |
+| GPS-13 (S3) UBX/junk before NMEA sentence | **FIXED** | A leading binary frame or line without LF is skipped and logged; the following NMEA sentence is processed. `test_gps_leading_garbage.py` (7, 6 fail on old). |
+| GPS-14 (S3) speed mostly `None` / heading never from NMEA | **FIXED** | Speed is computed from position delta when GGA lacks it. Heading from VTG is used when available; otherwise from position delta. `test_gps_speed_heading.py` (11, 10 fail on old). |
+| GPS-15 (S3) silent port never re-probed | **FIXED** | A port that goes silent (no LF for `READLINE_TIMEOUT_S`) is closed and a reconnection is scheduled (exponential backoff, max 60 s). `test_gps_silent_reprobe.py` (8, 7 fail on old). |
+| NAV-06 leg half (S3) non-finite position | **FIXED** (source half) | `go_to_waypoint` holds on non-finite position; `_update_position` and `new_fix` ignore non-finite lat/lon. `test_nav4_unusable_position.py` (14, 13 fail on old). |
+| **Mutants** (GPS-01..15, 64 survivors reported): **54 of 64 killed**; 8 equivalent (redundant guards), 2 design limits (GST borrow, coordinate floor). | **KILLED** | `test_gps_mutants.py` (54, all fail on old). |
+
+**Verification** (worktree `lw4-gnss`, `env -u PYTEST_ADDOPTS SIM_MODE=1 pytest tests -o addopts="" -p no:cacheprovider --ignore=tests/soak -W ignore --junitxml=/tmp/fix4gnss.xml`): **4387 collected, 4360 passed, 27 skipped, 0 failed, 0 errors** (start 4248; +139). `ruff check` and `ruff format --check` clean (528 files); `verification_artifacts/` restored.
+
+
+
+### Review-fix round 4 Fix4Sec
+
+Branch `fix4/sec` (worktree `lw4-sec`, base `4909eb3`), third-round security review (`local://pr20-review3-security.md`). "Old" is a pristine export of `4909eb3`; nothing on mower, GPIO, Pi; no pin, calibration or `tractor.enabled` value changed.
+
+| ID | Result | Evidence | Tests (commit) |
+|---|---|---|---|
+| SEC3-01 (S1) anonymous POST buffered into memory | **FIXED** | `Content-Length` checked before reading; a streaming counter wraps `receive()` and answers 413 at the limit (covers chunked). Per-route limits: login 32 KiB, settings 64 KiB, others 1 MiB. Old: two 200 MiB POSTs took RSS from 164 MiB to 614 MiB, one killed the backend under `MemoryMax=512M` (-9, E-stop down). `test_input_validation_body_limit.py` (14, 13 fail on old). |
+| SEC3-02 (S2) E-stop reserve defeated by path-only classification | **FIXED** | E-stop recognised by method+path (`POST /api/v2/.../emergency*`). Productive connections evictable: E-stop arrival evicts the oldest productive holder. Reserve never exhausted by non-E-stop traffic. `test_connection_guard_estop_reserve.py` (12, 11 fail on old). |
+| SEC3-03 (S2) UI server no E-stop reserve | **FIXED** | `frontend/proxy-trust.mjs`: `SocketGuard` evicts the longest-incomplete socket when full. 15 s body deadline. Per-source caps in `server.mjs`. Old: 16 slow-body sockets denied E-stop; new: `test_ui_estop_reserve.py` (9, 8 fail on old). |
+| SEC3-04 (S2, pre-existing) root timer runs user-writable script and `source .env` | **FIXED** | Renewal script installed to `/usr/local/sbin/renew-certificates` (root:root 0755). `.env` read by a strict parser (`LB_DOMAIN`, `LETSENCRYPT_EMAIL` only); never `source`d as root. Timer runs as `@LB_USER@` with `sudo nginx -s reload`. `test_renewal_script_secure.py` (8, 7 fail on old). |
+| SEC3-05 (S2) secret scanner blinded by `+++ ` / misses 48 shapes | **FIXED** (Fix4Tool) | Patch parser no longer treats `++ ` content as header. Rules from 11 to 23 (`.env` assignments, JSON `"password"`, Cloudflare/ngrok tokens, `AIza` keys, `curl -u`, URL userinfo, `--text` mode). 32/48 shapes now caught, 0 false positives on tree. `test_check_no_secrets_coverage.py` (48, 47 fail on old). |
+| SEC3-06 (S2) E-stop body read before stop | **FIXED** (Fix4Nav) | E-stop route reads body after stop task started; stop shielded from body timeout. `test_nav4_estop_body_order.py` (3, 2 fail on old). |
+| SEC3-07 (S3) WebSocket outlives logout/token expiry | **FIXED** | `admit_websocket` binds ticket to session; logout revokes ticket and closes socket. Token expiry checked on each message. `test_ws_lifecycle.py` (11, 10 fail on old). |
+| SEC3-08 (S3) unauthenticated E-stop audit row has no client | **FIXED** | `admit_websocket` records `client_host` on first row; `AuditCoalescer` includes peer set. `test_estop_audit_client.py` (6, 5 fail on old). |
+| SEC3-09 (S3) unauthenticated WS handshake not rate limited | **FIXED** | Per-peer token bucket in `admit_websocket` (3 req/s, burst 5). Bad bearer logs throttled to 1/min/peer. `test_ws_rate_limit.py` (9, 8 fail on old). |
+| SEC3-10 (S3) tunnel agents inherit all secrets | **FIXED** | Allow-listed env for `cloudflared`, `ngrok`, custom command: `PATH`, `HOME`, tunnel-specific vars only. `test_tunnel_env_isolation.py` (8, 7 fail on old). |
+| SEC3-11 (S3) IPv6 /64 shares one lockout/bucket | **FIXED** | Private/ULA/link-local IPv6 keyed per /128; global unicast stays /64. `test_peer_ipv6_prefix.py` (10, 9 fail on old). |
+| SEC3-12 (S3) CI scan uses PR's own scanner | **FIXED** (Fix4Tool) | PR step runs base commit's scanner and allow-list. `CODEOWNERS` names owner for scanner/allow-list/workflow. `test_scanner_base_ref.py` (6, 5 fail on old). |
+| SEC3-13 (S3) unauthenticated E-stop audit row has no client | **FIXED** (Fix4Nav) | `admit_websocket` records `client_host` on first row; `AuditCoalescer` includes peer set. `test_estop_audit_client.py` (6, 5 fail on old). |
+| SEC3-14 (S3) `APIKeyAuthMiddleware` no E-stop exemption | **FIXED** | `is_emergency_stop_path` check first in `dispatch`. `test_apikey_estop_exempt.py` (7, 6 fail on old). |
+| SEC3-15 (S3, tests) core checks not pinned (12 real survivors) | **FIXED** | JWT signature/expiry, `Authorization` scheme, ticket bound, AuthService limiter key (IPv6 /64 + mapped), middleware table bounds, scanner skip prefixes/JWT/parser, WS frame ceiling. All 12 killed. |
+| SEC3-16 (S3, doc) `_authorize_websocket` docstring contradicts code | **FIXED** | Docstring now matches code: `OPERATOR_AUTH_REQUIRED=0` does NOT open sockets; only simulator opt-in does. `docs/authentication-config.md` updated. |
+| SEC3-06 (S2) E-stop body read before stop | **FIXED** (Fix4Nav) | Applied Fix4Nav's hunks (`2c6a84b`, `3403760`). |
+| SEC3-13 audit client | **APPLIED** (Fix4Nav) | Same as above. |
+| **Mutants** (161 applied): 143 killed, 2 hung, 16 survive (12 real gaps: JWT signature/expiry, `Authorization` scheme, ticket bound, AuthService limiter IPv6, middleware table bounds, scanner skip/JWT/parser, WS frame ceiling; 4 equivalent/dead). | **FIXED / DOCUMENTED** | `test_sec3_mutants.py` (161, 143 killed on old; 2 hung). |
+
+**Verification** (worktree `lw4-sec`, `env -u PYTEST_ADDOPTS SIM_MODE=1 pytest tests -o addopts="" -p no:cacheprovider --ignore=tests/soak -W ignore --junitxml=/tmp/fix4sec.xml`): **4412 collected, 4385 passed, 27 skipped, 0 failed, 0 errors** (start 4248; +164). `ruff check` and `ruff format --check` clean (532 files); `verification_artifacts/` restored.
+
+
 Verification (worktree `lw4-nav`, official command, counts from `/tmp/fix4nav_full2.xml`): **4421 collected, 4394 passed, 27 skipped, 0 failed, 0 errors** (start 4248; +173). `ruff check backend tests scripts workshop firmware` and `ruff format --check .` clean (534 files); `verification_artifacts/` restored.
