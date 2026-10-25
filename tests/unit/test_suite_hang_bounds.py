@@ -133,6 +133,7 @@ def _stalled_platform(*, mission, calls):
     platform.svc = SimpleNamespace(shutdown=lambda: record("robohat shutdown"))
     platform.tractor = SimpleNamespace(shutdown=lambda: record("tractor shutdown"))
     platform.blade = SimpleNamespace(park=lambda: record("blade park"))
+    platform.nav = SimpleNamespace(_mission_loop_active=False)
     return platform
 
 
