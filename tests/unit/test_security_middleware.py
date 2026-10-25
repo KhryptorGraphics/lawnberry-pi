@@ -132,10 +132,11 @@ async def test_the_failure_lockout_refuses_a_client_before_its_attempt_budget_is
 
 
 @pytest.mark.asyncio
-async def test_no_table_of_the_auth_middleware_grows_past_its_cap(monkeypatch):
-    """M16: a client that rotates its address (or a flood of distinct peers) must not make the
-    attempt, failure and lockout tables grow without bound."""
-    monkeypatch.setattr(SecurityMiddleware, "MAX_TRACKED_KEYS", 40)
+async def test_no_table_of_the_auth_middleware_grows_past_its_shipped_cap(monkeypatch):
+    """M16: a flood of distinct peers (or a client rotating its address) must not make the attempt,
+    failure and lockout tables grow without bound. The SHIPPED cap is what is tested."""
+    cap = SecurityMiddleware.MAX_TRACKED_KEYS
+    assert cap <= 10_000  # a bound that is small enough to mean something on a Pi
     middleware = SecurityMiddleware(
         FastAPI(),
         rate_limit_window_seconds=600,
@@ -145,14 +146,16 @@ async def test_no_table_of_the_auth_middleware_grows_past_its_cap(monkeypatch):
     )
     fake_time = FakeTime()
     monkeypatch.setattr("backend.src.middleware.security.time.time", fake_time.time)
-    for i in range(300):
+    peers = cap + cap // 2
+    for i in range(peers):
         key = f"peer-{i}"
         await middleware._preprocess_rate_limit(key)
         await middleware._postprocess_rate_limit(key, 401)
-        fake_time.advance(0.01)
-    cap = SecurityMiddleware.MAX_TRACKED_KEYS
-    assert len(middleware._attempts) <= cap + 1
-    assert len(middleware._failures) <= cap + 1
-    assert len(middleware._lockout_until) <= cap + 1
+        fake_time.advance(0.001)
+    for table in (middleware._attempts, middleware._failures, middleware._lockout_until):
+        assert len(table) <= cap + 1
     # the newest clients are the ones that are remembered
-    assert "peer-299" in middleware._lockout_until and "peer-0" not in middleware._lockout_until
+    assert (
+        f"peer-{peers - 1}" in middleware._lockout_until
+        and "peer-0" not in middleware._lockout_until
+    )
