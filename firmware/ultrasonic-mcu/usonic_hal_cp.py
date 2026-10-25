@@ -15,6 +15,12 @@ Limits of this HAL, reported honestly in the protocol:
   ``ST_STUCK`` for HALs that can tell them apart; the host never treats a silent line as proof of
   a clear path unless the owner's configuration says so.
 * A raised exception inside ``measure`` is reported by the core as ``ST_STUCK`` (fault).
+* ``PulseIn`` can hand back widths no echo can have produced: 0 us (a glitch), a width longer than
+  the window (the pulse began before ``resume()``) or the 16 bit counter's saturation value.
+  ``measure`` reports those as ``ST_STUCK`` (a fault; the raw width stays in ``echo_us``), never
+  as ``ST_OK``. A pulse already in progress at ``resume()`` that ends inside the window reads as a
+  shorter, plausible width: the HAL cannot tell (UNVERIFIED, see the README).
+* ``boot_id`` uses ``os.urandom``; a build without one still boots, with a weaker id.
 * ``usb_cdc.Serial.write`` returns how many bytes it took, fewer than offered when the TX FIFO is
   full (the host is not draining it). ``write`` completes the frame with a few non-blocking
   retries (about 3 ms in all, so the main loop keeps feeding the watchdog). A frame that still
@@ -41,6 +47,7 @@ except ImportError:  # CircuitPython <= 8
 _WRITE_TIMEOUT_S = 0.05  # the first attempt may wait this long for room in the USB TX FIFO
 _WRITE_RETRIES = 3  # then up to this many non-blocking attempts for the rest of the frame ...
 _WRITE_RETRY_WAIT_S = 0.001  # ... one USB frame (1 ms) apart: about 3 ms at most
+_PULSEIN_SATURATED_US = 65535  # PulseIn stores 16 bit widths: a longer pulse reads exactly this
 
 
 class CpHal:
@@ -77,7 +84,20 @@ class CpHal:
         return time.monotonic_ns() // 1000000
 
     def boot_id(self):
-        return int.from_bytes(os.urandom(4), "little")
+        try:
+            return int.from_bytes(os.urandom(4), "little")
+        except Exception:
+            # No usable os.urandom on this build must not stop the boot. The fallback mixes the
+            # clock with the chip's unique id: chips differ, but one chip's boots are nearly alike
+            # (the time since boot is almost the same each time), so it is NOT guaranteed to be
+            # new on every boot. UNVERIFIED on the board (README).
+            value = time.monotonic_ns() & 0xFFFFFFFF
+            try:
+                for byte in microcontroller.cpu.uid:
+                    value = (value * 33 + byte) & 0xFFFFFFFF
+            except Exception:
+                pass
+            return value
 
     def reset_reason(self):
         reasons = microcontroller.ResetReason
@@ -126,6 +146,10 @@ class CpHal:
         echo.pause()
         width_us = echo[0]
         echo.clear()
+        if width_us <= 0 or width_us >= _PULSEIN_SATURATED_US or width_us > window_us:
+            # Not a measurement: no echo is 0 us wide, wider than the window it was captured in, or
+            # exactly the counter's saturation value. A fault, never a distance.
+            return P.ST_STUCK, int(width_us)
         return P.ST_OK, int(width_us)
 
     # ---- host link -------------------------------------------------------------------------

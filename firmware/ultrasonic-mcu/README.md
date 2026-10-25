@@ -53,6 +53,9 @@ the MCU; which `/dev/ttyACM*` or `/dev/serial/by-id/*` name that is on the Pi is
 | Host serial path of the data port | `ultrasonic.port` in `config/hardware.yaml` | `ls -l /dev/serial/by-id/` on the Pi with the MCU attached |
 | CircuitPython release on the board (not pinned) and what the watchdog does after an exception there | `CIRCUITPY/boot_out.txt`; behaviour of `microcontroller.watchdog` | Read the first line of `boot_out.txt` and record the release. On a spare board run a `code.py` that arms the watchdog (`timeout = 2`, `mode = WatchDogMode.RESET`) and then raises `RuntimeError`: a reset about 2 s after the traceback means it stays armed (the 10.0 behaviour, adafruit/circuitpython#7722); a board that sits at "Code done running" means it is disarmed, and only an exception that ends `code.py` outside the loop is exposed (see Firing, health and the safety posture). Also confirm the `reset_reason` the host logs: SOFTWARE after a forced reset, WATCHDOG after a hang |
 | How often `usb_cdc.data.write()` is short on the real board, and the TX FIFO size | `CpHal.short_writes`; `_WRITE_RETRIES`, `_WRITE_RETRY_WAIT_S` in `usonic_hal_cp.py` | From the REPL (Ctrl-C the running firmware): `import usonic_main; hal, core = usonic_main.build(); core.start()`, then call `core.poll()` in a loop for 60 s and print `hal.short_writes, core.frames_tx`. Do it once with the backend (or `cat` on the data port) reading, once with the data port opened but never read. Reading host: `short_writes` must stay 0. Stalled host: it grows, and the loop must keep running (the watchdog must not bite). A reading host with `short_writes` above 0 means the retry budget is too small for this board |
+| `PulseIn` when ECHO is already high at `resume()`, and glitch widths | `CpHal.measure` in `usonic_hal_cp.py` | In CircuitPython `main` the RP2040 `PulseIn` samples the pin at 1 MHz in a PIO state machine and, with `idle_state=False`, starts counting at the first high sample, so a pulse already high at `resume()` is reported with its remaining high time only (read from the source, not from a board). Connect a signal generator (or a second board) to ONE ECHO pin with the sensor disconnected. From the REPL call `hal.measure(i, 30000)` while the generator holds the line high for 5 ms starting just before the call. `ST_OK` with a width of about the time it stayed high after `resume()` confirms that a late-falling line reads as a plausible short width, which the HAL cannot refuse (the host already turns widths below the blind zone into UNKNOWN, never clear). Also drive 1 us, 3 us and 100 us pulses and record the narrowest width `PulseIn` returns (0 us is refused as STUCK) |
+| `os.urandom` on the target build | `CpHal.boot_id` | From the REPL: `import os; [os.urandom(4).hex() for _ in range(5)]`, and once right after each of three resets. Different random-looking values every time: fine. `NotImplementedError` or a repeated value after a reset: the weaker fallback id (clock mixed with the chip id) is in use, so check that the host still notices a reset (watchdog reset and a USB replug) |
+| Actual TRIG pulse width | `TRIGGER_PULSE_US` in `usonic_config.py` (10 us) | Logic analyser or scope on one TRIG pin, read the high time of one measurement. The busy-wait polls `time.monotonic_ns()`, whose resolution on the RP2040 port is 1/32768 s, about 30.5 us (CircuitPython `main` source, not measured on a board), so expect roughly 30 to 100 us, not 10 us. The tests pin the configured width on a 1 us fake clock, not the board's. At least 10 us is needed to fire the sensor; check the fitted JSN-SR04T revision's datasheet for a maximum and use a hardware-timed pulse if it has one |
 
 ## Wire protocol, version 1
 
@@ -84,7 +87,8 @@ Little-endian. One frame:
 
 `status`: 0 OK (complete pulse, `echo_us` is its width), 1 NO_EDGE (no pulse in the window: open air,
 a dead sensor and a broken wire look the same), 2 NO_FALL (rising edge, no falling edge within the
-window), 3 STUCK (line high before the trigger, or a HAL fault), 4 DISABLED (masked off).
+window), 3 STUCK (line high before the trigger, a HAL fault, or an impossible pulse width: 0 us,
+longer than the window or 65535; `echo_us` keeps the raw width), 4 DISABLED (masked off).
 `health`: 0 ACTIVE, 1 QUIET (8 or more consecutive silent measurements; still fired every cycle),
 2 FAULT, 3 DISABLED. A device-to-host frame type arriving at the MCU (a looped-back line) is ignored,
 never answered, so it cannot start a NAK storm.
@@ -133,6 +137,16 @@ never answered, so it cannot start a NAK storm.
 * Limits of this HAL, reported honestly: `pulseio.PulseIn` only records a pulse that has ended, so a
   line stuck high or a pulse longer than the window both read as NO_EDGE; NO_FALL and the pre-trigger
   STUCK check are in the protocol for HALs that can tell them apart.
+* Impossible widths: `CpHal.measure` never returns ST_OK for a `PulseIn` width of 0 us, longer than the
+  window, or 65535 (the 16 bit counter's saturation value): those are STUCK (FAULT) with the raw
+  width in `echo_us`. A pulse already in progress when capture is armed that ends inside the window
+  reads as a shorter, plausible width: the HAL has no level read of the ECHO pin and cannot tell
+  (UNVERIFIED, see the TBD table).
+* `boot_id` is four bytes of `os.urandom`. If the build has none (an exception), the boot goes on with
+  a weaker id: the clock mixed with the chip's unique id. It differs between chips but is NOT
+  guaranteed new on every boot, and the host detects an in-place reboot only through a changed
+  `boot_id` (a reset normally also drops the USB port, which it sees as a lost link). UNVERIFIED on
+  the board (see the TBD table).
 
 ## Host side
 

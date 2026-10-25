@@ -31,6 +31,9 @@ class World:
         self.now_ns = 0
         self.step_ns = STEP_NS  # a test may make the clock finer to see a 10 us pulse
         self.distance_cm: dict[int, float | None] = {0: 80.0, 1: 120.0, 2: 200.0, 3: 60.0}
+        # echo pin -> width a broken PulseIn reports the moment it is armed (a glitch, a pulse
+        # already in progress, a saturated counter): a value no echo can have produced
+        self.instant_entry: dict[str, int] = {}
         self.trig_log: list[tuple[str, int, bool]] = []  # (pin, time_ns, value) edges only
         self.echo_by_pin: dict[str, FakePulseIn] = {}
         self.pulsein_calls: list[tuple[str, str]] = []  # (pin, "resume"/"pause"/"clear") in order
@@ -114,6 +117,9 @@ class FakePulseIn:
         self.paused = False
         self.world.pulsein_calls.append((self.pin.name, "resume"))
         self.world.events.append(("echo", self.pin.name, "resume"))
+        instant = self.world.instant_entry.get(self.pin.name)
+        if instant is not None:
+            self._pulses.append(instant)
 
     def clear(self) -> None:
         self._pulses.clear()
@@ -300,6 +306,47 @@ def test_reset_reason_is_mapped_to_the_protocol_codes(cp, reason, code):
     assert hal.reset_reason() == code
 
 
+def test_boot_id_is_four_random_bytes_little_endian(cp, monkeypatch):
+    monkeypatch.setattr(
+        cp.hal_mod, "os", types.SimpleNamespace(urandom=lambda n: bytes((0x78, 0x56, 0x34, 0x12)))
+    )
+    assert make_hal(cp).boot_id() == 0x12345678
+
+
+@pytest.mark.parametrize(
+    "exc", [NotImplementedError("No hardware random available"), OSError("rng"), AttributeError()]
+)
+def test_a_missing_os_urandom_does_not_stop_the_boot(cp, monkeypatch, exc):
+    # SUSPECTED (UsonicReview): os.urandom on the target build. boot_id() runs while the core is
+    # built, so an exception here would end code.py with no INFO ever sent.
+    def broken(_n):
+        raise exc
+
+    monkeypatch.setattr(cp.hal_mod, "os", types.SimpleNamespace(urandom=broken))
+    monkeypatch.setattr(sys.modules["usonic_config"], "TRIG_PINS", TRIG)
+    monkeypatch.setattr(sys.modules["usonic_config"], "ECHO_PINS", ECHO)
+    assert 0 <= make_hal(cp).boot_id() <= 0xFFFFFFFF
+    sys.modules["usonic_main"].run(iterations=300)
+    infos = [m for m in _decode(cp) if isinstance(m, host.Info)]
+    assert infos and 0 <= infos[0].boot_id <= 0xFFFFFFFF
+
+
+def test_the_fallback_boot_id_tells_two_chips_apart(cp, monkeypatch):
+    def broken(_n):
+        raise NotImplementedError("No hardware random available")
+
+    monkeypatch.setattr(cp.hal_mod, "os", types.SimpleNamespace(urandom=broken))
+    monkeypatch.setattr(
+        cp.hal_mod, "time", types.SimpleNamespace(monotonic_ns=lambda: 1_234_000_000)
+    )
+    hal = make_hal(cp)
+    ids = []
+    for uid in (bytes(range(8)), bytes(range(1, 9)), bytes(range(8))):
+        cp.cpu.uid = uid
+        ids.append(hal.boot_id())
+    assert ids[0] == ids[2] and ids[0] != ids[1]
+
+
 # ---- measuring --------------------------------------------------------------------------------
 
 
@@ -378,6 +425,27 @@ def test_a_late_pulse_from_the_previous_measurement_is_discarded_by_the_next(cp)
     cp.world.distance_cm[0] = 50.0
     status, width = hal.measure(0, 30_000)
     assert (status, width) == (host.EchoStatus.OK, round(50.0 * 20000 / SPEED_OF_SOUND))
+
+
+@pytest.mark.parametrize("width", [0, 31_000, 65_535])
+def test_an_impossible_pulse_width_is_never_reported_as_a_distance(cp, width):
+    # SUSPECTED (UsonicReview): a PulseIn glitch (0 us), a pulse longer than the window (it can
+    # only have started before resume()) or a saturated 16 bit counter (65535). None of them is
+    # an echo, so none may come out of measure() as ST_OK; the raw value is kept for the probe.
+    cp.world.instant_entry[ECHO[0]] = width
+    hal = make_hal(cp)
+    assert hal.measure(0, 30_000) == (host.EchoStatus.STUCK, width)
+    assert cp.world.echo_by_pin[ECHO[0]].paused  # and the capture is not left running
+
+
+@pytest.mark.parametrize(
+    "width,window_us",
+    [(1, 30_000), (150, 30_000), (29_999, 30_000), (30_000, 30_000), (65_534, 100_000)],
+)
+def test_every_other_width_up_to_the_window_is_still_a_measurement(cp, width, window_us):
+    cp.world.instant_entry[ECHO[0]] = width
+    hal = make_hal(cp)
+    assert hal.measure(0, window_us) == (host.EchoStatus.OK, width)
 
 
 # ---- host link --------------------------------------------------------------------------------
@@ -504,6 +572,19 @@ def test_main_loop_without_pins_still_talks_and_fires_nothing(cp):
     assert [m.sensor_count for m in msgs if isinstance(m, host.Info)][0] == 0
     assert not [m for m in msgs if isinstance(m, host.Reading)]
     assert cp.world.trig_log == []
+
+
+def test_main_loop_reports_a_glitching_echo_line_as_a_fault_not_as_a_reading(cp, monkeypatch):
+    monkeypatch.setattr(sys.modules["usonic_config"], "TRIG_PINS", TRIG)
+    monkeypatch.setattr(sys.modules["usonic_config"], "ECHO_PINS", ECHO)
+    cp.world.instant_entry[ECHO[2]] = 0
+    sys.modules["usonic_main"].run(iterations=30000)
+    readings = [m for m in _decode(cp) if isinstance(m, host.Reading)]
+    glitchy = [r for r in readings if r.sensor == 2]
+    assert glitchy
+    assert all(r.status == host.EchoStatus.STUCK for r in glitchy)
+    assert glitchy[-1].health == host.McuHealth.FAULT and glitchy[-1].fails == len(glitchy)
+    assert all(r.status == host.EchoStatus.OK for r in readings if r.sensor != 2)
 
 
 def test_a_crash_in_the_main_loop_resets_the_fake_board(cp, monkeypatch):
