@@ -131,3 +131,30 @@ async def test_client():
 def operator_credential() -> str:
     """The explicit operator credential the suite configures (there is no built-in one)."""
     return TEST_OPERATOR_CREDENTIAL
+
+
+@pytest.fixture(autouse=True)
+def _isolated_latch_file(tmp_path, monkeypatch):
+    """Every test gets its own durable-latch file (audit SAF-16).
+
+    An E-stop persists its latch to disk and the next start-up restores it: without this a
+    stop in one test would be restored by the next test's lifespan (or the next session's).
+    """
+    monkeypatch.setenv("LAWNBERRY_LATCH_FILE", str(tmp_path / "emergency_latch.json"))
+
+
+@pytest.fixture(autouse=True)
+def _stale_heading_does_not_leak_between_tests():
+    """The process-wide NavigationService must not carry one test's IMU stamp into the next.
+
+    The heading gate (audit SAF-14) holds autonomous motion once the heading is older than a
+    couple of seconds, which is the point of it. A test that fed one IMU reading must not leave
+    the singleton to age into a hold for every test that follows.
+    """
+    from backend.src.services.navigation_service import NavigationService
+
+    nav = NavigationService._instance
+    if nav is not None:
+        nav.navigation_state.heading_updated_at = None
+        nav._last_imu_stamp = None
+    yield
