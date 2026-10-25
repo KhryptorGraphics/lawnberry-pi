@@ -231,6 +231,40 @@ def test_an_epoch_with_no_gga_is_dated_by_its_rmc_not_by_whatever_came_first():
     assert asm.cur.t_pos == 9.3 and asm.cur.gst_seen and asm.cur.rmc is rmc
 
 
+def test_a_sentence_with_no_time_belongs_to_no_epoch():
+    asm = gd._Assembler()
+    assert asm.add("GGA", None, Gga(None, 1, 48.0, 11.0, 500.0, 10, 0.8, None), 1.0) == []
+    assert asm.cur is None
+
+
+def test_a_late_sentence_of_the_epoch_just_closed_joins_that_epoch():
+    """A GST that follows the next epoch's first sentence still belongs to the epoch it names."""
+    asm = gd._Assembler()
+    gga = Gga(10.0, 1, 48.0, 11.0, 500.0, 10, 0.8, None)
+    asm.add("GGA", 10.0, gga, 5.0)
+    closed = asm.add("GGA", 11.0, gga, 6.0)
+    assert asm.add("GST", 10.0, 0.7, 6.1) == []
+    assert closed[0].gst_seen and closed[0].gst_sigma == 0.7
+    assert not asm.cur.gst_seen and asm.cur.key == 11.0
+
+
+def test_a_half_position_is_no_fix_whichever_half_is_missing():
+    for lat, lon in ((48.0, None), (None, 11.0), (None, None)):
+        epoch_ = gd._Epoch(key=1.0, t_pos=0.0, gga=Gga(1.0, 1, lat, lon, 500.0, 9, 0.8, None))
+        got = gd.classify(epoch_, 30.0)
+        assert got.status == "NO_FIX" and got.lat is None and got.lon is None
+        assert got.typical_ok is False
+    nothing = gd.classify(gd._Epoch(key=1.0, t_pos=0.0), 30.0)
+    assert nothing.status == "NO_FIX" and nothing.typical_ok is False
+
+
+def test_an_enumeration_with_no_pyserial_tools_is_empty_and_incomplete(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "serial.tools", None)  # the import then fails
+    assert gd._enumerate_serial_ports() == ([], False)
+
+
 # --------------------------------------------------------------------------- the line reader
 
 
@@ -278,6 +312,22 @@ def test_an_rmc_cut_short_at_any_field_is_read_as_far_as_it_goes(n):
         assert (got.lat is not None) == (n > 6) == (got.lon is not None)  # both or none
         assert (got.speed_mps is not None) == (n > 7)
         assert (got.course_deg is not None) == (n > 8)
+
+
+GST_FIELDS = ["GNGST", "120000.00", "3.2", "2.0", "1.5", "45.0", "0.8", "0.7", "1.1"]
+
+
+@pytest.mark.parametrize("n", range(1, len(GST_FIELDS) + 1))
+def test_a_gst_cut_short_at_any_field_gives_the_best_sigma_it_still_has(n):
+    got = gd.parse_gst_sigma(nmea(",".join(GST_FIELDS[:n])).decode())
+    if n <= 3:
+        assert got is None  # no error ellipse, no component sigma
+    elif n == 4:
+        assert got == pytest.approx(2.0 * 2**0.5)  # only the semi-major axis
+    elif n <= 7:
+        assert got == pytest.approx((2.0**2 + 1.5**2) ** 0.5)  # the ellipse
+    else:
+        assert got == pytest.approx((0.8**2 + 0.7**2) ** 0.5)  # latitude and longitude sigma
 
 
 def test_a_negative_number_is_no_speed_a_course_or_an_hdop():
@@ -445,6 +495,30 @@ def test_gpsd_is_asked_only_when_the_serial_read_gives_nothing_and_not_more_than
     for _ in range(3):
         assert rig.read() is None
     assert len(asked) == 1 and asked[0][1] == 1.0  # the long window of a session with no fix yet
+
+
+def test_a_port_dropped_for_silence_is_not_reopened_before_the_delay(monkeypatch):
+    rig = Rig(monkeypatch, mark=True)
+    rig.at(0.5, 0)  # one epoch for the probe, then the receiver says nothing
+    rig.driver._read_from_gpsd = lambda timeout_sec=0.5: None
+    for _ in range(12):
+        rig.read()
+        if rig.driver._serial is None:
+            break
+    assert rig.driver._serial is None, "five silent seconds should have dropped the port"
+    opened = len(rig.serial.opens)
+    assert rig.read() is None and len(rig.serial.opens) == opened  # not at once
+    rig.clk.advance(rig.driver.REOPEN_DELAY_S + 0.01)
+    rig.read()
+    assert len(rig.serial.opens) > opened  # and after the delay the receiver is looked for again
+
+
+def test_the_baud_rate_a_receiver_was_found_at_is_the_one_used_from_then_on(monkeypatch):
+    rig = Rig(monkeypatch, mark=True, port_kwargs={"baud": 115200})
+    for k in range(4):
+        rig.at(0.5 + k, k)
+    assert rig.next() is not None
+    assert rig.driver.cfg.baudrate == 115200
 
 
 def test_a_reading_gpsd_gives_is_the_reading_and_ends_the_first_window(monkeypatch):

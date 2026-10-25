@@ -286,3 +286,27 @@ def test_partial_and_garbled_json_lines_are_skipped(monkeypatch):
     )
     reading, _ = ask(monkeypatch, payload)
     assert reading is not None
+
+
+def test_a_negative_speed_and_a_track_outside_the_circle_are_unknown(driver, clk):
+    r = driver._reading_from_tpv(tpv(speed=-0.05, track=-0.05), clk.t)
+    assert r is not None and r.speed is None and r.heading is None
+    clk.advance(1.0)
+    r = driver._reading_from_tpv(tpv(time=at(6), speed=1.0, track=-0.05), clk.t)
+    assert r is not None and r.speed == 1.0 and r.heading is None  # moving, but no such course
+    clk.advance(1.0)
+    r = driver._reading_from_tpv(tpv(time=at(7), speed=1.0, track=0.0), clk.t)
+    assert r is not None and r.heading == 0.0  # north is a heading
+
+
+def test_a_tpv_that_arrives_late_is_stamped_in_the_past(driver, clk):
+    assert driver._reading_from_tpv(tpv(time=at(5)), clk.t) is not None
+    clk.advance(4.0)  # the host looks 4 s later, the receiver's time says 1 s later
+    late = driver._reading_from_tpv(tpv(time=at(6)), clk.t)
+    assert late is not None
+    assert (clk.wall() - late.timestamp).total_seconds() == pytest.approx(3.0, abs=0.05)
+
+
+def test_a_json_line_that_is_not_an_object_does_not_hide_the_tpv_behind_it(monkeypatch):
+    reading, _ = ask(monkeypatch, b'[1, 2, 3]\n"text"\n42\n' + line(tpv(time=at(9))))
+    assert reading is not None

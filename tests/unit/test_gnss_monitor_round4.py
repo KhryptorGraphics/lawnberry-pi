@@ -265,6 +265,10 @@ def test_the_machine_does_not_resume_a_moment_before_the_dwell_is_over():
     m.observe(fix(c))
     a = m.assess()
     assert a.healthy and a.reasons == ()  # and a healthy verdict carries no leftover reason
+    c.t += 0.5
+    m.observe(fix(c))
+    a = m.assess()
+    assert a.healthy and a.reasons == ()  # nor does the next one
 
 
 def test_a_degraded_monitor_says_how_long_it_still_needs():
