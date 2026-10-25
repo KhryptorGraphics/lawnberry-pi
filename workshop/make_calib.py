@@ -16,7 +16,9 @@ over the sources, so the sorted order alternates between them and *every* sorted
 equal share (to within one file) from each source. That is what makes ``--count`` above 1024
 harmless: the zoo reads only the first 1024 sorted files, and those are still balanced. (Named
 by source first, as before, a folder of 2048 files calibrated on the first source alone.)
-``--verify`` re-checks a folder against its manifest and against that rule; it also accepts the
+``--verify`` re-checks a folder against its manifest and against that rule: the same image files
+by name AND by content (every file is re-hashed against the sha256 the manifest recorded, so a
+file replaced under its old name is found), and the sorted prefix balanced. It also accepts the
 older ``c<source>_...`` names, which are balanced only while the folder holds 1024 files or fewer.
 """
 
@@ -129,8 +131,9 @@ def verify(folder: Path, calibset_size: int = CALIBSET_SIZE) -> dict:
     """Check ``folder`` against its manifest and the zoo's sorted-prefix rule.
 
     Raises ``SystemExit`` with the reason unless the images on disk are exactly the manifest's
-    files and the first ``calibset_size`` of them, in sorted order (all the zoo reads), hold every
-    source with an equal share to within one file. Returns what was found.
+    files, each with the bytes (sha256) the manifest recorded, and the first ``calibset_size`` of
+    them, in sorted order (all the zoo reads), hold every source with an equal share to within one
+    file. Returns what was found.
     """
     path = folder / "calib_manifest.json"
     if not path.is_file():
@@ -138,6 +141,7 @@ def verify(folder: Path, calibset_size: int = CALIBSET_SIZE) -> dict:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
         listed = sorted(f["name"] for f in manifest["files"])
+        recorded = {f["name"]: f.get("sha256") for f in manifest["files"]}
         n_sources = len(manifest["sources"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise SystemExit(f"{path}: unreadable manifest ({type(exc).__name__}: {exc})") from exc
@@ -149,6 +153,18 @@ def verify(folder: Path, calibset_size: int = CALIBSET_SIZE) -> dict:
         raise SystemExit(
             f"{folder}: the images are not the manifest's files ({len(gone)} missing, "
             f"{len(extra)} not in the manifest; first: {(gone + extra)[:3]})"
+        )
+    unrecorded = [n for n in on_disk if not isinstance(recorded.get(n), str)]
+    if unrecorded:
+        raise SystemExit(
+            f"{folder}: the manifest records no sha256 for {len(unrecorded)} files (first: "
+            f"{unrecorded[:3]}), so their content cannot be verified: rebuild the folder"
+        )
+    changed = [n for n in on_disk if _sha256(folder / n) != recorded[n]]
+    if changed:
+        raise SystemExit(
+            f"{folder}: {len(changed)} files are not the bytes the manifest recorded (first: "
+            f"{changed[:3]}): the folder was edited after it was built, rebuild it"
         )
     prefix = on_disk[:calibset_size]
     shares = Counter()
