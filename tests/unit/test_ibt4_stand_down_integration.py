@@ -19,6 +19,7 @@ ON (the deadman), and a latch refuses it until cleared.
 from __future__ import annotations
 
 import asyncio
+import io
 from types import SimpleNamespace
 
 import httpx
@@ -54,6 +55,33 @@ class StubGnss:
     def assess(self):
         reasons = () if self.healthy else ("fix is 30.0s old (limit 2s)",)
         return SimpleNamespace(healthy=self.healthy, reasons=reasons)
+
+
+STEP_LIMIT_S = 5.0
+
+
+async def finishes(awaitable, what: str, *, watch: asyncio.Task | None = None) -> str | None:
+    """Await one teardown step for at most ``STEP_LIMIT_S``; return where it is stuck, or None.
+
+    Not ``asyncio.wait_for``: on a timeout that waits for the cancelled step to finish, which a
+    step that ignores cancellation never does. The suite once sat for 11 minutes in the teardown of
+    the ``platform`` fixture below (audit TOOL3-01), so a step that does not finish is a failure
+    with the stack it is stuck in, not a hang. ``watch`` is the task whose stack to report when it
+    is not the step itself (the mission task that a cancel did not stop).
+    """
+    step = asyncio.ensure_future(awaitable)
+    _done, pending = await asyncio.wait({step}, timeout=STEP_LIMIT_S)
+    if pending:
+        stack = io.StringIO()
+        (watch or step).print_stack(file=stack)
+        step.cancel()
+        return f"{what} did not finish within {STEP_LIMIT_S} s, stuck at:\n{stack.getvalue()}"
+    step.result()  # what the step raised, if anything
+    return None
+
+
+async def _settled(task: asyncio.Task) -> None:
+    await asyncio.gather(task, return_exceptions=True)
 
 
 class Platform:
@@ -126,13 +154,16 @@ class Platform:
             assert result["status"] == "ok", result
 
     async def close(self) -> None:
+        stuck: list[str | None] = []
         if self.task is not None:
             self.task.cancel()
-            await asyncio.gather(self.task, return_exceptions=True)
+            stuck.append(await finishes(_settled(self.task), "the mission task", watch=self.task))
         if self.svc is not None:
-            await self.svc.shutdown()
-        await self.tractor.shutdown()
-        await self.blade.park()
+            stuck.append(await finishes(self.svc.shutdown(), "the RoboHAT service shutdown"))
+        stuck.append(await finishes(self.tractor.shutdown(), "the tractor shutdown"))
+        stuck.append(await finishes(self.blade.park(), "the blade park"))
+        problems = [s for s in stuck if s]
+        assert not problems, "\n".join(problems)
 
 
 @pytest.fixture(params=PLATFORMS)
