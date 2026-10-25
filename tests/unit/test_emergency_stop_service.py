@@ -778,7 +778,9 @@ async def test_rest_emergency_v2_flags_an_incomplete_stop(monkeypatch):
     assert body["telemetry_snapshot"]["status"] == "fault"
 
 
-async def test_emergency_clear_requires_operator_auth_but_estop_does_not(monkeypatch):
+async def test_emergency_clear_requires_operator_auth_but_estop_does_not(
+    monkeypatch, operator_credential
+):
     monkeypatch.setenv("OPERATOR_AUTH_REQUIRED", "1")
     wire(monkeypatch, _tractor(), FakeRoboHAT(), FakeBlade())
     clear_body = {"confirmation": True}
@@ -793,7 +795,7 @@ async def test_emergency_clear_requires_operator_auth_but_estop_does_not(monkeyp
             "an unauthenticated clear must not clear"
         )
 
-        login = await client.post("/api/v2/auth/login", json={"credential": "operator"})
+        login = await client.post("/api/v2/auth/login", json={"credential": operator_credential})
         token = login.json()["access_token"]
         ok = await client.post(
             "/api/v2/control/emergency_clear",

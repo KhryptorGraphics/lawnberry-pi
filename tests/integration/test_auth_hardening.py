@@ -28,7 +28,7 @@ def _strict_auth_limits(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_auth_login_rate_limit():
+async def test_auth_login_rate_limit(operator_credential):
     transport = httpx.ASGITransport(app=app)
     headers = {"X-Client-Id": "rate-test-1"}
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -36,7 +36,7 @@ async def test_auth_login_rate_limit():
         for _ in range(3):
             resp = await client.post(
                 "/api/v2/auth/login",
-                json={"credential": "ok"},
+                json={"credential": operator_credential},
                 headers=headers,
             )
             assert resp.status_code == 200
@@ -44,7 +44,7 @@ async def test_auth_login_rate_limit():
         # Next request should be rate limited
         resp = await client.post(
             "/api/v2/auth/login",
-            json={"credential": "ok"},
+            json={"credential": operator_credential},
             headers=headers,
         )
         assert resp.status_code == 429
@@ -53,7 +53,7 @@ async def test_auth_login_rate_limit():
 
 
 @pytest.mark.asyncio
-async def test_auth_login_lockout_on_failed_attempts():
+async def test_auth_login_lockout_on_failed_attempts(operator_credential):
     transport = httpx.ASGITransport(app=app)
     headers = {"X-Client-Id": "lockout-test-1"}
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -69,7 +69,7 @@ async def test_auth_login_lockout_on_failed_attempts():
         # Now even with correct credential, expect lockout (429)
         resp = await client.post(
             "/api/v2/auth/login",
-            json={"credential": "ok"},
+            json={"credential": operator_credential},
             headers=headers,
         )
         assert resp.status_code == 429

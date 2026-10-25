@@ -14,7 +14,7 @@ from collections.abc import Callable
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ..core.context import reset_correlation_id, set_correlation_id
+from ..core.context import reset_correlation_id, sanitize_correlation_id, set_correlation_id
 from ..core.observability import observability
 
 
@@ -64,9 +64,8 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         return response
 
     def _get_or_generate_correlation_id(self, request: Request) -> str:
-        header_names = ("X-Correlation-ID", "X-Request-ID", "X-Amzn-Trace-Id")
-        for header in header_names:
-            value = request.headers.get(header)
+        for header in ("X-Correlation-ID", "X-Request-ID", "X-Amzn-Trace-Id"):
+            value = sanitize_correlation_id(request.headers.get(header))
             if value:
                 return value
         return uuid.uuid4().hex

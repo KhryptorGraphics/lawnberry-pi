@@ -242,10 +242,14 @@ async def test_ticket_requests_are_not_counted_by_the_auth_prefix_limiter():
         assert login.status_code == 401, "the login was locked out by ticket requests"
 
 
-def test_every_path_exempt_from_the_auth_limiter_is_a_real_post_route():
+def test_every_path_exempt_from_the_auth_limiter_is_a_real_route():
+    """The token-only routes (SEC20-08; the whole classification is pinned in
+    ``test_auth_credential_counting.py``) are all real routes of the app."""
     routes = {(m, r.path) for r in app.routes if hasattr(r, "methods") for m in r.methods}
-    assert UNLIMITED_AUTH_PATHS == {TICKET}
-    assert all(("POST", path) in routes for path in UNLIMITED_AUTH_PATHS)
+    assert TICKET in UNLIMITED_AUTH_PATHS
+    assert all(
+        any((method, path) in routes for method in ("GET", "POST")) for path in UNLIMITED_AUTH_PATHS
+    )
 
 
 def _limited_app(monkeypatch, burst: str) -> FastAPI:
