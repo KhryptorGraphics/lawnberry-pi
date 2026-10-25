@@ -262,9 +262,7 @@ def evaluate_channel(
     # Proof of life: the newest real echo pulse is recent and was NOT a near one (a pulse from
     # something right in front says nothing about open air). NO_FALL and 0 us are no echo at all.
     alive = (
-        ch.pulse_at is not None
-        and ch.near_at is None
-        and (now - ch.pulse_at) <= cfg.alive_window_s
+        ch.pulse_at is not None and ch.near_at is None and (now - ch.pulse_at) <= cfg.alive_window_s
     )
     # Silence right after a NEAR echo is the dead zone talking, not open air (US-01).
     near_hold = ch.near_at is not None and (now - ch.near_at) <= cfg.near_hold_s

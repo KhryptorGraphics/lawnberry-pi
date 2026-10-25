@@ -547,7 +547,7 @@ def test_main_build_survives_a_firing_order_that_does_not_match_the_sensor_count
 
 
 class _ReloadException(BaseException):
-    """Stand-in for CircuitPython's reload exception (``supervisor.reload()``, Ctrl-D, autoreload)."""
+    """Stand-in for CircuitPython's reload exception (``supervisor.reload()``, Ctrl-D)."""
 
 
 def _run(hal, iterations):
