@@ -11,6 +11,13 @@ Exposes the operator-facing settings surface consumed by the Vue dashboard:
 Each store is JSON-file backed under the data directory so changes survive a
 restart, with an in-memory cache for fast reads. The profile uses semantic
 ``profile_version`` strings and enforces latency + branding guardrails on write.
+
+Secrets are write-only (SEC20-01, ``core/secret_redaction.py``): a value stored under a secret
+name (``cloudflare_token``, ``ngrok_token``, ``google_api_key``, ...) is never in any response.
+``GET /settings/maps`` and ``GET /settings/remote-access`` need the operator's bearer token and
+report ``<name>_set`` (and the last four characters of a long value); the other reads are open
+and report nothing about secrets. A PUT with an empty secret field keeps the stored one, an
+explicit ``null`` removes it. The store files are written 0600.
 """
 
 from __future__ import annotations
@@ -26,6 +33,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 
+from ...core.secret_redaction import (
+    is_hint_name,
+    is_secret_name,
+    merge_secret_update,
+    redact_secrets,
+)
 from ...models.auth_security_config import SecurityLevel
 from ..deps import require_operator_auth
 
@@ -59,9 +72,14 @@ def _load_store(filename: str, default: dict[str, Any]) -> dict[str, Any]:
 
 
 def _save_store(filename: str, data: dict[str, Any]) -> None:
+    """Persist a store atomically and 0600: it can hold tunnel tokens and API keys."""
     path = _data_dir() / filename
+    tmp = path.with_name(path.name + ".tmp")
     try:
-        path.write_text(json.dumps(data, indent=2, default=str))
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(data, indent=2, default=str))
+        os.replace(tmp, path)
     except Exception:
         pass
 
@@ -133,7 +151,7 @@ async def get_settings() -> dict[str, Any]:
         "ai": {"acceleration": profile.get("ai_acceleration")},
         "system": {"simulation_mode": profile.get("simulation_mode")},
     }
-    return profile
+    return redact_secrets(profile)
 
 
 @router.put("/settings", dependencies=[Depends(require_operator_auth)])
@@ -182,14 +200,11 @@ async def put_settings(payload: dict) -> Response:
         )
 
     updated_at = datetime.now(UTC).isoformat()
-    stored = {
-        **current,
-        **payload,
-        "branding_checksum": expected_checksum,
-        "updated_at": updated_at,
-    }
+    stored = merge_secret_update(current, payload)
+    stored["branding_checksum"] = expected_checksum
+    stored["updated_at"] = updated_at
     _save_store(_PROFILE_FILE, stored)
-    return JSONResponse(status_code=200, content=stored)
+    return JSONResponse(status_code=200, content=redact_secrets(stored, hints=True))
 
 
 # --- System view with HTTP caching (/settings/system) -----------------------
@@ -226,7 +241,7 @@ async def get_settings_system(request: Request) -> Response:
 
     return JSONResponse(
         status_code=200,
-        content=profile,
+        content=redact_secrets(profile),
         headers={"Last-Modified": format_datetime(last_modified, usegmt=True)},
     )
 
@@ -235,11 +250,13 @@ async def get_settings_system(request: Request) -> Response:
 async def put_settings_system(payload: dict) -> Response:
     """Apply a partial system settings update (e.g. telemetry cadence)."""
     profile = _load_store(_PROFILE_FILE, _default_profile())
-    for key, value in payload.items():
+    plain = {k: v for k, v in payload.items() if not (is_secret_name(k) or is_hint_name(k))}
+    for key, value in plain.items():
         if key in profile and isinstance(profile.get(key), dict) and isinstance(value, dict):
             profile[key] = {**profile[key], **value}
         else:
             profile[key] = value
+    profile = merge_secret_update(profile, {k: v for k, v in payload.items() if k not in plain})
     profile["updated_at"] = datetime.now(UTC).isoformat()
     _save_store(_PROFILE_FILE, profile)
     try:
@@ -248,7 +265,7 @@ async def put_settings_system(payload: dict) -> Response:
         persistence.add_audit_log("settings.update", details={"changes": list(payload.keys())})
     except Exception:
         pass
-    return JSONResponse(status_code=200, content=profile)
+    return JSONResponse(status_code=200, content=redact_secrets(profile, hints=True))
 
 
 # --- Security level (/settings/security) ------------------------------------
@@ -279,7 +296,7 @@ def get_security_level() -> SecurityLevel:
 
 @router.get("/settings/security")
 async def get_settings_security() -> dict[str, Any]:
-    return _load_store(_SECURITY_FILE, _default_security())
+    return redact_secrets(_load_store(_SECURITY_FILE, _default_security()))
 
 
 @router.put("/settings/security", dependencies=[Depends(require_operator_auth)])
@@ -291,9 +308,9 @@ async def put_settings_security(payload: dict) -> Response:
             content={"detail": f"Unsupported security level: {level}"},
         )
     current = _load_store(_SECURITY_FILE, _default_security())
-    updated = {**current, **payload}
+    updated = merge_secret_update(current, payload)
     _save_store(_SECURITY_FILE, updated)
-    return JSONResponse(status_code=200, content=updated)
+    return JSONResponse(status_code=200, content=redact_secrets(updated, hints=True))
 
 
 # --- Map provider settings (/settings/maps) ---------------------------------
@@ -306,9 +323,10 @@ def _default_maps() -> dict[str, Any]:
     return {"provider": "google", "bypass_external": False, "api_key": None}
 
 
-@router.get("/settings/maps")
+@router.get("/settings/maps", dependencies=[Depends(require_operator_auth)])
 async def get_settings_maps() -> dict[str, Any]:
-    return _load_store(_MAPS_FILE, _default_maps())
+    """Operator-only: the provider settings and whether a map key is stored (never the key)."""
+    return redact_secrets(_load_store(_MAPS_FILE, _default_maps()), hints=True)
 
 
 @router.put("/settings/maps", dependencies=[Depends(require_operator_auth)])
@@ -320,9 +338,9 @@ async def put_settings_maps(payload: dict) -> Response:
             content={"detail": f"Unsupported map provider: {provider}"},
         )
     current = _load_store(_MAPS_FILE, _default_maps())
-    updated = {**current, **payload}
+    updated = merge_secret_update(current, payload)
     _save_store(_MAPS_FILE, updated)
-    return JSONResponse(status_code=200, content=updated)
+    return JSONResponse(status_code=200, content=redact_secrets(updated, hints=True))
 
 
 # --- Remote access settings (/settings/remote-access) -----------------------
@@ -335,9 +353,10 @@ def _default_remote_access() -> dict[str, Any]:
     return {"enabled": False, "provider": "disabled"}
 
 
-@router.get("/settings/remote-access")
+@router.get("/settings/remote-access", dependencies=[Depends(require_operator_auth)])
 async def get_settings_remote_access() -> dict[str, Any]:
-    return _load_store(_REMOTE_FILE, _default_remote_access())
+    """Operator-only: the tunnel settings and whether each token is stored (never the token)."""
+    return redact_secrets(_load_store(_REMOTE_FILE, _default_remote_access()), hints=True)
 
 
 @router.put("/settings/remote-access", dependencies=[Depends(require_operator_auth)])
@@ -349,6 +368,6 @@ async def put_settings_remote_access(payload: dict) -> Response:
             content={"detail": f"Unsupported remote access provider: {provider}"},
         )
     current = _load_store(_REMOTE_FILE, _default_remote_access())
-    updated = {**current, **payload}
+    updated = merge_secret_update(current, payload)
     _save_store(_REMOTE_FILE, updated)
-    return JSONResponse(status_code=200, content=updated)
+    return JSONResponse(status_code=200, content=redact_secrets(updated, hints=True))

@@ -787,7 +787,7 @@ def _iter_doc_files(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob("*.md") if p.is_file())
 
 
-@router.get("/docs/list")
+@router.get("/docs/list", dependencies=[Depends(require_operator_auth)])
 async def docs_list() -> list[dict[str, Any]]:
     """List available markdown documents with size and modification metadata."""
     root = _docs_root()
@@ -804,7 +804,7 @@ async def docs_list() -> list[dict[str, Any]]:
     return items
 
 
-@router.get("/docs/checksums")
+@router.get("/docs/checksums", dependencies=[Depends(require_operator_auth)])
 async def docs_checksums() -> dict[str, Any]:
     """Return SHA-256 checksums for all documents for integrity verification."""
     root = _docs_root()
@@ -815,7 +815,7 @@ async def docs_checksums() -> dict[str, Any]:
     return {"checksums": checksums}
 
 
-@router.get("/docs/freshness")
+@router.get("/docs/freshness", dependencies=[Depends(require_operator_auth)])
 async def docs_freshness() -> dict[str, Any]:
     """Report documentation age and flag entries older than 90 days as stale."""
     root = _docs_root()
@@ -833,7 +833,7 @@ async def docs_freshness() -> dict[str, Any]:
     return {"docs": docs}
 
 
-@router.get("/docs/bundle")
+@router.get("/docs/bundle", dependencies=[Depends(require_operator_auth)])
 async def docs_bundle(simulate_checksum_mismatch: Optional[str] = Query(default=None)):
     """Return an offline documentation manifest with per-doc checksums.
 
@@ -867,9 +867,15 @@ async def docs_bundle(simulate_checksum_mismatch: Optional[str] = Query(default=
     return JSONResponse(content={"items": items}, headers=headers)
 
 
-@router.get("/docs/{doc_path:path}")
+@router.get("/docs/{doc_path:path}", dependencies=[Depends(require_operator_auth)])
 async def docs_get(doc_path: str):
-    """Return a single markdown document, guarding against path traversal."""
+    """Return a single markdown document, guarding against path traversal.
+
+    Operator-only like the rest of the documentation hub: the docs folder carries internal
+    material (LAN addresses, hardware wiring, runbooks, agent hand-off notes that quote
+    credentials), so it is not served to an anonymous caller (SEC20-01 GET audit). Only the
+    ``.md`` files the list endpoints advertise are served.
+    """
     if "\x00" in doc_path or doc_path.startswith("/") or ".." in doc_path.split("/"):
         raise HTTPException(status_code=400, detail="Invalid document path")
     root = _docs_root()
@@ -878,9 +884,9 @@ async def docs_get(doc_path: str):
         root_resolved = root.resolve()
     except (ValueError, OSError) as exc:
         raise HTTPException(status_code=400, detail="Invalid document path") from exc
-    if not str(resolved).startswith(str(root_resolved)):
+    if not resolved.is_relative_to(root_resolved):
         raise HTTPException(status_code=403, detail="Path traversal detected")
-    if not resolved.is_file():
+    if not resolved.is_file() or resolved.suffix.lower() != ".md":
         raise HTTPException(status_code=404, detail="Document not found")
     return PlainTextResponse(resolved.read_text(encoding="utf-8"))
 

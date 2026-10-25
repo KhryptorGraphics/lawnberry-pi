@@ -108,7 +108,7 @@ async def test_google_maps_default_provider(client):
     """A fresh install uses Google Maps, with no key, no bypass and no fallback in effect."""
     settings = await client.get("/api/v2/settings/maps")
     assert settings.status_code == 200
-    assert settings.json() == {"provider": "google", "bypass_external": False, "api_key": None}
+    assert settings.json() == {"provider": "google", "bypass_external": False, "api_key_set": False}
 
     # The stored map configuration agrees (it spells the provider "google-maps").
     config = (await client.get("/api/v2/map/configuration")).json()
