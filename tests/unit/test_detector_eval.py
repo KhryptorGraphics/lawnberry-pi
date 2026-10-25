@@ -481,10 +481,12 @@ def test_baseline_status_applies_the_drop_and_lists_what_it_compared_and_skipped
 
 
 def test_baseline_status_drop_boundary_is_strict():
-    per_class = {"person": {"gt": 20, "tp": 18, "fp": 0, "fn": 2, "recall": 0.9, "precision": 1.0}}
+    # 0.75 and 0.25 are exact in binary, so the drop is exactly the limit (0.9 / 0.10 are not).
+    per_class = {"person": {"gt": 20, "tp": 15, "fp": 0, "fn": 5, "recall": 0.75, "precision": 1.0}}
+    table = {"person": {"recall": 1.0}}
 
-    at_limit = baseline_status(per_class, {"person": {"recall": 1.0}}, max_drop=0.10, min_gt=20)
-    over = baseline_status(per_class, {"person": {"recall": 1.0}}, max_drop=0.09, min_gt=20)
+    at_limit = baseline_status(per_class, table, max_drop=0.25, min_gt=20)
+    over = baseline_status(per_class, table, max_drop=0.24, min_gt=20)
 
     assert at_limit["failures"] == [] and len(over["failures"]) == 1
 

@@ -605,6 +605,41 @@ def test_a_tiny_dataset_cannot_decide_a_gate_or_a_baseline(tmp_path, monkeypatch
     assert plain == 0  # measuring a small set is fine; only a verdict needs evidence
 
 
+def test_a_baseline_check_alone_also_needs_the_image_floor(tmp_path, monkeypatch):
+    # No --gate: the same 99 images are no better a basis for a recall-drop verdict.
+    per_image = covering(MIN_IMAGES - 1)
+    base, _ = _baseline_from(tmp_path, monkeypatch, per_image, lambda i, c: True)
+
+    rc, report = run_cli(
+        tmp_path, monkeypatch, per_image, lambda i, c: True, "--baseline", str(base),
+        name="second",
+    )  # fmt: skip
+
+    assert rc == 3
+    assert f"{MIN_IMAGES - 1} images; a verdict needs at least {MIN_IMAGES}" in report["problems"]
+
+
+def test_the_baseline_is_compared_at_this_runs_confidence_not_a_constant(tmp_path, monkeypatch):
+    # The spec's threshold is 0.4 here; a baseline measured at 0.25 is another operating point.
+    at_04 = dataclasses.replace(SPEC, conf_threshold=0.4)
+    per_image = [[PERSON]] * 40
+    rc, base_report = run_cli(tmp_path, monkeypatch, per_image, spec=at_04, name="base")
+    assert rc == 0 and base_report["conf"] == 0.4
+    base = tmp_path / "base.json"
+    base.write_text(json.dumps(base_report))
+
+    same, _ = run_cli(
+        tmp_path, monkeypatch, per_image, lambda i, c: True, "--baseline", str(base),
+        "--min-images", "10", spec=at_04, name="same",
+    )  # fmt: skip
+    other, _ = run_cli(
+        tmp_path, monkeypatch, per_image, lambda i, c: True, "--baseline", str(base),
+        "--min-images", "10", name="other",
+    )  # fmt: skip
+
+    assert (same, other) == (0, 4)
+
+
 def test_an_empty_images_directory_is_refused(tmp_path, monkeypatch, capsys):
     rc, report = run_cli(tmp_path, monkeypatch, [], lambda i, c: True, "--gate")
 
@@ -678,6 +713,31 @@ def test_an_invalid_run_replaces_a_stale_passing_report(tmp_path, monkeypatch):
 
     assert rc == 3
     assert json.loads((root / "report.json").read_text())["verdict"] == "invalid"
+
+
+def test_a_crash_of_the_backend_is_a_setup_error_never_a_failed_gate(tmp_path, monkeypatch, capsys):
+    # An uncaught exception exits 1, which is what "the model failed its gate" exits with.
+    class Crashing(ScriptedBackend):
+        async def predict(self, rgb):
+            raise RuntimeError("the Hailo device vanished")
+
+    per_image = covering(12)
+    root = tmp_path / "run"
+    images, labels = _dataset(root, per_image)
+    monkeypatch.setattr(ev, "_load_spec", lambda a: SPEC)
+    monkeypatch.setattr(ev, "_backend", lambda a, s: Crashing(lambda i, c: True, per_image))
+    monkeypatch.setattr(ev, "_read_rgb", lambda p: np.zeros((H, W, 3), dtype=np.uint8))
+    (root / "m.onnx").write_bytes(b"onnx")
+
+    rc = ev.main(
+        ["--backend", "onnx", "--model", str(root / "m.onnx"), "--images", str(images)]
+        + ["--labels", str(labels), "--out", str(root / "r.json"), "--gate", *SMALL]
+    )
+
+    err = capsys.readouterr().err
+    assert rc == 2 and "unexpected RuntimeError: the Hailo device vanished" in err
+    assert "Traceback" in err  # the cause is not hidden
+    assert not (root / "r.json").exists()  # no report: nothing was measured
 
 
 def test_exit_codes_tell_a_failing_model_from_an_unusable_evaluation(tmp_path, monkeypatch):

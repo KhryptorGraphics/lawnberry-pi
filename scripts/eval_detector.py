@@ -27,12 +27,13 @@ they refuse to decide on thin evidence instead of passing it. Exit codes:
 
     0  every requested check passed (a run without --gate/--baseline only measures)
     1  the model failed: a tier gate, the baseline recall drop, or an --expect box
-    2  setup or usage error: model, spec, backend, or an argument out of range (``--iou`` not in
-       (0, 1], NaN/inf, ``--gate`` with ``--predict``)
-    3  the images and labels cannot support a verdict: a missing images/labels directory, an image
-       without a label file or a label without an image, a malformed label row, a class id the
-       spec does not have, fewer than ``--min-images`` images, a tier-1 class with fewer than
-       ``--gate-min-gt`` ground-truth boxes, or a spec whose classes are not workshop.classes.NAMES
+    2  setup or usage error: model, spec, backend or a backend crash, and an argument out of range
+       (``--iou`` not in (0, 1], NaN/inf, ``--gate`` with ``--predict``)
+    3  the images, labels or ``--expect`` boxes cannot support a verdict: a missing images or labels
+       directory, an image without a label file or a label without an image, a malformed label
+       row, a class id the spec does not have, fewer than ``--min-images`` images, a tier-1 class
+       with fewer than ``--gate-min-gt`` ground-truth boxes, or a spec whose classes are not
+       workshop.classes.NAMES
     4  the ``--baseline`` report cannot be compared: unreadable or unparsable, not a detector-eval
        report, other classes, other ground truth, IoU or confidence, or no class with ``--min-gt``
        boxes to compare
@@ -53,6 +54,7 @@ import json
 import math
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import numpy as np
@@ -568,11 +570,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[eval] error: {exc}", file=sys.stderr)
         return EXIT_SETUP
     except DatasetError as exc:
-        _print_invalid("the images and labels cannot support a verdict", exc)
+        _print_invalid("the images, labels or reference boxes cannot support a verdict", exc)
         return EXIT_DATASET
     except BaselineError as exc:
         _print_invalid("the baseline cannot be compared with this run", exc)
         return EXIT_BASELINE
+    except Exception as exc:  # a crash is not a verdict: exit 1 must only mean "the model failed"
+        traceback.print_exc()
+        print(f"[eval] error: unexpected {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_SETUP
 
 
 def _print_invalid(headline: str, exc: EvidenceError) -> None:

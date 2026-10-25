@@ -116,8 +116,6 @@ def reset_shared_backend_state() -> None:
 @pytest.fixture(autouse=True)
 def _isolate_shared_backend_state():
     reset_shared_backend_state()
-    yield
-    reset_shared_backend_state()
 
 
 @pytest.fixture

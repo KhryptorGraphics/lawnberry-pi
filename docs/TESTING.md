@@ -26,6 +26,24 @@ pytest -q
   opt-in gates are the Pi-target ones: `RUN_PERF_TESTS=1` (latency/throughput budgets) and
   `RUN_HW_TESTS=1` (hardware self-test, see "On-device hardware testing" below).
 
+### Order independence
+
+CI runs the default order, which says nothing about a test that only passes after a particular
+predecessor. `scripts/run_tests_shuffled.py` runs the same tests in a seeded random order:
+
+```bash
+env -u PYTEST_ADDOPTS SIM_MODE=1 python scripts/run_tests_shuffled.py --seed 11 -- \
+  tests -o addopts="" -p no:cacheprovider --ignore=tests/soak --ignore=tests/agent_bridge -W ignore
+```
+
+`--mode module` (default) shuffles the test files and the tests in each, `item` shuffles every
+test, `reverse` runs the default order backwards. The first line printed names the seed and a
+digest of the order, so a failure is replayed by repeating the command. State a test would leave
+behind for the next one (the `auth_service` failed-login counter, the E-stop drive-block window)
+is reset before every test by `tests/conftest.py`; a new module-level singleton that keeps state
+needs the same reset there, and `tests/unit/test_conftest_isolation.py` fails when the auth
+facade grows state the reset does not know.
+
 ## 2) Frontend tests and lint (optional)
 
 From `frontend/`:
