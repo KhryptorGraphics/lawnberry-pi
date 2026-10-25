@@ -139,6 +139,15 @@ class RoboHATService:
         self._parked = False
         # Firmware echo counters, used to confirm a stop was actually accepted.
         self._acks: dict[str, int] = {"pwm": 0, "blade": 0}
+        # What the firmware was last told about the blade, recorded where every line leaves
+        # (``_send_line``): True after ``blade=on`` (also when that write failed: it may have
+        # landed) until a ``blade=off`` is written. The safety status reads it (audit HW-04).
+        self._blade_on = False
+
+    @property
+    def blade_commanded_on(self) -> bool:
+        """Is the blade (possibly) on: the last ``blade=`` line was ON, or an ON write failed?"""
+        return self._blade_on
 
     @property
     def emergency_latched(self) -> bool:
@@ -211,11 +220,15 @@ class RoboHATService:
             async with self._serial_lock:
                 await asyncio.to_thread(self.serial_conn.write, message)
                 await asyncio.to_thread(self.serial_conn.flush)
+            if line.startswith("blade="):
+                self._blade_on = line.rstrip("\r\n") == "blade=on"
             return True
         except Exception as exc:  # pragma: no cover - hardware error path
             logger.error("Failed to send RoboHAT command line '%s': %s", line, exc)
             self.status.error_count += 1
             self.status.last_error = str(exc)
+            if line.rstrip("\r\n") == "blade=on":
+                self._blade_on = True  # unknown: a write that failed may still have landed
             return False
 
     def _drain_serial_buffer(self) -> None:

@@ -568,6 +568,21 @@ class BladeService:
 
     # ------------------------------------------------------------------ state
 
+    def blade_may_be_on(self) -> bool:
+        """Is the IBT-4 blade (possibly) on RIGHT NOW? Synchronous, read-only, never raises.
+
+        What the pads read, not what was commanded: ``True`` for a pad forced high by something
+        else, for a failed readback, for lines that are not claimed on an armed service and for
+        an unconfirmed write (the same conservative rule as ``status()["active"]``). ``False``
+        only when the inputs were READ low, or, for the flag-only stub, nothing was ever turned
+        on. Any failure to find out reads as "may be on".
+        """
+        try:
+            return bool(self._driver.snapshot()["active"])
+        except Exception:
+            logger.exception("blade_may_be_on: the pads could not be read")
+            return True
+
     async def status(self) -> dict[str, Any]:
         """The blade as it is NOW: pads read back, latch, deadman, pending OFF, ON refusal."""
         health = await self._driver.health_check()

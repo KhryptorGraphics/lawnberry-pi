@@ -162,20 +162,48 @@ def collect_safety_status() -> dict[str, Any]:
     }
 
 
+def _tractor_blade_engaged() -> bool:
+    from ..services.tractor_service import get_tractor_service
+
+    tractor = get_tractor_service()
+    return tractor is not None and bool(tractor.state.blade_engaged)
+
+
+def _ibt4_blade_may_be_on() -> bool:
+    from ..services.blade_service import get_blade_service
+
+    return bool(get_blade_service().blade_may_be_on())
+
+
+def _robohat_blade_commanded_on() -> bool:
+    from ..services.robohat_service import get_robohat_service
+
+    robohat = get_robohat_service()  # None until the lifespan builds it
+    return robohat is not None and bool(robohat.blade_commanded_on)
+
+
 def collect_blade_active() -> bool:
-    """Is the blade (possibly) running? Conservative: an unconfirmed blade write counts as on."""
-    try:
-        from ..services.tractor_service import get_tractor_service
+    """Is a blade (possibly) running? Conservative: anything that cannot say "off" counts as on.
 
-        if bool(get_tractor_service().state.blade_engaged):
+    Three blades, each read on its own: the tractor's PTO relay (``blade_engaged``), the IBT-4
+    (the two pads READ now, not the command cache: a pad forced high, a failed readback, lines
+    that were never claimed and an unconfirmed write all read "may be on") and the RoboHAT's
+    blade, the deployed differential platform's (the last ``blade=`` line written to the
+    firmware). A source that cannot be read at all counts as "may be on" too (audit HW-04).
+    """
+    for name, source in (
+        ("tractor", _tractor_blade_engaged),
+        ("ibt4", _ibt4_blade_may_be_on),
+        ("robohat", _robohat_blade_commanded_on),
+    ):
+        try:
+            if source():
+                return True
+        except Exception:
+            logger.warning(
+                "blade_active: %s unreadable; reporting the blade as possibly on",
+                name,
+                exc_info=True,
+            )
             return True
-    except Exception:
-        logger.debug("blade_active: tractor unreadable", exc_info=True)
-    try:
-        from ..services.blade_service import get_blade_service
-
-        driver = get_blade_service()._driver
-        return bool(driver._blade_active or not driver._state_confirmed)
-    except Exception:
-        logger.debug("blade_active: blade service unreadable", exc_info=True)
     return False
