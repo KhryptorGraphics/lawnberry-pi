@@ -15,6 +15,12 @@ Limits of this HAL, reported honestly in the protocol:
   ``ST_STUCK`` for HALs that can tell them apart; the host never treats a silent line as proof of
   a clear path unless the owner's configuration says so.
 * A raised exception inside ``measure`` is reported by the core as ``ST_STUCK`` (fault).
+* ``usb_cdc.Serial.write`` returns how many bytes it took, fewer than offered when the TX FIFO is
+  full (the host is not draining it). ``write`` completes the frame with a few non-blocking
+  retries (about 3 ms in all, so the main loop keeps feeding the watchdog). A frame that still
+  does not fit is abandoned where it is and counted in ``short_writes``: the host resynchronises
+  on the stub (it costs that frame) and the next frame is written whole, never glued to the
+  missing tail of this one.
 """
 
 import os
@@ -31,6 +37,10 @@ try:  # CircuitPython >= 9
     from watchdog import WatchDogMode
 except ImportError:  # CircuitPython <= 8
     from microcontroller import WatchDogMode
+
+_WRITE_TIMEOUT_S = 0.05  # the first attempt may wait this long for room in the USB TX FIFO
+_WRITE_RETRIES = 3  # then up to this many non-blocking attempts for the rest of the frame ...
+_WRITE_RETRY_WAIT_S = 0.001  # ... one USB frame (1 ms) apart: about 3 ms at most
 
 
 class CpHal:
@@ -52,10 +62,11 @@ class CpHal:
             pin.clear()
             self._echo.append(pin)
         self.sensor_count = len(self._trig)
+        self.short_writes = 0  # frames abandoned because the host did not take all of them
         self._trigger_ns = int(trigger_pulse_us) * 1000
         self._serial = usb_cdc.data
         self._serial.timeout = 0
-        self._serial.write_timeout = 0.05
+        self._serial.write_timeout = _WRITE_TIMEOUT_S
         self._wdt = microcontroller.watchdog
         self._wdt.timeout = watchdog_s
         self._wdt.mode = WatchDogMode.RESET
@@ -126,6 +137,27 @@ class CpHal:
         return b""
 
     def write(self, data):
-        # Never block on a host that is not listening (cable unplugged, port closed).
-        if self._serial.connected:
-            self._serial.write(data)
+        """Send one frame without ever blocking for long (see the module docstring).
+
+        ``usb_cdc.Serial.write`` returns how many bytes it took: fewer than ``len(data)`` when the
+        TX FIFO is full. The rest is retried at most ``_WRITE_RETRIES`` times, non-blocking and
+        ``_WRITE_RETRY_WAIT_S`` apart. A frame that still does not fit is abandoned where it is
+        and counted in ``short_writes``; its tail is never sent later.
+        """
+        serial = self._serial
+        if not serial.connected:  # never block on a host that is not listening (cable, closed port)
+            return
+        total = len(data)
+        sent = serial.write(data)
+        if sent >= total:
+            return
+        serial.write_timeout = 0
+        try:
+            for _ in range(_WRITE_RETRIES):
+                time.sleep(_WRITE_RETRY_WAIT_S)
+                sent += serial.write(data[sent:])
+                if sent >= total:
+                    return
+        finally:
+            serial.write_timeout = _WRITE_TIMEOUT_S
+        self.short_writes += 1

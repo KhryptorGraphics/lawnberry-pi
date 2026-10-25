@@ -40,6 +40,9 @@ class World:
         self.now_ns += self.step_ns
         return self.now_ns
 
+    def sleep(self, seconds: float) -> None:
+        self.now_ns += round(seconds * 1e9)
+
     def on_trig(self, pin: str, value: bool) -> None:
         self.trig_log.append((pin, self.now_ns, value))
         self.events.append(("trig", pin, value))
@@ -135,6 +138,12 @@ class FakeUsbData:
         self.write_timeout = None
         self.write_calls = 0
         self.fail_after: int | None = None  # raise from write() once this many calls were made
+        # A configurable short write: the TX FIFO takes `accept[i]` bytes on the i-th call, then
+        # at most `accept_default` per call (None: everything), like usb_cdc under write_timeout.
+        self.accept: list[int] = []
+        self.accept_default: int | None = None
+        self.write_log: list[tuple[int, int, float | None]] = []  # (offered, taken, write_timeout)
+        self.max_calls = 100_000  # a retry loop without a bound fails the test instead of hanging
 
     @property
     def in_waiting(self) -> int:
@@ -149,8 +158,13 @@ class FakeUsbData:
         if self.fail_after is not None and self.write_calls >= self.fail_after:
             raise OSError("usb write failed")
         self.write_calls += 1
-        self.written.extend(data)
-        return len(data)
+        if self.write_calls > self.max_calls:
+            raise AssertionError("usb write() retried without a bound")
+        limit = self.accept.pop(0) if self.accept else self.accept_default
+        taken = len(data) if limit is None else min(limit, len(data))
+        self.write_log.append((len(data), taken, self.write_timeout))
+        self.written.extend(data[:taken])
+        return taken
 
 
 class FakeWatchdog:
@@ -224,7 +238,11 @@ def cp(monkeypatch):
     hal_mod = load_module("usonic_hal_cp")
     load_module("usonic_main")
     # Replace the module's own reference only: the real ``time`` module must stay untouched.
-    monkeypatch.setattr(hal_mod, "time", types.SimpleNamespace(monotonic_ns=world.monotonic_ns))
+    monkeypatch.setattr(
+        hal_mod,
+        "time",
+        types.SimpleNamespace(monotonic_ns=world.monotonic_ns, sleep=world.sleep),
+    )
     ns = types.SimpleNamespace(
         world=world, usb=usb_data, wdt=wdt, cpu=cpu, mcu=mcu, hal_mod=hal_mod, fakes=fakes
     )
@@ -377,6 +395,50 @@ def test_read_is_non_blocking_and_write_never_blocks_on_a_detached_host(cp):
     assert bytes(cp.usb.written) == b"hello"  # nothing was queued for a host that is not there
 
 
+def _frame(seq):
+    """A frame the size of a READING (23 bytes): 6 header, 15 payload, 2 CRC."""
+    return host.encode_frame(host.FrameType.READING, seq, bytes(range(15)))
+
+
+def test_a_short_write_is_completed_by_a_few_non_blocking_retries(cp):
+    # US-12b: usb_cdc write() returns how many bytes it took; under write_timeout it is fewer when
+    # the TX FIFO is full. The old HAL ignored the count and put a truncated frame on the wire.
+    hal = make_hal(cp)
+    frame = _frame(1)
+    cp.usb.accept = [10, 0, 13]  # 10 bytes now, nothing a millisecond later, the other 13 after
+    t0 = cp.world.now_ns
+    hal.write(frame)
+    assert bytes(cp.usb.written) == frame  # whole, exactly once, in order
+    assert hal.short_writes == 0
+    # the first attempt is as before (it may wait the write timeout); the retries never block
+    log = [(taken, timeout) for _offered, taken, timeout in cp.usb.write_log]
+    assert log == [(10, 0.05), (0, 0), (13, 0)]
+    assert [offered for offered, _taken, _timeout in cp.usb.write_log] == [23, 13, 13]
+    assert cp.usb.write_timeout == 0.05  # and the next frame gets the normal timeout again
+    # two retries, each after a pause for the USB stack to drain the FIFO: 2 to a few milliseconds
+    assert 2_000_000 <= cp.world.now_ns - t0 <= 5_000_000
+
+
+def test_a_frame_that_cannot_be_completed_is_abandoned_counted_and_never_glued_to_the_next(cp):
+    hal = make_hal(cp)
+    first, second = _frame(1), _frame(2)
+    cp.usb.accept = [10]
+    cp.usb.accept_default = 0  # the host stops draining the FIFO
+    t0 = cp.world.now_ns
+    hal.write(first)
+    assert bytes(cp.usb.written) == first[:10]  # a stub is all that got out
+    assert hal.short_writes == 1
+    assert len(cp.usb.write_log) <= 5  # one attempt and a few retries, then it stops
+    assert 3_000_000 <= cp.world.now_ns - t0 <= 5_000_000  # three paused retries, then it stops
+    assert cp.usb.write_timeout == 0.05
+    cp.usb.accept_default = None  # the host drains again
+    hal.write(second)
+    # the rest of `first` is NOT written later: the next frame starts right behind the stub
+    assert bytes(cp.usb.written) == first[:10] + second
+    assert hal.short_writes == 1
+    assert [f.seq for f in host.decode_stream(bytes(cp.usb.written))] == [2]
+
+
 def test_watchdog_is_fed_through_the_hal(cp):
     hal = make_hal(cp)
     hal.feed_watchdog()
@@ -457,6 +519,34 @@ def test_a_crash_in_the_main_loop_resets_the_fake_board(cp, monkeypatch):
     assert isinstance(msgs[0], host.Info)
     assert any(isinstance(m, host.Reading) for m in msgs)
     assert 0 < cp.wdt.fed < 100_000  # it was running, and stopped at the crash
+
+
+def test_main_loop_with_a_slow_usb_host_delivers_every_frame_intact(cp, monkeypatch):
+    # The FIFO takes at most 20 bytes per call, so every INFO/READING (22/23 bytes) is a short
+    # write that the retry has to complete: not one truncated frame may reach the host.
+    monkeypatch.setattr(sys.modules["usonic_config"], "TRIG_PINS", TRIG)
+    monkeypatch.setattr(sys.modules["usonic_config"], "ECHO_PINS", ECHO)
+    cp.usb.accept_default = 20
+    sys.modules["usonic_main"].run(iterations=12000)
+    decoder = host.FrameDecoder()
+    msgs = [host.parse_payload(f) for f in decoder.feed(bytes(cp.usb.written))]
+    assert (decoder.crc_errors, decoder.bad_length, decoder.garbage) == (0, 0, 0)
+    assert {m.sensor for m in msgs if isinstance(m, host.Reading)} == {0, 1, 2, 3}
+    assert cp.wdt.fed == 12000
+
+
+def test_main_loop_keeps_feeding_the_watchdog_when_the_usb_host_stops_draining(cp, monkeypatch):
+    monkeypatch.setattr(sys.modules["usonic_config"], "TRIG_PINS", TRIG)
+    monkeypatch.setattr(sys.modules["usonic_config"], "ECHO_PINS", ECHO)
+    cp.usb.accept_default = 0  # nothing is ever taken
+    hal, core = sys.modules["usonic_main"].build()
+    core.start()
+    for _ in range(30000):
+        hal.feed_watchdog()
+        core.poll()
+    assert cp.wdt.fed == 30000
+    assert core.frames_tx > 10
+    assert hal.short_writes == core.frames_tx  # every frame abandoned, each counted exactly once
 
 
 def test_firmware_directory_is_a_plain_copy_to_circuitpy_layout():
