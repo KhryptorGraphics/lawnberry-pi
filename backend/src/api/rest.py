@@ -22,6 +22,7 @@ import os
 import uuid
 from email.utils import format_datetime, parsedate_to_datetime
 
+from ..core.peer_address import client_host
 from ..core.persistence import persistence
 from ..core.globals import (
     _blade_state,
@@ -285,10 +286,23 @@ async def _read_estop_body(request: Request | None) -> dict[str, Any]:
         return {}
 
 
-def _audit_estop_coalesced(action: str, details: dict[str, Any]) -> None:
+def _estop_client(request: Request | None) -> str | None:
+    """The address an open stop route's caller is audited under; never raises (a stop waits for no
+    audit): the connection's peer, or the client behind a trusted forwarder."""
+    try:
+        return client_host(request) if request is not None else None
+    except Exception:
+        return None
+
+
+def _audit_estop_coalesced(
+    action: str, details: dict[str, Any], client_id: str | None = None
+) -> None:
     """Off-loop, coalesced, never-raising audit row for the unauthenticated stop routes."""
     try:
-        persistence.add_audit_log_coalesced(action, details=details, window_s=ESTOP_AUDIT_WINDOW_S)
+        persistence.add_audit_log_coalesced(
+            action, client_id=client_id, details=details, window_s=ESTOP_AUDIT_WINDOW_S
+        )
     except Exception as exc:
         logger.error("E-stop audit failed: %s", exc)
 
@@ -830,6 +844,7 @@ async def control_emergency_v2(request: Request):
         _remember_client_emergency(request)
     except Exception:
         pass
+    client = _estop_client(request)  # a header/peer read: taken before the first await
 
     # The stop does not use the body (it only picks the reply shape and the audit principal), so
     # it starts NOW, as a task of its own, and the body is read while it runs (audit NAV-04,
@@ -862,7 +877,9 @@ async def control_emergency_v2(request: Request):
             "remediation": _emergency_remediation(report),
             "timestamp": timestamp.isoformat(),
         }
-        _audit_estop_coalesced("control.emergency_stop", {"response": legacy_payload})
+        _audit_estop_coalesced(
+            "control.emergency_stop", {"response": legacy_payload}, client_id=client
+        )
         return JSONResponse(status_code=200, content=legacy_payload)
 
     response = ControlResponseV2(
@@ -891,7 +908,7 @@ async def control_emergency_v2(request: Request):
     audit_details: dict[str, Any] = {"response": response.model_dump()}
     if session_context and session_context.get("principal"):
         audit_details["principal"] = session_context["principal"]
-    _audit_estop_coalesced("control.emergency.triggered", audit_details)
+    _audit_estop_coalesced("control.emergency.triggered", audit_details, client_id=client)
 
     return response
 
@@ -906,6 +923,7 @@ async def control_emergency_stop_alias(request: Request = None):
     """
     _safety_state["emergency_stop_active"] = True
     _blade_state["active"] = False
+    client = _estop_client(request)  # a header/peer read: taken before the first await
     report = await _run_emergency_stop("api:/control/emergency-stop")
     payload = {
         "emergency_stop_active": True,
@@ -916,7 +934,7 @@ async def control_emergency_stop_alias(request: Request = None):
         "faults": report["faults"],
         "remediation": _emergency_remediation(report),
     }
-    _audit_estop_coalesced("control.emergency_stop", {"response": payload})
+    _audit_estop_coalesced("control.emergency_stop", {"response": payload}, client_id=client)
     return JSONResponse(status_code=200, content=payload)
 
 
