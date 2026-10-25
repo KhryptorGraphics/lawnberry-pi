@@ -63,9 +63,11 @@ os.environ.setdefault("SIM_MODE", "1")
 os.environ.setdefault("OPERATOR_AUTH_REQUIRED", "0")
 # SIM_MODE alone no longer makes the login accept any non-empty credential or admits any
 # WebSocket client as an operator (SEC-10, backend/src/core/auth_posture.py): that needs this
-# explicit opt-in as well. The suite's simulated logins ("operator", "ok", ...) rely on it.
-# setdefault, so a run can override it (LAWN_BERRY_SIM_OPEN_AUTH=0 pytest ... exercises the
-# strict behaviour without touching the tests).
+# explicit opt-in as well. Tests that log in use the `operator_credential` fixture, never a
+# made-up value, so the strict path is exercised for real: the whole suite also passes with the
+# opt-in turned OFF (`LAWN_BERRY_SIM_OPEN_AUTH=0 pytest ...`; it did not until TOOL-13 fixed the
+# four tests that logged in with "secret", "ok" and "operator"). setdefault, so a run can
+# override it.
 os.environ.setdefault("LAWN_BERRY_SIM_OPEN_AUTH", "1")
 # There is no built-in operator credential (backend/src/core/credential_policy.py). The suite
 # configures an explicit one before the backend is imported; tests that log in take it from

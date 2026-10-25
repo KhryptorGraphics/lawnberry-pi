@@ -60,11 +60,15 @@ class TimezoneResponse(BaseModel):
 # ------------------------ Hardware Self-Test ------------------------
 
 
-@router.get("/system/selftest")
+@router.get("/system/selftest", dependencies=[Depends(require_operator_auth)])
 def system_selftest():
-    """Run on-device hardware self-test.
+    """Run on-device hardware self-test (operator only).
 
-    Safe to run on systems without hardware; returns a structured report.
+    Safe to run on systems without hardware; returns a structured report. It is a GET with
+    hardware side effects, not a read: it opens the serial ports the GPS driver may hold (and
+    drains their input), reads I2C addresses and claims and drives the GPIO pins of the old
+    ultrasonic array. An anonymous or cross-site GET must never be able to do that, so it
+    needs the operator's bearer token (an ``<img src>`` or a link cannot send one).
     """
     report = run_selftest()
     return report

@@ -110,6 +110,39 @@
 > CRITICAL for `SIM_MODE=1` in a production environment or on a non-loopback bind
 > (`--host 0.0.0.0`, `UVICORN_HOST`), and for the opt-in on such a process.
 >
+> **Reads are classified too (SEC20-01).** The "everything else needs a bearer" rule above used to hold
+> for writes only, and an anonymous `GET /settings/remote-access` returned the stored Cloudflare tunnel
+> token, the ngrok authtoken and the Google Maps key. Now: (1) **secrets are write-only**. A value stored
+> under a secret-looking name (`*_token`, `*_key`, `*password*`, `*secret*`, ... by name, at any depth,
+> `core/secret_redaction.py`) is in no response. `GET /settings/maps` and `GET /settings/remote-access`
+> need the bearer and report `<name>_set` and, for a value of 16+ characters, `<name>_last4`; the open
+> `GET /settings`, `/settings/system` and `/settings/security` drop secret names and say nothing about
+> them. A PUT with an empty secret field keeps the stored value, an explicit `null` clears it, and the
+> `_set`/`_last4` keys of a read view that a client echoes back are never stored; store files are 0600.
+> (2) **The GET audit** also gates the whole documentation hub (`/docs/*`: the folder holds runbooks and
+> hand-off notes, one of which quotes a sudo password; only `.md` files inside the folder are served),
+> `GET /system/selftest` (a GET that opens serial ports, probes I2C and drives GPIO) and
+> `GET /sensors/gps/rtk/diagnostics` (can start the NTRIP forwarder), and drops secret-named keys from
+> `/health` (it echoes whole blocks of `config/hardware.yaml`). (3) Every other read is listed with the
+> reason it is open in `tests/integration/test_operator_auth_coverage.py` (`OPEN_READS`, plus the
+> self-authenticating `/auth/profile`); the suite fails on an unlisted read route, a plain Starlette
+> route, a mounted sub-application or a WebSocket route that does not start with
+> `await _authorize_websocket(...)`. `tests/integration/test_get_routes_expose_no_secrets.py` seeds a
+> canary into every store (environment, secrets file, settings stores, hardware config, live session
+> ids) and fails if any read route, anonymous or as the operator, returns one. **Consequences:** the
+> Google Maps key is no longer sent to the browser, so Google basemaps do not load and the maps use
+> OpenStreetMap (owner decision, see the audit); the camera stream, map geometry and live telemetry
+> stay readable without a login (an `<img>` cannot send a bearer; owner decision).
+>
+> **Only failed logins count.** The `/api/*/auth` limiter and lockout (`middleware/security.py`) count
+> the credential routes (`POST /auth/login`) only. `refresh`, `logout`, `profile` and `ws-ticket`
+> (`UNLIMITED_AUTH_PATHS`) verify a token you already hold, so their 401 never feeds the lockout (after a
+> backend restart every open browser sends them with a dead token) and their 200 never resets a
+> guesser's counters. A body-less `POST` (the UI's logout/refresh) is accepted; the JSON content type is
+> enforced when a body exists. The caller-chosen `X-Correlation-ID` is kept only if it is at most 64
+> plain characters. CORS defaults to the UI's own loopback origins (`LAWN_BERRY_ALLOWED_ORIGINS` adds
+> more).
+>
 > The `lawnberry-pi ...` command examples further down describe a CLI that is not shipped (no
 > console entry point in `pyproject.toml`); the supported configuration is the environment
 > and `.env` described here.

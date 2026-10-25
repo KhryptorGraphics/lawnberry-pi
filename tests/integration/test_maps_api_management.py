@@ -243,7 +243,7 @@ async def test_maps_api_key_management_and_bypass():
         body1 = put1.json()
         assert body1["provider"] == "osm"
 
-        # Set Google with a dummy key
+        # Set Google with a dummy key: it is stored but never echoed (secrets are write-only)
         put2 = await client.put(
             "/api/v2/settings/maps",
             json={"provider": "google", "api_key": "dummy"},
@@ -251,7 +251,8 @@ async def test_maps_api_key_management_and_bypass():
         assert put2.status_code == 200
         body2 = put2.json()
         assert body2["provider"] == "google"
-        assert body2["api_key"] == "dummy"
+        assert body2["api_key_set"] is True
+        assert "dummy" not in put2.text
 
         # Enable bypass mode
         put3 = await client.put("/api/v2/settings/maps", json={"bypass_external": True})

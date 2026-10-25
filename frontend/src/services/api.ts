@@ -358,11 +358,14 @@ const apiService = new ApiService()
 export const authApi = {
   login: async (credentials: LoginCredentials): Promise<AuthResponse> =>
     (await apiService.post<AuthResponse>('/api/v2/auth/login', credentials)).data,
+  // These two POSTs carry no data, and axios then sends no Content-Type, so a backend that insists
+  // on JSON (the auth middleware did, answering 415) never saw the logout: the session and its
+  // WebSocket tickets stayed alive after "sign out" (SEC20-06). `{}` is a real JSON body.
   logout: async (): Promise<void> => {
-    await apiService.post('/api/v2/auth/logout')
+    await apiService.post('/api/v2/auth/logout', {})
   },
   refresh: async (): Promise<RefreshResponse> =>
-    (await apiService.post<RefreshResponse>('/api/v2/auth/refresh')).data,
+    (await apiService.post<RefreshResponse>('/api/v2/auth/refresh', {})).data,
   getProfile: async (): Promise<User> => (await apiService.get<User>('/api/v2/auth/profile')).data,
 }
 

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from ...core.context import get_correlation_id
 from ...core.persistence import persistence
 from ...services.websocket_hub import websocket_hub
 from ..deps import require_operator_auth
@@ -108,7 +109,7 @@ def _require_bearer_auth(request: Request) -> None:
 
     logger.warning(
         "Rejected WebSocket handshake without bearer token",
-        extra={"correlation_id": request.headers.get("X-Correlation-ID")},
+        extra={"correlation_id": get_correlation_id()},
     )
     raise HTTPException(status_code=401, detail="Unauthorized")
 

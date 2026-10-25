@@ -271,13 +271,21 @@ async def get_gps_status() -> GPSSummary:
         return GPSSummary()
 
 
-@router.get("/sensors/gps/rtk/diagnostics", response_model=RtkDiagnosticsResponse)
+@router.get(
+    "/sensors/gps/rtk/diagnostics",
+    response_model=RtkDiagnosticsResponse,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def get_rtk_diagnostics() -> RtkDiagnosticsResponse:
-    """Return combined RTK/NTRIP diagnostics without stealing the serial port.
+    """Return combined RTK/NTRIP diagnostics without stealing the serial port (operator only).
 
     - Exposes current GPS reading and mode
     - Reports NTRIP forwarder runtime stats when configured
     - Includes minimal hardware GPS flags from app state
+
+    Not an open read: it lazily creates the sensor manager and so can START the NTRIP
+    forwarder (an outbound connection to the caster with the stored credentials), and it shows
+    the caster host, mountpoint, serial device and the raw NMEA sentences.
     """
     # Prepare GPS details
     gps_block: dict[str, Any] = {

@@ -19,14 +19,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from ..core.context import set_correlation_id
+from ..core.context import sanitize_correlation_id, set_correlation_id
 from ..core.peer_address import request_peer_key
 
-# Routes under a protected prefix that take no credential to guess: ``POST /auth/ws-ticket`` only
-# redeems a live bearer token, and the UI calls it before every WebSocket (re)connect. Counting
-# those calls would block the login after a handful of reconnects, and counting its 401 (an
-# expired token) would lock the operator out of the very login that renews the token.
-UNLIMITED_AUTH_PATHS = frozenset({"/api/v2/auth/ws-ticket"})
+# Routes under a protected prefix that take no credential to guess (SEC20-08). Each only
+# verifies a bearer token the caller already holds, so a 401 there means "that token is dead",
+# never "wrong password": the UI sends ``refresh``, ``logout`` and ``profile`` from every browser
+# that wakes up after a backend restart (all in-memory sessions are gone) and ``ws-ticket`` before
+# every WebSocket (re)connect, so counting those 401s locked the operator out of the very login
+# that renews the token; and a 200 there must not reset the failure counters of a client that is
+# guessing the credential. What is limited and counted is every OTHER route under the prefix
+# (today the two login routes), so a new credential check can never ship unlimited by accident:
+# it stays limited until someone lists it here. Matched by exact path, a trailing slash ignored.
+UNLIMITED_AUTH_PATHS = frozenset(
+    {
+        "/api/v2/auth/ws-ticket",
+        "/api/v2/auth/refresh",
+        "/api/v2/auth/logout",
+        "/api/v2/auth/profile",
+    }
+)
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
@@ -34,7 +46,9 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
     The auth limiter and lockout count per TCP peer (``core/peer_address.py``); the client's
     ``X-Client-Id`` is not consulted (rotating it used to reset both). Its tables are bounded:
-    idle keys are dropped and no table holds more than ``MAX_TRACKED_KEYS``.
+    idle keys are dropped and no table holds more than ``MAX_TRACKED_KEYS``. Only credential
+    checks (the login routes) are limited and counted; ``UNLIMITED_AUTH_PATHS`` lists the
+    token-only routes that never are, so an expired token cannot lock the login out (SEC20-08).
     """
 
     MAX_TRACKED_KEYS = 4096
@@ -107,9 +121,8 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         return response
 
     def _extract_correlation_id(self, request: Request) -> str:
-        header_names = ("X-Correlation-ID", "X-Request-ID", "X-Amzn-Trace-Id")
-        for name in header_names:
-            value = request.headers.get(name)
+        for name in ("X-Correlation-ID", "X-Request-ID", "X-Amzn-Trace-Id"):
+            value = sanitize_correlation_id(request.headers.get(name))
             if value:
                 return value
         return uuid.uuid4().hex
@@ -221,6 +234,14 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 del self._lockout_until[key]
 
     def _validate_request_content(self, request: Request) -> Response | None:
+        """415 for a request that HAS a body and is not JSON; a body-less POST is fine.
+
+        The UI's logout and refresh are body-less POSTs (axios drops ``Content-Type`` when there
+        is no data) and used to be refused here, so a "logout" never revoked anything (SEC20-06).
+        ``InputValidationMiddleware`` applies the same rule app-wide.
+        """
+        if not _has_body(request):
+            return None
         content_type = request.headers.get("Content-Type", "").lower()
         if "application/json" not in content_type:
             return JSONResponse(
@@ -242,14 +263,39 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             response.headers.setdefault(header, value)
 
 
+def _has_body(request: Request) -> bool:
+    """Whether the request declares a body (``Content-Length`` > 0 or any ``Transfer-Encoding``).
+
+    A malformed length counts as a body, so it still has to be JSON. A body sent with neither
+    header (not valid HTTP/1.1) is left to ``InputValidationMiddleware``, which reads the body.
+    """
+    if request.headers.get("Transfer-Encoding"):
+        return True
+    length = request.headers.get("Content-Length")
+    if length is None:
+        return False
+    try:
+        return int(length) > 0
+    except ValueError:
+        return True
+
+
 def _default_allowed_origins() -> list[str]:
+    """Origins allowed by CORS (and, for a WebSocket upgrade, besides the page's own origin).
+
+    The UI is served and proxied from the mower itself (``frontend/server.mjs`` forwards ``/api``
+    and ``/ws``), so a browser reaches the API from its own origin and needs no CORS at all. The
+    default is therefore just the UI server's own loopback origins; the two external
+    ``lawnberry.ai`` origins it used to name were credentialed cross-origin grants to hosts this
+    repository does not control (SEC20-14). Set ``LAWN_BERRY_ALLOWED_ORIGINS`` (comma-separated)
+    to allow others.
+    """
     env_value = os.getenv("LAWN_BERRY_ALLOWED_ORIGINS")
     if env_value:
         return [origin.strip() for origin in env_value.split(",") if origin.strip()]
     return [
-        "https://app.lawnberry.ai",
-        "https://control.lawnberry.ai",
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ]
 
 

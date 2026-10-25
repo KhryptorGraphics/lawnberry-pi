@@ -51,9 +51,9 @@ class SanitizationMiddleware(BaseHTTPMiddleware):
     ) -> None:
         super().__init__(app)
         self._max = max(1024, int(max_process_bytes))
-        # Paths whose responses are NOT redacted. The authenticated settings
-        # surface is the system of record for provider API keys and must return
-        # them so the operator UI can display the configured values.
+        # Paths whose responses are NOT redacted: only the auth endpoints, which must return
+        # usable bearer tokens. The settings surface is redacted like everything else (its
+        # router never returns a secret value, SEC20-01; this is the backstop).
         self._skip = tuple(skip_prefixes or ())
 
     async def dispatch(self, request: Request, call_next) -> Response:
@@ -112,10 +112,9 @@ class SanitizationMiddleware(BaseHTTPMiddleware):
 
 
 def register_sanitization_middleware(app: FastAPI) -> None:
-    # The settings surface returns operator-managed config (incl. the maps API
-    # key) and the auth endpoints must return usable bearer tokens, so neither is
-    # subject to response-body secret redaction.
-    skip = os.getenv("SANITIZE_SKIP", "/api/v2/settings,/api/v2/auth,/api/v1/auth")
+    # The auth endpoints must return usable bearer tokens, so they are not subject to
+    # response-body secret redaction. Nothing else is exempt, the settings surface included.
+    skip = os.getenv("SANITIZE_SKIP", "/api/v2/auth,/api/v1/auth")
     app.add_middleware(
         SanitizationMiddleware,
         skip_prefixes=[s.strip() for s in skip.split(",") if s.strip()],
