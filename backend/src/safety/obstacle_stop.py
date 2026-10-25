@@ -27,6 +27,14 @@ Manual commands (sources ``operator``/``teleop``) are not limited unless
 disconnected, must still be able to move the levers. Anything else, including an unlabeled
 caller, is treated as autonomous and limited.
 
+Ages are monotonic. ToF and ultrasonic readings carry a wall-clock stamp; the sampler turns it
+into a time on the guard's own monotonic clock ONCE, when the reading is first seen
+(``core.freshness.ReceiptAges``), so a backward clock step cannot make a frozen reading fresh
+again, and a stamp from the future is unknown, never fresh (audit SAF-05). A ``clear`` verdict
+needs a usable horizon; without one it is unknown, not clear to the full detection range
+(SAF-10). A ToF source that repeats one identical in-range distance in
+``frozen_reading_count`` consecutive fresh readings is treated as frozen, i.e. unknown (SAF-S2).
+
 Limits that remain (see the audit): ultrasonic cones are not an occupancy map and cannot see
 soft targets; nothing senses behind the machine, so reverse is not limited; speed is the
 commanded lever demand, not a measurement; every number is UNVALIDATED until M-43.
@@ -44,6 +52,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from ..core.freshness import ReceiptAges
 from ..models.safety_limits import ObstacleStopLimits, SafetyLimits
 from .safety_triggers import SafetyTriggerManager, get_safety_trigger_manager
 from .stopping_distance import StoppingDistanceModel
@@ -133,20 +142,29 @@ def limit_pair(a: float, b: float, cap: float) -> tuple[float, float]:
     return (min(na, cap) if na > 0 else na), (min(nb, cap) if nb > 0 else nb)
 
 
-def _age_seconds(stamp: Any, wall_now: datetime) -> float | None:
-    """Age of a sensor timestamp (datetime or ISO-8601 string); None if unusable."""
-    if stamp is None:
+def _finite(value: Any) -> float | None:
+    """``value`` as a finite float; ``None`` for anything that is not a real measurement
+    (``None``, NaN, infinity, a bool, a string)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if isinstance(stamp, str):
-        try:
-            stamp = datetime.fromisoformat(stamp)
-        except ValueError:
-            return None
-    if not isinstance(stamp, datetime):
-        return None
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=UTC)
-    return max(0.0, (wall_now - stamp).total_seconds())
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+#: A ToF distance at or beyond this is the sensor's "no target" value (8190 mm and the like),
+#: which is legitimately constant and is not tested for being frozen.
+_TOF_NO_TARGET_M = 4.0
+#: Float noise allowed before a measurement time ahead of the clock counts as "from the future".
+_FUTURE_TOLERANCE_S = 1e-6
+
+
+@dataclass(slots=True)
+class _Repeat:
+    """The run of identical readings a ToF source is on (see ``ObstacleGuard.frozen``)."""
+
+    value: float
+    stamp: Any
+    count: int
 
 
 class ObstacleGuard:
@@ -172,6 +190,8 @@ class ObstacleGuard:
         self._kinds: dict[str, str] = {}
         self._obs: dict[str, _Observation] = {}
         self._ignored = frozenset(self.limits.ignored_sources)
+        self._ages = ReceiptAges(clock)
+        self._repeats: dict[str, _Repeat] = {}
         self._held = True  # no data yet == hold
         self._clear_since: float | None = None
         self._last = None  # type: ObstacleAssessment | None
@@ -205,19 +225,26 @@ class ObstacleGuard:
 
     def observe_range(self, source: str, distance_m: float, measured_at: float) -> None:
         """A measured distance. Non-finite or non-positive values are unknown, not clear."""
-        d = float(distance_m)
-        if not math.isfinite(d) or d <= 0.0:
-            self._store(source, _Kind.UNKNOWN, None, measured_at, f"invalid distance {d!r}")
+        d = _finite(distance_m)
+        if d is None or d <= 0.0:
+            self._store(
+                source, _Kind.UNKNOWN, None, measured_at, f"invalid distance {distance_m!r}"
+            )
         else:
             self._store(source, _Kind.RANGE, d, measured_at, "")
 
-    def observe_clear(
-        self, source: str, measured_at: float, horizon_m: float | None = None
-    ) -> None:
-        """A healthy sensor that proved the path free out to ``horizon_m`` (default: the
-        guard's detection range; a longer horizon is clamped to it)."""
-        ok = horizon_m is not None and math.isfinite(horizon_m) and horizon_m > 0.0
-        self._store(source, _Kind.CLEAR, float(horizon_m) if ok else None, measured_at, "")
+    def observe_clear(self, source: str, measured_at: float, horizon_m: float | None) -> None:
+        """A healthy sensor that proved the path free out to ``horizon_m`` (a longer horizon is
+        clamped to the guard's detection range). The horizon must be a finite number above 0:
+        a sensor that cannot say how far it saw proved nothing, so ``None``, NaN, infinity, 0
+        and negatives are UNKNOWN (blocked), never "clear to the full range" (audit SAF-10)."""
+        horizon = _finite(horizon_m)
+        if horizon is None or horizon <= 0.0:
+            self._store(
+                source, _Kind.UNKNOWN, None, measured_at, f"invalid clear horizon {horizon_m!r}"
+            )
+        else:
+            self._store(source, _Kind.CLEAR, horizon, measured_at, "")
 
     def observe_blind(self, source: str, measured_at: float, detail: str = "blind zone") -> None:
         """Something may be inside the sensor's blind zone: treated as an obstacle."""
@@ -258,7 +285,15 @@ class ObstacleGuard:
                 reasons.append(f"{name}: no data")
                 cap = 0.0
                 continue
-            age = max(0.0, t - obs.measured_at)
+            age = t - obs.measured_at
+            if age < -_FUTURE_TOLERANCE_S:
+                # A measurement from the future is not fresh, it is untrustworthy (the clock it
+                # was stamped with disagrees with this one): never clamp it to age 0.
+                faults.append(name)
+                reasons.append(f"{name}: measurement is {-age:.2f}s in the future")
+                cap = 0.0
+                continue
+            age = max(0.0, age)
             if age > lim.max_reading_age_s:
                 faults.append(name)
                 reasons.append(f"{name}: stale ({age:.2f}s old)")
@@ -368,7 +403,11 @@ class ObstacleGuard:
                         if o is not None and o.kind is _Kind.CLEAR and o.distance_m is not None
                         else None
                     ),
-                    "age_s": None if o is None else round(max(0.0, t - o.measured_at), 3),
+                    "age_s": (
+                        None
+                        if o is None or t - o.measured_at < -_FUTURE_TOLERANCE_S
+                        else round(max(0.0, t - o.measured_at), 3)
+                    ),
                     "detail": None if o is None or not o.detail else o.detail,
                 }
                 for name in self.sources
@@ -376,9 +415,43 @@ class ObstacleGuard:
             },
         }
 
+    def taken_at(self, source: str, stamp: Any, wall_now: datetime) -> float | None:
+        """When, on this guard's clock, the measurement stamped ``stamp`` (wall clock) was
+        taken; ``None`` if it cannot be aged. See ``core.freshness.ReceiptAges``."""
+        return self._ages.taken_at(source, stamp, wall_now)
+
+    def frozen(self, source: str, distance_m: float, stamp: Any) -> bool:
+        """Record one reading of ``distance_m`` and say whether the source looks frozen.
+
+        A VL53L0X that stops ranging but keeps answering returns the last value for ever, and
+        ``range_status`` stays ``valid`` (audit SAF-S2). A real chip pointed at a real target
+        jitters by a millimetre or more, so ``frozen_reading_count`` consecutive *distinct*
+        readings (a replay of the same stamp does not count) of exactly one distance means
+        frozen, and stays frozen until the value changes. Only distances beyond the hold
+        distance (already a hold) and inside the sensor's real range are tested: a constant
+        "no target" value is legitimate.
+        """
+        if not self.model.hold_distance() < distance_m < _TOF_NO_TARGET_M:
+            self._repeats.pop(source, None)
+            return False
+        run = self._repeats.get(source)
+        if run is None or run.value != distance_m:
+            self._repeats[source] = _Repeat(distance_m, stamp, 1)
+            return False
+        if run.stamp != stamp:
+            run.stamp = stamp
+            run.count += 1
+        return run.count >= self.limits.frozen_reading_count
+
+    def end_run(self, source: str) -> None:
+        """A reading that is not a valid ToF distance breaks the run of identical ones."""
+        self._repeats.pop(source, None)
+
     def reset(self) -> None:
         """Forget every observation and start held (tests; a fresh process starts the same)."""
         self._obs.clear()
+        self._ages.forget()
+        self._repeats.clear()
         self._held = True
         self._clear_since = None
         self._last = None
@@ -395,19 +468,51 @@ def _tof_observation(guard: ObstacleGuard, manager: Any, wall_now: datetime) -> 
         if source not in guard.sources:
             continue
         if tof is None or status != "online":
+            guard.end_run(source)
             guard.observe_unknown(source, now, f"tof sensor {status or 'absent'}")
             continue
         reading = getattr(tof, attr, None)
         if reading is None:
+            guard.end_run(source)
             guard.observe_unknown(source, now, "no reading yet")
             continue
         range_status = getattr(reading, "range_status", None)
-        distance_mm = getattr(reading, "distance", None)
-        age = _age_seconds(getattr(reading, "timestamp", None), wall_now)
-        if range_status != "valid" or distance_mm is None or age is None:
+        distance_mm = _finite(getattr(reading, "distance", None))
+        if range_status != "valid" or distance_mm is None:
+            guard.end_run(source)
             guard.observe_unknown(source, now, f"range_status={range_status}")
             continue
-        guard.observe_range(source, float(distance_mm) / 1000.0, now - age)
+        stamp = getattr(reading, "timestamp", None)
+        taken = guard.taken_at(source, stamp, wall_now)
+        if taken is None:
+            guard.end_run(source)
+            guard.observe_unknown(source, now, "reading timestamp missing or from the future")
+        elif guard.frozen(source, distance_mm / 1000.0, stamp):
+            guard.observe_unknown(
+                source,
+                taken,
+                f"frozen: {distance_mm:.0f} mm in {guard.limits.frozen_reading_count} "
+                "consecutive readings",
+            )
+        else:
+            guard.observe_range(source, distance_mm / 1000.0, taken)
+
+
+def _ultrasonic_taken_at(
+    guard: ObstacleGuard, source: str, entry: dict[str, Any], wall_now: datetime
+) -> float | None:
+    """When an ultrasonic entry was measured, on the guard's clock; ``None`` if unusable.
+
+    An entry that carries its own monotonic receive time (``measured_mono``, the host's
+    ``time.monotonic()`` when the MCU frame arrived) is aged from that. A key that is present
+    but not a time at or before now is unusable, never a reason to fall back to the wall stamp.
+    """
+    if entry.get("measured_mono") is not None:
+        mono = _finite(entry["measured_mono"])
+        if mono is None or mono > guard.now() + _FUTURE_TOLERANCE_S:
+            return None
+        return mono
+    return guard.taken_at(source, entry.get("timestamp"), wall_now)
 
 
 def _ultrasonic_observations(guard: ObstacleGuard, manager: Any, wall_now: datetime) -> None:
@@ -430,25 +535,32 @@ def _ultrasonic_observations(guard: ObstacleGuard, manager: Any, wall_now: datet
             continue
         status = entry.get("status")
         verdict = entry.get("verdict")
-        age = _age_seconds(entry.get("timestamp"), wall_now)
-        if age is None:
-            guard.observe_unknown(source, now, f"no timestamp (status={status})")
+        taken = _ultrasonic_taken_at(guard, source, entry, wall_now)
+        if taken is None:
+            guard.observe_unknown(source, now, f"no usable timestamp (status={status})")
         elif status == _US_BLIND:
-            guard.observe_blind(source, now - age, "ultrasonic blind zone")
+            guard.observe_blind(source, taken, "ultrasonic blind zone")
         elif verdict == _US_UNKNOWN:
-            guard.observe_unknown(source, now - age, f"verdict unknown (status={status})")
+            guard.observe_unknown(source, taken, f"verdict unknown (status={status})")
         elif entry.get("valid") is True and status in (None, _US_OK):
-            distance_cm = entry.get("distance_cm")
+            distance_cm = _finite(entry.get("distance_cm"))
             if distance_cm is None:
-                guard.observe_unknown(source, now - age, "valid reading without a distance")
+                guard.observe_unknown(source, taken, "valid reading without a distance")
             else:
-                guard.observe_range(source, float(distance_cm) / 100.0, now - age)
+                guard.observe_range(source, distance_cm / 100.0, taken)
         elif verdict == _US_CLEAR:
-            clear_to_cm = entry.get("clear_to_cm")
-            horizon = float(clear_to_cm) / 100.0 if isinstance(clear_to_cm, (int, float)) else None
-            guard.observe_clear(source, now - age, horizon)
+            horizon_cm = _finite(entry.get("clear_to_cm"))
+            if horizon_cm is None or horizon_cm <= 0.0:
+                guard.observe_unknown(
+                    source,
+                    taken,
+                    "clear verdict without a usable horizon "
+                    f"(clear_to_cm={entry.get('clear_to_cm')!r})",
+                )
+            else:
+                guard.observe_clear(source, taken, horizon_cm / 100.0)
         else:
-            guard.observe_unknown(source, now - age, f"status={status} verdict={verdict}")
+            guard.observe_unknown(source, taken, f"status={status} verdict={verdict}")
 
 
 def sample_sensor_manager(guard: ObstacleGuard, manager: Any) -> None:
@@ -605,6 +717,11 @@ def build_obstacle_guard(limits: SafetyLimits) -> ObstacleGuard:
     )
     for source in TOF_SOURCES:
         guard.register_source(source, TOF_KIND)
+    if limits.obstacle_stop.clear_dwell_s == 0.0:
+        logger.warning(
+            "Obstacle stop: clear_dwell_s is 0, so a hold is released the moment one reading is "
+            "clear (no hysteresis)"
+        )
     if not limits.obstacle_stop.validated:
         logger.warning(
             "Obstacle stop: the stopping-distance model is UNVALIDATED (conservative defaults, "
