@@ -168,15 +168,21 @@ SIM_MODE=1 pytest tests/unit/test_ultrasonic_mcu_protocol.py tests/unit/test_ult
 
 Covered: wire bytes and CRC against a third bit-by-bit implementation; host and firmware codecs
 byte-identical and decoding identically under random corruption; the firmware core against a
-simulated HAL (time-division invariant, dead/stuck/raising sensors, config accept/NAK, loopback,
-reboot); the CircuitPython HAL under fake `board/digitalio/pulseio/usb_cdc/microcontroller` modules
-(call order, bounded waits, data port, watchdog); the host driver against the real firmware core
-with corrupt, truncated, dropped and garbage frames, a hung MCU, unplug and reconnect, an MCU reset,
-version and channel-count mismatch, a dead sensor, and the fail-closed policy matrix.
+simulated HAL (time-division invariant, including a gap shorter than the window; the boot INFO and
+the exact heartbeat period; the partial-frame timeout; dead/stuck/raising sensors, config accept/NAK,
+loopback, reboot); the main loop's crash handling (forced reset, starved watchdog when the reset
+fails, Ctrl-C/reload never swallowed); the CircuitPython HAL under fake
+`board/digitalio/pulseio/usb_cdc/microcontroller` modules (call order, bounded waits, the TRIG width
+on a 1 us clock, short USB writes, impossible `PulseIn` widths, a missing `os.urandom`, data port,
+watchdog); the host driver against the real firmware core with corrupt, truncated, dropped and
+garbage frames, a hung MCU, unplug and reconnect, an MCU reset, version and channel-count mismatch,
+a dead sensor, and the fail-closed policy matrix.
 
 **Not covered (needs the bench):** real GPIO and `PulseIn` timing on the RP2040, USB enumeration and
 the by-id name, the JSN-SR04T's electrical behaviour, the cycle time actually achieved, coverage and
 detection distance. Until M-40 is done the shipped policy keeps a silent channel UNKNOWN.
 
 Bench helper for M-40: `python scripts/ultrasonic_mcu_probe.py --port <data port> --seconds 60 --csv out.csv`
-logs every reading with the raw `echo_us`.
+logs every reading with the raw `echo_us`. The host driver opens the data port exclusively, so stop
+the backend (and any other probe) first; otherwise the probe prints `open_failed` with a plain-words
+hint, keeps retrying until its time is up and exits 2.
