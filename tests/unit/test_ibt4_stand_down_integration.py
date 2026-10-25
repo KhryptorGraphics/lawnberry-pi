@@ -76,7 +76,9 @@ class Platform:
         monkeypatch.setattr(
             "backend.src.services.tractor_service.get_tractor_service", lambda: self.tractor
         )
-        self.blade, self.pads = armed_blade(monkeypatch)
+        # A 10 s deadman (the maximum): an OFF inside a test can only come from a stand-down,
+        # never from the blade's own ON timing out (that would make every assertion pass).
+        self.blade, self.pads = armed_blade(monkeypatch, deadman_ms=10000)
         self.nav = new_nav()
         self.nav.control_period_s = 0.05
         self.guard = StubGuard()

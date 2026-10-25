@@ -493,3 +493,20 @@ async def test_the_route_answers_503_when_the_drive_controller_is_offline(monkey
     response = await _post(monkeypatch, world)
     assert response.status_code == 503, response.text
     assert world.fw.sent == []
+
+
+async def test_no_autonomous_run_starts_while_a_scripted_drive_owns_the_drive(monkeypatch, world):
+    """Two writers on one drive: a mission, the AI or return-home must wait for the drive."""
+    from _mission_rig import FAR, new_mission
+
+    drive = asyncio.create_task(world.nav.drive_scripted(0.4, 0.4, 5.0))
+    try:
+        await world.moving(1)
+        assert await world.nav.start_autonomous_navigation() is False
+        assert await world.nav.start_ai_navigation() is False
+        assert await world.nav.return_home() is False
+        with pytest.raises(RuntimeError, match="scripted drive"):
+            await world.nav.execute_mission(new_mission([FAR]))
+    finally:
+        drive.cancel()
+        await asyncio.gather(drive, return_exceptions=True)
