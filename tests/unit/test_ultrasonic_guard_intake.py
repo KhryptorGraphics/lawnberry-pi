@@ -288,3 +288,22 @@ async def test_g06_the_guard_ages_a_valid_range_entry_by_its_own_timestamp(monke
     assert a.hold and 0.6 < s.clock.now() - t_quiet < 1.3
     assert any("stale" in reason for reason in a.reasons)
     assert all(e["valid"] and e["status"] == "ok" for e in s.iface.last_readings)
+
+
+async def test_g12_an_entry_whose_status_is_not_ok_is_never_taken_as_a_measured_range(
+    monkeypatch,
+):
+    # O04: `valid` True next to a status that is not "ok" (a tampered or foreign entry) must not
+    # become a measured 20 cm obstacle: it is what its status and verdict say, a clear horizon
+    sensors = [far(150), far(), far(), far()]
+    tampered = tamper(
+        "outer_left",
+        status="out_of_range",
+        distance_cm=20.0,
+        verdict="clear",
+        clear_to_cm=400.0,
+    )
+    s = await stack(monkeypatch, sensors, wrap=tampered)
+    last = (await s.run(4.0))[-1]
+    assert last.nearest_m == pytest.approx(2.0)
+    assert not last.hold
