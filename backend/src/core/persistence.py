@@ -36,14 +36,18 @@ class AuditCoalescer:
     """Coalesce floods of identical audit events into one row plus a count.
 
     The first event for an action after a quiet period is written at once (an operator can
-    always see that it happened). Further events for the same action inside ``window_s`` only
-    bump a counter; when the window closes one ``<action>.coalesced`` summary row records how
-    many were suppressed, so nothing is silently lost. Writes run on a worker thread (never on
-    the caller / event-loop thread) and failures are logged, never raised. The number of
-    tracked keys is capped; excess keys share one overflow bucket.
+    always see that it happened, and from where: its ``client_id``). Further events for the same
+    action inside ``window_s`` only bump a counter and note their ``client_id``; when the window
+    closes one ``<action>.coalesced`` summary row records how many were suppressed and WHO they
+    came from (``peers``, at most ``MAX_PEERS`` distinct client ids, ``peers_truncated`` when
+    more were seen), so nothing is silently lost: the unauthenticated E-stop routes write only
+    through here, and this is the only record of who stopped the mower (SEC3-13). Writes run on
+    a worker thread (never on the caller / event-loop thread) and failures are logged, never
+    raised. The number of tracked keys is capped; excess keys share one overflow bucket.
     """
 
     MAX_KEYS = 64
+    MAX_PEERS = 16
     OVERFLOW_KEY = "*overflow*"
 
     def __init__(self, layer: "PersistenceLayer") -> None:
@@ -83,6 +87,7 @@ class AuditCoalescer:
                 win = self._windows.get(key)
                 if win is not None:
                     win["suppressed"] += 1
+                    self._note_peer(win, client_id)
                     return False
                 win = {
                     "suppressed": 0,
@@ -90,6 +95,8 @@ class AuditCoalescer:
                     "client_id": client_id,
                     "resource": resource,
                     "window_s": window_s,
+                    "peers": {client_id} if client_id else set(),
+                    "peers_truncated": False,
                 }
                 timer = threading.Timer(max(0.0, window_s), self._close, args=(key,))
                 timer.daemon = True
@@ -103,6 +110,16 @@ class AuditCoalescer:
         except Exception as exc:
             logger.error("Audit coalescing failed for %s: %s", action, exc)
             return False
+
+    @classmethod
+    def _note_peer(cls, win: dict[str, Any], client_id: str | None) -> None:
+        """Remember a distinct client of a window, up to ``MAX_PEERS`` (the caller holds the lock)."""
+        if not client_id or client_id in win["peers"]:
+            return
+        if len(win["peers"]) < cls.MAX_PEERS:
+            win["peers"].add(client_id)
+        else:
+            win["peers_truncated"] = True
 
     def _close(self, key: str) -> None:
         with self._lock:
@@ -119,6 +136,8 @@ class AuditCoalescer:
                     "suppressed": win["suppressed"],
                     "window_s": win["window_s"],
                     "of_action": win["action"],
+                    "peers": sorted(win["peers"]),
+                    "peers_truncated": win["peers_truncated"],
                 },
             )
 
