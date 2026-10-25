@@ -580,3 +580,14 @@ def test_a_legacy_sector_or_channel_without_a_valid_echo_is_zero_too():
     sectors = (out["front_left_cm"], out["front_center_cm"], out["front_right_cm"])
     assert sectors == (50.0, 0.0, 70.0)
     assert out["min_distance_cm"] == 0.0
+
+
+async def test_a_silent_channel_counts_as_serving_only_when_the_owners_policy_vouches_for_it():
+    models = [SensorModel(distance_cm=100.0)] * 3 + [SensorModel(mode="silent")]
+    _c, _f, shipped = await active(sensors=models)
+    await shipped.read_ultrasonic()
+    assert shipped.status == SensorStatus.ERROR  # shipped policy: silence proves nothing
+    policy = {"no_echo_is_clear": True, "no_echo_requires_alive": False}
+    _c, _f, trusting = await active(sensors=models, **policy)
+    await trusting.read_ultrasonic()
+    assert trusting.status == SensorStatus.ONLINE  # the owner accepted silence as clear
