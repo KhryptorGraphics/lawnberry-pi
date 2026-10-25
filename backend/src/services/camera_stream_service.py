@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.observability import observability
+from ..core.simulation import is_simulation_mode
 from ..drivers.ai.hailo_driver import HailoDriver
 from ..drivers.ai.yolo26 import (
     DetectorSpec,
@@ -80,7 +81,7 @@ class CameraStreamService:
     """
 
     def __init__(self, sim_mode: bool = False):
-        self.sim_mode = sim_mode or os.getenv("SIM_MODE", "0") == "1"
+        self.sim_mode = sim_mode or is_simulation_mode()
         self.stream = CameraStream()
         self.clients: set[asyncio.StreamWriter] = set()
         # Not /tmp: lawnberry-camera.service and lawnberry-backend.service

@@ -11,7 +11,6 @@ This stub only supplies data; enforcement occurs in safety triggers (T051).
 from __future__ import annotations
 
 import math
-import os
 import random
 import time
 from typing import Any
@@ -42,14 +41,16 @@ class BNO085Driver(HardwareDriver):
             "initialized": self.initialized,
             "running": self.running,
             "last_orientation": self._last_orientation,
-            "last_read_age_s": (time.time() - self._last_read_ts) if self._last_read_ts else None,
+            "last_read_age_s": (
+                (time.monotonic() - self._last_read_ts) if self._last_read_ts is not None else None
+            ),
             "simulation": is_simulation_mode(),
         }
 
     async def read_orientation(self) -> dict[str, float] | None:
         if not self.initialized:
             return None
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             # Produce a smooth yaw change and periodic tilt spike
             yaw = (self._cycle * 3) % 360
             roll = math.sin(self._cycle / 20) * 5
@@ -64,7 +65,7 @@ class BNO085Driver(HardwareDriver):
                 "yaw": yaw,
                 "calibration_status": calibration_state,
             }
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             return self._last_orientation
         # Real hardware: read quaternion → convert to Euler
         if self._last_orientation is None:
@@ -74,7 +75,7 @@ class BNO085Driver(HardwareDriver):
                 "yaw": 0.0,
                 "calibration_status": "unknown",
             }
-        self._last_read_ts = time.time()
+        self._last_read_ts = time.monotonic()
         return self._last_orientation
 
 

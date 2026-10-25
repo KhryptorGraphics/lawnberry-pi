@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .simulation import is_simulation_mode
+
 logger = logging.getLogger(__name__)
 
 
@@ -543,9 +545,7 @@ class PersistenceLayer:
 
     # Test helper: seed minimal simulated streams when SIM_MODE enabled
     def seed_simulated_streams(self, count: int = 10) -> None:
-        import os
-
-        if os.environ.get("SIM_MODE") != "1":
+        if not is_simulation_mode():
             return
         now = datetime.now(UTC)
         rows = []

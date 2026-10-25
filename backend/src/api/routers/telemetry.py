@@ -5,7 +5,6 @@ import hashlib
 import io
 import json
 import logging
-import os
 import time
 import uuid
 from typing import Any
@@ -16,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from ...core.context import get_correlation_id
 from ...core.persistence import persistence
+from ...core.simulation import is_simulation_mode
 from ...services.websocket_hub import websocket_hub
 from ..deps import require_operator_auth
 from .auth import _authorize_websocket, _extract_bearer_token
@@ -286,13 +286,9 @@ async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: str |
                     "status": s.get("status", "healthy"),
                     "metadata": {
                         "rtk_fix": "fallback",
-                        "rtk_fallback_reason": (
-                            "SIMULATED" if os.environ.get("SIM_MODE") == "1" else None
-                        ),
+                        "rtk_fallback_reason": ("SIMULATED" if is_simulation_mode() else None),
                         "rtk_status_message": (
-                            "RTK fallback active"
-                            if os.environ.get("SIM_MODE") == "1"
-                            else "RTK stable"
+                            "RTK fallback active" if is_simulation_mode() else "RTK stable"
                         ),
                         "orientation": {"type": "euler", "roll": 0, "pitch": 0, "yaw": 0},
                     },

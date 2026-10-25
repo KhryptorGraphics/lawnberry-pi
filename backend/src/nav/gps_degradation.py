@@ -3,11 +3,18 @@
 What it watches. :meth:`GPSDegradationMonitor.observe` is fed the **real** ``GpsReading`` the
 sensor manager produced (``NavigationService.update_navigation_state`` on every telemetry
 tick), not a debug-route copy in ``RobotState``. Fix age is the age of the *fix itself*
-(``reading.timestamp``), so a reading the interface replays after the receiver went quiet
-keeps getting older instead of looking fresh on every poll. A fix is unusable when it is
-missing, has no position, reports ``NO_FIX``/``DEAD_RECKONING``, is older than
-``max_fix_age_s``, or is less accurate than ``max_accuracy_m`` (an unknown accuracy is not a
-good accuracy).
+(``reading.timestamp``), read from the wall clock ONCE, when the fix is first seen, and from then
+on aged on the monotonic clock (``core.freshness.ReceiptAges``). So a reading the interface
+replays after the receiver went quiet keeps getting older instead of looking fresh on every
+poll, and a wall-clock step (NTP, chrony, a manual ``date``) can neither revive it nor age it:
+a fix whose stamp is missing, unreadable or from the future is *unusable*, never fresh (audit
+SAF-05). A fix is unusable when it is missing, has no position, reports a status that is not a
+position fix (``NO_FIX``, ``DEAD_RECKONING``, ``MANUAL``, ``SIMULATION``), is older than
+``max_fix_age_s``, or is less accurate than ``max_accuracy_m``. The accuracy is the receiver's
+own error estimate in metres (the driver reads it from GST, or an RTK-status figure; HDOP is
+not an accuracy and is never used as one, audit SAF-04); an unknown accuracy is not a good
+accuracy, and neither is one that is NaN, infinite, zero, negative or not a number (``-1`` and
+``0`` are the usual "no estimate" sentinels).
 
 What it does about it. :meth:`assess` is the verdict the navigation loops read every tick
 (``NavigationService._motion_gate``): while unhealthy, autonomous motion is **held at the
@@ -37,13 +44,14 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ..core.freshness import ReceiptAges
 from ..core.robot_state_manager import get_robot_state_manager
 from ..models.robot_state import NavigationMode
 
 logger = logging.getLogger(__name__)
 
 #: ``GpsReading.rtk_status`` values that are not a GNSS position fix at all.
-UNUSABLE_FIX_STATUS = frozenset({"NO_FIX", "DEAD_RECKONING"})
+UNUSABLE_FIX_STATUS = frozenset({"NO_FIX", "DEAD_RECKONING", "MANUAL", "SIMULATION"})
 
 
 @dataclass
@@ -84,19 +92,12 @@ class GnssAssessment:
 HoldHandler = Callable[[GnssAssessment], Awaitable[Any]]
 
 
-def _reading_age_s(reading: Any, wall_now: _dt.datetime) -> float:
-    """Age of the fix itself (0.0 when the reading carries no usable timestamp)."""
-    stamp = getattr(reading, "timestamp", None)
-    if isinstance(stamp, str):
-        try:
-            stamp = _dt.datetime.fromisoformat(stamp)
-        except ValueError:
-            stamp = None
-    if not isinstance(stamp, _dt.datetime):
-        return 0.0
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=_dt.UTC)
-    return max(0.0, (wall_now - stamp).total_seconds())
+def _usable_accuracy(acc: Any) -> float | None:
+    """``acc`` as metres if it is a real accuracy: a finite number above 0 (not a bool)."""
+    if isinstance(acc, bool) or not isinstance(acc, (int, float)):
+        return None
+    value = float(acc)
+    return value if math.isfinite(value) and value > 0.0 else None
 
 
 class GPSDegradationMonitor:
@@ -125,6 +126,7 @@ class GPSDegradationMonitor:
         self.cfg = config or GPSDegradationConfig()
         self._clock = clock
         self._wall = wall_clock or (lambda: _dt.datetime.now(_dt.UTC))
+        self._ages = ReceiptAges(clock)
         self._autonomy_active = autonomy_active
         self._handlers = tuple(hold_handlers)
         self._task: asyncio.Task | None = None
@@ -146,13 +148,17 @@ class GPSDegradationMonitor:
             return
         t = self._clock() if now is None else now
         self._reading = reading
-        # Fix time = arrival minus the fix's own age: a replayed old reading does not get younger.
-        self._fix_at = t - _reading_age_s(reading, self._wall())
+        # Fix time on the monotonic clock: arrival minus the fix's own age, read from the wall
+        # clock once per fix. A replayed reading keeps its first-seen time (it does not get
+        # younger); a stamp that cannot be aged leaves ``None`` (unusable, not fresh).
+        self._fix_at = self._ages.taken_at(
+            "gnss", getattr(reading, "timestamp", None), self._wall(), now=t
+        )
         self._refresh(t)
 
     def _unusable_reasons(self, t: float) -> list[str]:
         r = self._reading
-        if r is None or self._fix_at is None:
+        if r is None:
             return ["no GNSS reading yet"]
         reasons: list[str] = []
         lat, lon = getattr(r, "latitude", None), getattr(r, "longitude", None)
@@ -161,12 +167,16 @@ class GPSDegradationMonitor:
         status = getattr(r, "rtk_status", None)
         if status in UNUSABLE_FIX_STATUS:
             reasons.append(f"fix status {status}")
-        age = max(0.0, t - self._fix_at)
-        if age > self.cfg.max_fix_age_s:
-            reasons.append(f"fix is {age:.1f}s old (limit {self.cfg.max_fix_age_s:g}s)")
-        acc = getattr(r, "accuracy", None)
-        if acc is None or not isinstance(acc, (int, float)) or math.isnan(acc):
-            reasons.append("accuracy unknown")
+        if self._fix_at is None:
+            reasons.append("fix timestamp missing, unreadable or from the future")
+        else:
+            age = t - self._fix_at
+            if age > self.cfg.max_fix_age_s:
+                reasons.append(f"fix is {age:.1f}s old (limit {self.cfg.max_fix_age_s:g}s)")
+        raw = getattr(r, "accuracy", None)
+        acc = _usable_accuracy(raw)
+        if acc is None:
+            reasons.append(f"accuracy unknown (reported {raw!r})")
         elif acc > self.cfg.max_accuracy_m:
             reasons.append(f"accuracy {acc:.2f}m exceeds {self.cfg.max_accuracy_m:g}m")
         return reasons
@@ -196,12 +206,11 @@ class GPSDegradationMonitor:
         t = self._clock() if now is None else now
         self._refresh(t)
         r = self._reading
-        acc = getattr(r, "accuracy", None)
         return GnssAssessment(
             healthy=not self._degraded,
             reasons=self._reasons,
-            fix_age_s=None if self._fix_at is None else max(0.0, t - self._fix_at),
-            accuracy_m=float(acc) if isinstance(acc, (int, float)) else None,
+            fix_age_s=None if self._fix_at is None else t - self._fix_at,
+            accuracy_m=_usable_accuracy(getattr(r, "accuracy", None)),
             rtk_status=getattr(r, "rtk_status", None),
             assessed_at=t,
         )

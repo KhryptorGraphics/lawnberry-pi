@@ -155,7 +155,13 @@ class RoboHATService:
 
             # Open serial connection
             self.serial_conn = serial.Serial(
-                port=self.serial_port, baudrate=self.baud_rate, timeout=1.0, write_timeout=1.0
+                port=self.serial_port,
+                baudrate=self.baud_rate,
+                timeout=1.0,
+                write_timeout=1.0,
+                # A second reader on this tty (a GPS probe, a script) steals the firmware's
+                # `[USB] pwm/blade` acknowledgements: the E-stop then reads "unacked" (SAF-S1).
+                exclusive=True,
             )
 
             # Wait for connection to stabilize
