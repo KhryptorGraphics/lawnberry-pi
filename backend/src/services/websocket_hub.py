@@ -428,8 +428,12 @@ class WebSocketHub:
     async def _telemetry_loop(self):
         while True:
             try:
-                telemetry_data = await self._generate_telemetry()
-                self._telemetry_cache = (time.monotonic(), telemetry_data)
+                # The reader lock of ``current_telemetry`` too: one sensor read at a time, whoever
+                # asks (the I2C and serial drivers are not built for overlapping callers). A reader
+                # that arrives mid-read waits here and then takes this very sample from the cache.
+                async with self._telemetry_lock:
+                    telemetry_data = await self._generate_telemetry()
+                    self._telemetry_cache = (time.monotonic(), telemetry_data)
                 # Broadcast to topic-specific channels immediately
                 await self._broadcast_telemetry_topics(telemetry_data)
 
