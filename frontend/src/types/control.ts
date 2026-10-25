@@ -42,6 +42,20 @@ export interface BladeBlockedResponse {
 
 export type BladeCommandResponse = BladeAcceptedResponse | BladeBlockedResponse
 
+// GET /control/blade/status (read-only): what the backend currently holds the IBT-4 blade at.
+export interface BladeStatus {
+  commanded: 'on' | 'off'
+  observed?: string | null
+  active?: boolean
+  deadman_ms?: number | null
+  deadman_remaining_ms?: number | null
+  off_pending?: boolean
+  last_drop?: string | null
+  refusal?: string | null
+  emergency_latched?: boolean
+  [key: string]: unknown
+}
+
 // POST /control/emergency-stop (general mower E-stop alias, distinct from /tractor/emergency-stop)
 export interface EmergencyStopResult {
   emergency_stop_active: boolean

@@ -190,6 +190,7 @@ import {
   pauseAutonomous,
   resumeAutonomous,
   returnToBase as returnToBaseApi,
+  getBladeStatus,
 } from '@/services/api'
 import { useToastStore } from '@/stores/toast'
 import { usePreferencesStore } from '@/stores/preferences'
@@ -201,6 +202,10 @@ import SecurityGateCard from '@/components/control/SecurityGateCard.vue'
 import CameraFeedCard from '@/components/control/CameraFeedCard.vue'
 import LiveStatusCard from '@/components/control/LiveStatusCard.vue'
 import { useCameraFeed } from '@/composables/useCameraFeed'
+
+const BLADE_KEEPALIVE_DEFAULT_DEADMAN_MS = 2000
+const BLADE_KEEPALIVE_MIN_MS = 300
+const BLADE_KEEPALIVE_MAX_MS = 5000
 
 interface ManualControlSecurityConfig {
   auth_level: 'password' | 'totp' | 'google' | 'cloudflare'
@@ -760,6 +765,8 @@ async function authenticateControl() {
 }
 
 function lockControl() {
+  stopBladeKeepAlive()
+  mowingActive.value = false
   void stopMovement(true)
   isControlUnlocked.value = false
   joystickRef.value?.reset()
@@ -971,6 +978,9 @@ async function stopMovement(sendStopCommand = true) {
 }
 
 async function emergencyStop() {
+  // First, before any await: the repeat must stop even when the E-stop request itself fails.
+  stopBladeKeepAlive()
+  mowingActive.value = false
   setPerforming(true)
   try {
     const reply = await control.submitCommand('emergency', { session_id: ensureSession().session_id })
@@ -995,9 +1005,16 @@ async function emergencyStop() {
 
 async function toggleMowing() {
   if (!canSubmitBlade.value) return
+  const turningOff = mowingActive.value
+  if (turningOff) {
+    // Before any await, so no repeat can race behind the OFF.
+    stopBladeKeepAlive()
+  }
+  // An E-stop, the lock or leaving the page during the request bumps this: then Start must not win.
+  const epoch = bladeKeepAliveGeneration
   setPerforming(true)
   try {
-    const action = mowingActive.value ? 'disable' : 'enable'
+    const action = turningOff ? 'disable' : 'enable'
     const response = await control.submitCommand('blade', {
       session_id: ensureSession().session_id,
       action,
@@ -1005,14 +1022,128 @@ async function toggleMowing() {
     })
     if (response?.result === 'blocked') {
       showStatus('Blade action blocked by safety system', false)
+      if (turningOff) {
+        mowingActive.value = false // nothing repeats the ON any more: the deadman switches it off
+      }
+    } else if (!turningOff && epoch !== bladeKeepAliveGeneration) {
+      // The stop that came first stands: the blade is not "started" and nothing repeats it.
+      mowingActive.value = false
     } else {
-      mowingActive.value = !mowingActive.value
+      mowingActive.value = !turningOff
       showStatus(mowingActive.value ? 'Mowing started' : 'Mowing stopped', true)
+      if (mowingActive.value) {
+        startBladeKeepAlive()
+      }
     }
   } catch (error) {
-    reportControlFailure(error, 'Failed to toggle mowing')
+    if (turningOff) {
+      mowingActive.value = false
+      reportControlFailure(error, 'Failed to send the blade stop (the blade deadman switches it off)')
+    } else {
+      reportControlFailure(error, 'Failed to toggle mowing')
+    }
   } finally {
     setPerforming(false)
+  }
+}
+
+// The backend blade ON is a deadman: it only stays on while the ON is repeated (BL-01). Each tick reads the
+// backend status first and repeats the ON only while the backend still has the blade commanded on, because a
+// repeat sent after a backend drop (hold, E-stop, deadman) would be a FRESH ON and restart the blade.
+let bladeKeepAliveTimer: number | undefined
+let bladeKeepAliveGeneration = 0
+let bladeKeepAliveBusy = false
+let bladeKeepAliveIntervalMs = 0
+
+function bladeKeepAliveIntervalFor(deadmanMs: unknown): number {
+  const window = typeof deadmanMs === 'number' && Number.isFinite(deadmanMs) && deadmanMs > 0
+    ? deadmanMs
+    : BLADE_KEEPALIVE_DEFAULT_DEADMAN_MS
+  return Math.min(BLADE_KEEPALIVE_MAX_MS, Math.max(BLADE_KEEPALIVE_MIN_MS, Math.round(window / 3)))
+}
+
+function stopBladeKeepAlive() {
+  if (bladeKeepAliveTimer !== undefined) {
+    window.clearInterval(bladeKeepAliveTimer)
+    bladeKeepAliveTimer = undefined
+  }
+  bladeKeepAliveGeneration += 1
+  bladeKeepAliveBusy = false
+  bladeKeepAliveIntervalMs = 0
+}
+
+function scheduleBladeKeepAlive(intervalMs: number) {
+  if (bladeKeepAliveTimer !== undefined) window.clearInterval(bladeKeepAliveTimer)
+  bladeKeepAliveIntervalMs = intervalMs
+  bladeKeepAliveTimer = window.setInterval(() => {
+    void bladeKeepAliveTick()
+  }, intervalMs)
+}
+
+function startBladeKeepAlive() {
+  stopBladeKeepAlive()
+  scheduleBladeKeepAlive(bladeKeepAliveIntervalFor(undefined))
+  void learnBladeWindow(bladeKeepAliveGeneration)
+}
+
+async function learnBladeWindow(generation: number) {
+  bladeKeepAliveBusy = true
+  try {
+    const status = await getBladeStatus()
+    if (generation !== bladeKeepAliveGeneration) return
+    const wanted = bladeKeepAliveIntervalFor(status?.deadman_ms)
+    if (wanted !== bladeKeepAliveIntervalMs) scheduleBladeKeepAlive(wanted)
+  } catch {
+    // Keep the default window.
+  } finally {
+    if (generation === bladeKeepAliveGeneration) bladeKeepAliveBusy = false
+  }
+}
+
+function bladeDroppedByBackend(reason: string | null | undefined) {
+  stopBladeKeepAlive()
+  mowingActive.value = false
+  const message = `Blade stopped by the backend (${reason || 'no reason given'}). Press Start Mowing to restart.`
+  showStatus(message, false, 8000)
+  toast.show(message, 'error', 8000)
+}
+
+async function bladeKeepAliveTick() {
+  if (bladeKeepAliveBusy) return
+  const generation = bladeKeepAliveGeneration
+  const sessionId = session.value?.session_id
+  if (!sessionId) {
+    stopBladeKeepAlive()
+    mowingActive.value = false
+    return
+  }
+  bladeKeepAliveBusy = true
+  try {
+    const status = await getBladeStatus()
+    if (generation !== bladeKeepAliveGeneration) return
+    const wanted = bladeKeepAliveIntervalFor(status?.deadman_ms)
+    if (wanted !== bladeKeepAliveIntervalMs) scheduleBladeKeepAlive(wanted)
+    if (status?.commanded !== 'on') {
+      bladeDroppedByBackend(status?.last_drop)
+      return
+    }
+    const reply = await control.submitCommand('blade', {
+      session_id: sessionId,
+      action: 'enable',
+      reason: 'manual-control-repeat'
+    })
+    if (generation !== bladeKeepAliveGeneration) return
+    if (reply?.accepted === false || reply?.result === 'blocked' || reply?.result === 'rejected') {
+      const detail = reply && 'reason' in reply ? (reply as { reason?: string }).reason : undefined
+      bladeDroppedByBackend(detail || reply?.result)
+    }
+  } catch (error) {
+    if (generation !== bladeKeepAliveGeneration) return
+    stopBladeKeepAlive()
+    mowingActive.value = false
+    reportControlFailure(error, 'Blade keep-alive failed')
+  } finally {
+    if (generation === bladeKeepAliveGeneration) bladeKeepAliveBusy = false
   }
 }
 
@@ -1160,6 +1291,23 @@ onUnmounted(() => {
   if (sessionTimer) {
     window.clearInterval(sessionTimer)
     sessionTimer = undefined
+  }
+  const wasMowing = mowingActive.value
+  stopBladeKeepAlive()
+  mowingActive.value = false
+  if (wasMowing && session.value) {
+    // Best effort: the backend deadman is the real guard if this never arrives.
+    try {
+      void Promise.resolve(
+        control.submitCommand('blade', {
+          session_id: session.value.session_id,
+          action: 'disable',
+          reason: 'manual-control-leave'
+        })
+      ).catch(() => undefined)
+    } catch {
+      // ignored
+    }
   }
   void stopMovement(true)
   stopCameraFeed()
