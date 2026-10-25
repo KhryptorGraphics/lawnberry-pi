@@ -57,6 +57,20 @@ def echo(cm):
     return SensorModel(distance_cm=cm)
 
 
+# A frame header whose LEN byte claims 40 payload bytes that never arrive (a corrupted length).
+_BOGUS_HEADER = bytes((0xA5, 0x5A, host.PROTO_VERSION, host.FrameType.PING, 1, 40))
+
+
+def _ping(nonce):
+    return host.encode_frame(host.FrameType.PING, nonce & 0xFF, host.build_ping(nonce))
+
+
+def _poll_until(hal, core, t_ms):
+    """One ``poll()`` per simulated millisecond until the HAL clock reaches ``t_ms``."""
+    while hal.t_ms < t_ms:
+        core.poll()
+
+
 # ---- protocol handling ------------------------------------------------------------------------
 
 
@@ -224,6 +238,52 @@ def test_corrupt_and_truncated_host_frames_are_dropped_silently_and_the_next_one
     rig.run(0.1)
     assert [p.nonce for p in rig.of(host.FrameType.PONG)] == [8]
     assert rig.port.core.naks_sent == 0
+
+
+def test_a_half_received_host_frame_is_abandoned_after_the_partial_timeout():
+    # C17: a corrupt LEN byte makes the core wait for payload that never comes. Once the line has
+    # been quiet for `partial_timeout_ms` that remnant must go, so the next good frame is served
+    # when it arrives instead of being held hostage behind it.
+    hal = RecordingHal(n=0)
+    core = CORE.Core(hal, 0, partial_timeout_ms=50)
+    core.start()
+    t0 = hal.t_ms
+    hal.queue_rx(_BOGUS_HEADER, at_ms=t0)
+    hal.queue_rx(_ping(7), at_ms=t0 + 100)
+    _poll_until(hal, core, t0 + 110)
+    pongs = hal.messages(host.FrameType.PONG)
+    assert [p.nonce for _t, p in pongs] == [7]
+    assert pongs[0][0] <= t0 + 102  # answered when it arrived
+    assert core.dec.partial_timeouts == 1
+
+
+@pytest.mark.parametrize("timeout_ms", [20, 50, 200])
+def test_a_good_frame_hidden_behind_a_bogus_length_is_released_after_the_configured_timeout(
+    timeout_ms,
+):
+    hal = RecordingHal(n=0)
+    core = CORE.Core(hal, 0, partial_timeout_ms=timeout_ms)
+    core.start()
+    t0 = hal.t_ms
+    hal.queue_rx(_BOGUS_HEADER + _ping(9), at_ms=t0)  # swallowed by the claimed 40-byte payload
+    _poll_until(hal, core, t0 + timeout_ms + 20)
+    pongs = hal.messages(host.FrameType.PONG)
+    assert [p.nonce for _t, p in pongs] == [9]
+    # released once the line has been quiet for MORE than the configured time, and not before
+    assert t0 + timeout_ms < pongs[0][0] <= t0 + timeout_ms + 3
+
+
+def test_a_frame_split_across_reads_within_the_timeout_is_still_assembled():
+    hal = RecordingHal(n=0)
+    core = CORE.Core(hal, 0, partial_timeout_ms=50)
+    core.start()
+    t0 = hal.t_ms
+    frame = _ping(5)
+    hal.queue_rx(frame[:5], at_ms=t0)
+    hal.queue_rx(frame[5:], at_ms=t0 + 40)  # the line was quiet for less than the timeout
+    _poll_until(hal, core, t0 + 60)
+    assert [p.nonce for _t, p in hal.messages(host.FrameType.PONG)] == [5]
+    assert core.dec.partial_timeouts == 0
 
 
 def test_two_host_frames_in_one_write_are_both_served():
