@@ -230,8 +230,9 @@ export API=http://localhost:8081
 ### AI Control
 
 ```bash
-# Enable AI autonomous mode
+# Enable AI autonomous mode (an operator write: TOKEN is the access token of POST /api/v2/auth/login)
 curl -X POST $API/api/v2/ai/enable \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"mode": "ai_autonomous"}'
 
@@ -242,7 +243,7 @@ curl $API/api/v2/ai/status
 curl $API/api/v2/ai/metrics
 
 # Disable AI mode (return to manual)
-curl -X POST $API/api/v2/ai/disable
+curl -X POST $API/api/v2/ai/disable -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Telemetry
@@ -420,7 +421,8 @@ pytest tests/hil/ -v            # Hardware-in-loop tests
 
 ### Test Coverage
 Baseline on 2026-10-24 (commit 765c737): `SIM_MODE=1 pytest tests --ignore=tests/soak` gave **530 passed, 69 skipped,
-0 failed**. The skips include placeholder tests that never run by default, gated perf tests and TDD stubs for
+0 failed** (that was the baseline before this branch's work; the integrated branch collects 4248 tests: 4221 passed, 27 skipped,
+0 failed, see `docs/2026-10-24-integration-audit.md`, "Integration round 4"). The skips include placeholder tests that never run by default, gated perf tests and TDD stubs for
 WebSocket and manual-control authentication. `tests/hil/` is a probe only and no CI job runs it or `tests/soak`.
 Every passing safety test runs against fakes or simulation; none proves a physical outcome. Details:
 [`docs/2026-10-24-integration-audit.md`](docs/2026-10-24-integration-audit.md) Part A (tests).

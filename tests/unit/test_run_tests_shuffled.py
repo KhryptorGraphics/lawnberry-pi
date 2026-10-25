@@ -7,6 +7,7 @@ that order.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -184,8 +185,71 @@ def test_a_failing_test_gives_a_failing_exit_status(tmp_path):
     assert done.returncode == 1 and "1 failed" in done.stdout
 
 
-def test_the_seed_is_required():
+def test_the_seed_is_required(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # a run that wrongly goes ahead finds no `tests` here, fast
     with pytest.raises(SystemExit) as exc:
         main(["--mode", "item"])
 
     assert exc.value.code == 2
+
+
+def test_the_default_mode_is_module_and_the_default_target_is_tests(tmp_path):
+    (tmp_path / "tests" / "sub").mkdir(parents=True)
+    (tmp_path / "tests" / "test_one.py").write_text("def test_one():\n    pass\n")
+    (tmp_path / "tests" / "sub" / "test_two.py").write_text("def test_two():\n    pass\n")
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / "test_three.py").write_text("def test_three():\n    pass\n")
+
+    done = subprocess.run(
+        [sys.executable, str(SCRIPT), "--seed", "3"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "PYTEST_ADDOPTS": "-o addopts= -p no:cacheprovider"},
+    )
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "[shuffle] mode=module seed=3 tests=2" in done.stdout, (
+        "module mode, both tests of tests/"
+    )
+    assert "2 passed" in done.stdout
+
+
+def test_the_shuffle_is_the_last_word_on_the_order_after_every_other_plugin(tmp_path):
+    """A plugin registered before the shuffler that re-sorts the items must not undo the shuffle."""
+    (tmp_path / "test_many.py").write_text(
+        "import pytest\n\n@pytest.mark.parametrize('n', range(12))\n"
+        "def test_n(n):\n    print(f'RAN {n:02d}')\n"
+    )
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        textwrap.dedent(
+            f"""
+            import sys
+            import pytest
+            sys.path.insert(0, {str(REPO)!r})
+            from scripts.run_tests_shuffled import ShufflePlugin
+
+            class SortsByName:
+                def pytest_collection_modifyitems(self, items):
+                    items.sort(key=lambda i: i.nodeid)
+
+            sys.exit(pytest.main(
+                ["test_many.py", "-s", "-q", "-o", "addopts=", "-p", "no:cacheprovider"],
+                plugins=[SortsByName(), ShufflePlugin("item", 7)],
+            ))
+            """
+        )
+    )
+
+    done = subprocess.run(
+        [sys.executable, str(driver)], cwd=tmp_path, capture_output=True, text=True, timeout=120
+    )
+
+    order = re.findall(r"RAN (\d\d)", done.stdout)
+    assert done.returncode == 0 and len(order) == 12, done.stdout + done.stderr
+    assert order != sorted(order), "the sort ran after the shuffle and put the tests back in order"
+    fake = [SimpleNamespace(nodeid=f"test_many.py::test_n[{n}]") for n in range(12)]
+    expected = shuffled(sorted(fake, key=lambda i: i.nodeid), "item", 7)
+    assert order == [re.search(r"\[(\d+)\]", i.nodeid).group(1).zfill(2) for i in expected]

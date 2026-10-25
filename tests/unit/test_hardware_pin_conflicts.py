@@ -1051,3 +1051,10 @@ class TestCheckerCLI:
         result = self._run("--root", str(tmp_path))
         assert result.returncode == 1
         assert "ERROR" in result.stderr
+
+
+def test_a_string_that_says_false_still_arms_its_owner_as_the_runtime_reads_it():
+    """The runtime takes ``bool(value)``: the string "false" is on. The checker must agree."""
+    assert checker.armed_owners({}, {"ibt4": {"gpio_enabled": "false"}}) == {"ibt4"}
+    assert checker.armed_owners({"enabled": "false"}, None) == {"tractor"}
+    assert checker.armed_owners({"enabled": 0}, {"ibt4": {"gpio_enabled": ""}}) == set()

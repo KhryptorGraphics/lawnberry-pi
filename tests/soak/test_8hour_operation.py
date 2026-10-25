@@ -24,6 +24,8 @@ def _rss_kb() -> int:
     return 0
 
 
+# The suite bounds every test (pyproject.toml `timeout`); this one is meant to run for hours.
+@pytest.mark.timeout(0)
 @pytest.mark.asyncio
 async def test_long_soak_8h():
     if os.environ.get("RUN_8H_SOAK") != "1":

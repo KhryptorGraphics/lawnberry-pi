@@ -28,7 +28,8 @@ they refuse to decide on thin evidence instead of passing it. Exit codes:
     0  every requested check passed (a run without --gate/--baseline only measures)
     1  the model failed: a tier gate, the baseline recall drop, or an --expect box
     2  setup or usage error: model, spec, backend or a backend crash, and an argument out of range
-       (``--iou`` not in (0, 1], NaN/inf, ``--gate`` with ``--predict``)
+       (``--iou`` not in (0, 1], NaN/inf, ``--gate`` with ``--predict``, ``--gate`` with a
+       ``--conf`` below the spec's and no ``--allow-conf-below-deployed``)
     3  the images, labels or ``--expect`` boxes cannot support a verdict: a missing images or labels
        directory, an image without a label file or a label without an image, a malformed label
        row, a class id the spec does not have, fewer than ``--min-images`` images, a tier-1 class
@@ -42,6 +43,13 @@ The report (``detector-eval/2``) has a ``verdict`` (passed, failed, invalid, or 
 neither check was requested) and, for each check, its status, what it compared and what it could
 not evaluate; an evaluation that exits 3 or 4 still writes a report with ``verdict: invalid`` and
 the reasons, so a stale passing report is never left in its place.
+
+The live detector runs at the confidence of its spec (the HEF sidecar). The report records the
+confidence it was measured at (``conf``), the spec's (``spec_conf``) and whether ``--conf`` moved
+it (``conf_overridden``); ``--gate`` refuses a ``--conf`` below the spec's, because a gate counts
+boxes the live detector would never report, unless ``--allow-conf-below-deployed`` says the lower
+operating point is deliberate, and then ``gate.conf_below_deployed`` is true and a warning is
+printed. A ``--conf`` above the spec's only makes the check stricter and is allowed.
 """
 
 from __future__ import annotations
@@ -238,15 +246,35 @@ class OnnxBackend:
 
 
 def _load_spec(a) -> DetectorSpec:
+    """The spec as the DEPLOYED detector loads it: the ``--spec`` file or the HEF sidecar."""
     if a.backend in ("onnx", "har") and not a.spec:
         raise SetupError(f"--backend {a.backend} needs --spec (class names come from it)")
     try:
-        spec = load_spec_file(a.spec) if a.spec else load_detector_spec(a.model)
+        return load_spec_file(a.spec) if a.spec else load_detector_spec(a.model)
     except (FileNotFoundError, ValueError) as exc:
         raise SetupError(str(exc)) from exc
-    if a.conf is not None:
-        spec = dataclasses.replace(spec, conf_threshold=a.conf)
-    return spec
+
+
+def _apply_conf(a, spec: DetectorSpec) -> DetectorSpec:
+    """Apply ``--conf`` to the spec, remembering the deployed threshold for the report.
+
+    The live detector runs at the spec's confidence. A gate measured at a LOWER one counts boxes
+    the live detector would never report (a person found at 0.30 passes at ``--conf 0.05`` and is
+    lost at the deployed 0.50), so ``--gate`` refuses it unless the operator says so explicitly.
+    A HIGHER ``--conf`` only makes the gate stricter and is allowed (and recorded).
+    """
+    deployed = spec.conf_threshold
+    a.deployed_conf = deployed
+    if a.conf is None or a.conf == deployed:
+        return spec
+    if a.conf < deployed and a.gate and not a.allow_conf_below_deployed:
+        raise SetupError(
+            f"--conf {a.conf} is below the deployed confidence {deployed} of the spec: a gate "
+            "measured there decides on boxes the live detector never reports. Gate at the "
+            "deployed value, or add --allow-conf-below-deployed to record the lower operating "
+            "point on purpose"
+        )
+    return dataclasses.replace(spec, conf_threshold=a.conf)
 
 
 def _backend(a, spec: DetectorSpec):
@@ -392,9 +420,15 @@ def _kind(backend: str) -> str:
     return {"hef": "device", "har": "dfc-emulation", "onnx": "float-cpu"}[backend]
 
 
+def _deployed_conf(a, spec: DetectorSpec) -> float:
+    """The confidence the deployed detector runs at (``_apply_conf`` recorded it before --conf)."""
+    return getattr(a, "deployed_conf", spec.conf_threshold)
+
+
 def _context(a, spec: DetectorSpec) -> dict:
     """The report fields that say what was evaluated, shared by valid and invalid reports."""
     model = Path(a.model)
+    deployed = _deployed_conf(a, spec)
     return {
         "schema": REPORT_SCHEMA,
         "backend": a.backend,
@@ -405,7 +439,11 @@ def _context(a, spec: DetectorSpec) -> dict:
         "model_sha256": _sha256(model) if model.is_file() else None,
         "images_dir": str(a.images),
         "labels_dir": str(a.labels),
+        # the operating point measured, the one the deployed detector runs at, and whether
+        # --conf moved it: a number measured at a lower confidence says nothing about the live one
         "conf": spec.conf_threshold,
+        "spec_conf": deployed,
+        "conf_overridden": spec.conf_threshold != deployed,
         "iou": a.iou,
         "min_images": a.min_images,
     }
@@ -429,6 +467,7 @@ def _invalid_report(a, spec: DetectorSpec, exc: EvidenceError) -> dict:
 
 async def run_eval(a, spec: DetectorSpec) -> int:
     out = Path(a.out)
+    report_deployed = _deployed_conf(a, spec)
     try:
         images, rows, gt, table = _gather_evidence(a, spec)
     except EvidenceError as exc:
@@ -460,6 +499,9 @@ async def run_eval(a, spec: DetectorSpec) -> int:
             "min_gt": a.gate_min_gt,
             "tier1_gt": {n: gt[n] for n in HARD_STOP},
             "not_evaluated": verdict["not_evaluated"],
+            # True only with --allow-conf-below-deployed: the gate rests on boxes the deployed
+            # detector (confidence spec_conf) would not report
+            "conf_below_deployed": spec.conf_threshold < report_deployed,
         }
     base = {"applied": False, "status": "not_applied", "failures": []}
     if a.baseline:
@@ -502,6 +544,11 @@ async def run_eval(a, spec: DetectorSpec) -> int:
     if a.gate:
         tier1 = ", ".join(f"{n} {c}" for n, c in gate["tier1_gt"].items())
         print(f"[eval] gate evidence: tier-1 ground truth {tier1} (>= {a.gate_min_gt} each)")
+        if gate["conf_below_deployed"]:
+            print(
+                f"[eval] WARNING gate measured at conf {spec.conf_threshold}, below the deployed "
+                f"{report_deployed}: it says nothing about what the live detector reports"
+            )
         for f in gate["failures"]:
             print(f"[eval] GATE FAIL {f['class']}: recall {f['recall']:.3f} < {f['gate']}")
         if gate["not_evaluated"]:
@@ -528,7 +575,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--har-context", choices=("quantized", "bit-exact"), default="quantized")
     ap.add_argument("--model", required=True)
     ap.add_argument("--spec")
-    ap.add_argument("--conf", type=float, help="override the spec confidence threshold")
+    ap.add_argument(
+        "--conf",
+        type=float,
+        help="override the spec confidence threshold (the report records both; --gate refuses a "
+        "value below the spec's unless --allow-conf-below-deployed)",
+    )
+    ap.add_argument(
+        "--allow-conf-below-deployed",
+        action="store_true",
+        help="let --gate run at a --conf below the deployed one (recorded in the report)",
+    )
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--predict", metavar="IMG")
     mode.add_argument("--images", metavar="DIR")
@@ -564,7 +621,7 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--images needs --labels and --out")
     try:
         _check_args(a)
-        spec = _load_spec(a)
+        spec = _apply_conf(a, _load_spec(a))
         return asyncio.run(run_predict(a, spec) if a.predict else run_eval(a, spec))
     except SetupError as exc:
         print(f"[eval] error: {exc}", file=sys.stderr)

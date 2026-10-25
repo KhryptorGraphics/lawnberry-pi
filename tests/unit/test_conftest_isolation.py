@@ -9,6 +9,8 @@ an E-stop test). ``scripts/run_tests_shuffled.py`` found both; these tests keep 
 
 from __future__ import annotations
 
+import ast
+import importlib.util
 import os
 import subprocess
 import sys
@@ -186,3 +188,123 @@ async def test_the_reset_empties_the_limiter_buckets_a_route_s_own_tests_drained
         reset_shared_state()
 
         assert (await client.get("/api/v2/control/blade/status")).status_code != 429
+
+
+# ---- the other autouse fixtures: each one has a test that fails without it (audit TOOL3-12) ------
+
+FIXTURE_PROBE = textwrap.dedent(
+    """
+    import os
+    from datetime import UTC, datetime
+
+    def test_0_the_latch_file_is_this_tests_own(tmp_path):
+        assert os.environ["LAWNBERRY_LATCH_FILE"] == str(tmp_path / "emergency_latch.json")
+
+    def test_1_the_credential_is_the_suites_never_a_developers():
+        assert os.environ["LAWN_BERRY_OPERATOR_CREDENTIAL"] == "test-operator-credential"
+
+    def test_2_leaves_process_wide_state_set():
+        from backend.src.core import globals as shared
+        from backend.src.services import blade_service
+        from backend.src.services.navigation_service import NavigationService
+
+        nav = NavigationService.get_instance()
+        nav.navigation_state.heading_updated_at = datetime.now(UTC)
+        nav._last_imu_stamp = datetime.now(UTC)
+        shared._safety_state["emergency_stop_active"] = True
+        shared._client_emergency["client-1"] = 1e12
+        blade_service._blade_service = object()
+
+    def test_3_starts_with_all_of_it_reset():
+        from backend.src.core import globals as shared
+        from backend.src.services import blade_service
+        from backend.src.services.navigation_service import NavigationService
+
+        nav = NavigationService.get_instance()
+        assert nav.navigation_state.heading_updated_at is None
+        assert nav._last_imu_stamp is None
+        assert shared._safety_state["emergency_stop_active"] is False
+        assert shared._client_emergency == {}
+        assert blade_service._blade_service is None
+    """
+)
+
+
+def test_the_latch_file_the_heading_stamp_the_safety_latches_and_the_blade_service_are_reset(
+    tmp_path,
+):
+    probe = tmp_path / "test_fixture_probe.py"
+    probe.write_text(FIXTURE_PROBE)
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join([str(REPO / "tests"), str(REPO)]),
+        "SIM_MODE": "1",
+        "LAWN_BERRY_OPERATOR_CREDENTIAL": "a-developers-real-credential",  # must not leak in
+    }
+    env.pop("PYTEST_ADDOPTS", None)
+
+    done = subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "conftest", "-p", "no:cacheprovider", "-W", "ignore"]
+        + ["-p", "no:randomly", "-o", "addopts=", "-q", "--tb=short", str(probe)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-1000:]
+    assert "4 passed" in done.stdout
+
+
+def _root_conftest():
+    spec = importlib.util.spec_from_file_location(
+        "lawnberry_root_conftest", REPO / "tests" / "conftest.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class _Item:
+    def __init__(self, nodeid: str) -> None:
+        self.nodeid, self.markers = nodeid, []
+
+    def add_marker(self, marker) -> None:
+        self.markers.append(marker)
+
+
+def test_the_tests_that_need_the_anonymous_websocket_are_skipped_only_without_the_opt_in(
+    monkeypatch,
+):
+    conftest = _root_conftest()
+    listed = sorted(conftest.NEEDS_SIM_OPEN_AUTH)
+    bystander = "tests/unit/test_something_else.py::test_x"
+
+    leaky = sorted(conftest.ORDER_DEPENDENT_IN_STRICT)
+    for value, marked in (("0", True), ("false", True), ("", True), ("1", False), ("true", False)):
+        monkeypatch.setenv("LAWN_BERRY_SIM_OPEN_AUTH", value)
+        items = [_Item(n) for n in [*listed, *leaky, bystander]]
+        conftest.pytest_collection_modifyitems(None, items)
+        assert [bool(i.markers) for i in items[:-1]] == [marked] * (len(listed) + len(leaky))
+        assert items[-1].markers == [], "only the listed tests are marked"
+        if marked:
+            assert {m.name for i in items[: len(listed)] for m in i.markers} == {"skip"}
+            assert {m.name for i in items[len(listed) : -1] for m in i.markers} == {"xfail"}
+    monkeypatch.delenv("LAWN_BERRY_SIM_OPEN_AUTH")
+    items = [_Item(listed[0])]
+    conftest.pytest_collection_modifyitems(None, items)
+    assert items[0].markers == [], "unset means the suite's default: on"
+
+
+def test_every_test_the_strict_run_skips_still_exists():
+    conftest = _root_conftest()
+    stale = []
+    for nodeid in sorted(conftest.NEEDS_SIM_OPEN_AUTH | conftest.ORDER_DEPENDENT_IN_STRICT):
+        path, _, name = nodeid.partition("::")
+        tree = ast.parse((REPO / path).read_text())
+        if name not in {
+            n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
+        }:
+            stale.append(nodeid)
+    assert stale == [], "remove them from the strict-mode lists in tests/conftest.py"

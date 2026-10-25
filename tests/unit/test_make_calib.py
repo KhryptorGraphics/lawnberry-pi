@@ -26,6 +26,8 @@ from workshop.make_calib import (
     verify,
 )
 
+X_DIGEST = hashlib.sha256(b"x").hexdigest()
+
 
 def _src(root: Path, name: str, n: int) -> Path:
     d = root / name / "images"
@@ -222,7 +224,7 @@ def test_verify_refuses_a_folder_whose_prefix_misses_a_source(tmp_path):
         for i in range(30):
             name = f"c{k}_{i:06d}.jpg"
             (folder / name).write_bytes(b"x")
-            files.append({"name": name})
+            files.append({"name": name, "sha256": X_DIGEST})
     (folder / "calib_manifest.json").write_text(
         json.dumps({"schema": "calib-set/1", "sources": ["a", "b"], "files": files})
     )
@@ -240,7 +242,7 @@ def test_verify_accepts_an_old_folder_that_the_zoo_reads_whole(tmp_path):
         for i in range(12):
             name = f"c{k}_{i:06d}.jpg"
             (folder / name).write_bytes(b"x")
-            files.append({"name": name})
+            files.append({"name": name, "sha256": X_DIGEST})
     (folder / "calib_manifest.json").write_text(
         json.dumps({"schema": "calib-set/1", "sources": ["a", "b"], "files": files})
     )
@@ -282,9 +284,120 @@ def test_verify_refuses_a_name_that_does_not_say_which_source(tmp_path):
     folder = tmp_path / "calib"
     folder.mkdir()
     (folder / "mystery.jpg").write_bytes(b"x")
+    entry = {"name": "mystery.jpg", "sha256": X_DIGEST}
     (folder / "calib_manifest.json").write_text(
-        json.dumps({"schema": "calib-set/2", "sources": ["a"], "files": [{"name": "mystery.jpg"}]})
+        json.dumps({"schema": "calib-set/2", "sources": ["a"], "files": [entry]})
     )
 
     with pytest.raises(SystemExit, match="does not say which of the 1 sources"):
         verify(folder)
+
+
+# ---- verify reads the files, not only their names (audit TOOL3-10) -----------------------------
+
+
+def _built(tmp_path: Path, count: int = 30) -> Path:
+    a, b, c = (_src(tmp_path, n, 40) for n in ("v1", "v2", "v3"))
+    build(tmp_path / "calib", [a, b, c], count, seed=1, link=False)
+    return tmp_path / "calib"
+
+
+def _replace_bytes(path: Path, data: bytes) -> None:
+    """A different file under the same name (not an in-place write: that would follow a link)."""
+    path.unlink()
+    path.write_bytes(data)
+
+
+def test_verify_finds_an_image_replaced_under_its_old_name(tmp_path):
+    folder = _built(tmp_path)
+    victim = _images(folder)[3]
+    _replace_bytes(victim, b"EVIL-NOT-AN-IMAGE")
+
+    with pytest.raises(SystemExit, match=r"1 files are not the bytes the manifest recorded") as e:
+        verify(folder, calibset_size=24)
+
+    assert victim.name in str(e.value)
+    with pytest.raises(SystemExit, match="not the bytes the manifest recorded"):
+        main(["--verify", str(folder), "--calibset-size", "24"])
+
+
+def test_verify_finds_a_file_that_was_truncated_or_emptied_or_extended(tmp_path):
+    folder = _built(tmp_path)
+    images = _images(folder)
+    for victim, data in (
+        (images[0], b""),
+        (images[1], images[1].read_bytes()[:-1]),
+        (images[2], images[2].read_bytes() + b"\0"),
+    ):
+        original = victim.read_bytes()
+        _replace_bytes(victim, data)
+        with pytest.raises(SystemExit, match=r"not the bytes the manifest recorded"):
+            verify(folder, calibset_size=24)
+        _replace_bytes(victim, original)
+    assert verify(folder, calibset_size=24)["files"] == 30
+
+
+def test_verify_counts_every_changed_file_and_names_the_first_three(tmp_path):
+    folder = _built(tmp_path)
+    for victim in _images(folder)[:5]:
+        _replace_bytes(victim, b"changed")
+
+    with pytest.raises(SystemExit) as e:
+        verify(folder, calibset_size=24)
+
+    assert "5 files are not the bytes" in str(e.value)
+    assert all(v.name in str(e.value) for v in _images(folder)[:3])
+    assert _images(folder)[3].name not in str(e.value)
+
+
+def test_verify_checks_the_files_the_zoo_never_reads_too(tmp_path):
+    """The folder is the manifest's, whole: a file beyond the zoo's prefix is still its file."""
+    folder = _built(tmp_path, count=30)
+    _replace_bytes(_images(folder)[-1], b"tail")  # position 29 of 30; the zoo reads 24
+
+    with pytest.raises(SystemExit, match="not the bytes the manifest recorded"):
+        verify(folder, calibset_size=24)
+
+
+def test_verify_refuses_a_manifest_that_records_no_digest(tmp_path):
+    folder = _built(tmp_path)
+    manifest_path = folder / "calib_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    del manifest["files"][0]["sha256"]
+    manifest["files"][1]["sha256"] = None
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(SystemExit, match=r"records no sha256 for 2 files .* content cannot be"):
+        verify(folder, calibset_size=24)
+
+
+def test_verify_notices_a_manifest_whose_digest_was_edited_to_match_new_content(tmp_path):
+    """Editing only the manifest does not help: its digest no longer matches the image."""
+    folder = _built(tmp_path)
+    manifest_path = folder / "calib_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"][0]["sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(SystemExit, match="not the bytes the manifest recorded"):
+        verify(folder, calibset_size=24)
+
+
+def test_verify_accepts_an_old_manifest_that_recorded_digests(tmp_path):
+    folder = tmp_path / "calib"
+    folder.mkdir()
+    files = []
+    for k in (0, 1):
+        for i in range(12):
+            name = f"c{k}_{i:06d}.jpg"
+            data = f"{k}-{i}".encode()
+            (folder / name).write_bytes(data)
+            files.append({"name": name, "sha256": hashlib.sha256(data).hexdigest()})
+    (folder / "calib_manifest.json").write_text(
+        json.dumps({"schema": "calib-set/1", "sources": ["a", "b"], "files": files})
+    )
+
+    assert verify(folder, calibset_size=24)["per_source"] == [12, 12]
+    _replace_bytes(folder / "c1_000003.jpg", b"other")
+    with pytest.raises(SystemExit, match="c1_000003.jpg"):
+        verify(folder, calibset_size=24)

@@ -205,7 +205,8 @@ class TestInference:
         assert prediction.obstacle_detected is True
         # Very close obstacle should trigger safety
         if obstacle_frame.ultrasonic.min_distance_cm < 30:
-            assert prediction.safety_override is True or prediction.throttle < 0.3
+            assert prediction.safety_override is True
+            assert prediction.throttle < 0.3
 
     @pytest.mark.asyncio
     async def test_multiple_inferences_update_metrics(self, service, sample_frame):

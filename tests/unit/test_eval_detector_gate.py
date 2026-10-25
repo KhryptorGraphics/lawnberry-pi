@@ -860,3 +860,190 @@ def test_the_baseline_block_names_the_report_it_was_compared_with(tmp_path, monk
 
     assert report["baseline"]["path"] == str(base)
     assert copy.deepcopy(report["baseline"]["failures"]) == []
+
+
+# ---- TOOL3-09: the gate says which confidence it was measured at -------------------------------
+
+DEPLOYED = 0.25  # SPEC's own threshold: what the live detector reports at
+
+
+def test_without_conf_the_report_says_it_was_measured_at_the_deployed_confidence(
+    tmp_path, monkeypatch
+):
+    rc, report = run_cli(tmp_path, monkeypatch, covering(12), lambda i, c: True, "--gate", *SMALL)
+
+    assert rc == 0
+    assert (report["conf"], report["spec_conf"], report["conf_overridden"]) == (
+        DEPLOYED,
+        DEPLOYED,
+        False,
+    )
+    assert report["gate"]["conf_below_deployed"] is False
+    assert report["mean_infer_ms"] == 1.0, "the mean of the per-image times, not their sum"
+
+
+def test_a_gate_at_a_confidence_below_the_deployed_one_is_refused_and_writes_no_verdict(
+    tmp_path, monkeypatch, capsys
+):
+    rc, report = run_cli(
+        tmp_path, monkeypatch, covering(12), lambda i, c: True, "--gate", *SMALL, "--conf", "0.05"
+    )
+
+    assert rc == 2, "a passing gate at 0.05 says nothing about a detector that reports at 0.25"
+    assert report is None, "no report that could be mistaken for a verdict"
+    err = capsys.readouterr().err
+    assert "--conf 0.05 is below the deployed confidence 0.25" in err
+    assert "--allow-conf-below-deployed" in err
+
+
+def test_the_lower_confidence_can_be_chosen_on_purpose_and_the_report_says_so(
+    tmp_path, monkeypatch, capsys
+):
+    rc, report = run_cli(
+        tmp_path, monkeypatch, covering(12), lambda i, c: True,
+        "--gate", *SMALL, "--conf", "0.05", "--allow-conf-below-deployed",
+    )  # fmt: skip
+
+    assert rc == 0
+    assert (report["conf"], report["spec_conf"], report["conf_overridden"]) == (0.05, 0.25, True)
+    assert report["gate"]["conf_below_deployed"] is True
+    assert "WARNING gate measured at conf 0.05, below the deployed 0.25" in capsys.readouterr().out
+
+
+def test_a_higher_confidence_only_makes_the_gate_stricter_and_is_recorded(tmp_path, monkeypatch):
+    rc, report = run_cli(
+        tmp_path, monkeypatch, covering(12), lambda i, c: True, "--gate", *SMALL, "--conf", "0.6"
+    )
+
+    assert rc == 0
+    assert (report["conf"], report["spec_conf"], report["conf_overridden"]) == (0.6, 0.25, True)
+    assert report["gate"]["conf_below_deployed"] is False
+
+
+def test_a_conf_equal_to_the_deployed_one_is_not_an_override(tmp_path, monkeypatch):
+    rc, report = run_cli(
+        tmp_path, monkeypatch, covering(12), lambda i, c: True, "--gate", *SMALL, "--conf", "0.25"
+    )
+
+    assert rc == 0 and report["conf_overridden"] is False and report["spec_conf"] == 0.25
+
+
+def test_a_measurement_without_a_gate_may_use_any_confidence_and_records_it(tmp_path, monkeypatch):
+    rc, report = run_cli(
+        tmp_path,
+        monkeypatch,
+        covering(12),
+        lambda i, c: True,
+        "--conf",
+        "0.05",
+        "--min-images",
+        "10",
+    )
+
+    assert rc == 0 and report["verdict"] == "not_applied"
+    assert (report["conf"], report["spec_conf"], report["conf_overridden"]) == (0.05, 0.25, True)
+    assert "conf_below_deployed" not in report["gate"], "no gate was applied: nothing to qualify"
+
+
+def test_an_invalid_report_carries_the_deployed_confidence_too(tmp_path, monkeypatch):
+    rc, report = run_cli(
+        tmp_path, monkeypatch, covering(12), lambda i, c: True, "--gate", "--conf", "0.6",
+        write_labels=False,
+    )  # fmt: skip
+
+    assert rc == 3 and report["verdict"] == "invalid"
+    assert (report["conf"], report["spec_conf"], report["conf_overridden"]) == (0.6, 0.25, True)
+
+
+def test_conf_reaches_the_backend_the_spec_it_builds_carries_the_overridden_threshold(
+    tmp_path, monkeypatch
+):
+    """No test passed ``--conf`` (override dropped went unnoticed): the backend is built on it."""
+    handed: list[float] = []
+    root = tmp_path / "wired"
+    images, labels = _dataset(root, covering(12))
+    (root / "m.onnx").write_bytes(b"onnx")
+    scripted = ScriptedBackend(lambda i, c: True, covering(12))
+
+    def backend(a, s):
+        handed.append(s.conf_threshold)
+        return scripted
+
+    monkeypatch.setattr(ev, "_backend", backend)
+    monkeypatch.setattr(ev, "_load_spec", lambda a: SPEC)
+    monkeypatch.setattr(ev, "_read_rgb", lambda p: np.zeros((H, W, 3), dtype=np.uint8))
+    argv = [*("--backend", "onnx"), *("--model", str(root / "m.onnx")), *("--conf", "0.6")]
+    argv += [*("--images", str(images)), *("--labels", str(labels)), *("--min-images", "10")]
+    argv += ["--out", str(root / "r.json")]
+
+    assert ev.main(argv) == 0
+
+    assert handed == [0.6]
+
+
+def test_the_report_of_a_real_spec_file_records_the_sidecars_own_confidence(tmp_path, monkeypatch):
+    """Through the real ``_load_spec``: the 0.5 of the sidecar, not a default, is ``spec_conf``."""
+    root = tmp_path / "real"
+    images, labels = _dataset(root, covering(12))
+    (root / "m.onnx").write_bytes(b"onnx")
+    spec_file = root / "spec.json"
+    spec_file.write_text(
+        json.dumps(
+            {
+                "schema": "lawnberry-detector/1",
+                "arch": "yolo26",
+                "input_size": 640,
+                "class_names": list(NAMES),
+                "conf_threshold": 0.5,
+            }
+        )
+    )
+    scripted = ScriptedBackend(lambda i, c: True, covering(12))
+    monkeypatch.setattr(ev, "_backend", lambda a, s: scripted)
+    monkeypatch.setattr(ev, "_read_rgb", lambda p: np.zeros((H, W, 3), dtype=np.uint8))
+    common = [*("--backend", "onnx"), *("--model", str(root / "m.onnx")), "--spec", str(spec_file)]
+    common += [*("--images", str(images)), *("--labels", str(labels)), *("--min-images", "10")]
+
+    assert ev.main([*common, "--out", str(root / "a.json"), "--conf", "0.05", "--gate"]) == 2
+    assert not (root / "a.json").exists()
+    assert ev.main([*common, "--out", str(root / "b.json"), "--gate", *SMALL[:2]]) == 0
+    report = json.loads((root / "b.json").read_text())
+
+    assert (report["conf"], report["spec_conf"], report["conf_overridden"]) == (0.5, 0.5, False)
+
+
+# ---- --predict --expect: the IoU boundary is a match (surviving mutants E11, E12) ---------------
+
+
+def _predict_at(tmp_path, monkeypatch, min_iou: str) -> int:
+    ref = tmp_path / "ref.json"
+    ref.write_text(json.dumps([{"class": "person", "bbox": [0, 0, 10, 10]}]))
+    det = {"class": "person", "class_id": PERSON, "confidence": 0.9, "bbox": [0.0, 0.0, 10.0, 5.0]}
+
+    class One:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def predict(self, rgb):
+            return [det], 1.0
+
+    (tmp_path / "m.onnx").write_bytes(b"onnx")
+    monkeypatch.setattr(ev, "_backend", lambda a, s: One())
+    monkeypatch.setattr(ev, "_load_spec", lambda a: SPEC)
+    monkeypatch.setattr(ev, "_read_rgb", lambda p: np.zeros((H, W, 3), dtype=np.uint8))
+    return ev.main(
+        [*("--backend", "onnx"), *("--model", str(tmp_path / "m.onnx")), *("--predict", "x.jpg")]
+        + [*("--expect", str(ref)), *("--min-iou", min_iou)]
+    )
+
+
+def test_an_expected_box_matched_at_exactly_min_iou_passes_and_a_hair_below_fails(
+    tmp_path, monkeypatch, capsys
+):
+    assert _predict_at(tmp_path, monkeypatch, "0.5") == 0  # IoU of the detection is exactly 0.5
+    assert "best IoU 0.500 ok" in capsys.readouterr().err, "the box is reported as matched"
+    assert _predict_at(tmp_path, monkeypatch, "0.5000001") == 1
+    assert "best IoU 0.500 MISSING" in capsys.readouterr().err

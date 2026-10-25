@@ -9,6 +9,7 @@ observed is the calibration step and whether the script stops there.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -80,7 +81,7 @@ def _legacy_folder(folder: Path, per_source: int) -> Path:
         for i in range(per_source):
             name = f"c{k}_{i:06d}.jpg"
             (folder / name).write_bytes(b"x")
-            files.append({"name": name})
+            files.append({"name": name, "sha256": hashlib.sha256(b"x").hexdigest()})
     (folder / "calib_manifest.json").write_text(
         json.dumps({"schema": "calib-set/1", "sources": ["a", "b"], "files": files})
     )

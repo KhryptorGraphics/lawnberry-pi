@@ -14,8 +14,19 @@ that sync, made deterministic:
 
 Which files count: the Python files in scope (``backend/src``, ``scripts``, ``workshop``,
 ``firmware``, ``.specify/scripts``) that changed between the merge-base with ``--base`` and the
-working tree, plus untracked ones; ``--all`` takes every file in scope. A row of a file that did not
-change is only checked for signatures that no longer match its source (and fixed when drifted).
+working tree, plus untracked ones. A row of a file that did not change is only checked for
+signatures that no longer match its source (and fixed when drifted).
+
+``--all`` takes every Python file in scope instead. It is a REPORT of the gap between the overview
+and the source, not a gate: every file with public callables and no row is a drift, and so is
+every hand-written interface summary that is not the generated cell. ``--fix --all`` writes those
+rows and cells, but refuses (exit 2, nothing written, every offending file named) while a file it
+must add a row for has no module docstring, because the docstring becomes the row's purpose.
+
+What is NOT checked: only Python files have an interface cell that is compared with the source.
+TypeScript, shell, OpenSCAD and the other rows are hand-maintained; the one thing checked for them
+is that the file still exists (``--fix`` drops the row of a file that is gone). A function that is
+added to such a file is invisible to this script.
 
 The interface cell is generated from the AST: public module functions and the public methods of
 public classes, with their real argument names and defaults (annotations are left out).
@@ -45,7 +56,7 @@ SECTIONS = (
     ("scripts/", "Operations and maintenance scripts", "Ops"),
     (".specify/scripts/", "Operations and maintenance scripts", "Ops"),
 )
-ROW = re.compile(r"^\|\s*`(?P<path>[^`]+\.py)`\s*\|")
+ROW = re.compile(r"^\|\s*`(?P<path>[^`\s|]+\.[A-Za-z0-9]+)`\s*\|")
 CALL = re.compile(r"`([A-Za-z_][\w.]*)\(([^`]*)\)`")
 EXIT_CLEAN, EXIT_DRIFT, EXIT_UNKNOWN = 0, 1, 2
 
@@ -160,6 +171,24 @@ def _split_listed(text: str) -> list[str]:
     return [p for p in parts if p and p not in ("...", "…")]
 
 
+def _listed_names(name: str, listed: str) -> list[str]:
+    """The argument names a cell lists for ``name``, as ``_args`` would have written them.
+
+    The list is parsed as the parameters of a definition, so a default that holds a comma, a
+    bracket or a lambda (``sep=','``, ``key=lambda a, b: a``) cannot split it the wrong way: the
+    comma splitter above cannot tell those from the commas between arguments (audit TOOL3-06: the
+    row it mis-read was reported as drift that ``--fix`` rewrote to the same text). Only a
+    hand-written summary that is not valid Python (``f(a, ...)``) falls back to the splitter.
+    """
+    try:
+        parsed = ast.parse(f"def {name}({listed}): pass").body[0]
+    except SyntaxError:
+        parsed = None
+    if not isinstance(parsed, ast.FunctionDef):
+        return _arg_names(_split_listed(listed))
+    return _arg_names(_args(parsed))
+
+
 def stale_signatures(cell: str, tree: ast.Module) -> list[str]:
     """Calls named in ``cell`` that the source does not define with those argument names."""
     defs = defs_by_name(tree)
@@ -172,7 +201,7 @@ def stale_signatures(cell: str, tree: ast.Module) -> list[str]:
         if short not in defs:
             problems.append(f"`{name}` is not defined")
             continue
-        wanted = _arg_names(_split_listed(listed))
+        wanted = _listed_names(short, listed)
         if not any(_arg_names(real) == wanted for real in defs[short]):
             if wanted:  # a bare ``name()`` or ``name(...)`` is a deliberate summary
                 problems.append(f"`{name}({listed})` does not match the source")
@@ -300,12 +329,15 @@ class Plan:
 
 
 def review_group(root: Path, path: str, group: list[Row], targets: set[str], plan: Plan) -> None:
-    """Check one file's row(s): gone, duplicated, or with an interface cell that has drifted."""
+    """Check one file's row(s): gone, duplicated, or with an interface cell that has drifted.
+
+    Only a Python file has an interface cell that is compared with its source; any other row
+    (TypeScript, shell, OpenSCAD) is checked for the file still existing and for one row per file.
+    """
     if not (root / path).is_file():
         plan.problems.append(f"{path}: the file is gone, its row is stale")
         plan.drop.update(r.line for r in group)
         return
-    tree = parse(root / path)
     cells = list(group[0].cells)
     changed = False
     if len(group) > 1:
@@ -313,34 +345,49 @@ def review_group(root: Path, path: str, group: list[Row], targets: set[str], pla
         cells[1] = merge_purposes([r.cells[1] for r in group])
         plan.drop.update(r.line for r in group[1:])
         changed = True
-    generated = interfaces(tree)
-    if path in targets and generated:
-        drifted = cells[3] != generated
+    if path.endswith(".py"):
+        tree = parse(root / path)
+        generated = interfaces(tree)
+        if path in targets and generated:
+            drifted = cells[3] != generated
+            if drifted:
+                plan.problems.append(f"{path}: the interface list differs from the source")
+        else:
+            stale = stale_signatures(cells[3], tree)
+            plan.problems.extend(f"{path}: {item}" for item in stale)
+            drifted = bool(stale)
         if drifted:
-            plan.problems.append(f"{path}: the interface list differs from the source")
-    else:
-        stale = stale_signatures(cells[3], tree)
-        plan.problems.extend(f"{path}: {item}" for item in stale)
-        drifted = bool(stale)
-    if drifted:
-        cells[3] = generated or "(no public callables)"
-        changed = True
+            cells[3] = generated or "(no public callables)"
+            changed = True
     if changed:
         plan.replace[group[0].line] = render(cells)
 
 
 def review_new_files(root: Path, new: Iterable[str], plan: Plan, *, fix: bool) -> None:
-    """A touched file with public callables and no row gets one (``--fix``) or is a drift."""
+    """A touched file with public callables and no row gets one (``--fix``) or is a drift.
+
+    ``--fix`` needs the module docstring of every such file (it becomes the row's purpose) and
+    names ALL the files that lack one, not the first, so ``--fix --all`` is one round of
+    docstrings and not one round per file.
+    """
+    undocumented: list[str] = []
     for path in sorted(new):
         tree = parse(root / path)
         generated = interfaces(tree)
         if not generated:
             continue  # nothing public to document
         plan.problems.append(f"{path}: new file with public callables and no row")
-        if fix:
-            heading, subsystem = section_for(path)
-            row = render([path, purpose_of(tree, path), subsystem, generated])
-            plan.additions.setdefault(heading, []).append(row)
+        if not fix:
+            continue
+        try:
+            purpose = purpose_of(tree, path)
+        except SyncError as exc:  # no module docstring: keep going so every such file is named
+            undocumented.append(str(exc))
+            continue
+        heading, subsystem = section_for(path)
+        plan.additions.setdefault(heading, []).append(render([path, purpose, subsystem, generated]))
+    if undocumented:
+        raise SyncError("\n".join(undocumented))
 
 
 def apply_plan(lines: list[str], plan: Plan) -> list[str]:

@@ -22,6 +22,7 @@ dependencies = [
     "structlog>=23.1.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-timeout>=2.3.1",
     # ARM64-friendly hardware access libs (optional at runtime; imported lazily)
     "smbus2>=0.4.3",
     "pyserial>=3.5",
@@ -60,6 +61,12 @@ include = ["backend*"]
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
+# A test that hangs must fail, not hold the job until GitHub's 6-hour limit with no verdict (audit
+# TOOL3-01: the suite once stalled for 11 minutes in an async fixture teardown). The slowest test is
+# 14 s on a loaded box and the longest subprocess timeout inside a test is 300 s. Signal method: the
+# stalled test fails with every thread's stack dumped and the run goes on. The soak test opts out.
+timeout = 300
+timeout_method = "signal"
 pythonpath = ["."]
 markers = [
     "integration: end-to-end / multi-component integration tests",
