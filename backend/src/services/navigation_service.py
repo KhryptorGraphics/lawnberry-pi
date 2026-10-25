@@ -165,6 +165,24 @@ BLADE_RETRY_S = 2.0
 MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS = 5
 
 
+def _usable_coordinates(latitude: Any, longitude: Any) -> bool:
+    """Is this a latitude/longitude a leg may steer by: finite numbers on the globe?
+
+    ``min(1.0, nan)`` is ``1.0``: a NaN position turns the proportional controller's heading error
+    into a full-lever pivot (audit NAV-06), so a position that is not a finite coordinate is "no
+    position" to the legs and to the position fusion, whatever produced it.
+    """
+    try:
+        return (
+            math.isfinite(latitude)
+            and math.isfinite(longitude)
+            and abs(latitude) <= 90.0
+            and abs(longitude) <= 180.0
+        )
+    except TypeError:
+        return False
+
+
 class LegResult(StrEnum):
     """How ``go_to_waypoint`` ended."""
 
@@ -866,10 +884,12 @@ class NavigationService:
                     return LegResult.INTERRUPTED
 
             position = self.navigation_state.current_position
-            if not position:
-                # Nothing to navigate by: hold (blade off, neutral), do not leave the last
-                # command, and the blade, in force while waiting for a fix.
-                await self._hold_motion(MotionGate(True, 0.0, ("no position fix",)))
+            if not position or not _usable_coordinates(position.latitude, position.longitude):
+                # Nothing to navigate by (no fix, or one that is not a finite coordinate): hold
+                # (blade off, neutral), do not leave the last command, and the blade, in force
+                # while waiting for a fix.
+                reason = "no position fix" if not position else "no usable position"
+                await self._hold_motion(MotionGate(True, 0.0, (reason,)))
                 await asyncio.sleep(self.control_period_s)
                 continue
 
@@ -1212,6 +1232,7 @@ class NavigationService:
             gps is not None
             and gps.latitude
             and gps.longitude
+            and _usable_coordinates(gps.latitude, gps.longitude)
             and (gps_stamp is None or gps_stamp != self._last_gps_stamp)
         )
         if new_fix:
@@ -1270,8 +1291,14 @@ class NavigationService:
     async def _update_position(self, sensor_data: SensorData) -> Position | None:
         """Update position using sensor fusion"""
 
-        # Primary: GPS position
-        if sensor_data.gps and sensor_data.gps.latitude and sensor_data.gps.longitude:
+        # Primary: GPS position (a NaN, an infinity or a coordinate off the globe is no position:
+        # it must not become ``current_position`` or the dead-reckoning reference, audit NAV-06)
+        if (
+            sensor_data.gps
+            and sensor_data.gps.latitude
+            and sensor_data.gps.longitude
+            and _usable_coordinates(sensor_data.gps.latitude, sensor_data.gps.longitude)
+        ):
             gps_position = Position(
                 latitude=sensor_data.gps.latitude,
                 longitude=sensor_data.gps.longitude,
