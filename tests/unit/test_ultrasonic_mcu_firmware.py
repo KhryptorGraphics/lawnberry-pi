@@ -341,6 +341,32 @@ def test_time_division_also_holds_after_the_host_widens_window_and_gap():
     _assert_time_division(rig.port.hal.triggers[start:], window_ms=60, gap_ms=120)
 
 
+@pytest.mark.parametrize(
+    "window_ms,gap_ms,cm",
+    [(30, 5, 35.0), (60, 5, 35.0), (100, 10, 35.0), (30, 5, 400.0)],
+)
+def test_a_gap_shorter_than_the_window_never_pulls_a_trigger_inside_the_previous_window(
+    window_ms, gap_ms, cm
+):
+    # C04: the next trigger is bounded by BOTH `previous trigger + window` and `measurement end +
+    # gap`. With the gap below the window, a close target ends its measurement so early that `end +
+    # gap` falls INSIDE the window; only the window bound keeps one sensor from hearing the
+    # burst of the next. (400 cm: `end + gap` lands just 1 ms short of the window end.)
+    rig = Rig(sensors=[echo(cm)] * 4)
+    rig.run(0.05)
+    wanted = host.McuConfig(0b1111, window_ms, gap_ms, 8)
+    rig.send(host.FrameType.CONFIG, host.build_config(wanted))
+    rig.run(0.2)
+    assert rig.of(host.FrameType.CONFIG_ACK) == [wanted]
+    start = len(rig.port.hal.triggers)
+    rig.run(4.0)
+    triggers = rig.port.hal.triggers[start:]
+    assert len(triggers) >= 30
+    starts = [s for _i, s, _e in triggers]
+    assert min(b - a for a, b in zip(starts, starts[1:], strict=False)) >= window_ms
+    _assert_time_division(triggers, window_ms, gap_ms)
+
+
 def test_firing_follows_the_configured_order_every_cycle():
     rig = Rig(sensors=[echo(100.0)] * 4, firing_order=(1, 3, 0, 2))
     rig.run(3.0)
