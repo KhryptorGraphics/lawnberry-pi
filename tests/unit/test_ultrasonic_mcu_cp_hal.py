@@ -29,15 +29,22 @@ class World:
 
     def __init__(self) -> None:
         self.now_ns = 0
+        self.step_ns = STEP_NS  # a test may make the clock finer to see a 10 us pulse
         self.distance_cm: dict[int, float | None] = {0: 80.0, 1: 120.0, 2: 200.0, 3: 60.0}
+        # echo pin -> width a broken PulseIn reports the moment it is armed (a glitch, a pulse
+        # already in progress, a saturated counter): a value no echo can have produced
+        self.instant_entry: dict[str, int] = {}
         self.trig_log: list[tuple[str, int, bool]] = []  # (pin, time_ns, value) edges only
         self.echo_by_pin: dict[str, FakePulseIn] = {}
         self.pulsein_calls: list[tuple[str, str]] = []  # (pin, "resume"/"pause"/"clear") in order
         self.events: list[tuple[str, str, object]] = []  # everything above, in one global order
 
     def monotonic_ns(self) -> int:
-        self.now_ns += STEP_NS
+        self.now_ns += self.step_ns
         return self.now_ns
+
+    def sleep(self, seconds: float) -> None:
+        self.now_ns += round(seconds * 1e9)
 
     def on_trig(self, pin: str, value: bool) -> None:
         self.trig_log.append((pin, self.now_ns, value))
@@ -110,6 +117,9 @@ class FakePulseIn:
         self.paused = False
         self.world.pulsein_calls.append((self.pin.name, "resume"))
         self.world.events.append(("echo", self.pin.name, "resume"))
+        instant = self.world.instant_entry.get(self.pin.name)
+        if instant is not None:
+            self._pulses.append(instant)
 
     def clear(self) -> None:
         self._pulses.clear()
@@ -132,6 +142,14 @@ class FakeUsbData:
         self.connected = True
         self.timeout = None
         self.write_timeout = None
+        self.write_calls = 0
+        self.fail_after: int | None = None  # raise from write() once this many calls were made
+        # A configurable short write: the TX FIFO takes `accept[i]` bytes on the i-th call, then
+        # at most `accept_default` per call (None: everything), like usb_cdc under write_timeout.
+        self.accept: list[int] = []
+        self.accept_default: int | None = None
+        self.write_log: list[tuple[int, int, float | None]] = []  # (offered, taken, write_timeout)
+        self.max_calls = 100_000  # a retry loop without a bound fails the test instead of hanging
 
     @property
     def in_waiting(self) -> int:
@@ -143,8 +161,16 @@ class FakeUsbData:
         return data
 
     def write(self, data: bytes) -> int:
-        self.written.extend(data)
-        return len(data)
+        if self.fail_after is not None and self.write_calls >= self.fail_after:
+            raise OSError("usb write failed")
+        self.write_calls += 1
+        if self.write_calls > self.max_calls:
+            raise AssertionError("usb write() retried without a bound")
+        limit = self.accept.pop(0) if self.accept else self.accept_default
+        taken = len(data) if limit is None else min(limit, len(data))
+        self.write_log.append((len(data), taken, self.write_timeout))
+        self.written.extend(data[:taken])
+        return taken
 
 
 class FakeWatchdog:
@@ -165,6 +191,24 @@ class FakeResetReason:
     BROWNOUT = "brownout"
 
 
+class FakeReset(BaseException):
+    """What ``microcontroller.reset()`` does on the board: nothing after it ever runs."""
+
+
+class FakeMcu:
+    """The ``microcontroller`` module."""
+
+    def __init__(self, watchdog: FakeWatchdog, cpu: types.SimpleNamespace) -> None:
+        self.watchdog = watchdog
+        self.cpu = cpu
+        self.ResetReason = FakeResetReason
+        self.resets = 0
+
+    def reset(self) -> None:
+        self.resets += 1
+        raise FakeReset
+
+
 @pytest.fixture
 def cp(monkeypatch):
     """Inject fake CircuitPython modules, import the CP HAL, and clean up afterwards."""
@@ -172,6 +216,7 @@ def cp(monkeypatch):
     usb_data = FakeUsbData()
     wdt = FakeWatchdog()
     cpu = types.SimpleNamespace(reset_reason=FakeResetReason.POWER_ON)
+    mcu = FakeMcu(wdt, cpu)
 
     fakes = {
         "board": FakeBoard(),
@@ -185,9 +230,7 @@ def cp(monkeypatch):
             )
         ),
         "usb_cdc": types.SimpleNamespace(data=usb_data),
-        "microcontroller": types.SimpleNamespace(
-            watchdog=wdt, cpu=cpu, ResetReason=FakeResetReason
-        ),
+        "microcontroller": mcu,
         "watchdog": types.SimpleNamespace(
             WatchDogMode=types.SimpleNamespace(RESET="reset", RAISE="raise")
         ),
@@ -201,9 +244,13 @@ def cp(monkeypatch):
     hal_mod = load_module("usonic_hal_cp")
     load_module("usonic_main")
     # Replace the module's own reference only: the real ``time`` module must stay untouched.
-    monkeypatch.setattr(hal_mod, "time", types.SimpleNamespace(monotonic_ns=world.monotonic_ns))
+    monkeypatch.setattr(
+        hal_mod,
+        "time",
+        types.SimpleNamespace(monotonic_ns=world.monotonic_ns, sleep=world.sleep),
+    )
     ns = types.SimpleNamespace(
-        world=world, usb=usb_data, wdt=wdt, cpu=cpu, hal_mod=hal_mod, fakes=fakes
+        world=world, usb=usb_data, wdt=wdt, cpu=cpu, mcu=mcu, hal_mod=hal_mod, fakes=fakes
     )
     yield ns
     for name in ("usonic_hal_cp", "usonic_main", "usonic_config"):
@@ -259,6 +306,47 @@ def test_reset_reason_is_mapped_to_the_protocol_codes(cp, reason, code):
     assert hal.reset_reason() == code
 
 
+def test_boot_id_is_four_random_bytes_little_endian(cp, monkeypatch):
+    monkeypatch.setattr(
+        cp.hal_mod, "os", types.SimpleNamespace(urandom=lambda n: bytes((0x78, 0x56, 0x34, 0x12)))
+    )
+    assert make_hal(cp).boot_id() == 0x12345678
+
+
+@pytest.mark.parametrize(
+    "exc", [NotImplementedError("No hardware random available"), OSError("rng"), AttributeError()]
+)
+def test_a_missing_os_urandom_does_not_stop_the_boot(cp, monkeypatch, exc):
+    # SUSPECTED (UsonicReview): os.urandom on the target build. boot_id() runs while the core is
+    # built, so an exception here would end code.py with no INFO ever sent.
+    def broken(_n):
+        raise exc
+
+    monkeypatch.setattr(cp.hal_mod, "os", types.SimpleNamespace(urandom=broken))
+    monkeypatch.setattr(sys.modules["usonic_config"], "TRIG_PINS", TRIG)
+    monkeypatch.setattr(sys.modules["usonic_config"], "ECHO_PINS", ECHO)
+    assert 0 <= make_hal(cp).boot_id() <= 0xFFFFFFFF
+    sys.modules["usonic_main"].run(iterations=300)
+    infos = [m for m in _decode(cp) if isinstance(m, host.Info)]
+    assert infos and 0 <= infos[0].boot_id <= 0xFFFFFFFF
+
+
+def test_the_fallback_boot_id_tells_two_chips_apart(cp, monkeypatch):
+    def broken(_n):
+        raise NotImplementedError("No hardware random available")
+
+    monkeypatch.setattr(cp.hal_mod, "os", types.SimpleNamespace(urandom=broken))
+    monkeypatch.setattr(
+        cp.hal_mod, "time", types.SimpleNamespace(monotonic_ns=lambda: 1_234_000_000)
+    )
+    hal = make_hal(cp)
+    ids = []
+    for uid in (bytes(range(8)), bytes(range(1, 9)), bytes(range(8))):
+        cp.cpu.uid = uid
+        ids.append(hal.boot_id())
+    assert ids[0] == ids[2] and ids[0] != ids[1]
+
+
 # ---- measuring --------------------------------------------------------------------------------
 
 
@@ -289,6 +377,21 @@ def test_measure_returns_the_echo_width_and_arms_capture_only_after_the_trigger(
     ]
     assert cp.world.echo_by_pin[echo_pin].paused  # not left capturing between measurements
     assert len(cp.world.echo_by_pin[echo_pin]) == 0  # and nothing stale left behind
+
+
+@pytest.mark.parametrize("pulse_us", [10, 15, 40])
+def test_trig_is_held_high_for_the_configured_pulse_width(cp, pulse_us):
+    # H10: with the default 50 us clock step a pulse 1000x too short (10 ns instead of 10 us)
+    # still shows 50 us on the fake clock. At a 1 us step the busy-wait is visible: the sensor
+    # needs at least the configured width (a shorter pulse never fires it) and nothing close to a
+    # runaway one (it would stall the loop).
+    cp.world.step_ns = 1_000
+    hal = make_hal(cp, trigger_pulse_us=pulse_us)
+    hal.measure(1, 30_000)
+    edges = [e for e in cp.world.trig_log if e[0] == TRIG[1]]
+    assert [e[2] for e in edges] == [True, False]
+    high_ns = edges[1][1] - edges[0][1]
+    assert pulse_us * 1000 <= high_ns <= pulse_us * 1000 + 3 * cp.world.step_ns
 
 
 def test_other_sensors_are_never_triggered_while_one_is_measured(cp):
@@ -324,6 +427,27 @@ def test_a_late_pulse_from_the_previous_measurement_is_discarded_by_the_next(cp)
     assert (status, width) == (host.EchoStatus.OK, round(50.0 * 20000 / SPEED_OF_SOUND))
 
 
+@pytest.mark.parametrize("width", [0, 31_000, 65_535])
+def test_an_impossible_pulse_width_is_never_reported_as_a_distance(cp, width):
+    # SUSPECTED (UsonicReview): a PulseIn glitch (0 us), a pulse longer than the window (it can
+    # only have started before resume()) or a saturated 16 bit counter (65535). None of them is
+    # an echo, so none may come out of measure() as ST_OK; the raw value is kept for the probe.
+    cp.world.instant_entry[ECHO[0]] = width
+    hal = make_hal(cp)
+    assert hal.measure(0, 30_000) == (host.EchoStatus.STUCK, width)
+    assert cp.world.echo_by_pin[ECHO[0]].paused  # and the capture is not left running
+
+
+@pytest.mark.parametrize(
+    "width,window_us",
+    [(1, 30_000), (150, 30_000), (29_999, 30_000), (30_000, 30_000), (65_534, 100_000)],
+)
+def test_every_other_width_up_to_the_window_is_still_a_measurement(cp, width, window_us):
+    cp.world.instant_entry[ECHO[0]] = width
+    hal = make_hal(cp)
+    assert hal.measure(0, window_us) == (host.EchoStatus.OK, width)
+
+
 # ---- host link --------------------------------------------------------------------------------
 
 
@@ -339,11 +463,62 @@ def test_read_is_non_blocking_and_write_never_blocks_on_a_detached_host(cp):
     assert bytes(cp.usb.written) == b"hello"  # nothing was queued for a host that is not there
 
 
+def _frame(seq):
+    """A frame the size of a READING (23 bytes): 6 header, 15 payload, 2 CRC."""
+    return host.encode_frame(host.FrameType.READING, seq, bytes(range(15)))
+
+
+def test_a_short_write_is_completed_by_a_few_non_blocking_retries(cp):
+    # US-12b: usb_cdc write() returns how many bytes it took; under write_timeout it is fewer when
+    # the TX FIFO is full. The old HAL ignored the count and put a truncated frame on the wire.
+    hal = make_hal(cp)
+    frame = _frame(1)
+    cp.usb.accept = [10, 0, 13]  # 10 bytes now, nothing a millisecond later, the other 13 after
+    t0 = cp.world.now_ns
+    hal.write(frame)
+    assert bytes(cp.usb.written) == frame  # whole, exactly once, in order
+    assert hal.short_writes == 0
+    # the first attempt is as before (it may wait the write timeout); the retries never block
+    log = [(taken, timeout) for _offered, taken, timeout in cp.usb.write_log]
+    assert log == [(10, 0.05), (0, 0), (13, 0)]
+    assert [offered for offered, _taken, _timeout in cp.usb.write_log] == [23, 13, 13]
+    assert cp.usb.write_timeout == 0.05  # and the next frame gets the normal timeout again
+    # two retries, each after a pause for the USB stack to drain the FIFO: 2 to a few milliseconds
+    assert 2_000_000 <= cp.world.now_ns - t0 <= 5_000_000
+
+
+def test_a_frame_that_cannot_be_completed_is_abandoned_counted_and_never_glued_to_the_next(cp):
+    hal = make_hal(cp)
+    first, second = _frame(1), _frame(2)
+    cp.usb.accept = [10]
+    cp.usb.accept_default = 0  # the host stops draining the FIFO
+    t0 = cp.world.now_ns
+    hal.write(first)
+    assert bytes(cp.usb.written) == first[:10]  # a stub is all that got out
+    assert hal.short_writes == 1
+    assert len(cp.usb.write_log) <= 5  # one attempt and a few retries, then it stops
+    assert 3_000_000 <= cp.world.now_ns - t0 <= 5_000_000  # three paused retries, then it stops
+    assert cp.usb.write_timeout == 0.05
+    cp.usb.accept_default = None  # the host drains again
+    hal.write(second)
+    # the rest of `first` is NOT written later: the next frame starts right behind the stub
+    assert bytes(cp.usb.written) == first[:10] + second
+    assert hal.short_writes == 1
+    assert [f.seq for f in host.decode_stream(bytes(cp.usb.written))] == [2]
+
+
 def test_watchdog_is_fed_through_the_hal(cp):
     hal = make_hal(cp)
     hal.feed_watchdog()
     hal.feed_watchdog()
     assert cp.wdt.fed == 2
+
+
+def test_reboot_resets_the_microcontroller(cp):
+    hal = make_hal(cp)
+    with pytest.raises(FakeReset):  # the real reset never returns
+        hal.reboot()
+    assert cp.mcu.resets == 1
 
 
 # ---- the whole firmware loop on the fake board ------------------------------------------------
@@ -397,6 +572,62 @@ def test_main_loop_without_pins_still_talks_and_fires_nothing(cp):
     assert [m.sensor_count for m in msgs if isinstance(m, host.Info)][0] == 0
     assert not [m for m in msgs if isinstance(m, host.Reading)]
     assert cp.world.trig_log == []
+
+
+def test_main_loop_reports_a_glitching_echo_line_as_a_fault_not_as_a_reading(cp, monkeypatch):
+    monkeypatch.setattr(sys.modules["usonic_config"], "TRIG_PINS", TRIG)
+    monkeypatch.setattr(sys.modules["usonic_config"], "ECHO_PINS", ECHO)
+    cp.world.instant_entry[ECHO[2]] = 0
+    sys.modules["usonic_main"].run(iterations=30000)
+    readings = [m for m in _decode(cp) if isinstance(m, host.Reading)]
+    glitchy = [r for r in readings if r.sensor == 2]
+    assert glitchy
+    assert all(r.status == host.EchoStatus.STUCK for r in glitchy)
+    assert glitchy[-1].health == host.McuHealth.FAULT and glitchy[-1].fails == len(glitchy)
+    assert all(r.status == host.EchoStatus.OK for r in readings if r.sensor != 2)
+
+
+def test_a_crash_in_the_main_loop_resets_the_fake_board(cp, monkeypatch):
+    # US-12a through the real CpHal: the USB link raising out of write() is a crash of core.poll().
+    usonic_config = sys.modules["usonic_config"]
+    monkeypatch.setattr(usonic_config, "TRIG_PINS", TRIG)
+    monkeypatch.setattr(usonic_config, "ECHO_PINS", ECHO)
+    cp.usb.fail_after = 6  # the boot INFO and a few READINGs go out, then the link raises
+    with pytest.raises(FakeReset):
+        sys.modules["usonic_main"].run(iterations=100_000)
+    assert cp.mcu.resets == 1
+    msgs = _decode(cp)
+    assert isinstance(msgs[0], host.Info)
+    assert any(isinstance(m, host.Reading) for m in msgs)
+    assert 0 < cp.wdt.fed < 100_000  # it was running, and stopped at the crash
+
+
+def test_main_loop_with_a_slow_usb_host_delivers_every_frame_intact(cp, monkeypatch):
+    # The FIFO takes at most 20 bytes per call, so every INFO/READING (22/23 bytes) is a short
+    # write that the retry has to complete: not one truncated frame may reach the host.
+    monkeypatch.setattr(sys.modules["usonic_config"], "TRIG_PINS", TRIG)
+    monkeypatch.setattr(sys.modules["usonic_config"], "ECHO_PINS", ECHO)
+    cp.usb.accept_default = 20
+    sys.modules["usonic_main"].run(iterations=12000)
+    decoder = host.FrameDecoder()
+    msgs = [host.parse_payload(f) for f in decoder.feed(bytes(cp.usb.written))]
+    assert (decoder.crc_errors, decoder.bad_length, decoder.garbage) == (0, 0, 0)
+    assert {m.sensor for m in msgs if isinstance(m, host.Reading)} == {0, 1, 2, 3}
+    assert cp.wdt.fed == 12000
+
+
+def test_main_loop_keeps_feeding_the_watchdog_when_the_usb_host_stops_draining(cp, monkeypatch):
+    monkeypatch.setattr(sys.modules["usonic_config"], "TRIG_PINS", TRIG)
+    monkeypatch.setattr(sys.modules["usonic_config"], "ECHO_PINS", ECHO)
+    cp.usb.accept_default = 0  # nothing is ever taken
+    hal, core = sys.modules["usonic_main"].build()
+    core.start()
+    for _ in range(30000):
+        hal.feed_watchdog()
+        core.poll()
+    assert cp.wdt.fed == 30000
+    assert core.frames_tx > 10
+    assert hal.short_writes == core.frames_tx  # every frame abandoned, each counted exactly once
 
 
 def test_firmware_directory_is_a_plain_copy_to_circuitpy_layout():

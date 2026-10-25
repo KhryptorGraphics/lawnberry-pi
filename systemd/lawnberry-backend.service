@@ -55,8 +55,11 @@ EnvironmentFile=-@LB_ROOT@/.env
 # Main service command
 ExecStart=@LB_ROOT@/.venv/bin/uvicorn backend.src.main:app --host 0.0.0.0 --port 8081 --workers 1
 
-# Health checks and monitoring
-ExecReload=/bin/kill -HUP $MAINPID
+# Shutdown and monitoring
+# There is deliberately NO ExecReload: uvicorn --workers 1 exits with status 129 on SIGHUP WITHOUT
+# running the lifespan shutdown, so a `systemctl reload` skipped park_actuators() and left the
+# blade, levers and throttle as they were. `systemctl restart` (SIGTERM, then the lifespan
+# shutdown parks every actuator) is the only way to apply a change; `reload` is refused.
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=30

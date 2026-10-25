@@ -196,23 +196,30 @@ def _blade_service_path(result: dict[str, Any]) -> dict[str, Any]:
     return {"status": _path_status(outputs), "outputs": outputs}
 
 
-async def _run_path(
-    name: str,
-    factory: Callable[[], Awaitable[dict[str, Any]]],
-    timeout_s: float,
-    *,
-    track: bool = False,
-) -> tuple[str, dict[str, Any]]:
-    """Run one stop path; never raises, never cancels a half-run safing sequence.
+def _start_path(
+    factory: Callable[[], Awaitable[dict[str, Any]]], *, track: bool = False
+) -> asyncio.Future[dict[str, Any]]:
+    """Schedule one stop path as its own task; ``track`` registers it as a stop still in flight.
 
-    ``asyncio.wait`` does not cancel its futures, so even if the caller itself
-    is cancelled the path keeps running to completion in the background. ``track`` registers
-    the path as a stop still in flight until it finishes, even past ``timeout_s``.
+    A path is a task of its own, not a part of the caller: cancelling the caller cannot cancel
+    it. ``track`` keeps ``stop_in_flight()`` true until the path finishes, even past its
+    timeout. Synchronous on purpose (no ``await``): see ``_run_all``.
     """
     task = asyncio.ensure_future(factory())
     if track:
         _stop_paths.add(task)
         task.add_done_callback(_stop_paths.discard)
+    return task
+
+
+async def _await_path(
+    name: str, task: asyncio.Future[dict[str, Any]], timeout_s: float
+) -> tuple[str, dict[str, Any]]:
+    """Wait for one stop path; never raises, never cancels a half-run safing sequence.
+
+    ``asyncio.wait`` does not cancel its futures (unlike ``wait_for``), so a path that overruns
+    ``timeout_s`` keeps running to completion in the background and is reported as failed.
+    """
     done, _ = await asyncio.wait({task}, timeout=timeout_s)
     if not done:
         task.add_done_callback(
@@ -305,12 +312,17 @@ def _summarize(paths: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
 async def _run_all(kind: str, source: str, path_timeout_s: float) -> dict[str, Any]:
     track = kind == "stop"
+    # Every path is scheduled in THIS loop turn, before the first await. Handing the coroutines to
+    # ``gather`` instead wrapped them in tasks that only start on the next turn, so a caller
+    # cancelled right there (a dropped request, a lifespan teardown) cancelled them before they
+    # ran: no stop path executed although the latch was already set (audit BL-08).
+    started = (
+        ("tractor", _start_path(lambda: _tractor(kind, source), track=track)),
+        ("robohat", _start_path(lambda: _robohat(kind, source), track=track)),
+        ("blade_service", _start_path(lambda: _blade_service(kind, source), track=track)),
+    )
     results = await asyncio.gather(
-        _run_path("tractor", lambda: _tractor(kind, source), path_timeout_s, track=track),
-        _run_path("robohat", lambda: _robohat(kind, source), path_timeout_s, track=track),
-        _run_path(
-            "blade_service", lambda: _blade_service(kind, source), path_timeout_s, track=track
-        ),
+        *(_await_path(name, task, path_timeout_s) for name, task in started)
     )
     return _summarize(dict(results))
 

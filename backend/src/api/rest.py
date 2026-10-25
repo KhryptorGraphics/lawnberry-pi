@@ -507,6 +507,115 @@ class BladeContractIn(BaseModel):
     reason: Optional[str] = None
 
 
+_BLADE_ON_WORDS = {"enable", "on", "start"}
+_BLADE_OFF_WORDS = {"disable", "off", "stop"}
+
+
+def _strict_bool(value: Any, field: str) -> bool:
+    """A JSON boolean or 422: ``bool("false")`` is True, so nothing else is coerced (BL-02)."""
+    if not isinstance(value, bool):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field} must be a JSON boolean (true or false), got {value!r}",
+        )
+    return value
+
+
+def _blade_desired(cmd: dict) -> bool | None:
+    """The blade state a ``/control/blade`` body asks for; ``None`` = nothing recognised.
+
+    ``action`` is the words ``enable|on|start`` / ``disable|off|stop`` (any other word asks
+    for nothing and is answered ``blocked``); ``active`` must be a real JSON boolean. A body
+    carrying both must agree. Anything ambiguous is a 422, never a guess: a client that sent
+    ``{"active": "false"}`` must not have switched the blade ON.
+    """
+    desired: bool | None = None
+    if "action" in cmd:
+        word = str(cmd.get("action")).lower()
+        desired = True if word in _BLADE_ON_WORDS else False if word in _BLADE_OFF_WORDS else None
+        if "active" in cmd:
+            active = _strict_bool(cmd["active"], "active")
+            if desired is not None and desired != active:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"action {cmd.get('action')!r} and active={active!r} disagree",
+                )
+        return desired
+    if "active" in cmd:
+        return _strict_bool(cmd["active"], "active")
+    return None
+
+
+async def _blade_hardware_command(
+    bs: Any, desired: bool, cmd: dict, session_context: dict, audit_id: str
+) -> JSONResponse:
+    """Drive the IBT-4 and answer with what the hardware did, whatever the audit store does.
+
+    The answer is built from the service's own readback AFTER the write, and the audit record is
+    written afterwards in its own guard: a failing audit store is reported in the body
+    (``audit_logged: false``) but can no longer turn a blade that is ON into a "blocked" 423 or
+    a 500 (audit BL-03).
+    """
+    timestamp = datetime.now(timezone.utc)
+    error: str | None = None
+    try:
+        ok = bool(await bs.set_active(desired))
+    except Exception as exc:  # the service never raises; if it does the hardware state is unknown
+        logger.critical("Blade command raised: %s", exc, exc_info=True)
+        ok, error = False, f"{type(exc).__name__}: {exc}"
+    body: dict[str, Any] = {
+        "accepted": ok,
+        "audit_id": audit_id,
+        "result": "accepted" if ok else "rejected",
+        "timestamp": timestamp.isoformat(),
+    }
+    if not ok:
+        body["reason"] = error or getattr(bs, "last_refusal", None) or "blade command refused"
+    try:
+        state = await bs.status()
+        body["blade_state"] = {
+            key: state.get(key)
+            for key in (
+                "commanded",
+                "observed",
+                "pad",
+                "active",
+                "state_confirmed",
+                "deadman_remaining_ms",
+            )
+        }
+    except Exception as exc:
+        logger.error("Blade state readback failed: %s", exc)
+        body["blade_state"] = None
+    log_command = {**cmd}
+    if "session_id" in log_command:
+        log_command["session_id"] = "***"
+    if session_context.get("principal"):
+        log_command.setdefault("principal", session_context.get("principal"))
+    try:
+        persistence.add_audit_log(
+            "control.blade.v2", details={"command": log_command, "response": body}
+        )
+    except Exception as exc:
+        logger.critical("Audit log write failed AFTER the blade command: %s", exc, exc_info=True)
+        body["audit_logged"] = False
+    return JSONResponse(status_code=200 if ok else 409, content=body)
+
+
+@router.get("/control/blade/status")
+async def get_blade_status():
+    """The IBT-4 blade as the pads read now: commanded vs observed, latch, deadman, pending OFF.
+
+    Read-only. ``observed`` / ``pad`` come from a real readback of the two inputs (an unarmed
+    flag-only stub reports ``unobservable``); ``active`` is conservative (a failed readback or an
+    unconfirmed command reads as "may be on"); ``refusal`` says why a blade ON would be refused
+    right now.
+    """
+    from ..services.blade_service import get_blade_service
+
+    return await get_blade_service().status()
+
+
 @router.post("/control/blade", dependencies=[Depends(require_operator_auth)])
 async def control_blade_v2(cmd: dict, request: Request):
     """Execute blade command with safety interlocks and audit logging"""
@@ -558,42 +667,22 @@ async def control_blade_v2(cmd: dict, request: Request):
 
     session_context = _resolve_manual_session(cmd.get("session_id"))
 
-    # Basic control path when explicitly authorized or legacy payloads handled above.
-    try:
-        desired = None
-        if isinstance(cmd, dict) and "action" in cmd:
-            desired = (
-                True
-                if str(cmd.get("action")).lower() in {"enable", "on", "start"}
-                else False
-                if str(cmd.get("action")).lower() in {"disable", "off", "stop"}
-                else None
-            )
-        elif isinstance(cmd, dict) and "active" in cmd:
-            desired = bool(cmd.get("active"))
-        if desired is not None and not (_emergency_active() or _client_emergency_active(request)):
+    # Strict first: an ambiguous body (a string where a boolean is required, an action and an
+    # `active` that disagree) is refused with 422 before anything is touched (audit BL-02).
+    desired = _blade_desired(cmd)
+    emergency = _emergency_active() or _client_emergency_active(request)
+    # A blade OFF is never refused: it is the safe direction. A blade ON is blocked during an
+    # emergency window (the E-stop latch itself is enforced by the blade service).
+    if desired is not None and not (desired and emergency):
+        try:
             from ..services.blade_service import get_blade_service
 
             bs = get_blade_service()
-            await bs.initialize()
-            ok = await bs.set_active(desired)
-            body = {
-                "accepted": ok,
-                "audit_id": audit_id,
-                "result": "accepted" if ok else "rejected",
-                "timestamp": timestamp.isoformat(),
-            }
-            log_command = cmd if not isinstance(cmd, dict) else {**cmd}
-            if isinstance(log_command, dict) and "session_id" in log_command:
-                log_command["session_id"] = "***"
-            if isinstance(log_command, dict) and session_context.get("principal"):
-                log_command.setdefault("principal", session_context.get("principal"))
-            persistence.add_audit_log(
-                "control.blade.v2", details={"command": log_command, "response": body}
-            )
-            return JSONResponse(status_code=200 if ok else 409, content=body)
-    except Exception:
-        pass
+        except Exception:
+            # Nothing was driven: fall through to the blocked answer below.
+            logger.exception("blade service unavailable for /control/blade")
+        else:
+            return await _blade_hardware_command(bs, desired, cmd, session_context, audit_id)
 
     payload = {
         "accepted": False,

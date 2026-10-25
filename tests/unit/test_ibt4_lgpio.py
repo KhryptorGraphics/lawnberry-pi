@@ -208,7 +208,7 @@ def test_setup_fails_when_the_chip_cannot_be_opened():
     adapter = _adapter(fake)
     with pytest.raises(IBT4GpioError, match="can not open gpiochip"):
         adapter.setup()
-    assert fake.names() == ["gpiochip_open", "gpiochip_open"], "chip 4 then chip 0, nothing else"
+    assert fake.names() == ["gpiochip_open"], "chip 4 only: no silent fall back to chip 0"
     assert adapter.hardware_backed is False
 
 
@@ -257,6 +257,7 @@ def test_setup_survives_a_failing_release_and_still_reports_the_original_error()
         (24, 24, (1, 0), "invalid IBT-4 pins"),
         (-1, 25, (1, 0), "invalid IBT-4 pins"),
         (24, 25, (0, 0), "identical to OFF"),
+        (24, 25, (1, 1), "brake state"),
         (24, 25, (2, 0), "need two of 0/1"),
         (24, 25, (1,), "need two of 0/1"),
         (24, 25, None, "need two of 0/1"),
@@ -274,7 +275,7 @@ def test_setup_rejects_an_invalid_configuration_before_touching_lgpio(in1, in2, 
 # ------------------------------------------------------------------------------- drive
 
 
-@pytest.mark.parametrize("levels", [(1, 0), (0, 1), (1, 1)])
+@pytest.mark.parametrize("levels", [(1, 0), (0, 1)])
 def test_on_writes_the_configured_levels_in_order_and_confirms_by_readback(levels):
     fake = FakeLgpio()
     adapter = _armed(fake, levels)
@@ -293,7 +294,7 @@ def test_on_writes_the_configured_levels_in_order_and_confirms_by_readback(level
     assert adapter.last_error is None
 
 
-@pytest.mark.parametrize("levels", [(1, 0), (0, 1), (1, 1)])
+@pytest.mark.parametrize("levels", [(1, 0), (0, 1)])
 def test_off_drives_both_inputs_low_whatever_the_on_levels(levels):
     fake = FakeLgpio()
     adapter = _armed(fake, levels)
@@ -588,8 +589,10 @@ async def test_driver_unconfirmed_on_returns_false_and_leaves_the_output_rolled_
 
     assert fake.pad == {24: 0, 25: 0}, "the half-applied ON was rolled back on the wire"
     health = await drv.health_check()
-    assert health["state_confirmed"] is False
-    assert health["active"] is True, "conservative: unconfirmed means 'may be on'"
+    assert health["state_confirmed"] is False, "the ON that was asked for is not in effect"
+    # The readback shows the rollback really left both inputs low, so the blade is not driven:
+    # `active` follows the pads, not a cache that only knows "the last command failed".
+    assert health["active"] is False and health["observed"] == "off"
 
 
 async def test_estop_latch_blocks_a_later_on_without_any_gpio_write(non_sim):
@@ -636,7 +639,11 @@ async def test_stop_drives_off_frees_the_lines_and_leaves_the_driver_uninitialis
     assert fake.pad == {24: 0, 25: 0}
     assert sorted(fake.freed) == [24, 25] and fake.closed == [7]
     assert drv.running is False and drv.initialized is False and drv.hardware_backed is False
-    assert (await drv.health_check())["active"] is False
+    health = await drv.health_check()
+    # The lines were released: nobody holds the pads, so their state is UNKNOWN (the adapter
+    # says the same with state_confirmed False), not "confirmed off".
+    assert health["active"] is True and health["state_confirmed"] is False
+    assert health["observed"] == "unobservable" and health["pad"] is None
     assert await drv.set_active(True) is False
 
 
@@ -785,6 +792,7 @@ def test_the_service_reads_the_ibt4_block_from_the_config_dir(monkeypatch, tmp_p
         "gpio_enabled": True,
         "pins": {"in1": 24, "in2": 25},
         "on_levels": {"in1": 0, "in2": 1},
+        "deadman_ms": 2000,
     }
 
 
@@ -847,7 +855,9 @@ async def test_get_blade_service_with_an_unarmed_config_never_touches_lgpio(non_
     with watch_lgpio_imports(monkeypatch) as attempts:
         svc = blade_service.get_blade_service()
         assert await svc.initialize() is True
-        assert await svc.set_active(True) is True
+        # Outside SIM_MODE a flag-only stub drives nothing, so it must not answer "accepted".
+        assert await svc.set_active(True) is False
+        assert "not armed" in svc.last_refusal
         report = await svc.emergency_stop()
 
     assert attempts == []

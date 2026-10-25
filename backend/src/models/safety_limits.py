@@ -101,7 +101,7 @@ class SafetyLimits(BaseModel):
     geofence_buffer_meters: float = Field(default=0.5)
     high_temperature_celsius: float = Field(default=80.0)
     tof_obstacle_distance_meters: float = Field(default=0.2)
-    ultrasonic_obstacle_distance_cm: float = Field(default=30.0)
+    ultrasonic_obstacle_distance_cm: float = Field(default=30.0, ge=10.0, allow_inf_nan=False)
     ultrasonic_enabled: bool = Field(default=True)
     obstacle_stop: ObstacleStopLimits = Field(default_factory=ObstacleStopLimits)
     gps_degradation: GpsDegradationLimits = Field(default_factory=GpsDegradationLimits)

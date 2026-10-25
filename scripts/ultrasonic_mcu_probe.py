@@ -14,6 +14,9 @@ the beam edge, behaviour on grass / people / pets / low objects, rain, and the c
 CSV columns: wall_time_utc, sensor, status, echo_us, distance_cm_at_343mps, health, fails,
 cycle, mcu_t_ms. ``distance_cm_at_343mps`` is only a convenience conversion; keep ``echo_us``.
 Exit code 0 if readings arrived, 2 if the link never delivered one (see the printed link state).
+
+The driver opens the data port EXCLUSIVELY: while the LawnBerry backend (or another probe) holds it
+this one fails with ``open_failed``. It then says so; stop that process first and run it again.
 """
 
 from __future__ import annotations
@@ -44,6 +47,13 @@ CSV_FIELDS = (
     "wall_time_utc", "sensor", "status", "echo_us", "distance_cm_at_343mps", "health", "fails",
     "cycle", "mcu_t_ms",
 )  # fmt: skip
+
+OPEN_FAILED_HINT = (
+    "cannot open the data port: check the path, and that nothing else holds it. The driver opens "
+    "the port exclusively, so the LawnBerry backend or another probe running on it blocks this "
+    "one: stop it first (for example 'sudo systemctl stop lawnberry-backend'). Retrying until the "
+    "time is up."
+)
 
 
 def _status_name(code: int) -> str:
@@ -92,8 +102,12 @@ def run(
         driver.reading_hook = on_reading
         deadline = clock() + seconds
         next_report = clock()
+        hinted = False
         while clock() < deadline:
             driver.poll()
+            if not hinted and (driver.link_fault or "").startswith("open_failed"):
+                hinted = True
+                print(f"probe: {OPEN_FAILED_HINT} [{driver.link_fault}]", file=out)
             if clock() >= next_report:
                 next_report = clock() + 1.0
                 print(_table(driver), file=out)

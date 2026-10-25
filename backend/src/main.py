@@ -48,6 +48,7 @@ from .safety.safety_triggers import set_safety_event_handler
 from .safety.safety_validator import validate_on_start
 from .safety.tractor_safety_monitor import TractorSafetyMonitor
 from .safety.watchdog import ACTUATION_SOURCE, SAFETY_MONITOR_SOURCE, Watchdog
+from .services.blade_service import get_blade_service
 from .services.camera_stream_service import camera_service
 from .services.emergency_stop_service import park_actuators
 from .services.navigation_service import NavigationService
@@ -78,6 +79,11 @@ async def _fail_closed(app: FastAPI, tractor) -> None:
     E-stop drives blade off / levers neutral / throttle idle and is reported if unconfirmed.
     """
     tractor.lock_out("safety wiring failed at start-up (see the backend log)")
+    try:
+        # The IBT-4 blade is a separate output: a failed safety wiring must switch it off too.
+        get_blade_service().request_blade_off("start-up safety wiring failed")
+    except Exception:
+        _log.exception("Start-up fail-closed: switching the IBT-4 blade off failed")
     try:
         watchdog = getattr(app.state, "tractor_watchdog", None)
         if watchdog is not None:
@@ -149,6 +155,12 @@ async def lifespan(app: FastAPI):
     app.state.hardware_config = hardware_cfg
     app.state.safety_limits = safety_limits
     websocket_hub.bind_app_state(app.state)
+    # IBT-4 blade: lift the shutdown park and, when armed, claim both inputs LOW and read them
+    # back before anything can command them (a restart leaves them in an unknown state).
+    try:
+        await get_blade_service().startup()
+    except Exception:
+        _log.exception("IBT-4 blade start-up claim failed")
 
     # Small boot hook: ensure dual VL53L0X are addressed uniquely via XSHUT (left 0x29, right default 0x30)  # noqa: E501
     try:
