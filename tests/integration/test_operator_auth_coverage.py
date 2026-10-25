@@ -125,6 +125,7 @@ OPEN_READS: dict[str, str] = {
     "/api/v2/nav/status": _STATE,
     "/api/v2/navigation/status": _STATE,
     "/api/v2/tractor/state": _STATE,
+    "/api/v2/control/blade/status": _STATE,
     "/api/v2/capture/status": _STATE,
     "/api/v2/hardware/robohat": _STATE,
     "/api/v2/ai/status": _STATE,
