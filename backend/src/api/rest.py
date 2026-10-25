@@ -831,10 +831,16 @@ async def control_emergency_v2(request: Request):
     except Exception:
         pass
 
+    # The stop does not use the body (it only picks the reply shape and the audit principal), so
+    # it starts NOW, as a task of its own, and the body is read while it runs (audit NAV-04,
+    # SEC3-06): a body that trails its headers used to hold the hardware stop for up to
+    # ESTOP_BODY_READ_TIMEOUT_S, and a client that gave up during that wait never got one. The
+    # task is shielded below: a cancelled request cannot cancel a stop that has begun.
+    stop = asyncio.ensure_future(_run_emergency_stop("api:/control/emergency"))
     payload = await _read_estop_body(request)
     is_legacy = bool(payload.get("command"))
 
-    report = await _run_emergency_stop("api:/control/emergency")
+    report = await asyncio.shield(stop)
 
     session_context = None
     if not is_legacy:
