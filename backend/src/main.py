@@ -50,6 +50,7 @@ from .middleware.rate_limiting import register_global_rate_limiter
 from .middleware.sanitization import register_sanitization_middleware
 from .middleware.security import register_security_middleware
 from .nav.gps_degradation import GPSDegradationConfig, GPSDegradationMonitor
+from .safety import latch_store
 from .safety.estop_handler import EstopHandler
 from .safety.obstacle_stop import ObstacleStopMonitor, configure_obstacle_guard
 from .safety.safety_monitor import get_safety_monitor
@@ -186,6 +187,9 @@ async def lifespan(app: FastAPI):
     app.state.hardware_config = hardware_cfg
     app.state.safety_limits = safety_limits
     websocket_hub.bind_app_state(app.state)
+    # The durable-latch writer's thread exists before anything can be stopped: an E-stop must
+    # never be the first thing to ask the process for a thread (audit NAV-01).
+    latch_store.warm_up()
     # IBT-4 blade: lift the shutdown park and, when armed, claim both inputs LOW and read them
     # back before anything can command them (a restart leaves them in an unknown state).
     try:
@@ -292,7 +296,6 @@ async def lifespan(app: FastAPI):
     # explicit clear as any other latch, and authorization is never restored. A file that
     # cannot be read fails closed (every latch is assumed set).
     try:
-        from .safety import latch_store
         from .services.robohat_service import get_robohat_service
 
         latch_store.restore(tractor=get_tractor_service(), robohat=get_robohat_service())
