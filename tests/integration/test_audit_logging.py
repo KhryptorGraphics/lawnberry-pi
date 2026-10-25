@@ -40,7 +40,9 @@ async def test_audit_manual_control_and_settings():
     actions = [log["action"] for log in logs]
     # Ensure our expected actions are present
     assert any(a == "control.drive" for a in actions)
-    assert any(a == "control.blade" for a in actions)
+    # the blade route's hardware path writes ``control.blade.v2`` (HW-02: a body without a
+    # session_id now goes through it too; the legacy ``control.blade`` row is only a refusal)
+    assert any(a == "control.blade.v2" for a in actions)
     assert any(a == "control.emergency_stop" for a in actions)
     assert any(a == "settings.update" for a in actions)
 
