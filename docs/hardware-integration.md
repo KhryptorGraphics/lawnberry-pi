@@ -55,6 +55,13 @@ Verification steps:
 3. Start the backend and open the dashboard; the ToF tiles should update with live distances.
 4. If no readings appear, check journal logs for `vl53l0x` messages and verify the Python binding is installed.
 
+### Ultrasonic obstacle sensors (four JSN-SR04T behind a USB MCU)
+Software only, never run on hardware; no wiring is decided (`firmware/ultrasonic-mcu/README.md` lists every TBD). An RP2040 fires the four sensors one at a time and talks to the Pi over USB serial, so no Pi header pin is used. Master switch: `ultrasonic_enabled` in `config/limits.yaml` (ships `false`); the `ultrasonic:` block of `config/hardware.yaml` holds the rest, every number an unvalidated placeholder until audit measurement M-40.
+
+- **Port.** `ultrasonic.port` must be the MCU's *data* serial port (second CDC interface), never its REPL console or another service's port (the RoboHAT's). The driver writes nothing to a port until a valid MCU frame (INFO, repeated every second) has arrived on it, so a wrong or renumbered path is only read, never written to (a binary frame contains the console control bytes Ctrl-A..D and would stop the program on the other end); it shows as `handshake_timeout`. Reading still steals the other service's bytes, so check `ls -l /dev/serial/by-id/` first. A handshake waits at least 1.5 s whatever `handshake_timeout_s` says.
+- **What a reading means** is decided on the host: CLEAR needs a fresh in-range echo beyond `ultrasonic_obstacle_distance_cm`, or the owner's `*_is_clear` flags (ship `false`). After a NEAR echo (closer than twice the stop distance or the blind-zone line, whichever is larger: 60 cm as shipped) silence is the dead zone, not open air: blind zone / UNKNOWN for `near_hold_s` (30 s, `hardware.yaml`) or until a far echo. An OK pulse wider than the echo window is a fault. `no_echo_is_clear` lets a dead or stuck sensor read CLEAR for up to `alive_window_s` (10 s as shipped; keep it near 1 s if you opt in).
+- **Bench tool.** `python scripts/ultrasonic_mcu_probe.py --port <data port> --seconds 60 --csv out.csv` logs every reading frame, also the ones the driver ignored or refused, with its disposition; stop the backend first (the port is opened exclusively).
+
 ### Environmental Sensor (BME280)
 - I2C Bus 1: Address 0x76
 
