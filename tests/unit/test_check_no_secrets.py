@@ -617,6 +617,7 @@ def test_a_text_file_with_a_nul_byte_is_still_scanned_line_by_line(repo: Path):
     _commit(repo, "docs/nul.md", f"x\0y\nssh with sudo `{FAKE}`\n".encode())
 
     assert "docs/nul.md:2: sudo-literal" in _run(repo, "--base", "HEAD~1").stdout
+    assert "docs/nul.md:2: sudo-literal" in _run(repo, "--tree").stdout
 
 
 def test_a_latin_1_file_is_scanned_in_both_modes(repo: Path):
@@ -902,3 +903,25 @@ def test_the_repository_tree_has_no_credential_literal_outside_the_reviewed_allo
     allow = cns.load_allow()
     found = cns.scan_tree(allow)
     assert [(f.path, f.line_no, f.rule) for f in found] == []
+
+
+def test_a_secret_split_from_its_context_by_a_form_feed_is_still_one_line():
+    """``str.splitlines`` cut at \\x0c: ``sudo`` and its quoted password became two lines."""
+    text = f"one\x0ctwo\nsudo\x0c`{FAKE}`\nthree\n"
+
+    found = cns.scan_text("docs/x.md", text, set())
+
+    assert [(f.line_no, f.rule) for f in found] == [(2, "sudo-literal")]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"password_value: {STRONG}",
+        f"NTRIP_PASSWORD_STRING={STRONG}",
+        f"api_key_text = {STRONG}",
+        f"TOKEN_RAW={STRONG}",
+    ],
+)
+def test_a_name_that_ends_in_value_or_string_after_the_credential_word_still_names_one(line):
+    assert rules(line, "config/x.yaml") == ["secret-assignment"]

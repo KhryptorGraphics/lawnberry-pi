@@ -389,8 +389,6 @@ def scan_tree(allow: set[str]) -> list[Finding]:
             data = (ROOT / rel).read_bytes()
         except OSError:
             continue  # a dangling symlink, a submodule
-        if b"\0" in data[:8192]:
-            continue  # a binary file
         found.extend(scan_text(rel, data.decode("utf-8", "replace"), allow))
     return found
 

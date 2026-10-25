@@ -1041,7 +1041,9 @@ def _predict_at(tmp_path, monkeypatch, min_iou: str) -> int:
 
 
 def test_an_expected_box_matched_at_exactly_min_iou_passes_and_a_hair_below_fails(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, capsys
 ):
     assert _predict_at(tmp_path, monkeypatch, "0.5") == 0  # IoU of the detection is exactly 0.5
+    assert "best IoU 0.500 ok" in capsys.readouterr().err, "the box is reported as matched"
     assert _predict_at(tmp_path, monkeypatch, "0.5000001") == 1
+    assert "best IoU 0.500 MISSING" in capsys.readouterr().err
