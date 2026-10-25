@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ..core.safety_status import collect_safety_status
 from ..services.auth_service import AuthenticationError, primary_auth_service
 from .deps import require_operator_auth
 
@@ -96,7 +97,7 @@ def get_status():
     return SystemStatus(
         battery_percentage=85.2,  # Simulated value
         navigation_state="IDLE",
-        safety_status=SafetyStatus(),
+        safety_status=SafetyStatus(**collect_safety_status()),
         motor_status="idle",
         last_updated=datetime.now(UTC),
     )

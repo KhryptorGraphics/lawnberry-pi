@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
+from ..core.safety_status import collect_safety_status
 from ..models import SensorData
 from ..models.operational_data import OperationalData
 from ..services.sensor_manager import SensorManager  # type: ignore
@@ -137,8 +138,10 @@ def _coverage_block(op: OperationalData | None) -> dict[str, Any]:
 
 
 def _safety_block(op: OperationalData | None) -> dict[str, Any]:
+    # Interlocks come from the shared collector, whether or not operational data exists.
+    interlocks_active = len(collect_safety_status()["safety_interlocks"])
     if not op:
-        return {"interlocks_active": 0, "emergency_stops": 0}
+        return {"interlocks_active": interlocks_active, "emergency_stops": 0}
     # Count emergency events in last 24h
     emg_events = []
     if op.events:
@@ -146,8 +149,7 @@ def _safety_block(op: OperationalData | None) -> dict[str, Any]:
         for e in op.get_events_by_type(event_type=first_type, hours_back=24):
             if getattr(e, "severity", "").lower() in {"emergency"}:
                 emg_events.append(e)
-    # Interlocks active would come from safety service; expose 0 as default
-    return {"interlocks_active": 0, "emergency_stops": len(emg_events)}
+    return {"interlocks_active": interlocks_active, "emergency_stops": len(emg_events)}
 
 
 def _uptime_block(op: OperationalData | None) -> dict[str, Any]:

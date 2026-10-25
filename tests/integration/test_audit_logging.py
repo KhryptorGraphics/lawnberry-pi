@@ -34,6 +34,7 @@ async def test_audit_manual_control_and_settings():
         )
         assert resp.status_code == 200
 
+    persistence.flush_audit_coalesced()  # the E-stop audit row is written off-loop
     logs = persistence.load_audit_logs(limit=50)
     actions = [log["action"] for log in logs]
     # Ensure our expected actions are present

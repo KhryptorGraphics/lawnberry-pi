@@ -12,6 +12,8 @@ _safety_state = {"emergency_stop_active": False}
 # Short-lived emergency TTL to block immediate subsequent commands without cross-test leakage
 _emergency_until: float = 0.0
 # Per-client emergency flags (scoped by Authorization or X-Client-Id)
+# Bounded: ``rest._remember_client_emergency`` caps it at CLIENT_EMERGENCY_MAX entries and
+# prunes expired ones on every insert; keys are short digests, never raw header values.
 _client_emergency: dict[str, float] = {}
 # Legacy control flow state for integration tests
 _legacy_motors_active = False
