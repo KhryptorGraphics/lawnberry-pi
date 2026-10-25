@@ -8,8 +8,12 @@ on aged on the monotonic clock (``core.freshness.ReceiptAges``). So a reading th
 replays after the receiver went quiet keeps getting older instead of looking fresh on every
 poll, and a wall-clock step (NTP, chrony, a manual ``date``) can neither revive it nor age it:
 a fix whose stamp is missing, unreadable or from the future is *unusable*, never fresh (audit
-SAF-05). A fix is unusable when it is missing, has no position, reports a status that is not a
-position fix (``NO_FIX``, ``DEAD_RECKONING``, ``MANUAL``, ``SIMULATION``), is older than
+SAF-05). A fix is unusable when it is missing, has no usable position (missing, NaN, infinite,
+outside +-90 / +-180 degrees, or exactly 0, 0; audit NAV-06: a NaN position steered a leg at full
+lever), reports a status that is not a position fix (anything but ``GPS_FIX``, ``DGPS``,
+``RTK_FLOAT``, ``RTK_FIXED``: ``NO_FIX``, ``DEAD_RECKONING``, ``MANUAL``, ``SIMULATION`` and any
+status this monitor does not know; a source that reports no status at all, the simulator and the
+interface placeholder, passes this test, the real driver always reports one), is older than
 ``max_fix_age_s``, or is less accurate than ``max_accuracy_m``. The accuracy is the receiver's
 own error estimate in metres (the driver reads it from GST, or an RTK-status figure; HDOP is
 not an accuracy and is never used as one, audit SAF-04); an unknown accuracy is not a good
@@ -50,8 +54,10 @@ from ..models.robot_state import NavigationMode
 
 logger = logging.getLogger(__name__)
 
-#: ``GpsReading.rtk_status`` values that are not a GNSS position fix at all.
-UNUSABLE_FIX_STATUS = frozenset({"NO_FIX", "DEAD_RECKONING", "MANUAL", "SIMULATION"})
+#: ``GpsReading.rtk_status`` values that are a GNSS position fix. Every other status string
+#: (``NO_FIX``, ``DEAD_RECKONING``, ``MANUAL``, ``SIMULATION`` and anything unknown) is unusable;
+#: ``None`` means the source reports no status.
+USABLE_FIX_STATUS = frozenset({"GPS_FIX", "DGPS", "RTK_FLOAT", "RTK_FIXED"})
 
 
 @dataclass
@@ -98,6 +104,18 @@ def _usable_accuracy(acc: Any) -> float | None:
         return None
     value = float(acc)
     return value if math.isfinite(value) and value > 0.0 else None
+
+
+def _usable_position(lat: Any, lon: Any) -> bool:
+    """Are ``lat`` and ``lon`` real coordinates: numbers (not bool), within +-90 / +-180?
+
+    NaN fails both comparisons and infinity is out of range, so no separate finite test is
+    needed.
+    """
+    for value in (lat, lon):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+    return -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0
 
 
 class GPSDegradationMonitor:
@@ -163,9 +181,12 @@ class GPSDegradationMonitor:
         reasons: list[str] = []
         lat, lon = getattr(r, "latitude", None), getattr(r, "longitude", None)
         if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
+            # nothing, or a receiver's "no position" sentinel (a point on one axis alone is a place)
             reasons.append("no position")
+        elif not _usable_position(lat, lon):
+            reasons.append(f"no usable position (latitude {lat!r}, longitude {lon!r})")
         status = getattr(r, "rtk_status", None)
-        if status in UNUSABLE_FIX_STATUS:
+        if status is not None and status not in USABLE_FIX_STATUS:
             reasons.append(f"fix status {status}")
         if self._fix_at is None:
             reasons.append("fix timestamp missing, unreadable or from the future")
@@ -186,7 +207,7 @@ class GPSDegradationMonitor:
         reasons = self._unusable_reasons(t)
         if reasons:
             self._degraded = True
-            self._good_since = None
+            self._good_since = None  # the dwell counts from the last bad moment
             self._reasons = tuple(reasons)
         elif self._degraded:
             if self._good_since is None:
@@ -194,12 +215,10 @@ class GPSDegradationMonitor:
             remaining = self.cfg.resume_dwell_s - (t - self._good_since)
             if remaining <= 1e-9:  # float tolerance: 15 x 0.2 s is not exactly 3.0 s
                 self._degraded = False
-                self._good_since = None
                 self._reasons = ()
             else:
                 self._reasons = (f"recovering: {remaining:.1f}s of healthy fix still required",)
-        else:
-            self._reasons = ()
+        # else: healthy and nothing wrong: ``_reasons`` is already ``()``
 
     def assess(self, now: float | None = None) -> GnssAssessment:
         """The verdict now. Recomputed from the clock on every call (never cached)."""
@@ -297,5 +316,5 @@ __all__ = [
     "GPSDegradationConfig",
     "GPSDegradationMonitor",
     "GnssAssessment",
-    "UNUSABLE_FIX_STATUS",
+    "USABLE_FIX_STATUS",
 ]

@@ -14,7 +14,7 @@ from fastapi.encoders import jsonable_encoder
 
 from ..core.simulation import is_simulation_mode
 from ..core.ws_policy import MAX_TOPICS_PER_CLIENT, SEND_TIMEOUT_S, valid_topic
-from ..drivers.sensors.gps_driver import preferred_gps_device
+from ..drivers.sensors.gps_driver import preferred_gps_device, reading_age_s
 from ..models.hardware_config import GPSType
 from ..models.sensor_data import GpsMode
 from ..services.ntrip_client import NtripForwarder
@@ -42,8 +42,6 @@ class WebSocketHub:
         # Hardware integration
         self._sensor_manager = None  # lazy init to avoid hardware deps on CI
         self._gps_warm_done = False
-        # Cache last known position to smooth fields missing on alternating NMEA sentences
-        self._last_position: dict[str, Any] = {}
         # Optional link back to FastAPI app state so other endpoints can reuse services
         self._app_state: Any | None = None
         # Prevent concurrent calibration runs
@@ -552,30 +550,26 @@ class WebSocketHub:
             await self.broadcast_to_topic("telemetry.power", message)
 
         if "position" in telemetry_data:
-            # Ensure shallow copy to avoid mutation races
             pos = telemetry_data.get("position") or {}
-            # Merge with last known values to avoid transient None for fields (e.g., altitude/accuracy)  # noqa: E501
-            cached = self._last_position
-
-            def _merge_field(key: str):
-                v = pos.get(key) if isinstance(pos, dict) else None
-                return v if v is not None else cached.get(key)
-
+            # One GNSS reading is one unit: its position, fix status, accuracy and HDOP describe
+            # the same fix, so nothing is carried over from an earlier reading (audit GPS-05). A
+            # receiver that now says "plain fix, accuracy unknown" must not show the last RTK 3 cm,
+            # and a driver that has nothing to report must not show the old coordinates as live.
             merged = {
-                "latitude": _merge_field("latitude"),
-                "longitude": _merge_field("longitude"),
-                "altitude": _merge_field("altitude"),
-                "accuracy": _merge_field("accuracy"),
-                "gps_mode": _merge_field("gps_mode"),
-                "hdop": _merge_field("hdop"),
-                "speed": _merge_field("speed"),
-                "rtk_status": _merge_field("rtk_status"),
-                "satellites": _merge_field("satellites"),
+                key: (pos.get(key) if isinstance(pos, dict) else None)
+                for key in (
+                    "latitude",
+                    "longitude",
+                    "altitude",
+                    "accuracy",
+                    "gps_mode",
+                    "hdop",
+                    "speed",
+                    "rtk_status",
+                    "satellites",
+                    "fix_age_s",
+                )
             }
-            # Update cache with any newly provided non-None values
-            for k, v in merged.items():
-                if v is not None:
-                    self._last_position[k] = v
             nav_payload = {
                 "position": merged,
                 "source": telemetry_data.get("source", "unknown"),
@@ -589,6 +583,9 @@ class WebSocketHub:
             hdop_val = merged.get("hdop")
             if isinstance(hdop_val, (int, float)):
                 nav_payload["hdop"] = hdop_val
+            fix_age_val = merged.get("fix_age_s")
+            if isinstance(fix_age_val, (int, float)):
+                nav_payload["fix_age_s"] = fix_age_val
             await self.broadcast_to_topic("telemetry.navigation", nav_payload)
 
         if "imu" in telemetry_data:
@@ -891,6 +888,9 @@ class WebSocketHub:
                 accuracy_m = getattr(pos, "accuracy", None) if pos else None
                 hdop = getattr(pos, "hdop", None) if pos else None
                 # HDOP is a geometry factor, not metres: unknown accuracy stays unknown (SAF-04).
+                # The age of the fix's own stamp: a reading the sensor interface replays after the
+                # receiver went quiet keeps its stamp, so the operator sees it ageing (GPS-05).
+                fix_age_s = reading_age_s(pos) if pos else None
 
                 cal_status = getattr(imu, "calibration_status", None)
                 _cal_map = {
@@ -917,6 +917,7 @@ class WebSocketHub:
                         "speed": speed_mps,
                         "rtk_status": getattr(pos, "rtk_status", None) if pos else None,
                         "hdop": hdop,
+                        "fix_age_s": fix_age_s,
                     },
                     "imu": {
                         "roll": getattr(imu, "roll", None),

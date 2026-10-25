@@ -132,6 +132,18 @@ class GPSSensorInterface:
             self.status = SensorStatus.ERROR
             return False
 
+    async def shutdown(self) -> None:
+        """Stop the driver: close the port (and its exclusive lock) and end the reader thread.
+
+        A throwaway manager (the timezone lookup, the health probe) must not leave a ``gps-io``
+        thread behind that keeps the receiver locked against the long-lived driver (audit GPS-04).
+        After it ``read_gps()`` returns ``None``.
+        """
+        self.status = SensorStatus.OFFLINE
+        driver = getattr(self, "_driver", None)
+        if driver is not None:
+            await driver.stop()
+
     async def read_gps(self) -> GpsReading | None:
         """Read GPS data"""
         if self.status != SensorStatus.ONLINE:
@@ -1240,8 +1252,15 @@ class SensorManager:
     async def shutdown(self):
         """Shutdown sensor manager"""
         logger.info("Shutting down sensor manager")
-        # Only the ultrasonic array owns a background service loop and an open port.
-        await self.ultrasonic.shutdown()
+        # The ultrasonic array owns a background service loop and an open port, the GNSS driver a
+        # reader thread and the receiver's exclusive lock: both are released, one failing does not
+        # keep the other from being.
+        results = await asyncio.gather(
+            self.gps.shutdown(), self.ultrasonic.shutdown(), return_exceptions=True
+        )
+        for name, result in zip(("gps", "ultrasonic"), results, strict=True):
+            if isinstance(result, BaseException):
+                logger.warning("Shutting down the %s interface failed: %r", name, result)
         self.initialized = False
 
     async def generate_telemetry_streams(self) -> list[HardwareTelemetryStream]:
@@ -1382,17 +1401,25 @@ class SensorManager:
         return streams
 
     def _map_rtk_fix_type(self, gps_reading: GpsReading) -> RtkFixType:
-        """Map GPS reading to RTK fix type"""
-        if hasattr(gps_reading, "rtk_status"):
-            status = gps_reading.rtk_status.upper() if gps_reading.rtk_status else ""
-            if "FIXED" in status or "RTK_FIXED" in status:
-                return RtkFixType.RTK_FIXED
-            elif "FLOAT" in status or "RTK_FLOAT" in status:
-                return RtkFixType.RTK_FLOAT
-            elif "DGPS" in status:
-                return RtkFixType.DGPS_FIX
+        """Map GPS reading to RTK fix type.
 
-        # Fallback to satellites count
+        A status the receiver reported is believed: ``NO_FIX`` (and dead reckoning, manual,
+        simulator) is no fix however many satellites are in view, and a plain ``GPS_FIX`` is one
+        with any number. Only a reading with no status at all falls back to the satellite count.
+        """
+        status = (getattr(gps_reading, "rtk_status", None) or "").upper()
+        if "FIXED" in status:
+            return RtkFixType.RTK_FIXED
+        if "FLOAT" in status:
+            return RtkFixType.RTK_FLOAT
+        if "DGPS" in status:
+            return RtkFixType.DGPS_FIX
+        if status == "GPS_FIX":
+            return RtkFixType.GPS_FIX
+        if status:
+            return RtkFixType.NO_FIX
+
+        # No status reported: fall back to the satellites count
         if gps_reading.satellites and gps_reading.satellites >= 6:
             return RtkFixType.GPS_FIX
         return RtkFixType.NO_FIX

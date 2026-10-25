@@ -64,12 +64,13 @@ class ReceiptAges:
         ``now`` is the current time on the monotonic clock (default: the clock itself).
         ``None`` means the age is unknowable (no usable stamp, or a stamp from the future when
         the reading was first seen) and stays ``None`` for that stamp even after wall time
-        catches up with it: only a different stamp (a new reading) can be judged afresh.
+        catches up with it: only a different stamp (a new reading) can be judged afresh. A reading
+        with no usable stamp is ``None`` too and leaves what is remembered untouched, so the old
+        stamp that comes back after it (a replay) is still aged from when it was first seen.
         """
         when = parse_stamp(stamp)
         if when is None:
-            self._seen.pop(key, None)
-            return None
+            return None  # what is remembered for ``key`` stays: a bare reading forgets nothing
         known = self._seen.get(key)
         if known is not None and known[0] == when:
             return known[1]

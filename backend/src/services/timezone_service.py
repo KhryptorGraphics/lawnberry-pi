@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 from collections.abc import Callable
 from contextlib import suppress
@@ -119,6 +120,38 @@ def _run_coro_sync(coro):
             loop.close()
 
 
+def _usable_coordinates(reading: object) -> tuple[float, float] | None:
+    """``(lat, lon)`` of a GNSS reading, or ``None`` if it has no real position."""
+    try:
+        lat = float(getattr(reading, "latitude", None))  # type: ignore[arg-type]
+        lon = float(getattr(reading, "longitude", None))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        return None
+    if abs(lat) > 1e-6 or abs(lon) > 1e-6:
+        return lat, lon
+    return None
+
+
+def _hub_position() -> tuple[bool, tuple[float, float] | None]:
+    """``(the running hub has a sensor manager, the position of its receiver's last reading)``.
+
+    The receiver's port is exclusive and belongs to the hub's driver: a second driver opened
+    here would lock it out (audit GPS-04), so while the hub has one its last reading is all this
+    lookup uses and no hardware is touched.
+    """
+    try:
+        from .websocket_hub import websocket_hub
+    except Exception:
+        return False, None
+    manager = getattr(websocket_hub, "_sensor_manager", None)
+    if manager is None:
+        return False, None
+    reading = getattr(getattr(manager, "gps", None), "last_reading", None)
+    return True, _usable_coordinates(reading)
+
+
 def _default_gps_lookup(timeout: float = 2.5) -> tuple[float, float] | None:
     global _coordinate_cache
 
@@ -129,6 +162,12 @@ def _default_gps_lookup(timeout: float = 2.5) -> tuple[float, float] | None:
     if _coordinate_cache and (now - _coordinate_cache[0]) < _COORD_CACHE_TTL:
         return _coordinate_cache[1]
 
+    hub_has_manager, hub_coords = _hub_position()
+    if hub_has_manager:
+        if hub_coords:
+            _coordinate_cache = (now, hub_coords)
+        return hub_coords
+
     async def _read() -> tuple[float, float] | None:
         from .sensor_manager import SensorManager  # type: ignore
 
@@ -138,12 +177,7 @@ def _default_gps_lookup(timeout: float = 2.5) -> tuple[float, float] | None:
             if not init_ok:
                 return None
             reading = await asyncio.wait_for(manager.gps.read_gps(), timeout=timeout)
-            if reading and reading.latitude is not None and reading.longitude is not None:
-                lat = float(reading.latitude)
-                lon = float(reading.longitude)
-                if abs(lat) > 1e-6 or abs(lon) > 1e-6:
-                    return lat, lon
-            return None
+            return _usable_coordinates(reading)
         finally:
             with suppress(Exception):
                 await asyncio.wait_for(manager.shutdown(), timeout=1.0)

@@ -653,6 +653,33 @@ NTRIP_SERIAL_BAUD=460800
 sudo systemctl list-units --type=service --state=running
 ```
 
+### Autonomy Holds Still: The GNSS Fix Is Not Believed
+
+**Symptom:** a mission will not start or stops, and the GNSS monitor says why in the backend log
+(`GNSS degraded: ...`) and in the `reasons` of the health report. What the driver
+(`backend/src/drivers/sensors/gps_driver.py`) believes:
+
+| Reason | Meaning and fix |
+|---|---|
+| `accuracy unknown (reported None)` | The accuracy is the receiver's own error estimate: the **GST** sentence (`$GNGST`), or for an RTK fix a GGA that reports the age of its corrections (30 s at most). HDOP is not an accuracy and is never used as one. Enable GST output on the receiver (u-center: UBX-CFG-MSG, NMEA GST), otherwise autonomy never starts without RTK. |
+| `fix status NO_FIX` / `DEAD_RECKONING` / `MANUAL` / `SIMULATION` | GGA quality 0, 6, 7, 8 (and 3, 9, or a garbled digit) or an RMC with status `V` carry no position: the driver reports no fix and no coordinates. |
+| `no usable position` | A coordinate that is NaN, out of range (|lat| > 90, |lon| > 180), has minutes >= 60 or a hemisphere letter on the wrong axis is not a place. |
+| `fix is N s old (limit 2s)` | The age is read from the receiver's own UTC (how late the host read the epoch), not from when the driver looked. A read that falls behind the receiver shows as an older fix. |
+| `fix timestamp missing, unreadable or from the future` | The reading cannot be dated. |
+
+Valid NMEA that keeps arriving with a UTC that does not advance (a frozen or replayed stream) is not a
+new fix: the previous reading keeps its stamp and ages out, and the log says
+`stale-epoch` / `valid NMEA keeps arriving but nothing new`. A port that delivers no valid NMEA for
+5 s is dropped and probed again at the other baud rates. A replay that advances its own UTC at the
+real rate cannot be told from a live receiver without an independent time source (PPS).
+
+The USB receiver shares the bus with the RoboHAT and the ultrasonic MCU (both RP2040, vendor
+`0x2E8A`); the driver never probes a port configured for them (`ROBOHAT_SERIAL_PORT`,
+`hardware.robohat_port` of the settings profile, `ultrasonic.port`, `GPS_EXCLUDE_DEVICES`) or one
+that identifies as theirs, and opens every port exclusively. `GET /api/v2/dashboard/telemetry` and the
+`telemetry.navigation` topic carry `fix_age_s` next to the position; a value of `null` is unknown,
+never "fresh".
+
 ### Permission Denied When Accessing GPS
 
 **Symptom:** Backend logs show "Permission denied: /dev/ttyACM0"
