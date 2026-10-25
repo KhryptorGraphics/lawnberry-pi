@@ -1232,9 +1232,9 @@ class GPSDriver(HardwareDriver):
         last_open_error: Exception | None = None
         opened_but_no_nmea = False
         for dev in candidates:
-            if self._closing:
-                return False
             for baud in self._baud_candidates:
+                if self._closing:
+                    return False  # stopped: no further port is opened (or locked) for nothing
                 try:
                     ser = serial.Serial(dev, baud, timeout=0.25, exclusive=True)  # type: ignore
                 except Exception as exc:  # hardware dependent: missing, busy, no permission
@@ -1337,7 +1337,8 @@ class GPSDriver(HardwareDriver):
             utc = payload.utc_s if payload is not None else None
         elif kind == "GST":
             payload = parse_gst_sigma(text)
-            utc = parse_nmea_utc(text.split(",", 2)[1])
+            fields = text.split(",", 2)
+            utc = parse_nmea_utc(fields[1]) if len(fields) > 2 else None
         else:
             return []
         self._last_nmea[kind] = text

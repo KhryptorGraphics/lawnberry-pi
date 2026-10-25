@@ -22,6 +22,7 @@ from _gnss_fakes import (
     gga,
     gst,
     install_serial,
+    nmea,
     rmc,
     ubx,
 )
@@ -552,3 +553,16 @@ async def test_the_health_report_says_how_the_stream_is_doing(monkeypatch):
     assert health["device"] == "/dev/ttyAMA0" and health["lag_s"] == pytest.approx(0.0, abs=0.05)
     assert health["epochs_refused"] == 0
     assert health["last_sentence_age_s"] == pytest.approx(0.0, abs=0.05)
+
+
+def test_a_gst_sentence_with_no_fields_is_junk_not_a_read_error(monkeypatch):
+    """``$GNGST*hh`` has a valid checksum and no comma: taking its UTC field raised, a read error
+    drops the port, and the receiver was probed again from the start."""
+    rig = Rig(monkeypatch, mark=True)
+    rig.at(0.5, 0)
+    rig.port.schedule(rig.t0 + 1.2, nmea("GNGST"))  # a checksum-valid GST with nothing in it
+    rig.at(1.5, 1)
+    rig.at(2.5, 2)
+    got = rig.next()
+    assert got is not None and epoch_of(got) == 1
+    assert len(rig.serial.opens) == 1  # the port stayed open

@@ -228,6 +228,45 @@ def test_a_moment_of_trouble_restarts_the_resume_dwell():
     assert m.assess().healthy
 
 
+def test_a_moment_of_trouble_while_recovering_starts_the_dwell_again():
+    """The dwell counts from the LAST bad moment, also when that moment falls inside a recovery
+    that had already begun: a start time left over from the first attempt would let one blip
+    resume the machine as soon as three seconds had passed since THEN."""
+    c = Clocks()
+    m = monitor(c, dwell=3.0)
+    c.t += 0.5
+    m.observe(fix(c))  # the first good fix: the first dwell starts (t0)
+    for _ in range(3):  # 1.5 s of it
+        c.t += 0.5
+        m.observe(fix(c))
+    assert m.assess().degraded
+    c.t += 0.5
+    m.observe(fix(c, acc=5.0))  # trouble in the middle of the recovery
+    assert m.assess().degraded
+    for _ in range(6):  # the first good fix after the blip starts the dwell; 2.5 s of it: no
+        c.t += 0.5
+        m.observe(fix(c))
+        assert m.assess().degraded, m.assess().reasons  # (4.5 s and more since t0 by now)
+    c.t += 0.5
+    m.observe(fix(c))  # 3.0 s of good fixes since the blip
+    assert m.assess().healthy
+
+
+def test_the_machine_does_not_resume_a_moment_before_the_dwell_is_over():
+    c = Clocks()
+    m = monitor(c, dwell=3.0)
+    c.t += 0.5
+    m.observe(fix(c))  # the dwell starts
+    c.t += 2.95
+    m.observe(fix(c))  # 2.95 s of good fixes: 0.05 s short
+    a = m.assess()
+    assert a.degraded and "recovering" in a.reasons[0]
+    c.t += 0.05
+    m.observe(fix(c))
+    a = m.assess()
+    assert a.healthy and a.reasons == ()  # and a healthy verdict carries no leftover reason
+
+
 def test_a_degraded_monitor_says_how_long_it_still_needs():
     c = Clocks()
     m = monitor(c, dwell=3.0)

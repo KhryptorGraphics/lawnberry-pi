@@ -107,13 +107,15 @@ def _usable_accuracy(acc: Any) -> float | None:
 
 
 def _usable_position(lat: Any, lon: Any) -> bool:
-    """Are ``lat`` and ``lon`` real coordinates: numbers (not bool), finite, within +-90 / +-180?"""
+    """Are ``lat`` and ``lon`` real coordinates: numbers (not bool), within +-90 / +-180?
+
+    NaN fails both comparisons and infinity is out of range, so no separate finite test is
+    needed.
+    """
     for value in (lat, lon):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False
-        if not math.isfinite(value):
-            return False
-    return abs(lat) <= 90.0 and abs(lon) <= 180.0
+    return -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0
 
 
 class GPSDegradationMonitor:
@@ -205,7 +207,7 @@ class GPSDegradationMonitor:
         reasons = self._unusable_reasons(t)
         if reasons:
             self._degraded = True
-            self._good_since = None
+            self._good_since = None  # the dwell counts from the last bad moment
             self._reasons = tuple(reasons)
         elif self._degraded:
             if self._good_since is None:
@@ -213,12 +215,10 @@ class GPSDegradationMonitor:
             remaining = self.cfg.resume_dwell_s - (t - self._good_since)
             if remaining <= 1e-9:  # float tolerance: 15 x 0.2 s is not exactly 3.0 s
                 self._degraded = False
-                self._good_since = None
                 self._reasons = ()
             else:
                 self._reasons = (f"recovering: {remaining:.1f}s of healthy fix still required",)
-        else:
-            self._reasons = ()
+        # else: healthy and nothing wrong: ``_reasons`` is already ``()``
 
     def assess(self, now: float | None = None) -> GnssAssessment:
         """The verdict now. Recomputed from the clock on every call (never cached)."""
