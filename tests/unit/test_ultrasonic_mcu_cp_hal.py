@@ -29,6 +29,7 @@ class World:
 
     def __init__(self) -> None:
         self.now_ns = 0
+        self.step_ns = STEP_NS  # a test may make the clock finer to see a 10 us pulse
         self.distance_cm: dict[int, float | None] = {0: 80.0, 1: 120.0, 2: 200.0, 3: 60.0}
         self.trig_log: list[tuple[str, int, bool]] = []  # (pin, time_ns, value) edges only
         self.echo_by_pin: dict[str, FakePulseIn] = {}
@@ -36,7 +37,7 @@ class World:
         self.events: list[tuple[str, str, object]] = []  # everything above, in one global order
 
     def monotonic_ns(self) -> int:
-        self.now_ns += STEP_NS
+        self.now_ns += self.step_ns
         return self.now_ns
 
     def on_trig(self, pin: str, value: bool) -> None:
@@ -289,6 +290,21 @@ def test_measure_returns_the_echo_width_and_arms_capture_only_after_the_trigger(
     ]
     assert cp.world.echo_by_pin[echo_pin].paused  # not left capturing between measurements
     assert len(cp.world.echo_by_pin[echo_pin]) == 0  # and nothing stale left behind
+
+
+@pytest.mark.parametrize("pulse_us", [10, 15, 40])
+def test_trig_is_held_high_for_the_configured_pulse_width(cp, pulse_us):
+    # H10: with the default 50 us clock step a pulse 1000x too short (10 ns instead of 10 us)
+    # still shows 50 us on the fake clock. At a 1 us step the busy-wait is visible: the sensor
+    # needs at least the configured width (a shorter pulse never fires it) and nothing close to a
+    # runaway one (it would stall the loop).
+    cp.world.step_ns = 1_000
+    hal = make_hal(cp, trigger_pulse_us=pulse_us)
+    hal.measure(1, 30_000)
+    edges = [e for e in cp.world.trig_log if e[0] == TRIG[1]]
+    assert [e[2] for e in edges] == [True, False]
+    high_ns = edges[1][1] - edges[0][1]
+    assert pulse_us * 1000 <= high_ns <= pulse_us * 1000 + 3 * cp.world.step_ns
 
 
 def test_other_sensors_are_never_triggered_while_one_is_measured(cp):
