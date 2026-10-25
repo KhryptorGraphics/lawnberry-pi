@@ -217,24 +217,68 @@ def _save(path: Path, live: dict[str, str | None]) -> PersistResult:
     return PersistResult(True, tuple(sorted(live)))
 
 
+def _failed(error: str, latched: tuple[str, ...] = ()) -> Future[PersistResult]:
+    """An already-resolved future carrying a failed save (the caller's ``wait`` reports it)."""
+    done: Future[PersistResult] = Future()
+    done.set_result(PersistResult(False, latched, error))
+    return done
+
+
+def warm_up() -> bool:
+    """Start the writer thread now, so that an E-stop never has to create one (audit NAV-01).
+
+    The first ``submit`` of a ``ThreadPoolExecutor`` starts its worker thread, and a thread can
+    fail to start exactly when resources are exhausted, which is when a stop is most likely.
+    The lifespan calls this before anything can actuate. Never raises; ``False`` says the
+    writer is not available (every later save reports that, and so does :func:`last_error`).
+    """
+    global _last_error
+    try:
+        _writer.submit(int)  # a no-op job: its only purpose is the thread it makes
+    except Exception as exc:
+        error = f"writer unavailable: {type(exc).__name__}: {exc}"
+        with _state_lock:
+            _last_error = error
+        logger.critical(
+            "EMERGENCY LATCH writer could not be started (%s): latches will not be saved", error
+        )
+        return False
+    return True
+
+
 def request_persist(
     tractor: TractorControlService | None = None, robohat: RoboHATService | None = None
 ) -> Future[PersistResult]:
     """Save the live latches; returns at once (the write runs on the writer thread).
 
     The snapshot is taken NOW, on the calling thread (so it is exactly the state the caller
-    just set or cleared), the write is queued behind every earlier one. Never raises: a
-    failure is in the returned future's ``PersistResult``.
+    just set or cleared), the write is queued behind every earlier one. NEVER raises, whatever
+    fails: the snapshot, the path, or the writer that cannot take the job because its thread
+    cannot be started or the executor is shut down. Every E-stop path calls this between its
+    latch and the outputs it drives, and a failure there used to leave a latched stop that had
+    driven nothing (audit NAV-01). A failure is in the returned future's ``PersistResult`` and
+    in :func:`last_error`; the in-memory latch holds regardless.
     """
-    path = latch_path()
+    global _last_error
     try:
+        path = latch_path()
         live = collect_live(tractor, robohat)
     except Exception as exc:  # collect_live does not raise; defence for a future edit
         logger.exception("latch snapshot failed")
-        done: Future[PersistResult] = Future()
-        done.set_result(PersistResult(False, (), f"snapshot failed: {type(exc).__name__}: {exc}"))
-        return done
-    return _writer.submit(_save, path, live)
+        return _failed(f"snapshot failed: {type(exc).__name__}: {exc}")
+    try:
+        return _writer.submit(_save, path, live)
+    except Exception as exc:  # RuntimeError: no thread can be started / the executor is shut down
+        error = f"writer unavailable: {type(exc).__name__}: {exc}"
+        with _state_lock:
+            _last_error = error
+        logger.critical(
+            "EMERGENCY LATCH NOT SAVED to %s (%s): a restart would release %s",
+            path,
+            error,
+            sorted(live) or "nothing (the clear was not recorded either)",
+        )
+        return _failed(error, tuple(sorted(live)))
 
 
 async def wait(pending: Future[PersistResult], timeout: float = 5.0) -> PersistResult:
@@ -351,4 +395,5 @@ __all__ = [
     "request_persist",
     "restore",
     "wait",
+    "warm_up",
 ]

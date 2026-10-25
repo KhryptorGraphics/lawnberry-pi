@@ -253,6 +253,8 @@ class TractorControlService:
         # Optional veto on releasing the blade interlock latch; the tilt monitor attaches one
         # (audit SEC-06). Called with the latch reason, returns why it must stay, else None.
         self._interlock_clear_gate: Callable[[str | None], str | None] | None = None
+        # Standing reasons the PTO must stay off, for every source (see attach_blade_permit).
+        self._blade_permits: list[tuple[str, Callable[[], str | None]]] = []
         # Set by misconfigured(): the validation error that keeps this service disabled.
         self._config_error: str | None = None
         # Last servo write fault per PCA9685 channel (incl. timeouts), each
@@ -334,6 +336,37 @@ class TractorControlService:
         """Remove ``gate`` if it is the one attached (a stopped monitor must not veto for ever)."""
         if self._interlock_clear_gate == gate:
             self._interlock_clear_gate = None
+
+    def attach_blade_permit(self, name: str, permit: Callable[[], str | None]) -> None:
+        """Add a standing reason the PTO must stay off: ``permit()`` is why, else ``None``.
+
+        Read before every blade ON from EVERY source, a person's included (audit NAV-05): the
+        obstacle limiter exempts the operator's own commands, so an operator who repeated ON
+        against an autonomous run's hold re-engaged the PTO each time and the run dropped it
+        again on its next tick, the fight the IBT-4's permit already ends. The navigation gate's
+        permit (``NavigationService.blade_permit``) is ``None`` unless an autonomous run or a
+        scripted drive owns the machine and the gate holds, so the blade stays the operator's own
+        call in every other state. A permit that raises forbids the blade. Attaching a name that
+        is already attached replaces it.
+        """
+        self._blade_permits = [(n, p) for n, p in self._blade_permits if n != name]
+        self._blade_permits.append((name, permit))
+
+    def detach_blade_permit(self, name: str) -> None:
+        """Remove the permit attached under ``name`` (a stopped navigation must not veto)."""
+        self._blade_permits = [(n, p) for n, p in self._blade_permits if n != name]
+
+    def _blade_permit_refusal(self) -> str | None:
+        """Why a standing permit forbids the PTO now (fail closed on a permit that raises)."""
+        for name, permit in self._blade_permits:
+            try:
+                reason = permit()
+            except Exception as exc:
+                logger.exception("Blade permit %s failed: forbidding the PTO", name)
+                return f"permit {name} failed: {_err(exc)}"
+            if reason:
+                return f"{name}: {reason}"
+        return None
 
     def _hardware_off_limits(self) -> bool:
         """True when this service must not touch real hardware at all (disabled, not SIM)."""
@@ -1126,6 +1159,10 @@ class TractorControlService:
             if (hold := self._motion_hold(source)) is not None:
                 # Refuse AND drop: an obstacle can appear while the blade already turns.
                 return self._refuse_blade(f"obstacle hold: {hold}", source)
+            if (standing := self._blade_permit_refusal()) is not None:
+                # Refuse AND drop, for every source (NAV-05): the operator's repeated ON must not
+                # undo the stand-down an autonomous run made.
+                return self._refuse_blade(f"blade not permitted: {standing}", source)
             if (rejection := self._guard_actuation()) is not None:
                 return rejection
             if not self.state.authorized:
@@ -1319,26 +1356,33 @@ class TractorControlService:
         finally:
             self._act_lock.release()
 
-    async def _drive_to_safe_state(self) -> tuple[dict[str, dict[str, Any]], bool]:
-        """Blade/starter relays off, then levers neutral and throttle idle.
+    def _relays_to_safe_state(self) -> dict[str, dict[str, Any]]:
+        """Blade PTO and starter relays off, now: synchronous GPIO, never raises.
 
-        Each subsystem is attempted independently (one bad channel must not
-        abort the rest) and reported with its actual outcome. State fields only
-        follow outputs that really changed: a failed channel keeps its last
-        known value.
-
-        The relays go first, in the same event-loop turn as the call and before anything can
-        wait: they are pure GPIO and need neither the PCA9685 nor the actuation lock (audit
-        SF-04: waiting for the lock first delayed the PTO cut by 250 ms). The servos follow;
-        if the lock was busy the neutral pulses go out without it and are re-asserted once it
-        frees. Returns ``(subsystems, contended)``; ``contended`` says an in-flight write held
-        the lock past the stop.
+        The first output of every stop and park, driven in the event-loop turn of the call and
+        before anything can wait: the relays are pure GPIO and need neither the PCA9685 nor the
+        actuation lock (audit SF-04: waiting for the lock first delayed the PTO cut by 250 ms).
+        ``emergency_stop`` calls it before the stop event and the latch write, so nothing that
+        could fail or wait sits between the latch and the first output (audit NAV-01).
         """
         subsystems: dict[str, dict[str, Any]] = {}
         subsystems["blade_pto"] = self._relay_off(self.blade_pto)
         if subsystems["blade_pto"]["ok"]:
             self.state.blade_engaged = False
         subsystems["starter"] = self._relay_off(self.starter)
+        return subsystems
+
+    async def _servos_to_safe_state(
+        self, subsystems: dict[str, dict[str, Any]]
+    ) -> tuple[dict[str, dict[str, Any]], bool]:
+        """Levers neutral and throttle idle, after the relays; adds to ``subsystems``.
+
+        Each subsystem is attempted independently (one bad channel must not abort the rest) and
+        reported with its actual outcome. State fields only follow outputs that really changed:
+        a failed channel keeps its last known value. If the actuation lock was busy the neutral
+        pulses go out without it and are re-asserted once it frees. Returns ``(subsystems,
+        contended)``; ``contended`` says an in-flight write held the lock past the stop.
+        """
         got_lock = await self._acquire_for_estop()
         try:
             subsystems.update(await self._servos_to_neutral())
@@ -1349,6 +1393,10 @@ class TractorControlService:
             return subsystems, False
         subsystems.update(await self._reassert_neutral())
         return subsystems, True
+
+    async def _drive_to_safe_state(self) -> tuple[dict[str, dict[str, Any]], bool]:
+        """Blade/starter relays off, then levers neutral and throttle idle (the park sequence)."""
+        return await self._servos_to_safe_state(self._relays_to_safe_state())
 
     async def emergency_stop(self, source: str = "operator") -> dict[str, Any]:
         """Disengage the blade and center/idle the drive; leave the engine running.
@@ -1376,13 +1424,17 @@ class TractorControlService:
             self.state.last_updated = datetime.now(UTC)
             self.revoke()
             self._cancel_deadman()
-            # Every autonomous run ends with the stop (a clear must never re-activate one) and
-            # the latch is queued for the disk (SAF-01, SAF-16). Both are synchronous and
-            # cheap, and both happen before the first await, so the outputs below are not
-            # delayed: the relays open in the same event-loop turn.
+            # The relays open FIRST: the PTO and the starter are the last things a stop may
+            # fail to reach, and nothing that could fail or wait may sit between the latch and
+            # the first output (audit NAV-01: a latch writer that could not start used to leave
+            # the stop here, with the deadman already cancelled and no output driven). The rest
+            # is synchronous and cheap and happens before the first await: every autonomous run
+            # ends with the stop (a clear must never re-activate one) and the latch is queued
+            # for the disk (SAF-01, SAF-16); neither can raise.
+            subsystems = self._relays_to_safe_state()
             stop_events.record_stop("emergency_stop", source)
             persist = latch_store.request_persist(tractor=self)
-            subsystems, contended = await self._drive_to_safe_state()
+            subsystems, contended = await self._servos_to_safe_state(subsystems)
         finally:
             self._stops_in_flight -= 1
         saved = await latch_store.wait(persist)

@@ -153,12 +153,36 @@ DEFAULT_MAX_HEADING_AGE_S = 2.0
 #: A mission whose drive commands fail this many legs in a row is ended (blade off, neutral)
 #: instead of retrying for ever.
 MAX_CONSECUTIVE_FAILED_LEGS = 25
-#: How long an aborted mission's cancelled task may take to unwind before the platform is
-#: stopped anyway (its last write must not land after the stop's neutral).
+#: How long a run's task, told to stop, may take to END BY ITSELF before the platform is stopped
+#: anyway and the task is left to finish (see ``NavigationService.await_unwind``). Such a task is
+#: never cancelled: a cancel releases the actuation lock while its write is still on the bus, and
+#: that write lands after the stop's neutral (audit NAV-02). It is about two control ticks.
 ABORT_UNWIND_TIMEOUT_S = 1.0
 #: A blade-on that failed is not retried more often than this (the RC to USB handshake behind
 #: it can take seconds, and the control loop must keep its period).
 BLADE_RETRY_S = 2.0
+#: An AI run whose model produces output that is not a finite number this many ticks in a row is
+#: ended (blade off, neutral), not held for ever (audit NAV-07). UNVALIDATED: at the 5 Hz AI loop
+#: it is one second of a broken model; tune on the bench.
+MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS = 5
+
+
+def _usable_coordinates(latitude: Any, longitude: Any) -> bool:
+    """Is this a latitude/longitude a leg may steer by: finite numbers on the globe?
+
+    ``min(1.0, nan)`` is ``1.0``: a NaN position turns the proportional controller's heading error
+    into a full-lever pivot (audit NAV-06), so a position that is not a finite coordinate is "no
+    position" to the legs and to the position fusion, whatever produced it.
+    """
+    try:
+        return (
+            math.isfinite(latitude)
+            and math.isfinite(longitude)
+            and abs(latitude) <= 90.0
+            and abs(longitude) <= 180.0
+        )
+    except TypeError:
+        return False
 
 
 class LegResult(StrEnum):
@@ -236,6 +260,7 @@ class NavigationService:
         self._ai_epoch: int | None = None  # stop_events epoch when the AI run started
         self._ai_datum: tuple[float, float] | None = None
         self._ai_loop_hz = 5.0  # inference cadence (Hz)
+        self._unusable_predictions = 0  # consecutive AI ticks whose model output was not finite
 
         # Safety inputs, attached by the lifespan (see attach_safety). None = not gated:
         # unit/bench configuration only; main.py never serves a mission without them.
@@ -295,8 +320,17 @@ class NavigationService:
         self.gps_monitor = gps_monitor
 
     def autonomy_active(self) -> bool:
-        """True while a mission/AI run is the thing moving the machine."""
-        return self.navigation_state.navigation_mode in AUTONOMOUS_MODES
+        """True while a loop of this service (a mission, the AI run) is what moves the machine.
+
+        It keys on the loops, never on the mode field (audit NAV-03): the field can say
+        ``return_home`` or ``auto`` with nothing driving (a planned path, a run that ended without
+        resetting it), and every consumer of this answer ACTS on the machine: the GNSS and obstacle
+        hold handlers stand the platform down, the blade permit refuses a blade ON. That is right
+        while a run owns the machine and a seizure of a person's own manual drive and blade when
+        none does.
+        """
+        ai = self._ai_task
+        return self._mission_loop_active or (ai is not None and not ai.done())
 
     def heading_age_s(self) -> float | None:
         """Seconds since the IMU measured the current heading, ``None`` when it never did.
@@ -375,7 +409,7 @@ class NavigationService:
         manual driving included, the blade is the operator's own call, as it is for the motion
         limiter: that exemption is a policy, kept on purpose.
         """
-        autonomous = self.autonomy_active() or self._mission_loop_active
+        autonomous = self.autonomy_active()
         if not (autonomous or self._scripted_drive_active):
             return None
         # A scripted open-loop drive leaves the GNSS monitor and the heading age out of its gate
@@ -390,6 +424,51 @@ class NavigationService:
     def _on_stop_event(self, reason: str, source: str) -> None:
         """``safety.stop_events`` listener: every safety stop ends this service's runs."""
         self.abort_autonomy(f"{reason} ({source})" if source else reason)
+
+    async def await_unwind(
+        self, *tasks: "asyncio.Future[Any] | None", timeout_s: float | None = None
+    ) -> bool:
+        """Wait, bounded, for run tasks that were told to stop to END; they are never cancelled.
+
+        A run is ended cooperatively (a mission status, the AI mode, ``abort_autonomy``): its loop
+        reads that at the top of its next tick, stands the platform down itself and returns.
+        Cancelling the task instead is what abandoned an actuator write in flight (audit NAV-02):
+        the cancel releases the actuation lock (or the serial lock) while the I2C / serial
+        transfer, which runs in a worker thread, is still on the bus, and that transfer can land
+        AFTER the stop's neutral and leave the machine driving under a state that says neutral.
+        ``timeout_s`` defaults to ``ABORT_UNWIND_TIMEOUT_S``. Returns ``True`` when every task has
+        ended; ``False`` when one is still running at the bound: it is left running (it ends at
+        its next check; every command it still makes is ordered behind the caller's own stop on
+        the actuation lock) and the caller stops the platform regardless. Never raises.
+        """
+        pending = {
+            task
+            for task in tasks
+            if task is not None and not task.done() and task is not asyncio.current_task()
+        }
+        if not pending:
+            return True
+        bound = ABORT_UNWIND_TIMEOUT_S if timeout_s is None else timeout_s
+        _done, still_running = await asyncio.wait(pending, timeout=bound)
+        if still_running:
+            logger.critical(
+                "%d run task(s) did not end within %.1fs of being told to stop: the platform was "
+                "stopped, they are left to end at their next check",
+                len(still_running),
+                bound,
+            )
+            return False
+        return True
+
+    def stragglers(self) -> list["asyncio.Future[Any]"]:
+        """Run tasks of this service that were told to stop and are still alive.
+
+        Only the shutdown path (``main._stop_autonomy``) uses it, for its last resort: a task that
+        ignored the cooperative stop for ``ABORT_UNWIND_TIMEOUT_S`` is cancelled there, because
+        nothing may be left able to command the actuators when they are parked.
+        """
+        task = self._ai_task
+        return [task] if task is not None and not task.done() else []
 
     def abort_autonomy(self, reason: str) -> list[str]:
         """End every autonomous run this service owns, now (audit SAF-01); never raises.
@@ -649,10 +728,7 @@ class NavigationService:
         """
         from .tractor_service import get_tractor_service
 
-        if (
-            self.navigation_state.navigation_mode not in AUTONOMOUS_MODES
-            and not self._scripted_drive_active
-        ):
+        if not (self.autonomy_active() or self._scripted_drive_active):
             return
         now = time.monotonic()
         if now - self._last_hold_assert < 0.25:
@@ -855,10 +931,12 @@ class NavigationService:
                     return LegResult.INTERRUPTED
 
             position = self.navigation_state.current_position
-            if not position:
-                # Nothing to navigate by: hold (blade off, neutral), do not leave the last
-                # command, and the blade, in force while waiting for a fix.
-                await self._hold_motion(MotionGate(True, 0.0, ("no position fix",)))
+            if not position or not _usable_coordinates(position.latitude, position.longitude):
+                # Nothing to navigate by (no fix, or one that is not a finite coordinate): hold
+                # (blade off, neutral), do not leave the last command, and the blade, in force
+                # while waiting for a fix.
+                reason = "no position fix" if not position else "no usable position"
+                await self._hold_motion(MotionGate(True, 0.0, (reason,)))
                 await asyncio.sleep(self.control_period_s)
                 continue
 
@@ -1201,6 +1279,7 @@ class NavigationService:
             gps is not None
             and gps.latitude
             and gps.longitude
+            and _usable_coordinates(gps.latitude, gps.longitude)
             and (gps_stamp is None or gps_stamp != self._last_gps_stamp)
         )
         if new_fix:
@@ -1259,8 +1338,14 @@ class NavigationService:
     async def _update_position(self, sensor_data: SensorData) -> Position | None:
         """Update position using sensor fusion"""
 
-        # Primary: GPS position
-        if sensor_data.gps and sensor_data.gps.latitude and sensor_data.gps.longitude:
+        # Primary: GPS position (a NaN, an infinity or a coordinate off the globe is no position:
+        # it must not become ``current_position`` or the dead-reckoning reference, audit NAV-06)
+        if (
+            sensor_data.gps
+            and sensor_data.gps.latitude
+            and sensor_data.gps.longitude
+            and _usable_coordinates(sensor_data.gps.latitude, sensor_data.gps.longitude)
+        ):
             gps_position = Position(
                 latitude=sensor_data.gps.latitude,
                 longitude=sensor_data.gps.longitude,
@@ -1468,6 +1553,11 @@ class NavigationService:
         if (latched := self._start_refusal()) is not None:
             logger.error("Refusing AI navigation: %s", latched)
             return False
+        if self._ai_task is not None and not self._ai_task.done():
+            # A second loop would fight the first one over the drive (and the first one is not
+            # cancelled, see stop_ai_navigation).
+            logger.error("Refusing AI navigation: the previous AI run has not ended")
+            return False
         # A stop that lands while the AI service starts up must end this run before it begins.
         run_epoch = stop_events.epoch()
 
@@ -1501,6 +1591,7 @@ class NavigationService:
         self._ai_datum = self._select_ai_datum()
         self._coverage = CoverageMap(self._ai_datum)
         self._ai_epoch = run_epoch
+        self._unusable_predictions = 0
         self._ai_task = asyncio.create_task(self._ai_inference_loop())
 
         logger.info("Started AI-controlled navigation (datum=%s)", self._ai_datum)
@@ -1585,25 +1676,31 @@ class NavigationService:
     async def stop_ai_navigation(self) -> bool:
         """Stop AI-controlled navigation and return to manual.
 
+        The loop is never cancelled (audit NAV-02): a task cancelled in the middle of a lever write
+        releases the actuation lock while the write is still on the bus, and that write could land
+        after the stop's neutral. The mode flips first (the loop's while-condition ends at its next
+        check and ``apply_ai_prediction`` applies nothing any more), the platform is stood down at
+        once, the loop is given ``ABORT_UNWIND_TIMEOUT_S`` to END (it stands the platform down
+        itself on the way out), and the stand-down is repeated after it as the last word.
+
         Returns:
             True if AI mode stopped successfully.
         """
         from .ai_inference_service import get_ai_inference_service
 
-        # Flip mode first so the loop's while-condition exits, then cancel it.
         self.navigation_state.navigation_mode = NavigationMode.MANUAL
         self.navigation_state.target_velocity = 0.0
 
-        if self._ai_task is not None:
-            self._ai_task.cancel()
-            try:
-                await self._ai_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._ai_task = None
+        task = self._ai_task
+        if task is not None:
+            await self._stop_platform()  # the loop's last command may still be in force
+            if await self.await_unwind(task):
+                self._ai_task = None
+            # else: it is still ending and stays registered (autonomy_active, no second AI run)
         self._coverage = None
         self._ai_datum = None
         self._ai_epoch = None
+        self._unusable_predictions = 0
 
         ai_service = get_ai_inference_service()
         await ai_service.disable()
@@ -1637,23 +1734,32 @@ class NavigationService:
             self.abort_autonomy("a safety stop happened during the AI run")
             return False
 
-        # Check confidence threshold
-        if prediction.confidence < 0.5:
-            logger.warning(f"AI prediction confidence too low: {prediction.confidence:.2f}")
-            return False
-
         from .tractor_service import get_tractor_service
 
         tractor = get_tractor_service()
 
-        # Check for safety override
+        # A model run whose output is not a finite number is not a prediction: the confidence
+        # gate below would drop it as "low confidence" and leave whatever the last tick commanded
+        # in force, the blade included (audit NAV-07). Stand the platform down now, and end the
+        # run when the model keeps producing it.
+        if getattr(prediction, "unusable", False) is True:
+            return await self._stand_down_for_unusable_prediction()
+        self._unusable_predictions = 0
+
+        # A safety override is a stop, not a suggestion: it is honoured whatever the model's
+        # confidence is (a low-confidence tick used to drop it with the rest).
         if prediction.safety_override:
             logger.warning("AI prediction has safety override - stopping")
             if tractor.enabled:
                 await tractor.emergency_stop()
             else:
-                await self.set_speed(0.0, 0.0)
+                await self._stop_platform()  # blade off first, then the drive to neutral
             return True
+
+        # Check confidence threshold
+        if prediction.confidence < 0.5:
+            logger.warning(f"AI prediction confidence too low: {prediction.confidence:.2f}")
+            return False
 
         # Obstacle guard: a hold stops the machine whatever the model predicts; a cap is
         # enforced again in the actuation chokepoints (tractor.set_levers / set_speed).
@@ -1690,6 +1796,29 @@ class NavigationService:
 
         return True
 
+    async def _stand_down_for_unusable_prediction(self) -> bool:
+        """A NaN or infinite model output: blade off, levers neutral; the run ends if it goes on.
+
+        The same stand-down as a held safety gate (``_hold_motion``: blade first, then neutral,
+        retried by every further tick), because a prediction that could not be read says nothing
+        about what the last command should have been: its blade and its levers must not stay in
+        force. A single bad tick is a hold; ``MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS`` of them in a
+        row end the run (the operator starts it again once the model is fixed). It is not an
+        E-stop: nothing latches and no clear is needed. Returns ``False``: nothing was applied.
+        """
+        self._unusable_predictions += 1
+        count = self._unusable_predictions
+        logger.error(
+            "AI model output is not a finite number (%d in a row): standing the platform down",
+            count,
+        )
+        await self._hold_motion(MotionGate(True, 0.0, ("AI model output is not a finite number",)))
+        if count >= MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS:
+            self._unusable_predictions = 0
+            self.abort_autonomy(f"the AI model produced no usable output {count} times in a row")
+            await self._stop_platform()
+        return False
+
     async def emergency_stop(self) -> bool:
         """Emergency stop navigation"""
         # Every autonomous run ends first, so a clear of the stops below cannot revive one.
@@ -1721,40 +1850,57 @@ class NavigationService:
         return True
 
     async def return_home(self) -> bool:
-        """Navigate back to home position"""
+        """Plan the way back to the home position and publish it as the planned path.
+
+        Nothing drives that path: there is no return-to-base executor (a run with a task, a stop
+        epoch and a place in the mission service), so this sets NO autonomous mode (audit NAV-03).
+        It used to set ``return_home`` and ``executing`` and leave them for ever, a phantom run
+        that no loop owned and nothing ended: the GNSS and obstacle hold handlers and the blade
+        permit read it as autonomy and then acted on the operator's manual drive and blade. It is
+        refused while a stop is latched, while a scripted drive runs and while a mission or an AI
+        run owns the machine (their path and waypoint index are not this call's to overwrite).
+        Returns ``True`` when a path was planned.
+        """
         if (latched := self._start_refusal()) is not None:
             logger.error("Cannot return home: %s", latched)
+            return False
+        if self.autonomy_active():
+            logger.error("Cannot return home: an autonomous run owns the machine (end it first)")
             return False
         if not self.navigation_state.home_position:
             logger.error("No home position set")
             return False
+        if not self.navigation_state.current_position:
+            logger.error("Cannot return home: no current position")
+            return False
 
         # Plan path (with avoidance and boundary constraints if available)
-        if self.navigation_state.current_position:
-            boundaries = None
-            if self.navigation_state.safety_boundaries:
-                # Use the outer boundary (first polygon) if provided
-                boundaries = self.navigation_state.safety_boundaries[0]
-            obstacles = (
-                self.navigation_state.no_go_zones if self.navigation_state.no_go_zones else None
-            )
+        boundaries = None
+        if self.navigation_state.safety_boundaries:
+            # Use the outer boundary (first polygon) if provided
+            boundaries = self.navigation_state.safety_boundaries[0]
+        obstacles = self.navigation_state.no_go_zones if self.navigation_state.no_go_zones else None
 
-            waypoints = self.path_planner.return_to_base(
-                current=self.navigation_state.current_position,
-                home=self.navigation_state.home_position,
-                boundary=boundaries,
-                obstacles=obstacles,
-            )
+        waypoints = self.path_planner.return_to_base(
+            current=self.navigation_state.current_position,
+            home=self.navigation_state.home_position,
+            boundary=boundaries,
+            obstacles=obstacles,
+        )
+        if not waypoints:
+            logger.error("Cannot return home: the planner found no path")
+            return False
 
-            self.navigation_state.planned_path = waypoints
-            self.navigation_state.current_waypoint_index = 0
-            self.navigation_state.navigation_mode = NavigationMode.RETURN_HOME
-            self.navigation_state.path_status = PathStatus.EXECUTING
+        self.navigation_state.planned_path = waypoints
+        self.navigation_state.current_waypoint_index = 0
+        self.navigation_state.path_status = PathStatus.PLANNED
 
-            logger.info("Returning to home position")
-            return True
-
-        return False
+        logger.warning(
+            "Return to base: a path of %d waypoints is planned; nothing drives it (no "
+            "return-to-base executor exists), drive the machine or start a mission",
+            len(waypoints),
+        )
+        return True
 
     def set_home_position(self, position: Position):
         """Set the home/docking position"""

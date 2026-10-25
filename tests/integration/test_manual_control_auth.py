@@ -54,7 +54,14 @@ async def test_manual_control_with_valid_mfa(operator_credential):
 
 @pytest.mark.asyncio
 async def test_blade_control_requires_mfa(monkeypatch, operator_credential):
-    """Blade control needs the operator's bearer token: 401 without it, past auth with it."""
+    """The blade needs the bearer token (401 without it); an ON also needs the manual session.
+
+    The manual-control session is the additional factor of the blade and drive routes
+    (``api/routers/auth.py``): a blade ON with the bearer alone is 401 "Manual control session
+    required" (fail closed, audit HW-02: a body without a ``session_id`` used to be answered
+    without touching the blade, so it never needed the factor). A blade OFF is the safe direction
+    and needs only the bearer.
+    """
     from backend.src.main import app
 
     monkeypatch.setenv("OPERATOR_AUTH_REQUIRED", "1")
@@ -68,6 +75,20 @@ async def test_blade_control_requires_mfa(monkeypatch, operator_credential):
         login = await client.post("/api/v2/auth/login", json={"credential": operator_credential})
         headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
         response = await client.post("/api/v2/control/blade", json=blade_command, headers=headers)
+        assert response.status_code == 401, response.text
+        assert "Manual control session required" in response.text
+
+        off = await client.post("/api/v2/control/blade", json={"active": False}, headers=headers)
+        assert off.status_code != 401, off.text  # an OFF needs no manual session
+
+        unlock = await client.post(
+            "/api/v2/control/manual-unlock",
+            json={"method": "password", "password": operator_credential},
+            headers=headers,
+        )
+        assert unlock.status_code == 200, unlock.text
+        with_session = {**blade_command, "session_id": unlock.json()["session_id"]}
+        response = await client.post("/api/v2/control/blade", json=with_session, headers=headers)
         assert response.status_code != 401, response.text
 
 

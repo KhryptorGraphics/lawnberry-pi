@@ -22,6 +22,7 @@ import os
 import uuid
 from email.utils import format_datetime, parsedate_to_datetime
 
+from ..core.peer_address import client_host
 from ..core.persistence import persistence
 from ..core.globals import (
     _blade_state,
@@ -285,10 +286,23 @@ async def _read_estop_body(request: Request | None) -> dict[str, Any]:
         return {}
 
 
-def _audit_estop_coalesced(action: str, details: dict[str, Any]) -> None:
+def _estop_client(request: Request | None) -> str | None:
+    """The address an open stop route's caller is audited under; never raises (a stop waits for no
+    audit): the connection's peer, or the client behind a trusted forwarder."""
+    try:
+        return client_host(request) if request is not None else None
+    except Exception:
+        return None
+
+
+def _audit_estop_coalesced(
+    action: str, details: dict[str, Any], client_id: str | None = None
+) -> None:
     """Off-loop, coalesced, never-raising audit row for the unauthenticated stop routes."""
     try:
-        persistence.add_audit_log_coalesced(action, details=details, window_s=ESTOP_AUDIT_WINDOW_S)
+        persistence.add_audit_log_coalesced(
+            action, client_id=client_id, details=details, window_s=ESTOP_AUDIT_WINDOW_S
+        )
     except Exception as exc:
         logger.error("E-stop audit failed: %s", exc)
 
@@ -585,33 +599,60 @@ def _strict_bool(value: Any, field: str) -> bool:
     return value
 
 
+#: The legacy ``command`` field's words (older clients and the integration tests send them).
+_BLADE_COMMAND_WORDS = {"blade_enable": True, "blade_disable": False}
+
+
 def _blade_desired(cmd: dict) -> bool | None:
     """The blade state a ``/control/blade`` body asks for; ``None`` = nothing recognised.
 
-    ``action`` is the words ``enable|on|start`` / ``disable|off|stop`` (any other word asks
-    for nothing and is answered ``blocked``); ``active`` must be a real JSON boolean. A body
-    carrying both must agree. Anything ambiguous is a 422, never a guess: a client that sent
-    ``{"active": "false"}`` must not have switched the blade ON.
+    ``action`` is the words ``enable|on|start`` / ``disable|off|stop``, ``command`` the legacy
+    ``blade_enable`` / ``blade_disable`` (a word that is none of them asks for nothing and is
+    answered ``blocked``); ``active`` must be a real JSON boolean. A body carrying more than one of
+    them must agree. Anything ambiguous is a 422, never a guess: a client that sent
+    ``{"active": "false"}`` must not have switched the blade ON, and ``{"command":
+    "blade_enable", "active": false}`` must not be an ON because the older field is read first
+    (audit BL-02, HW-02).
     """
-    desired: bool | None = None
+    asks: dict[str, bool | None] = {}
     if "action" in cmd:
         word = str(cmd.get("action")).lower()
-        desired = True if word in _BLADE_ON_WORDS else False if word in _BLADE_OFF_WORDS else None
-        if "active" in cmd:
-            active = _strict_bool(cmd["active"], "active")
-            if desired is not None and desired != active:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"action {cmd.get('action')!r} and active={active!r} disagree",
-                )
-        return desired
+        asks["action"] = (
+            True if word in _BLADE_ON_WORDS else False if word in _BLADE_OFF_WORDS else None
+        )
+    if "command" in cmd:
+        asks["command"] = _BLADE_COMMAND_WORDS.get(str(cmd.get("command")).lower())
     if "active" in cmd:
-        return _strict_bool(cmd["active"], "active")
-    return None
+        asks["active"] = _strict_bool(cmd["active"], "active")
+    if not asks or any(ask is None for ask in asks.values()):
+        return None
+    if len(set(asks.values())) > 1:
+        fields = ", ".join(f"{name}={cmd[name]!r}" for name in asks)
+        raise HTTPException(status_code=422, detail=f"blade fields disagree: {fields}")
+    return next(iter(asks.values()))
+
+
+def _legacy_blade_status(ok: bool, desired: bool, state: dict[str, Any] | None) -> str:
+    """The legacy ``blade_status`` word for an answer built from what the hardware did.
+
+    ``ENABLED`` only for an ON the service confirmed, ``DISABLED`` only for an OFF it confirmed
+    (or a refused ON whose pads read confirmed off); anything else is ``UNKNOWN``: the legacy
+    shape used to say ``DISABLED`` over a blade it never touched.
+    """
+    if ok:
+        return "ENABLED" if desired else "DISABLED"
+    if state and state.get("active") is False and state.get("state_confirmed"):
+        return "DISABLED"
+    return "UNKNOWN"
 
 
 async def _blade_hardware_command(
-    bs: Any, desired: bool, cmd: dict, session_context: dict, audit_id: str
+    bs: Any,
+    desired: bool,
+    cmd: dict,
+    session_context: dict,
+    audit_id: str,
+    legacy: bool = False,
 ) -> JSONResponse:
     """Drive the IBT-4 and answer with what the hardware did, whatever the audit store does.
 
@@ -651,6 +692,8 @@ async def _blade_hardware_command(
     except Exception as exc:
         logger.error("Blade state readback failed: %s", exc)
         body["blade_state"] = None
+    if legacy:  # a ``command`` body also gets the legacy word, built from what the pads read
+        body["blade_status"] = _legacy_blade_status(ok, desired, body.get("blade_state"))
     log_command = {**cmd}
     if "session_id" in log_command:
         log_command["session_id"] = "***"
@@ -682,22 +725,39 @@ async def get_blade_status():
 
 @router.post("/control/blade", dependencies=[Depends(require_operator_auth)])
 async def control_blade_v2(cmd: dict, request: Request):
-    """Execute blade command with safety interlocks and audit logging"""
-    import uuid
-    from ..services.robohat_service import get_robohat_service
+    """Drive the IBT-4 blade: the documented body acts, with or without a ``session_id``.
 
+    ``{"active": true|false}``, ``{"action": "enable|on|start|disable|off|stop"}`` and the legacy
+    ``{"command": "blade_enable|blade_disable"}`` all go through the same strict parser and the
+    same hardware path, and the answer says what the pads read (audit HW-02: a body without a
+    ``session_id`` used to be answered ``200 DISABLED`` / ``ENABLED`` by a legacy branch that never
+    touched the IBT-4, so a client that switched the blade off was told it was off while the pad
+    stayed live).
+
+    A blade OFF is the safe direction: it is ALWAYS driven, never refused, and never needs the
+    manual-control session (an expired or unknown id must not keep the blade running). A blade ON
+    needs that session whenever operator auth is on (it is the additional factor of the blade and
+    drive routes, ``api/routers/auth.py``), and is blocked during an emergency window.
+    """
     audit_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc)
 
-    # Contract requires safety lockout for blade engagement by default
-    # Return HTTP 423 (Locked) with remediation
-    # Legacy behavior for integration tests
-    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
-    if "session_id" not in cmd and ("active" in cmd or "command" in cmd):
-        # Enable
-        if (cmd.get("command") == "blade_enable") or (cmd.get("active") is True):
-            # Block if emergency is active (global TTL or per-client TTL)
-            if _emergency_active() or _client_emergency_active(request):
+    # Strict first: an ambiguous body (a string where a boolean is required, fields that
+    # disagree) is refused with 422 before anything is touched (audit BL-02).
+    desired = _blade_desired(cmd)
+    emergency = _emergency_active() or _client_emergency_active(request)
+
+    session_context: dict[str, Any] = {}
+    if desired is False:
+        try:  # only for the audit principal: an OFF is never refused over its session
+            session_context = _resolve_manual_session(cmd.get("session_id"))
+        except HTTPException:
+            session_context = {}
+    else:
+        session_context = _resolve_manual_session(cmd.get("session_id"))
+        if desired is True and "session_id" not in cmd:
+            # The sessionless form's interlocks stay: refusals, the hardware is not touched.
+            if emergency:
                 body = {
                     "detail": "safety_interlock: emergency_stop_active - blade commands blocked"
                 }
@@ -705,36 +765,13 @@ async def control_blade_v2(cmd: dict, request: Request):
                     "control.blade", details={"command": cmd, "response": body}
                 )
                 return JSONResponse(status_code=403, content=body)
-            # If no auth header provided, allow enabling for audit test flow
-            if not auth_header:
-                body = {"blade_status": "ENABLED"}
-                persistence.add_audit_log(
-                    "control.blade", details={"command": cmd, "response": body}
-                )
-                return JSONResponse(status_code=200, content=body)
-            # Safety interlock: reject with 403 if motors active; otherwise accept
-            global _legacy_motors_active
             if _legacy_motors_active:
                 body = {"detail": "Safety interlock: motors_active"}
                 persistence.add_audit_log(
                     "control.blade", details={"command": cmd, "response": body}
                 )
                 return JSONResponse(status_code=403, content=body)
-            body = {"blade_status": "ENABLED"}
-            persistence.add_audit_log("control.blade", details={"command": cmd, "response": body})
-            return JSONResponse(status_code=200, content=body)
-        # Disable
-        if (cmd.get("command") == "blade_disable") or (cmd.get("active") is False):
-            body = {"blade_status": "DISABLED"}
-            persistence.add_audit_log("control.blade", details={"command": cmd, "response": body})
-            return JSONResponse(status_code=200, content=body)
 
-    session_context = _resolve_manual_session(cmd.get("session_id"))
-
-    # Strict first: an ambiguous body (a string where a boolean is required, an action and an
-    # `active` that disagree) is refused with 422 before anything is touched (audit BL-02).
-    desired = _blade_desired(cmd)
-    emergency = _emergency_active() or _client_emergency_active(request)
     # A blade OFF is never refused: it is the safe direction. A blade ON is blocked during an
     # emergency window (the E-stop latch itself is enforced by the blade service).
     if desired is not None and not (desired and emergency):
@@ -746,7 +783,9 @@ async def control_blade_v2(cmd: dict, request: Request):
             # Nothing was driven: fall through to the blocked answer below.
             logger.exception("blade service unavailable for /control/blade")
         else:
-            return await _blade_hardware_command(bs, desired, cmd, session_context, audit_id)
+            return await _blade_hardware_command(
+                bs, desired, cmd, session_context, audit_id, legacy="command" in cmd
+            )
 
     payload = {
         "accepted": False,
@@ -830,11 +869,18 @@ async def control_emergency_v2(request: Request):
         _remember_client_emergency(request)
     except Exception:
         pass
+    client = _estop_client(request)  # a header/peer read: taken before the first await
 
+    # The stop does not use the body (it only picks the reply shape and the audit principal), so
+    # it starts NOW, as a task of its own, and the body is read while it runs (audit NAV-04,
+    # SEC3-06): a body that trails its headers used to hold the hardware stop for up to
+    # ESTOP_BODY_READ_TIMEOUT_S, and a client that gave up during that wait never got one. The
+    # task is shielded below: a cancelled request cannot cancel a stop that has begun.
+    stop = asyncio.ensure_future(_run_emergency_stop("api:/control/emergency"))
     payload = await _read_estop_body(request)
     is_legacy = bool(payload.get("command"))
 
-    report = await _run_emergency_stop("api:/control/emergency")
+    report = await asyncio.shield(stop)
 
     session_context = None
     if not is_legacy:
@@ -856,7 +902,9 @@ async def control_emergency_v2(request: Request):
             "remediation": _emergency_remediation(report),
             "timestamp": timestamp.isoformat(),
         }
-        _audit_estop_coalesced("control.emergency_stop", {"response": legacy_payload})
+        _audit_estop_coalesced(
+            "control.emergency_stop", {"response": legacy_payload}, client_id=client
+        )
         return JSONResponse(status_code=200, content=legacy_payload)
 
     response = ControlResponseV2(
@@ -885,7 +933,7 @@ async def control_emergency_v2(request: Request):
     audit_details: dict[str, Any] = {"response": response.model_dump()}
     if session_context and session_context.get("principal"):
         audit_details["principal"] = session_context["principal"]
-    _audit_estop_coalesced("control.emergency.triggered", audit_details)
+    _audit_estop_coalesced("control.emergency.triggered", audit_details, client_id=client)
 
     return response
 
@@ -900,6 +948,7 @@ async def control_emergency_stop_alias(request: Request = None):
     """
     _safety_state["emergency_stop_active"] = True
     _blade_state["active"] = False
+    client = _estop_client(request)  # a header/peer read: taken before the first await
     report = await _run_emergency_stop("api:/control/emergency-stop")
     payload = {
         "emergency_stop_active": True,
@@ -910,7 +959,7 @@ async def control_emergency_stop_alias(request: Request = None):
         "faults": report["faults"],
         "remediation": _emergency_remediation(report),
     }
-    _audit_estop_coalesced("control.emergency_stop", {"response": payload})
+    _audit_estop_coalesced("control.emergency_stop", {"response": payload}, client_id=client)
     return JSONResponse(status_code=200, content=payload)
 
 

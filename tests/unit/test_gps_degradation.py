@@ -520,9 +520,11 @@ async def test_lifespan_wires_the_real_gnss_monitor_into_navigation_and_its_hold
             assert nav._hold_reasons is None
 
             nav.navigation_state.navigation_mode = "auto"  # a mission runs on a bad fix
+            nav._mission_loop_active = True  # ... its loop: autonomy_active() keys on it (NAV-03)
             await asyncio.sleep(0.6)  # two monitor cycles: the hold handler stopped the machine
             assert nav._hold_reasons is not None and nav._hold_reasons[0].startswith("gnss:")
         assert nav.gps_monitor is None and nav.obstacle_guard is None  # detached again
     finally:
         nav.navigation_state.navigation_mode = "idle"
+        nav._mission_loop_active = False
         nav._hold_reasons = None
