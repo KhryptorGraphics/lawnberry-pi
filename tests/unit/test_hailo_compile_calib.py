@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,8 +37,10 @@ def box(tmp_path):
     onnx.parent.mkdir(parents=True)
     onnx.write_bytes(b"")
     fake.mkdir()
-    (fake / "sha256sum").write_text("#!/bin/sh\nexit 0\n")
-    (fake / "sha256sum").chmod(0o755)
+    # Symlinks to existing programs, never a script written and run at once: exec of a file that
+    # was just written fails with "Text file busy" when another thread of this process forks in
+    # between (seen once in a shuffled full run, where it read as a sha256 mismatch).
+    (fake / "sha256sum").symlink_to(shutil.which("true"))  # `sha256sum -c` always succeeds
     (fake / "python3").symlink_to(sys.executable)
     return {"lb": lb, "home": home, "fake": fake}
 
