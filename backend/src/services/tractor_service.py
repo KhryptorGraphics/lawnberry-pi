@@ -253,6 +253,8 @@ class TractorControlService:
         # Optional veto on releasing the blade interlock latch; the tilt monitor attaches one
         # (audit SEC-06). Called with the latch reason, returns why it must stay, else None.
         self._interlock_clear_gate: Callable[[str | None], str | None] | None = None
+        # Standing reasons the PTO must stay off, for every source (see attach_blade_permit).
+        self._blade_permits: list[tuple[str, Callable[[], str | None]]] = []
         # Set by misconfigured(): the validation error that keeps this service disabled.
         self._config_error: str | None = None
         # Last servo write fault per PCA9685 channel (incl. timeouts), each
@@ -334,6 +336,37 @@ class TractorControlService:
         """Remove ``gate`` if it is the one attached (a stopped monitor must not veto for ever)."""
         if self._interlock_clear_gate == gate:
             self._interlock_clear_gate = None
+
+    def attach_blade_permit(self, name: str, permit: Callable[[], str | None]) -> None:
+        """Add a standing reason the PTO must stay off: ``permit()`` is why, else ``None``.
+
+        Read before every blade ON from EVERY source, a person's included (audit NAV-05): the
+        obstacle limiter exempts the operator's own commands, so an operator who repeated ON
+        against an autonomous run's hold re-engaged the PTO each time and the run dropped it
+        again on its next tick, the fight the IBT-4's permit already ends. The navigation gate's
+        permit (``NavigationService.blade_permit``) is ``None`` unless an autonomous run or a
+        scripted drive owns the machine and the gate holds, so the blade stays the operator's own
+        call in every other state. A permit that raises forbids the blade. Attaching a name that
+        is already attached replaces it.
+        """
+        self._blade_permits = [(n, p) for n, p in self._blade_permits if n != name]
+        self._blade_permits.append((name, permit))
+
+    def detach_blade_permit(self, name: str) -> None:
+        """Remove the permit attached under ``name`` (a stopped navigation must not veto)."""
+        self._blade_permits = [(n, p) for n, p in self._blade_permits if n != name]
+
+    def _blade_permit_refusal(self) -> str | None:
+        """Why a standing permit forbids the PTO now (fail closed on a permit that raises)."""
+        for name, permit in self._blade_permits:
+            try:
+                reason = permit()
+            except Exception as exc:
+                logger.exception("Blade permit %s failed: forbidding the PTO", name)
+                return f"permit {name} failed: {_err(exc)}"
+            if reason:
+                return f"{name}: {reason}"
+        return None
 
     def _hardware_off_limits(self) -> bool:
         """True when this service must not touch real hardware at all (disabled, not SIM)."""
@@ -1126,6 +1159,10 @@ class TractorControlService:
             if (hold := self._motion_hold(source)) is not None:
                 # Refuse AND drop: an obstacle can appear while the blade already turns.
                 return self._refuse_blade(f"obstacle hold: {hold}", source)
+            if (standing := self._blade_permit_refusal()) is not None:
+                # Refuse AND drop, for every source (NAV-05): the operator's repeated ON must not
+                # undo the stand-down an autonomous run made.
+                return self._refuse_blade(f"blade not permitted: {standing}", source)
             if (rejection := self._guard_actuation()) is not None:
                 return rejection
             if not self.state.authorized:

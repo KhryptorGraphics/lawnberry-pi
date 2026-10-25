@@ -277,6 +277,10 @@ async def lifespan(app: FastAPI):
     # The gate's hold is also a standing reason for the IBT-4 blade while autonomy runs, so a
     # client that keeps repeating blade ON cannot undo a stand-down (audit round 3, SAF-03).
     get_blade_service().attach_permit(BLADE_PERMIT_NAME, nav_service.blade_permit)
+    # ... and for the tractor's PTO, which is the blade of that platform: the obstacle limiter
+    # exempts a person's own commands, so without this an operator's ON re-engaged the PTO against
+    # an autonomous hold (audit NAV-05).
+    guard_tractor.attach_blade_permit(BLADE_PERMIT_NAME, nav_service.blade_permit)
     guard_tractor.motion_limiter = obstacle_guard
     obstacle_monitor = ObstacleStopMonitor(
         obstacle_guard,
@@ -412,6 +416,7 @@ async def lifespan(app: FastAPI):
         await app.state.obstacle_monitor.stop()
         NavigationService.get_instance().attach_safety(obstacle_guard=None)
         get_blade_service().detach_permit(BLADE_PERMIT_NAME)
+        guard_tractor.detach_blade_permit(BLADE_PERMIT_NAME)
         guard_tractor.motion_limiter = None
     if getattr(app.state, "gps_deg_monitor", None):
         await app.state.gps_deg_monitor.stop()
