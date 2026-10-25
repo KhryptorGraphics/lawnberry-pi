@@ -3,18 +3,45 @@ Description=LawnBerry Pi certificate renewal and validation
 Documentation=https://github.com/acredsfan/lawnberry_pi
 Wants=network-online.target
 After=network-online.target
-ConditionPathExists=@LB_ROOT@/scripts/renew_certificates.sh
+# This job runs as ROOT, so it runs ONLY the root-owned copy of the script that
+# systemd/install_services.sh installs from scripts/renew_certificates.sh, never a file in the
+# checkout: the service account owns the checkout (the backend unit can write all of it) and
+# could otherwise make root run anything at the next timer. Until the installer has run, this
+# condition is false and the run is skipped (not failed).
+ConditionPathExists=/usr/local/sbin/lawnberry-renew-certificates.sh
 
 [Service]
 Type=oneshot
-WorkingDirectory=@LB_ROOT@
-ExecStart=/usr/bin/env bash -lc 'bash ./scripts/renew_certificates.sh'
 User=root
 Group=root
+# Not the checkout, and a search path of root-owned directories only.
+WorkingDirectory=/
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+# The domain lives in the service account's .env. The unit hands the script only that file's
+# LOCATION: the script reads LB_DOMAIN / DOMAIN from it as data with a strict parser and never
+# sources or executes it (scripts/renew_certificates.sh --print-config shows what it will use).
+Environment=LAWNBERRY_ENV_FILE=@LB_ROOT@/.env
+ExecStart=/usr/local/sbin/lawnberry-renew-certificates.sh
+# A oneshot has no start timeout by default. A run that hangs (certbot on a dead network, an
+# .env swapped for a FIFO) is ended instead of blocking every later run.
+TimeoutStartSec=30min
 Nice=10
+
+# Hardening, made to match what the job really does.
+# ProtectSystem=full leaves /usr, /boot and /etc read-only, so the three trees under /etc that the
+# job writes are listed in ReadWritePaths (a leading "-" skips one that does not exist yet, such as
+# /etc/letsencrypt before certbot has run): the self-signed fallback in /etc/lawnberry/certs, the
+# nginx configs that fallback edits, and certbot's /etc/letsencrypt. Everything else it writes is
+# under /var, which "full" leaves writable: certbot's /var/lib/letsencrypt, /var/log/letsencrypt and
+# webroot, nginx's logs. It cannot install packages (/usr is read-only): install certbot first.
+# ProtectHome=read-only, not "true": the job only READS the checkout's .env, and "true" would hide a
+# checkout under /home, so the run would silently ignore LB_DOMAIN.
+# The capability set has CAP_DAC_READ_SEARCH and no CAP_DAC_OVERRIDE: that is what lets root read
+# the service account's 0600 .env (and walk to it), and it cannot write what it does not own.
 NoNewPrivileges=true
 ProtectSystem=full
-ProtectHome=true
+ReadWritePaths=-/etc/lawnberry -/etc/nginx -/etc/letsencrypt
+ProtectHome=read-only
 PrivateTmp=true
 PrivateDevices=true
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_DAC_READ_SEARCH

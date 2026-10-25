@@ -168,9 +168,10 @@ HTTPS is configured automatically during setup with a self-signed certificate, a
    - Re-run `scripts/setup.sh` or reboot. The setup will provision a valid cert automatically and migrate nginx to use it.
 
 3) Auto-renewal, validation, and fallback:
-   - A daily systemd timer (`lawnberry-cert-renewal.timer`) runs `scripts/renew_certificates.sh` to renew LE certs, validate expiry, and reload nginx.
+   - A daily systemd timer (`lawnberry-cert-renewal.timer`) runs the certificate renewal as root to renew LE certs, validate expiry, and reload nginx. It runs only `/usr/local/sbin/lawnberry-renew-certificates.sh`, a root-owned copy of `scripts/renew_certificates.sh` that `systemd/install_services.sh` (step 4) installs; run the installer again after changing the script. The job never executes anything from the checkout: it reads `LB_DOMAIN` (or `DOMAIN`) from `.env` as plain data and ignores any other line, and a value that is not a host name is ignored with a warning.
    - If renewal fails or the certificate is near expiry, the script falls back to a self-signed certificate automatically to maintain HTTPS availability.
    - Logs are written to syslog with the tag `lawnberry-cert`.
+   - See what it will read from `.env` (changes nothing, needs no root): `bash scripts/renew_certificates.sh --print-config`.
 
 Check status and logs:
 ```bash
