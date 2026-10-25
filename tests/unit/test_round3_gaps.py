@@ -87,7 +87,9 @@ async def test_a_robohat_clear_that_fails_is_listed_as_robohat_hold_not_cleared(
 
     monkeypatch.setattr(svc, "clear_emergency", broken)
     body = (await _post_clear()).json()
-    assert body["status"] == "EMERGENCY_PARTIALLY_CLEARED" and "robohat_hold" in body["still_latched"]
+    assert (
+        body["status"] == "EMERGENCY_PARTIALLY_CLEARED" and "robohat_hold" in body["still_latched"]
+    )
 
     monkeypatch.setattr(svc, "clear_emergency", real_clear)  # now the firmware answers
     core_globals._safety_state["emergency_stop_active"] = True
