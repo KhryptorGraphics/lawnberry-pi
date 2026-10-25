@@ -1,16 +1,27 @@
 """Global rate limiting middleware.
 
-Token bucket per (TCP peer, bucket group) with path-based overrides and exemptions. Defaults
+Token bucket per (client, bucket group) with path-based overrides and exemptions. Defaults
 are conservative and configurable via environment variables so production can tune without
 code changes.
 
 Notes:
-- The client key is the TCP peer address (``core/peer_address.py``), never ``X-Client-Id`` or
-  any other header the client writes: rotating such a header used to mint a fresh bucket per
-  request and let ``_buckets`` grow without bound. Behind a same-host proxy (the shipped web UI
-  server) every browser shares the proxy's one key; raise ``GLOBAL_RATE_LIMIT_RATE`` /
-  ``GLOBAL_RATE_LIMIT_BURST`` if that default budget is too tight.
-- Each override prefix (or named group of prefixes) has its OWN bucket per peer, so a joystick
+- The client key is NEVER a header the client writes (``X-Client-Id``...): rotating such a
+  header used to mint a fresh bucket per request and let ``_buckets`` grow without bound.
+  Two kinds of key exist:
+  * a request that carries a bearer token the auth service recognises as a LIVE login session
+    (signature, expiry and server-side session all checked, silently) is counted in a bucket of
+    its own session: ``session:<id>``;
+  * every other request (no bearer, an invalid, expired or revoked one) is counted against the
+    address of its client (``core/peer_address.py``).
+  Behind a same-host forwarder that is not told apart (an undeclared tunnel agent, the local
+  browser) every anonymous client shares one address and so one bucket. Keying logged-in traffic
+  by session is what keeps that sharing harmless to the operator: junk anonymous requests from the
+  shared address used to drain the bucket the operator's authenticated lever POSTs were limited
+  by (``130`` anonymous POSTs, then the operator got 429; the limiter runs before the route's
+  authentication), and now they only drain their own. A session id cannot be guessed or minted: it
+  is inside a signed token. ``GLOBAL_RATE_LIMIT_RATE`` / ``GLOBAL_RATE_LIMIT_BURST`` still size
+  every bucket.
+- Each override prefix (or named group of prefixes) has its OWN bucket per client, so a joystick
   stream or a lever re-send cannot be starved by UI polling in the default bucket.
 - The three E-stop POSTs are never limited (``middleware/emergency_paths.py``).
 - The bucket table is bounded: a bucket idle long enough to be full again is indistinguishable
@@ -30,7 +41,30 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
 from ..core.peer_address import request_peer_key
+from ..services.auth_service import primary_auth_service
 from .emergency_paths import is_emergency_stop_path
+
+
+def _bearer_token(request: Request) -> str | None:
+    scheme, _, token = (request.headers.get("Authorization") or "").strip().partition(" ")
+    return token.strip() or None if scheme.lower() == "bearer" else None
+
+
+def limiter_client_key(request: Request) -> str:
+    """Who a request is counted as: its live login session, else its client address.
+
+    ``session:<id>`` only for a bearer the auth service recognises as a live session (checked
+    silently: the limiter sees every request, junk bearers included); anything else, an invalid
+    or expired token too, is the address key, so a client cannot choose its bucket by what it
+    sends.
+    """
+    token = _bearer_token(request)
+    if token:
+        session = primary_auth_service.peek_session(token)
+        if session is not None:
+            return f"session:{session.session_id}"
+    return request_peer_key(request)
+
 
 # Tractor command POSTs share one bucket per peer, sized like /control/drive: the control page
 # re-sends the lever and throttle commands every ~hold/3 (about 18 requests/s) while a control is
@@ -105,7 +139,7 @@ class GlobalRateLimiter(BaseHTTPMiddleware):
             rate, burst, group = override
 
         allowed, retry_after = await self._consume_token(
-            f"{request_peer_key(request)}|{group}", rate, burst
+            f"{limiter_client_key(request)}|{group}", rate, burst
         )
         if not allowed:
             return JSONResponse(

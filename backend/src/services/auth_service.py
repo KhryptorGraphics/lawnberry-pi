@@ -173,6 +173,23 @@ class JWTManager:
             )
             return None
 
+    def peek_token(self, token: str) -> dict[str, Any] | None:
+        """:meth:`verify_token`, silent: for callers that look at EVERY bearer (the global limiter).
+
+        ``verify_token`` warns about each expired or invalid token, which is right for a request
+        that is being authenticated and wrong for a limiter that classifies every request: a flood
+        of junk bearers must not also be a flood of log lines. Same checks, no log, no side effect.
+        """
+        try:
+            return jwt.decode(
+                token,
+                self.secret_key,
+                algorithms=[self.algorithm],
+                options={"require": ["exp", "sid", "sub"]},
+            )
+        except jwt.InvalidTokenError:
+            return None
+
 
 class RateLimiter:
     """Rate limiter for authentication attempts.
@@ -556,6 +573,23 @@ class AuthService:
             await self.terminate_session(session_id, "expired")
             return None
 
+        return session
+
+    def peek_session(self, token: str) -> UserSession | None:
+        """The live session behind a bearer token, or ``None``; silent and free of side effects.
+
+        The global limiter calls this for every request that carries a bearer, to give logged-in
+        traffic a bucket of its own (see ``middleware/rate_limiting.py``). Unlike
+        :meth:`verify_token` it logs nothing and never terminates a session; an expired session
+        is simply not live.
+        """
+        payload = self.jwt_manager.peek_token(token)
+        session_id = payload.get("sid") if payload else None
+        if not isinstance(session_id, str):
+            return None
+        session = self.active_sessions.get(session_id)
+        if session is None or session.is_expired():
+            return None
         return session
 
     async def verify_session(self, session_id: str) -> UserSession | None:
