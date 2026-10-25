@@ -44,6 +44,24 @@ is reset before every test by `tests/conftest.py`; a new module-level singleton 
 needs the same reset there, and `tests/unit/test_conftest_isolation.py` fails when the auth
 facade grows state the reset does not know.
 
+### A hung test fails
+
+Every test is bounded by `timeout = 300` (pytest-timeout, signal method, `pyproject.toml`): a test
+that stalls fails with the stacks of every thread dumped and the run goes on, instead of holding the
+job until GitHub's six-hour limit with no verdict (audit TOOL3-01: the suite once sat 11 minutes in
+an async fixture teardown). The opt-in 8 h soak is exempt (`@pytest.mark.timeout(0)`), the
+`sim-tests` job has `timeout-minutes: 45`, and the `platform` fixture of
+`tests/unit/test_ibt4_stand_down_integration.py` reports the teardown step it is stuck in. The plugin
+is a project dependency: install with `uv sync --frozen --all-extras --dev`.
+
+### Strict operator auth
+
+`tests/conftest.py` defaults `LAWN_BERRY_SIM_OPEN_AUTH` to `1` (the simulation admits an anonymous
+WebSocket client). `LAWN_BERRY_SIM_OPEN_AUTH=0 pytest ...` runs the strict path, where a peer needs a
+login and a ticket. The eight tests in `NEEDS_SIM_OPEN_AUTH` (`tests/conftest.py`) open an anonymous
+WebSocket, which only the opt-in admits, and are skipped with that reason when it is off; a test in
+that list that no longer exists fails `test_conftest_isolation.py`. Everything else is the same run.
+
 ## 2) Frontend tests and lint (optional)
 
 From `frontend/`:
@@ -106,21 +124,49 @@ Update one of the following to satisfy the guard:
 - `README.md`
 - `.specify/memory/AGENT_JOURNAL.md`
 
+### Secret scan
+
+`scripts/check_no_secrets.py` fails when a credential-looking literal is committed (a sudo password
+was committed twice; the rules also cover the shapes this product creates: `.env` assignments such as
+`NTRIP_PASSWORD=...`, JSON/YAML `"password"` keys, tunnel and maps keys, `curl -u`, URL userinfo).
+
+```bash
+python3 scripts/check_no_secrets.py --tree          # every tracked file (every file when there is no .git)
+python3 scripts/check_no_secrets.py --base origin/main   # every line the branch adds: commits, merges, net diff
+```
+
+CI runs `--base` on a pull request with the BASE branch's copy of the scanner and of
+`spec/secret_scan_allow.txt`, so a pull request cannot loosen its own check (the pull request that
+introduces the scanner is judged by its own copy and says so). Limit: the workflow file is the pull
+request's own, so `.github/CODEOWNERS` names an owner for it, the scanner and the allow-list, and that
+binds only while branch protection requires code-owner review (a repository setting, not in the
+tree). A reviewed false positive is silenced with `<path>:<digest>  # reason` in
+`spec/secret_scan_allow.txt`; the scan prints the digest, never the value. Not covered: a password that
+is a plain lower-case word, a secret split across lines, and the skipped paths (`tests/`, fixtures,
+generated artefacts).
+
 ### Code structure overview
 
-`docs/code_structure_overview.md` has to follow the callable interfaces of the Python files a change
+`docs/code_structure_overview.md` has to follow the callable interfaces of the PYTHON files a change
 touches (`backend/src`, `scripts`, `workshop`, `firmware`, `.specify/scripts`). CI runs the check on
 pull requests; locally:
 
 ```bash
 python3 scripts/sync_code_structure.py --check            # exit 1 on drift, 2 if it cannot compare
 python3 scripts/sync_code_structure.py --fix              # regenerate the rows in place
-python3 scripts/sync_code_structure.py --check --base origin/main --all   # every file, not only changed
+python3 scripts/sync_code_structure.py --check --base origin/main --all   # a REPORT: every file in scope
 ```
 
 `--fix` rewrites the interface cell of a stale row from the source (purpose and subsystem are kept),
 adds a row for a new file (its purpose is the first two sentences of the module docstring, so a new
 file needs one), merges duplicate rows and drops the row of a deleted file.
+
+`--all` is not a gate and is not clean today: it lists every in-scope file that has public callables
+and no row (about a hundred, mostly under `backend/src`) and every hand-written interface summary that
+is not the generated cell. `--fix --all` would write them, but exits 2 and writes nothing while any of
+those files has no module docstring, and then names all of them. What is NOT checked: TypeScript,
+shell and OpenSCAD rows are hand-maintained; for them the check only sees that the file still exists
+(a function added to `frontend/src/services/api.ts` is invisible to it).
 
 ## 4) On-device hardware testing (RPi)
 
