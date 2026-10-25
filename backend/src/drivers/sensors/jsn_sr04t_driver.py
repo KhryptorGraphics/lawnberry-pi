@@ -18,6 +18,10 @@ Fail-closed rules (all tested with a fake serial port and the real firmware core
 * An echo closer than ``min_range_cm`` is the blind zone: UNKNOWN, never a distance and never clear.
 * Disabled channels (not fitted) are excluded from the aggregate; a channel the host expects but
   the MCU reports disabled is a FAULT, not "excluded".
+* Silence right after a NEAR echo (closer than ``NEAR_ECHO_FACTOR`` times the stop threshold) is
+  the dead zone, not open air: BLIND_ZONE / UNKNOWN for ``near_hold_s`` or until a far echo is
+  heard, whatever the ``*_is_clear`` policy flags say. Only a complete, non-near echo pulse is
+  proof of life (never NO_FALL, never a 0 us width).
 
 Every number in :class:`~backend.src.models.hardware_config.UltrasonicConfig` is an unvalidated
 placeholder until audit measurement M-40.
@@ -55,6 +59,9 @@ HELLO_RETRY_S = 1.0
 PARTIAL_FRAME_TIMEOUT_S = 0.1
 #: An echo longer than this cannot be physical (1 s of flight is about 170 m).
 MAX_SANE_ECHO_US = 1_000_000
+#: An echo closer than this many stop thresholds (or blind-zone lines, whichever is larger) is
+#: NEAR: if the channel then goes silent, the object may have entered the sensor's dead zone.
+NEAR_ECHO_FACTOR = 2.0
 #: Seconds between simulated measurement cycles.
 SIM_CYCLE_S = 0.12
 _SIM_BASE_CM = (150.0, 200.0, 200.0, 180.0)
@@ -93,7 +100,9 @@ class LinkState(StrEnum):
 class ChannelStatus(StrEnum):
     OK = "ok"  # fresh echo inside [min_range, max_range]
     STALE = "stale"
-    BLIND_ZONE = "blind_zone"  # echo closer than min_range: something may be right in front
+    #: an echo closer than min_range, or silence right after a NEAR echo (the dead zone): either
+    #: way something may be right in front
+    BLIND_ZONE = "blind_zone"
     NO_ECHO = "no_echo"  # silent line
     OUT_OF_RANGE = "out_of_range"  # pulse beyond max range (or longer than the echo window)
     FAULT = "fault"
@@ -110,7 +119,7 @@ class Verdict(StrEnum):
 
 
 class Health(StrEnum):
-    OK = "ok"  # produced an echo pulse recently
+    OK = "ok"  # newest real echo pulse is a far one, not older than alive_window_s: proof of life
     SILENT = "silent"  # no pulse inside alive_window_s: open air or dead, indistinguishable
     STALE = "stale"
     FAULT = "fault"
@@ -169,6 +178,10 @@ class _Channel:
     measured_at: float | None = None  # host monotonic time the last real measurement arrived
     measured_wall: datetime | None = None
     pulse_at: float | None = None  # host monotonic time of the last real echo pulse
+    #: Host monotonic time of the last real echo that was NEAR (closer than twice the stop
+    #: threshold), None once a far echo has been heard. Deliberately NOT cleared by ``clear()``:
+    #: an object that was right in front before a link blip is still right in front after it.
+    near_at: float | None = None
 
     def clear(self) -> None:
         self.status = None
@@ -219,7 +232,15 @@ def evaluate_channel(
     """Turn what the MCU last said about one channel into status, validity and verdict."""
     age_s = None if ch.measured_at is None else max(0.0, now - ch.measured_at)
     age_ms = None if age_s is None else int(age_s * 1000)
-    alive = ch.pulse_at is not None and (now - ch.pulse_at) <= cfg.alive_window_s
+    # Proof of life: the newest real echo pulse is recent and was NOT a near one (a pulse from
+    # something right in front says nothing about open air). NO_FALL and 0 us are no echo at all.
+    alive = (
+        ch.pulse_at is not None
+        and ch.near_at is None
+        and (now - ch.pulse_at) <= cfg.alive_window_s
+    )
+    # Silence right after a NEAR echo is the dead zone talking, not open air (US-01).
+    near_hold = ch.near_at is not None and (now - ch.near_at) <= cfg.near_hold_s
 
     def make(status, health, verdict, *, valid=False, dist=0.0, clear_to=None):
         return ChannelReading(
@@ -255,15 +276,17 @@ def evaluate_channel(
         if dist < cfg.min_range_cm:
             return make(ChannelStatus.BLIND_ZONE, Health.OK, Verdict.UNKNOWN)
         if dist > cfg.max_range_cm:
-            return _out_of_range(cfg, make, alive)
+            return _out_of_range(cfg, make, alive, near_hold)
         if dist <= threshold_cm:
             return make(ChannelStatus.OK, Health.OK, Verdict.OBSTACLE, valid=True, dist=dist)
         return make(
             ChannelStatus.OK, Health.OK, Verdict.CLEAR, valid=True, dist=dist, clear_to=dist
         )
     if s is proto.EchoStatus.NO_FALL:
-        return _out_of_range(cfg, make, alive)
+        return _out_of_range(cfg, make, alive, near_hold)
     if s is proto.EchoStatus.NO_EDGE:
+        if near_hold:
+            return make(ChannelStatus.BLIND_ZONE, Health.SILENT, Verdict.UNKNOWN)
         health = Health.OK if alive else Health.SILENT
         if cfg.no_echo_is_clear and (alive or not cfg.no_echo_requires_alive):
             return make(ChannelStatus.NO_ECHO, health, Verdict.CLEAR, clear_to=cfg.max_range_cm)
@@ -272,7 +295,11 @@ def evaluate_channel(
     return make(ChannelStatus.FAULT, Health.FAULT, Verdict.UNKNOWN)
 
 
-def _out_of_range(cfg: UltrasonicConfig, make: Callable[..., ChannelReading], alive: bool):
+def _out_of_range(
+    cfg: UltrasonicConfig, make: Callable[..., ChannelReading], alive: bool, near_hold: bool
+):
+    if near_hold:
+        return make(ChannelStatus.BLIND_ZONE, Health.SILENT, Verdict.UNKNOWN)
     if cfg.out_of_range_is_clear and alive:
         return make(ChannelStatus.OUT_OF_RANGE, Health.OK, Verdict.CLEAR, clear_to=cfg.max_range_cm)
     return make(ChannelStatus.OUT_OF_RANGE, Health.OK if alive else Health.SILENT, Verdict.UNKNOWN)
@@ -618,10 +645,13 @@ class JsnSr04tMcuDriver(HardwareDriver):
         ch.t_ms = r.t_ms
         ch.measured_at = now
         ch.measured_wall = wall
-        if status is proto.EchoStatus.NO_FALL or (
-            status is proto.EchoStatus.OK and 0 < r.echo_us <= MAX_SANE_ECHO_US
-        ):
+        if status is proto.EchoStatus.OK and 0 < r.echo_us <= MAX_SANE_ECHO_US:
+            # A complete echo pulse is the only proof of life (NO_FALL is no echo: a line stuck
+            # high looks the same). Remember whether it came from something right in front.
             ch.pulse_at = now
+            near_line_cm = NEAR_ECHO_FACTOR * max(self.cfg.min_range_cm, self.obstacle_threshold_cm)
+            near = echo_to_cm(r.echo_us, self.cfg.speed_of_sound_mps) < near_line_cm
+            ch.near_at = now if near else None
         if self.reading_hook is not None:
             try:
                 self.reading_hook(r, wall)

@@ -201,7 +201,10 @@ class UltrasonicConfig(BaseModel):
     alive_window_s: float = Field(
         default=10.0,
         gt=0.0,
-        description="A channel counts as alive if it produced any echo pulse within this window",
+        description=(
+            "A channel counts as alive if its newest real echo pulse is not a NEAR one (see "
+            "near_hold_s) and is not older than this window"
+        ),
     )
     out_of_range_is_clear: bool = Field(
         default=False,
@@ -220,6 +223,18 @@ class UltrasonicConfig(BaseModel):
             "With no_echo_is_clear, still require a real echo pulse within alive_window_s, so a "
             "sensor that dies stops reading clear. Set false only if M-40 shows a healthy sensor "
             "emits no pulse in open air AND something else covers a dead sensor"
+        ),
+    )
+    near_hold_s: float = Field(
+        default=30.0,
+        ge=5.0,
+        le=600.0,
+        allow_inf_nan=False,
+        description=(
+            "A channel whose last real echo was NEAR (closer than twice the stop threshold) and "
+            "that then goes silent reads UNKNOWN (blind zone) for this long, or until it hears a "
+            "far echo, whatever the *_is_clear flags say: an object that enters the sensor's "
+            "dead zone is silent too"
         ),
     )
 

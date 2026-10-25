@@ -30,11 +30,14 @@ from tests.unit._usonic_fakes import (
     FakeClock,
     FakeMcuFactory,
     SensorModel,
+    approach_then_silence,
     corrupt_length,
     drop,
     flip_crc_bit,
     flip_payload_bit,
+    scripted,
     truncate,
+    us,
     with_garbage,
 )
 from tests.unit._usonic_fakes import P as fw
@@ -247,14 +250,18 @@ async def test_a_fault_is_never_cleared_by_any_policy_flag():
     assert rig.driver.obstacle_verdict()["state"] == "unknown"
 
 
-async def test_no_fall_pulse_is_out_of_range_and_follows_the_out_of_range_policy():
+async def test_no_fall_pulse_alone_is_out_of_range_and_unknown_even_if_out_of_range_is_trusted():
+    # US-10: a pulse that never ends is what a shorted ECHO line looks like. Nothing else
+    # vouches for this sensor, so even the owner's out_of_range_is_clear flag cannot clear it
+    # (the case where it can is test_a_long_echo_from_a_channel_that_also_hears_in_range_echoes...).
     models = four_clear()
     models[3] = SensorModel(mode="no_fall")
     rig = await booted(sensors=models)
     assert rig.ch("outer_right").status is ChannelStatus.OUT_OF_RANGE
     assert rig.ch("outer_right").verdict is Verdict.UNKNOWN
     rig2 = await booted(sensors=models, cfg={"out_of_range_is_clear": True})
-    assert rig2.ch("outer_right").verdict is Verdict.CLEAR
+    assert rig2.ch("outer_right").status is ChannelStatus.OUT_OF_RANGE
+    assert rig2.ch("outer_right").verdict is Verdict.UNKNOWN
 
 
 # ---- a dead sensor among live ones ------------------------------------------------------------
@@ -788,3 +795,156 @@ async def test_health_report_is_json_and_carries_the_diagnostics_an_operator_nee
     assert report["stats"]["crc_errors"] == 2
     assert set(report["channels"]) == set(NAMES)
     assert report["channels"]["outer_left"]["status"] == "ok"
+
+
+# ---- US-01: an approached obstacle that goes silent is the dead zone, not open air ------------
+
+OK, NO_EDGE, NO_FALL = fw.ST_OK, fw.ST_NO_EDGE, fw.ST_NO_FALL
+WINDOW_US = 30_000  # echo window of the default configuration
+
+
+def trace(rig: Rig, seconds: float, name: str = "outer_left"):
+    """``(seconds since the call, channel reading, aggregate state)`` after every 20 ms poll."""
+    t0, rows = rig.clock.now(), []
+    rig.step(
+        seconds,
+        each=lambda: rows.append(
+            (rig.clock.now() - t0, rig.ch(name), rig.driver.obstacle_verdict()["state"])
+        ),
+    )
+    return rows
+
+
+POLICIES = {
+    "shipped": {},
+    "silent_is_clear_if_alive": {"no_echo_is_clear": True},
+    "silent_is_clear_always": {"no_echo_is_clear": True, "no_echo_requires_alive": False},
+    "everything_trusted": {
+        "no_echo_is_clear": True,
+        "no_echo_requires_alive": False,
+        "out_of_range_is_clear": True,
+    },
+}
+
+
+@pytest.mark.parametrize("policy", list(POLICIES.values()), ids=list(POLICIES))
+async def test_silence_right_after_a_near_echo_is_the_dead_zone_never_clear_whatever_the_policy(
+    policy,
+):
+    cfg = {**policy, "near_hold_s": 6.0}
+    sensors = [approach_then_silence(), echo(200), echo(200), echo(200)]
+    rig = await Rig(sensors=sensors, cfg=cfg).boot()
+    rig.step(2.2)  # the wall is approached; the last real echo is at 28 cm, then the line is silent
+    assert rig.ch("outer_left").echo_us == 0, "scenario broken: the MCU should report silence now"
+    for t, c, aggregate in trace(rig, 5.0):  # still inside the 6 s hold
+        got = (c.status, c.verdict, c.valid, c.clear_to_cm)
+        want = (ChannelStatus.BLIND_ZONE, Verdict.UNKNOWN, False, None)
+        assert got == want, f"t={t:.2f}s: silence after a 28 cm echo read {got}"
+        assert aggregate != "clear"
+
+
+async def test_after_the_hold_silence_reads_clear_only_if_the_owner_trusts_silence():
+    base = {"no_echo_is_clear": True, "near_hold_s": 6.0}
+
+    def sensors():
+        return [approach_then_silence(), echo(200), echo(200), echo(200)]
+
+    trusting = await Rig(sensors=sensors(), cfg={**base, "no_echo_requires_alive": False}).boot()
+    gated = await Rig(sensors=sensors(), cfg=base).boot()
+    for rig in (trusting, gated):
+        rig.step(2.2 + 6.0 + 0.5)  # the hold (6 s after the last echo) is over
+    c = trusting.ch("outer_left")
+    # the owner's explicit risk, but no_echo_is_clear is not useless once the hold has passed
+    assert (c.status, c.verdict) == (ChannelStatus.NO_ECHO, Verdict.CLEAR)
+    c = gated.ch("outer_left")
+    # pulses of a NEAR echo are no proof that the sensor looks at open air: not alive, not clear
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.NO_ECHO, False, Verdict.UNKNOWN)
+    assert c.health is Health.SILENT
+
+
+async def test_a_real_far_echo_ends_the_hold_at_once_and_open_air_can_read_clear_again():
+    script = scripted(
+        *[(OK, us(100))] * 2, *[(OK, us(28))] * 2, *[(NO_EDGE, 0)] * 3, (OK, us(150)), (NO_EDGE, 0)
+    )
+    sensors = [script, echo(200), echo(200), echo(200)]
+    rig = await Rig(sensors=sensors, cfg={"no_echo_is_clear": True}).boot()
+    rows = trace(rig, 4.0)
+    silent = next(i for i, (_, c, _) in enumerate(rows) if c.echo_us == 0)
+    far = next(i for i, (_, c, _) in enumerate(rows) if abs(c.distance_cm - 150.0) < 0.2)
+    assert silent < far
+    for t, c, aggregate in rows[silent:far]:  # latched until the far echo itself arrives
+        assert (c.status, c.verdict) == (ChannelStatus.BLIND_ZONE, Verdict.UNKNOWN), f"t={t:.2f}"
+        assert aggregate != "clear"
+    c = rows[far][1]
+    assert (c.status, c.valid, c.verdict) == (ChannelStatus.OK, True, Verdict.CLEAR)
+    c = rows[-1][1]  # silent again, but the far echo was proof of life: the owner's policy applies
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.NO_ECHO, True, Verdict.CLEAR)
+
+
+# ---- US-10: only a real echo is proof of life --------------------------------------------------
+
+
+async def test_a_line_stuck_high_is_neither_proof_of_life_nor_clear_if_out_of_range_is_trusted():
+    models = four_clear()
+    models[3] = SensorModel(mode="no_fall")  # ECHO shorted high == "pulse longer than the window"
+    rig = await booted(sensors=models, cfg={"out_of_range_is_clear": True})
+    rig.step(2.0)
+    c = rig.ch("outer_right")
+    assert (c.status, c.alive, c.health) == (ChannelStatus.OUT_OF_RANGE, False, Health.SILENT)
+    assert c.verdict is Verdict.UNKNOWN and c.clear_to_cm is None
+    assert rig.driver.obstacle_verdict()["state"] == "unknown"
+
+
+async def test_no_fall_pulses_never_make_a_silent_channel_alive():
+    models = four_clear()
+    models[2] = scripted(*[(NO_FALL, WINDOW_US)] * 4, (NO_EDGE, 0))
+    rig = await booted(sensors=models, cfg={"no_echo_is_clear": True})
+    rig.step(2.0)
+    c = rig.ch("inner_right")
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.NO_ECHO, False, Verdict.UNKNOWN)
+
+
+async def test_a_long_echo_from_a_channel_that_also_hears_in_range_echoes_follows_the_policy():
+    models = four_clear()
+    models[1] = scripted(*[(OK, us(200))] * 3, (NO_FALL, WINDOW_US))
+    rig = await booted(sensors=models, cfg={"out_of_range_is_clear": True})
+    rig.step(1.0)  # the three in-range echoes are played first, then the line never falls
+    c = rig.ch("inner_left")
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.OUT_OF_RANGE, True, Verdict.CLEAR)
+    assert c.clear_to_cm == 400.0
+
+
+async def test_a_zero_width_ok_pulse_is_a_fault_and_never_proof_of_life():
+    models = four_clear()
+    models[0] = scripted(*[(OK, 0)] * 4, (NO_EDGE, 0))
+    rig = await Rig(sensors=models, cfg={"no_echo_is_clear": True}).boot()
+    rows = trace(rig, 2.5)
+    assert any(c.status is ChannelStatus.FAULT for _, c, _ in rows), "the 0 us pulses never arrived"
+    assert not any(c.alive for _, c, _ in rows), "a 0 us pulse is not an echo"
+    c = rows[-1][1]
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.NO_ECHO, False, Verdict.UNKNOWN)
+
+
+async def test_the_max_range_boundary_is_inclusive_and_a_hair_beyond_is_out_of_range():
+    models = [scripted((OK, us(400.0))), scripted((OK, us(400.1))), echo(200), echo(200)]
+    rig = await booted(sensors=models)
+    at, beyond = rig.ch("outer_left"), rig.ch("inner_left")
+    assert (at.status, at.valid, at.distance_cm, at.verdict) == (
+        ChannelStatus.OK, True, 400.0, Verdict.CLEAR,
+    )  # fmt: skip
+    assert at.clear_to_cm == 400.0
+    assert (beyond.status, beyond.valid, beyond.distance_cm, beyond.verdict) == (
+        ChannelStatus.OUT_OF_RANGE, False, 0.0, Verdict.UNKNOWN,
+    )  # fmt: skip
+
+
+# ---- D25: nothing fitted is never a clear path -------------------------------------------------
+
+
+async def test_with_no_channel_fitted_the_aggregate_is_unknown_never_clear():
+    rig = await booted(cfg={"disabled_channels": NAMES})
+    agg = rig.driver.obstacle_verdict()
+    assert rig.driver.link_state is LinkState.ACTIVE
+    assert agg["state"] == "unknown" and agg["reasons"] == ["no fitted channels"]
+    assert agg["min_cm"] is None
+    assert all(c["verdict"] == "disabled" for c in agg["channels"])
