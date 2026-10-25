@@ -152,3 +152,25 @@ async def test_reading_dataclass_fields():
     assert reading.distance_cm == 100.0
     assert reading.valid is True
     assert reading.timestamp is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("meters", "valid"),
+    [(0.01, False), (0.02, True), (1.5, True), (4.0, True), (4.01, False), (9.0, False)],
+)
+async def test_a_gpiozero_reading_outside_the_sensors_range_is_not_valid(
+    monkeypatch, meters, valid
+):
+    # the upper bound too: 9 m is not a distance an HC-SR04 can measure, so it must never read as
+    # a clear path of 9 m
+    from types import SimpleNamespace
+
+    import backend.src.drivers.sensors.ultrasonic_driver as legacy
+
+    monkeypatch.setattr(legacy, "is_simulation_mode", lambda: False)
+    legacy_driver = UltrasonicDriver()
+    legacy_driver.initialized = True
+    legacy_driver._gpiozero_sensors = {"front_center": SimpleNamespace(distance=meters)}
+    reading = await legacy_driver.read_distance("front_center")
+    assert reading.valid is valid

@@ -105,6 +105,13 @@ def test_host_to_mcu_payload_builders_match_the_firmware_parsers():
     assert fw.unpack_ping(host.build_ping(0xCAFEBABE)) == {"nonce": 0xCAFEBABE}
 
 
+@pytest.mark.parametrize("nonce", [0, 1, 0xFFFF, 0x1_0000, 0xDEADBEEF, 0xFFFFFFFF])
+def test_the_ping_nonce_keeps_all_32_bits_in_both_codecs(nonce):
+    assert fw.pack_ping(nonce) == host.build_ping(nonce)
+    assert fw.unpack_ping(fw.pack_ping(nonce)) == {"nonce": nonce}
+    assert host.build_ping(nonce + (1 << 32)) == host.build_ping(nonce)  # taken modulo 2**32
+
+
 def test_payload_sizes_agree_and_fit_the_frame_limit():
     assert {int(k): v for k, v in host.PAYLOAD_SIZES.items()} == fw.PAYLOAD_SIZES
     assert max(host.PAYLOAD_SIZES.values()) <= host.MAX_PAYLOAD
@@ -240,6 +247,24 @@ def test_quiet_line_with_a_pending_bogus_frame_releases_the_good_frames_behind_i
         assert feed(dec, b"", 0.3) == [2]  # quiet for 0.24 s: flush finds the hidden frame
         assert dec.partial_timeouts == 1
         assert feed(dec, _reading_frame(3), 0.31) == [3]  # the decoder is clean again
+
+
+def test_the_quiet_timeout_is_exceeded_only_by_a_line_that_was_quiet_for_more_than_it():
+    for dec, feed in (
+        (host.FrameDecoder(partial_timeout=0.5), lambda d, b, t: [f.seq for f in d.feed(b, t)]),
+        (fw.Decoder(partial_timeout=0.5), lambda d, b, t: [f[2] for f in d.feed(b, t)]),
+    ):
+        bad = bytearray(_reading_frame(1))
+        bad[5] = 40
+        assert feed(dec, bytes(bad), 1.0) == []
+        assert feed(dec, b"", 1.5) == [] and dec.partial_timeouts == 0  # exactly the timeout
+        assert feed(dec, b"", 1.5001) == [] and dec.partial_timeouts == 1  # a hair beyond it
+
+
+@pytest.mark.parametrize("fails", [255, 256, 300, 1000])
+def test_a_failure_count_saturates_at_255_and_never_wraps_to_a_healthy_looking_small_number(fails):
+    wire = fw.unpack_reading(fw.pack_reading(0, 1, 1, fails, 0, 0, 0))
+    assert wire["fails"] == 255
 
 
 def test_without_the_quiet_timeout_a_bogus_length_holds_good_frames_hostage():
