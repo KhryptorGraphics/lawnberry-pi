@@ -84,8 +84,7 @@ def test_a_hang_in_an_async_fixture_teardown_fails_that_test_and_the_run_goes_on
 def test_the_shipped_bound_is_a_real_one(tmp_path):
     """The ``timeout`` of ``pyproject.toml``, as pytest itself resolves it, is finite and short."""
     (tmp_path / "test_probe.py").write_text(
-        "def test_probe(request):\n"
-        "    print('BOUND=' + str(request.config.getini('timeout')))\n"
+        "def test_probe(request):\n    print('BOUND=' + str(request.config.getini('timeout')))\n"
     )
 
     done = _pytest(tmp_path, "-s", str(tmp_path / "test_probe.py"))
