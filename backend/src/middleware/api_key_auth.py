@@ -9,6 +9,9 @@ Configuration via environment variables:
 - API_KEY_PATH_PREFIXES: comma-separated list of prefixes to protect
 
 The feature is off by default to avoid breaking user-facing flows.
+
+The three E-stop POSTs (``emergency_paths.py``) are never asked for a key, whatever prefixes are
+configured: a stop that answers 401 is worse than none.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
 from ..core.secrets_manager import SecretsManager
+from .emergency_paths import is_emergency_stop_scope
 
 
 class APIKeyAuthMiddleware(BaseHTTPMiddleware):
@@ -31,6 +35,11 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         self._secrets = SecretsManager()
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        # The E-stop POSTs are open by design (``emergency_paths``): a key requirement on them,
+        # reachable with one ``API_KEY_PATH_PREFIXES=/api/v2`` line, turned every stop into a 401.
+        if is_emergency_stop_scope(request.scope):
+            return await call_next(request)
+
         path = request.url.path
         if not any(path.startswith(p) for p in self._prefixes):
             return await call_next(request)
