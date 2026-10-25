@@ -139,14 +139,16 @@ async def test_the_oldest_entry_is_evicted_at_the_cap(monkeypatch, stop_calls):
 
 
 @pytest.mark.parametrize(
-    ("path", "payload"),
+    ("path", "payload", "unblocked"),
     [
-        ("/api/v2/control/drive", {"mode": "arcade", "throttle": 0.1, "turn": 0.0}),
-        ("/api/v2/control/blade", {"active": True}),
+        ("/api/v2/control/drive", {"mode": "arcade", "throttle": 0.1, "turn": 0.0}, 200),
+        # The blade route answers what the IBT-4 did (HW-02): the E-stop latch refuses an ON (409),
+        # which is not the per-client block (403) this test is about.
+        ("/api/v2/control/blade", {"active": True}, 409),
     ],
 )
 async def test_followup_command_is_blocked_for_the_same_client_only(
-    monkeypatch, stop_calls, path, payload
+    monkeypatch, stop_calls, path, payload, unblocked
 ):
     clock = _Clock()
     monkeypatch.setattr(rest_module, "time", clock)
@@ -158,8 +160,8 @@ async def test_followup_command_is_blocked_for_the_same_client_only(
         clock.now += 1.0
         later = await client.post(path, json=payload, headers={"X-Client-Id": "alice"})
     assert mine.status_code == 403
-    assert other.status_code == 200
-    assert later.status_code == 200
+    assert other.status_code == unblocked
+    assert later.status_code == unblocked
 
 
 async def test_authorization_header_identifies_the_client_too(monkeypatch, stop_calls):
