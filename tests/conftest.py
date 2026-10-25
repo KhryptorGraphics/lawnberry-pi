@@ -158,3 +158,20 @@ def _stale_heading_does_not_leak_between_tests():
         nav.navigation_state.heading_updated_at = None
         nav._last_imu_stamp = None
     yield
+
+
+@pytest.fixture(autouse=True)
+def _process_latches_do_not_leak_between_tests():
+    """A latch one test set in the process-wide state must not be in force for the next.
+
+    The status routes report the real safety state (audit SAF-13), so an E-stop or an IBT-4
+    blade latch an earlier test left set (the E-stop routes) would now show up in every later
+    status read; the safety state and the blade service are rebuilt for each test instead.
+    """
+    from backend.src.core import globals as core_globals
+    from backend.src.services import blade_service
+
+    core_globals._safety_state["emergency_stop_active"] = False
+    core_globals._client_emergency.clear()
+    blade_service._blade_service = None
+    yield
