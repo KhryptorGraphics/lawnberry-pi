@@ -28,7 +28,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 import random
 import time
 from collections.abc import Awaitable, Callable
@@ -379,9 +378,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
 
     async def initialize(self) -> None:
         self.simulated = (
-            self._simulate_arg
-            if self._simulate_arg is not None
-            else (is_simulation_mode() or os.environ.get("SIM_MODE") == "1")
+            self._simulate_arg if self._simulate_arg is not None else is_simulation_mode()
         )
         if self.simulated:
             self.link_state = LinkState.ACTIVE

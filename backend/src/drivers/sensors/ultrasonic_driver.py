@@ -18,7 +18,6 @@ ECHO pins require voltage dividers (5V to 3.3V) - see docs/ultrasonic-wiring-gui
 from __future__ import annotations
 
 import asyncio
-import os
 import random
 import time
 from dataclasses import dataclass, field
@@ -102,7 +101,7 @@ class UltrasonicDriver(HardwareDriver):
 
     async def initialize(self) -> None:
         """Initialize GPIO pins for ultrasonic sensors."""
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             # Initialize simulated obstacle positions
             self._sim_obstacles = {
                 "front_left": 150.0,
@@ -190,12 +189,12 @@ class UltrasonicDriver(HardwareDriver):
                 for k, v in self._last_readings.items()
             },
             "gpio_backend": self._get_gpio_backend(),
-            "simulation": is_simulation_mode() or os.environ.get("SIM_MODE") == "1",
+            "simulation": is_simulation_mode(),
         }
 
     def _get_gpio_backend(self) -> str:
         """Return which GPIO backend is in use."""
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             return "simulation"
         if self._gpio_handle is not None:
             return "lgpio"
@@ -227,7 +226,7 @@ class UltrasonicDriver(HardwareDriver):
             )
 
         # Simulation mode
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             reading = self._simulate_reading(sensor_id)
             self._last_readings[sensor_id] = reading
             return reading

@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 def _sim() -> bool:
-    return is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
+    return is_simulation_mode()
 
 
 def _i2c_ack(bus: int | None, addresses: list[int]) -> bool:
