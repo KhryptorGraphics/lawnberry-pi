@@ -161,3 +161,75 @@ async def test_a_dead_service_loop_still_ages_out_into_a_hold(monkeypatch):
     ticks = await s.run(2.0, dt=0.05, poll=False, read=False)  # nothing polls the driver any more
     assert ticks[-1].hold and set(ticks[-1].faults) >= {"ultrasonic:outer_left"}
     assert not any(a.hold for a in ticks[:2]), "the first 100 ms of data are still fresh"
+
+
+# ---- guard intake (G04 / G06 / G07 / G10): what the guard does with the entries it is given ----
+
+
+class Tampered:
+    """The REAL interface with one key of one channel's entry changed (a corrupted entry)."""
+
+    def __init__(self, iface, channel: str, **changes):
+        self._iface, self._channel, self._changes = iface, channel, changes
+
+    @property
+    def channel_ids(self):
+        return self._iface.channel_ids
+
+    @property
+    def last_readings(self):
+        return [
+            {**e, **self._changes} if e["sensor_id"] == self._channel else e
+            for e in self._iface.last_readings
+        ]
+
+
+def tamper(channel: str, **changes):
+    return lambda iface: Tampered(iface, channel, **changes)
+
+
+async def test_g04_an_entry_whose_valid_flag_is_not_true_is_never_taken_as_a_measured_range(
+    monkeypatch,
+):
+    sensors = [far(150), far(), far(), far()]
+    s = await stack(monkeypatch, sensors, wrap=tamper("outer_left", valid=False))
+    last = (await s.run(4.0))[-1]
+    # outer_left (150 cm, verdict clear) is a clear-horizon observation, not a range: the nearest
+    # measured range is the 2.0 m of the other channels, not 1.5 m
+    assert last.nearest_m == pytest.approx(2.0)
+    assert not last.hold
+
+
+async def test_g10_a_valid_entry_without_a_distance_is_unknown_never_clear(monkeypatch):
+    sensors = [far(150), far(), far(), far()]
+    s = await stack(monkeypatch, sensors, wrap=tamper("outer_left", distance_cm=None))
+    last = (await s.run(4.0))[-1]
+    assert last.hold and OUTER_LEFT in last.faults
+    assert f"{OUTER_LEFT}: valid reading without a distance" in last.reasons
+
+
+async def test_g07_the_ultrasonic_enabled_gate_keeps_a_switched_off_array_out_of_the_guard(
+    monkeypatch,
+):
+    on = await stack(monkeypatch, [far()] * 4)
+    await on.run(1.0)
+    assert OUTER_LEFT in on.guard.sources  # enabled: every fitted channel is a required source
+    off = await stack(monkeypatch, [far()] * 4)
+    off.manager.ultrasonic_enabled = False  # the master switch in limits.yaml is off
+    await off.run(1.0)
+    assert not [name for name in off.guard.sources if name.startswith("ultrasonic:")]
+
+
+async def test_g06_the_guard_ages_a_valid_range_entry_by_its_own_timestamp(monkeypatch):
+    # stale_after_ms 5 s: the INTERFACE keeps calling the frozen data valid, so only the guard's
+    # own max_reading_age_s (1 s) can stop it. Re-stamping it as "just measured" would never.
+    s = await stack(monkeypatch, [far(150), far(), far(), far(180)], cfg={"stale_after_ms": 5000})
+    assert not (await s.run(4.0))[-1].hold
+    t_quiet = s.clock.now()  # from here on nothing reaches the driver
+    for _ in range(40):
+        a = await s.tick(0.05, poll=False, read=False)
+        if a.hold:
+            break
+    assert a.hold and 0.6 < s.clock.now() - t_quiet < 1.3
+    assert any("stale" in reason for reason in a.reasons)
+    assert all(e["valid"] and e["status"] == "ok" for e in s.iface.last_readings)

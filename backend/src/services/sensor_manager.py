@@ -849,14 +849,25 @@ class UltrasonicSensorInterface:
             return False
 
     def _refresh_status(self) -> None:
-        from ..drivers.sensors.jsn_sr04t_driver import LinkState
+        """Link state AND channel health (US-08): ONLINE only while every fitted channel serves.
 
-        if self._driver.link_ok():
-            self.status = SensorStatus.ONLINE
-        elif self._driver.link_state is LinkState.FAULT:
-            self.status = SensorStatus.ERROR
-        else:
-            self.status = SensorStatus.OFFLINE
+        "Serving" = it measured something (an echo, a blind-zone or an out-of-range one) or the
+        owner's policy vouches for its silence. A silent, stale, faulted or never-heard channel is
+        not serving: a degraded array reads ERROR (there is no DEGRADED), never ONLINE.
+        """
+        from ..drivers.sensors.jsn_sr04t_driver import ChannelStatus, LinkState, Verdict
+
+        if not self._driver.link_ok():
+            if self._driver.link_state is LinkState.FAULT:
+                self.status = SensorStatus.ERROR
+            else:
+                self.status = SensorStatus.OFFLINE
+            return
+        fitted = [c for c in self._driver.snapshot() if c.verdict is not Verdict.DISABLED]
+        measuring = (ChannelStatus.OK, ChannelStatus.BLIND_ZONE, ChannelStatus.OUT_OF_RANGE)
+        serving = [c for c in fitted if c.status in measuring or c.verdict is Verdict.CLEAR]
+        healthy = bool(fitted) and len(serving) == len(fitted)
+        self.status = SensorStatus.ONLINE if healthy else SensorStatus.ERROR
 
     async def read_ultrasonic(self) -> list[dict[str, Any]]:
         """Read all ultrasonic channels (one entry each, always; see the class docstring)."""

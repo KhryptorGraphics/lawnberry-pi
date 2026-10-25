@@ -90,10 +90,16 @@ SerialFactory = Callable[[str, int], SerialTransport]
 
 
 def open_pyserial(port: str, baudrate: int) -> SerialTransport:
-    """Default transport. ``pyserial`` is imported here, never at module import."""
+    """Default transport. ``pyserial`` is imported here, never at module import.
+
+    Opened exclusively (advisory ``flock``, pyserial >= 3.3): a second opener that asks for
+    exclusivity too (the bench probe, another ``SensorManager``) fails with a reported
+    ``open_failed`` instead of splitting the byte stream. A process that ignores the lock is not
+    stopped by it.
+    """
     import serial  # type: ignore
 
-    return serial.Serial(port=port, baudrate=baudrate, timeout=0, write_timeout=0.2)
+    return serial.Serial(port=port, baudrate=baudrate, timeout=0, write_timeout=0.2, exclusive=True)
 
 
 class LinkState(StrEnum):
@@ -225,6 +231,7 @@ class LinkStats:
     garbage_bytes: int = 0
     partial_timeouts: int = 0
     readings_stale_mcu: int = 0  # readings refused: older than the MCU's newest, or a replay
+    config_drifts: int = 0  # the MCU ran a configuration other than the verified one (US-06)
 
 
 def echo_to_cm(echo_us: float, speed_of_sound_mps: float) -> float:
@@ -330,38 +337,39 @@ def sector_distances(readings: list[dict[str, Any]]) -> dict[str, Any]:
     """Map per-channel entries onto the three sectors the AI model input and datasets use.
 
     Four JSN-SR04T (MCU order ``outer_left, inner_left, inner_right, outer_right``): left is
-    ``outer_left``, right is ``outer_right`` and centre is the nearer valid one of the two inner
-    sensors. The legacy HC-SR04 ids ``front_left/front_center/front_right`` map one to one. A
-    sector without a fresh valid echo is 0.0: the AI path reads 0.0 as an obstacle at 0 cm, which
-    keeps it fail-closed (audit N-25). ``min_distance_cm`` is the nearest valid echo, 0.0 if none.
+    ``outer_left``, right is ``outer_right`` and centre is the nearer of the two inner sensors. The
+    legacy HC-SR04 ids ``front_left/front_center/front_right`` map one to one. Fail closed (audit
+    N-25: the AI path reads 0.0 as an obstacle at 0 cm): a sector reads 0.0 unless EVERY fitted
+    channel feeding it has a fresh valid echo, so the centre needs BOTH inner sensors and a dead
+    or blind channel is never hidden by its healthy neighbour; a sector with no fitted channel
+    reads 0.0. ``min_distance_cm`` is the nearest valid echo, but 0.0 as soon as any fitted
+    channel is invalid (and when none is fitted). Disabled (not fitted) channels do not count.
     The 3-sector input contract is the existing model's; it is not validated for four sensors.
     """
-    valid = {
-        r["sensor_id"]: float(r["distance_cm"])
-        for r in readings
-        if r.get("valid") and r.get("sensor_id")
-    }
+    rows = {r["sensor_id"]: r for r in readings if r.get("sensor_id")}
+    disabled = {s for s, r in rows.items() if "disabled" in (r.get("verdict"), r.get("status"))}
+    fitted = [s for s in rows if s not in disabled]
+    valid = {s: float(rows[s]["distance_cm"]) for s in fitted if rows[s].get("valid")}
 
-    def pick(*ids: str) -> float:
-        found = [valid[i] for i in ids if i in valid]
-        return min(found) if found else 0.0
+    def sector(*ids: str) -> float:
+        feeding = [i for i in ids if i not in disabled]
+        if not feeding or any(i not in valid for i in feeding):
+            return 0.0
+        return min(valid[i] for i in feeding)
 
-    if any(
-        r.get("sensor_id") in ("outer_left", "inner_left", "inner_right", "outer_right")
-        for r in readings
-    ):
+    if any(s in ("outer_left", "inner_left", "inner_right", "outer_right") for s in rows):
         left, centre, right = (
-            pick("outer_left"),
-            pick("inner_left", "inner_right"),
-            pick("outer_right"),
+            sector("outer_left"),
+            sector("inner_left", "inner_right"),
+            sector("outer_right"),
         )
     else:
-        left, centre, right = pick("front_left"), pick("front_center"), pick("front_right")
+        left, centre, right = sector("front_left"), sector("front_center"), sector("front_right")
     return {
         "front_left_cm": left,
         "front_center_cm": centre,
         "front_right_cm": right,
-        "min_distance_cm": min(valid.values()) if valid else 0.0,
+        "min_distance_cm": min(valid.values()) if fitted and len(valid) == len(fitted) else 0.0,
         "channels_cm": [float(r["distance_cm"]) if r.get("valid") else 0.0 for r in readings],
     }
 
@@ -624,7 +632,10 @@ class JsnSr04tMcuDriver(HardwareDriver):
                 ch.clear()
             self._reset_mcu_clock()
         if self.link_state is LinkState.ACTIVE and not rebooted:
-            return  # heartbeat
+            wanted = self.expected_mcu_config().enable_mask
+            if info.enable_mask == wanted:
+                return  # heartbeat
+            self._config_drift(f"INFO enable_mask 0x{info.enable_mask:02x}, want 0x{wanted:02x}")
         self._send_config(now)
 
     def _send_config(self, now: float) -> None:
@@ -648,8 +659,28 @@ class JsnSr04tMcuDriver(HardwareDriver):
             quiet_after=DEFAULT_QUIET_AFTER,
         )
 
+    def _config_drift(self, why: str) -> None:
+        """The MCU is not running the configuration the host verified (a second opener wrote it).
+
+        The caller drops back to the handshake (CONFIG is re-sent on the same port, no reconnect);
+        readings are ignored until it is acknowledged again, and nothing from before survives.
+        """
+        self.stats.config_drifts += 1
+        self.last_error = self.link_fault = f"config_drift: {why}"
+        logger.warning("ultrasonic MCU configuration drifted (%s): re-sending CONFIG", why)
+        for ch in self._channels:
+            ch.clear()
+
     def _on_config_ack(self, ack: proto.McuConfig, now: float) -> None:
-        if self.link_state is not LinkState.HANDSHAKE or self._requested is None:
+        if self._requested is None:
+            return
+        if self.link_state is LinkState.ACTIVE:
+            # A CONFIG_ACK nobody here asked for: someone else wrote the MCU's configuration.
+            if ack != self._requested:
+                self._config_drift(f"CONFIG_ACK {ack}, requested {self._requested}")
+                self._send_config(now)
+            return
+        if self.link_state is not LinkState.HANDSHAKE:
             return
         if ack != self._requested:
             self._set_fault(f"config_mismatch: asked {self._requested}, mcu applied {ack}")

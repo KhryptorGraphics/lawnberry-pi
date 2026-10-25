@@ -288,19 +288,16 @@ def test_four_sensors_map_to_the_three_model_sectors_with_the_nearer_inner_in_th
     }  # fmt: skip
 
 
-def test_a_sector_without_a_valid_echo_reads_zero_which_the_ai_path_treats_as_an_obstacle():
+def test_a_sector_fed_by_a_channel_without_a_valid_echo_reads_zero_fail_closed():
     out = sector_distances(
         [
             entry("outer_left", 0.0, valid=False), entry("inner_left", 140.0),
             entry("inner_right", 0.0, valid=False), entry("outer_right", 0.0, valid=False),
         ]
     )  # fmt: skip
-    assert (out["front_left_cm"], out["front_center_cm"], out["front_right_cm"]) == (
-        0.0,
-        140.0,
-        0.0,
-    )
-    assert out["min_distance_cm"] == 140.0
+    # the centre needs BOTH inner sensors: the valid one must not hide the dead one (US-09)
+    assert (out["front_left_cm"], out["front_center_cm"], out["front_right_cm"]) == (0.0, 0.0, 0.0)
+    assert out["min_distance_cm"] == 0.0
     assert out["channels_cm"] == [0.0, 140.0, 0.0, 0.0]
     none_valid = sector_distances([entry(n, 0.0, valid=False) for n in NAMES])
     assert none_valid["min_distance_cm"] == 0.0 and none_valid["front_center_cm"] == 0.0
@@ -505,3 +502,81 @@ async def test_legacy_aggregate_needs_every_fitted_channel_valid_to_be_clear():
     near = legacy_iface(20.0, None, 150.0)  # an obstacle beats an unknown
     await near.read_ultrasonic()
     assert near.obstacle_verdict()["state"] == "obstacle"
+
+
+# ---- US-08: ONLINE only while every fitted channel is serving ---------------------------------
+
+
+async def test_status_is_online_only_while_every_fitted_channel_is_serving():
+    models = [SensorModel(mode=m) for m in ("silent", "stuck", "error", "silent")]
+    _c, _f, dead = await active(sensors=models)  # reviewer exp e10: the link is fine, nothing else
+    await dead.read_ultrasonic()
+    assert dead.status == SensorStatus.ERROR
+    models = [SensorModel(distance_cm=100.0)] * 3 + [SensorModel(mode="silent")]
+    _c, _f, degraded = await active(sensors=models)  # one dead channel of four stays visible
+    await degraded.read_ultrasonic()
+    assert degraded.status == SensorStatus.ERROR
+    _c, _f, fitted = await active(sensors=models, disabled_channels=["outer_right"])
+    await fitted.read_ultrasonic()  # the silent one is not fitted: it is not a dead channel
+    assert fitted.status == SensorStatus.ONLINE
+    models = [SensorModel(distance_cm=d) for d in (12.0, 450.0, 100.0, 100.0)]
+    _c, _f, working = await active(sensors=models, echo_window_ms=40)
+    await working.read_ultrasonic()  # blind-zone and out-of-range channels did measure something
+    assert working.status == SensorStatus.ONLINE
+    _c, _f, nothing = await active(disabled_channels=NAMES)
+    await nothing.read_ultrasonic()
+    assert nothing.status == SensorStatus.ERROR  # nothing fitted can never be online
+
+
+# ---- US-09: a dead or blind channel is not hidden by its healthy neighbour --------------------
+
+
+def test_the_centre_sector_needs_both_inner_sensors_and_min_distance_needs_every_channel():
+    # reviewer exp e13: inner_left blind or dead, inner_right sees 200 cm
+    out = sector_distances(
+        [
+            entry("outer_left", 150.0), entry("inner_left", 0.0, valid=False),
+            entry("inner_right", 200.0), entry("outer_right", 180.0),
+        ]
+    )  # fmt: skip
+    assert (out["front_left_cm"], out["front_center_cm"], out["front_right_cm"]) == (
+        150.0, 0.0, 180.0,
+    )  # fmt: skip
+    assert out["min_distance_cm"] == 0.0
+
+
+def test_a_channel_that_is_not_fitted_does_not_count_against_the_sectors():
+    def disabled(sensor_id):
+        row = entry(sensor_id, 0.0, valid=False)
+        return {**row, "status": "disabled", "verdict": "disabled"}
+
+    out = sector_distances(
+        [
+            entry("outer_left", 150.0), entry("inner_left", 140.0),
+            disabled("inner_right"), entry("outer_right", 180.0),
+        ]
+    )  # fmt: skip
+    assert (out["front_left_cm"], out["front_center_cm"], out["front_right_cm"]) == (
+        150.0, 140.0, 180.0,
+    )  # fmt: skip
+    assert out["min_distance_cm"] == 140.0
+    nothing = sector_distances([disabled(n) for n in NAMES])
+    assert nothing["min_distance_cm"] == 0.0 and nothing["front_center_cm"] == 0.0
+    both_inner_off = sector_distances(
+        [entry("outer_left", 150.0), disabled("inner_left"), disabled("inner_right"),
+         entry("outer_right", 180.0)]
+    )  # fmt: skip
+    assert both_inner_off["front_center_cm"] == 0.0  # no sensor looks ahead: not "clear"
+
+
+def test_a_legacy_sector_or_channel_without_a_valid_echo_is_zero_too():
+    out = sector_distances(
+        [
+            entry("front_left", 50.0),
+            entry("front_center", 0.0, valid=False),
+            entry("front_right", 70.0),
+        ]
+    )
+    sectors = (out["front_left_cm"], out["front_center_cm"], out["front_right_cm"])
+    assert sectors == (50.0, 0.0, 70.0)
+    assert out["min_distance_cm"] == 0.0

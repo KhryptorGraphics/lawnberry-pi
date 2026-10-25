@@ -313,13 +313,23 @@ async def test_disabled_channels_are_not_fitted_and_excluded_from_the_aggregate(
     assert [x["sensor_id"] for x in agg["channels"]] == NAMES  # still listed
 
 
-async def test_a_channel_the_mcu_disabled_but_the_host_expects_is_a_fault_not_excluded():
+async def test_a_channel_the_mcu_disabled_but_the_host_expects_is_a_fault_until_repaired():
     rig = await booted()
     rig.port.core.enable_mask = 0b1011  # the MCU masks a sensor the host believes is fitted
-    rig.step(1.0)
-    c = rig.ch("inner_right")
-    assert c.status is ChannelStatus.FAULT and c.verdict is Verdict.UNKNOWN
-    assert rig.driver.obstacle_verdict()["state"] == "unknown"
+    seen_fault = False
+    for _ in range(100):  # the next INFO heartbeat (at most 1 s away) reveals the drift
+        rig.step(0.02)
+        if rig.driver.stats.config_drifts:
+            break
+        c = rig.ch("inner_right")
+        if c.status is ChannelStatus.FAULT:  # the MCU reports it disabled: never "excluded"
+            seen_fault = True
+            assert c.verdict is Verdict.UNKNOWN
+            assert rig.driver.obstacle_verdict()["state"] == "unknown"
+    assert seen_fault and rig.driver.stats.config_drifts == 1
+    rig.step(1.0)  # the host re-sent CONFIG: the MCU runs the configuration that was verified
+    assert rig.port.core.enable_mask == 0b1111 and rig.driver.link_state is LinkState.ACTIVE
+    assert rig.ch("inner_right").valid
 
 
 # ---- handshake and refusal --------------------------------------------------------------------
@@ -1210,3 +1220,176 @@ def test_clock_drift_within_the_allowance_never_makes_fresh_data_look_old(ppm):
         assert c.valid
         worst = max(worst, c.age_ms)
     assert worst < 50
+
+
+# ---- US-06: the running MCU configuration is verified continuously -----------------------------
+
+
+def test_an_ordinary_heartbeat_is_not_drift_but_another_enable_mask_drops_to_the_handshake():
+    clock, port, driver, opens = scripted_active()
+    steady(clock, port, driver, 0.5)
+    port.info(mask=15)  # an ordinary heartbeat
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.config_drifts == 0 and port.types().count(proto.FrameType.CONFIG) == 1
+    assert driver.link_state is LinkState.ACTIVE
+    port.info(mask=0b0111)  # someone masked outer_right off
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.config_drifts == 1 and driver.link_state is LinkState.HANDSHAKE
+    assert port.types().count(proto.FrameType.CONFIG) == 2  # CONFIG re-sent on the same port
+    assert driver.link_fault.startswith("config_drift")
+    assert all(c.status is ChannelStatus.LINK_DOWN for c in driver.snapshot())
+    port.reading(sensor=0, t_ms=mcu_ms(clock))
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.readings_ignored == 1  # not trusted until re-verified
+    port.ack(driver.expected_mcu_config())
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE and driver.link_fault is None
+    assert all(c.status is ChannelStatus.NO_DATA for c in driver.snapshot())  # nothing survived
+    assert driver.stats.link_losses == 0 and len(opens) == 1  # and no reconnect storm
+
+
+def test_a_config_ack_nobody_asked_for_is_drift_and_one_that_matches_is_ignored():
+    clock, port, driver, opens = scripted_active()
+    wanted = driver.expected_mcu_config()
+    port.ack(wanted)  # a duplicate of our own acknowledgement
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE and driver.stats.config_drifts == 0
+    port.ack(proto.McuConfig(wanted.enable_mask, 10, 5, wanted.quiet_after))  # another writer
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.config_drifts == 1 and driver.link_state is LinkState.HANDSHAKE
+    assert port.types().count(proto.FrameType.CONFIG) == 2
+    resent = proto.McuConfig(*struct.unpack("<BHHB", port.sent[-1].payload))
+    assert resent == wanted  # the host asks for ITS configuration again
+    assert driver.stats.link_losses == 0 and len(opens) == 1
+
+
+async def test_a_second_writer_that_reconfigures_the_mcu_is_noticed_and_undone():
+    # reviewer exp e9: a probe / second SensorManager writes CONFIG(10 ms window, 5 ms gap)
+    rig = await booted()
+    other = proto.McuConfig(enable_mask=0b1111, echo_window_ms=10, gap_ms=5, quiet_after=8)
+    rig.port.write(proto.encode_frame(proto.FrameType.CONFIG, 9, proto.build_config(other)))
+    rig.step(1.5)
+    assert rig.driver.stats.config_drifts == 1 and rig.driver.stats.link_losses == 0
+    assert len(rig.factory.opens) == 1
+    assert (rig.port.core.window_ms, rig.port.core.gap_ms) == (30, 30)  # restored
+    assert rig.driver.link_state is LinkState.ACTIVE and all(c.valid for c in rig.driver.snapshot())
+
+
+def test_the_default_transport_is_opened_exclusively(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from backend.src.drivers.sensors.jsn_sr04t_driver import open_pyserial
+
+    seen: list[dict] = []
+
+    class FakeSerial:
+        def __init__(self, **kwargs):
+            seen.append(kwargs)
+
+    monkeypatch.setitem(sys.modules, "serial", SimpleNamespace(Serial=FakeSerial))
+    open_pyserial("/dev/ttyACM9", 115200)
+    assert seen == [
+        dict(port="/dev/ttyACM9", baudrate=115200, timeout=0, write_timeout=0.2, exclusive=True)
+    ]
+
+
+def test_a_second_opener_is_refused_and_reported_not_allowed_to_split_the_stream(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    class SerialException(OSError):
+        pass
+
+    class Locked:
+        def __init__(self, **kwargs):
+            assert kwargs.get("exclusive") is True
+            raise SerialException(11, "Could not exclusively lock port /dev/ttyACM9: [Errno 11]")
+
+    monkeypatch.setitem(sys.modules, "serial", SimpleNamespace(Serial=Locked))
+    clock = FakeClock()
+    driver = JsnSr04tMcuDriver(  # no serial_factory: the real default transport
+        UltrasonicConfig(port="/dev/ttyACM9"),
+        clock=clock.now, wall_clock=clock.wall, sleep=clock.sleep, simulate=False,
+    )  # fmt: skip
+    driver.poll()
+    assert driver.link_state is LinkState.DISCONNECTED and driver.stats.connect_failures == 1
+    assert driver.last_error.startswith("open_failed:") and "exclusively lock" in driver.last_error
+    assert driver.link_fault == driver.last_error
+    assert all(c.status is ChannelStatus.LINK_DOWN for c in driver.snapshot())
+
+
+def test_a_real_tty_cannot_be_opened_twice_by_the_default_transport():
+    import os
+    import pty
+
+    serial = pytest.importorskip("serial")
+    from backend.src.drivers.sensors.jsn_sr04t_driver import open_pyserial
+
+    master, slave = pty.openpty()
+    try:
+        path = os.ttyname(slave)
+        first = open_pyserial(path, 115200)
+        with pytest.raises(serial.SerialException):
+            open_pyserial(path, 115200)
+        first.close()
+        open_pyserial(path, 115200).close()  # released: the next owner can open it
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
+# ---- D17 / D26 / D37: blanking on reboot and link loss, and the handshake deadline -------------
+
+
+def test_an_mcu_reboot_blanks_every_channel_until_fresh_readings_arrive():
+    clock, port, driver, _ = scripted_active()
+    steady(clock, port, driver, 0.5)
+    assert all(c.valid for c in driver.snapshot())
+    port.info(boot_id=8)  # the MCU rebooted
+    clock.advance(0.02)
+    driver.poll()
+    port.ack(driver.expected_mcu_config())
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE
+    assert all(c.status is ChannelStatus.NO_DATA and c.timestamp is None for c in driver.snapshot())
+
+
+def test_a_lost_link_blanks_every_channel_until_fresh_readings_arrive():
+    clock, port, driver, opens = scripted_active()
+    steady(clock, port, driver, 0.5)
+    port.broken = OSError("device reports readiness to read but returned no data")
+    clock.advance(0.1)
+    driver.poll()
+    port.broken = None
+    port.inbox.clear()
+    clock.advance(0.3)
+    driver.poll()  # reconnect after the 0.25 s backoff, well inside the 700 ms stale limit
+    port.info(boot_id=7)
+    driver.poll()
+    port.ack(driver.expected_mcu_config())
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE and len(opens) == 2
+    assert all(c.status is ChannelStatus.NO_DATA for c in driver.snapshot())
+
+
+def test_info_heartbeats_do_not_extend_the_handshake_deadline():
+    clock, port, driver, _ = scripted_rig(handshake_timeout_s=1.0)
+    driver.poll()  # port open, HELLO sent
+    lost_at = None
+    for i in range(1, 150):  # the MCU heartbeats every 0.4 s but never acknowledges CONFIG
+        clock.advance(0.02)
+        if i % 20 == 0:
+            port.info()
+        driver.poll()
+        if lost_at is None and driver.stats.link_losses:
+            lost_at = i * 0.02
+    assert lost_at is not None and lost_at <= 1.1
+    assert driver.last_error == "handshake_timeout"
