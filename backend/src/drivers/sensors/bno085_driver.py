@@ -41,7 +41,9 @@ class BNO085Driver(HardwareDriver):
             "initialized": self.initialized,
             "running": self.running,
             "last_orientation": self._last_orientation,
-            "last_read_age_s": (time.time() - self._last_read_ts) if self._last_read_ts else None,
+            "last_read_age_s": (
+                (time.monotonic() - self._last_read_ts) if self._last_read_ts is not None else None
+            ),
             "simulation": is_simulation_mode(),
         }
 
@@ -63,7 +65,7 @@ class BNO085Driver(HardwareDriver):
                 "yaw": yaw,
                 "calibration_status": calibration_state,
             }
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             return self._last_orientation
         # Real hardware: read quaternion → convert to Euler
         if self._last_orientation is None:
@@ -73,7 +75,7 @@ class BNO085Driver(HardwareDriver):
                 "yaw": 0.0,
                 "calibration_status": "unknown",
             }
-        self._last_read_ts = time.time()
+        self._last_read_ts = time.monotonic()
         return self._last_orientation
 
 

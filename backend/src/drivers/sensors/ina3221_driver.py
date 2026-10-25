@@ -144,7 +144,9 @@ class INA3221Driver(HardwareDriver):
             "initialized": self.initialized,
             "running": self.running,
             "last_power": self._last_power,
-            "last_read_age_s": (time.time() - self._last_read_ts) if self._last_read_ts else None,
+            "last_read_age_s": (
+                (time.monotonic() - self._last_read_ts) if self._last_read_ts is not None else None
+            ),
             "simulation": is_simulation_mode(),
         }
 
@@ -167,7 +169,7 @@ class INA3221Driver(HardwareDriver):
                 "solar_voltage": round(solar_voltage, 2),
                 "solar_current_amps": round(solar_current, 2),
             }
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             return self._last_power
 
         try:
@@ -232,7 +234,7 @@ class INA3221Driver(HardwareDriver):
                 self._last_power = {
                     k: (round(v, 3) if isinstance(v, float) else v) for k, v in result.items()
                 }
-                self._last_read_ts = time.time()
+                self._last_read_ts = time.monotonic()
             return self._last_power
         except Exception:
             return self._last_power

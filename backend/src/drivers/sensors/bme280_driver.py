@@ -155,7 +155,9 @@ class BME280Driver(HardwareDriver):
             "initialized": self.initialized,
             "running": self.running,
             "last_env": self._last_env,
-            "last_read_age_s": (time.time() - self._last_read_ts) if self._last_read_ts else None,
+            "last_read_age_s": (
+                (time.monotonic() - self._last_read_ts) if self._last_read_ts is not None else None
+            ),
             "simulation": is_simulation_mode(),
         }
 
@@ -172,7 +174,7 @@ class BME280Driver(HardwareDriver):
                 "humidity_percent": humidity,
                 "pressure_hpa": pressure,
             }
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             return self._last_env
 
         if self._calibration is None:
@@ -199,7 +201,7 @@ class BME280Driver(HardwareDriver):
             env = self._compensate(raw)
             if env:
                 self._last_env = env
-                self._last_read_ts = time.time()
+                self._last_read_ts = time.monotonic()
             return self._last_env
         except Exception:
             return self._last_env

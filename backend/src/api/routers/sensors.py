@@ -209,8 +209,8 @@ async def get_tof_status() -> ToFStatusResponse:
                 initialized=getattr(left, "initialized", None),
                 running=getattr(left, "running", None),
                 last_distance_mm=getattr(left, "_last_distance_mm", None),
-                last_read_age_s=(time.time() - getattr(left, "_last_read_ts", time.time()))
-                if getattr(left, "_last_read_ts", None)
+                last_read_age_s=(time.monotonic() - getattr(left, "_last_read_ts", 0.0))
+                if getattr(left, "_last_read_ts", None) is not None
                 else None,
             )
         if right is not None:
@@ -224,8 +224,8 @@ async def get_tof_status() -> ToFStatusResponse:
                 initialized=getattr(right, "initialized", None),
                 running=getattr(right, "running", None),
                 last_distance_mm=getattr(right, "_last_distance_mm", None),
-                last_read_age_s=(time.time() - getattr(right, "_last_read_ts", time.time()))
-                if getattr(right, "_last_read_ts", None)
+                last_read_age_s=(time.monotonic() - getattr(right, "_last_read_ts", 0.0))
+                if getattr(right, "_last_read_ts", None) is not None
                 else None,
             )
     except Exception:

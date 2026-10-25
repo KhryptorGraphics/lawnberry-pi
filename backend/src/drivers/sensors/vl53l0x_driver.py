@@ -128,7 +128,9 @@ class VL53L0XDriver(HardwareDriver):
             "initialized": self.initialized,
             "running": self.running,
             "last_distance_mm": self._last_distance_mm,
-            "last_read_age_s": (time.time() - self._last_read_ts) if self._last_read_ts else None,
+            "last_read_age_s": (
+                (time.monotonic() - self._last_read_ts) if self._last_read_ts is not None else None
+            ),
             "simulation": is_simulation_mode(),
             "i2c_bus": self._i2c_bus,
             "i2c_address": hex(self._i2c_address),
@@ -162,7 +164,7 @@ class VL53L0XDriver(HardwareDriver):
                 simulated = base + (self._sim_distance_cycle % 40) * 10
             self._sim_distance_cycle += 1
             self._last_distance_mm = simulated
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             return simulated
 
         # Real hardware path
@@ -197,12 +199,12 @@ class VL53L0XDriver(HardwareDriver):
         # Update state if we obtained a measurement
         if isinstance(distance, int) and distance >= 0:
             self._last_distance_mm = distance
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             self._fail_count = 0
             return distance
 
         # No driver or read failed; keep previous value to avoid churn
-        self._last_read_ts = time.time()
+        self._last_read_ts = time.monotonic()
         self._fail_count += 1
         # If repeated failures and not in SIM, try to reinitialize backend in the background
         await _reinit_if_needed(self)
@@ -460,7 +462,7 @@ async def _reinit_if_needed(self: VL53L0XDriver) -> None:
     """
     if is_simulation_mode():
         return
-    now = time.time()
+    now = time.monotonic()
     # Only try after a few consecutive failures
     if self._fail_count < 3:
         return
