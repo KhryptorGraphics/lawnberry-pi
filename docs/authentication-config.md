@@ -52,17 +52,27 @@
 > (`POST /api/v2/auth/ws-ticket`, bearer required; a ticket dies with the login session it was
 > minted for; the route is outside the `/api/*/auth` attempt limiter, see below) and connects with
 > `?ticket=...`. Non-browser clients may send `Authorization: Bearer <token>` on the handshake.
-> A presented but invalid credential is always refused. With no credential:
-> `/api/v2/ws/control` (the command-capable socket) is refused whenever operator auth is on,
-> whoever the peer is; `/ws/telemetry` and `/api/v2/ws/status` (read-only streams of what the open
-> GET routes carry; `/ws/status` used to check nothing) admit a loopback peer or the explicit
-> simulator opt-in, and refuse everyone else. "Peer" is the connection's address as the app sees
-> it: uvicorn's proxy-headers handling (on by default, trusting `FORWARDED_ALLOW_IPS`, default
-> `127.0.0.1`) replaces the UI server's loopback address with the browser's, so **a LAN browser
-> behind the UI server is refused without a ticket** (the UI falls back to REST polling) and only
-> a browser on the mower itself counts as loopback. Checked end to end with the real UI server and
-> backend: anonymous LAN browser 401, loopback browser 101, LAN browser with a ticket 101. No
-> WebSocket handler changes mower state today (`/ws/control` only acknowledges).
+> A presented but invalid credential is always refused. **With no credential, no peer is
+> admitted, the loopback included** (2026-10-24 review SEC20-02): every ingress the product ships
+> (a Cloudflare or ngrok agent pointed at the UI server, nginx) reaches the backend from a
+> loopback address, so "loopback" cannot tell the browser on the mower from a remote visitor. The
+> read-only streams (`/ws/telemetry`, `/api/v2/ws/telemetry`, `/api/v2/ws/status`) are opened to
+> anonymous clients only by an explicit opt-in in `<root>/.env`: `LAWN_BERRY_ANONYMOUS_TELEMETRY=loopback`
+> (a kiosk browser on the mower: the RESOLVED client address must be a loopback address, which is
+> only as safe as the forwarding setup, see "Forwarders, tunnels and client addresses") or `=any`
+> (anyone who can reach the port reads position, battery and state). An unrecognised value (`1`,
+> `true`, a typo) stays off and is warned about at start-up, and an anonymous browser must also
+> present an allowed `Origin` (CORS allow-list or the page's own host: CORS does not cover
+> WebSockets). `/api/v2/ws/control` (the command-capable socket) needs a credential whenever
+> operator auth is on, whatever the opt-in. Every socket is bounded: 32 in all and 8 per login
+> session (anonymous sockets draw on a separate budget of 4 in all, 2 per peer); over the limit the
+> handshake answers 503 + `Retry-After`. A frame over 4 KiB, or faster than 20 per second (burst
+> 40), ends the socket; a client holds at most 32 subscriptions with short plain topic names; a
+> socket that cannot take a frame within 2 s is dropped; `/ws/status` shares one telemetry sample
+> between all its sockets (it used to run a full sensor read per socket and tick: 12 sockets
+> pushed the E-stop POST from 4 ms to 560 ms, and one socket sending 330 000 `subscribe` frames
+> grew the backend from 241 MiB to 612 MiB, the unit's cap is 512 MiB). No WebSocket handler
+> changes mower state today (`/ws/control` only acknowledges).
 >
 > **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate) is a
 > step-up for a logged-in operator: it needs the bearer token AND the credential again in the
@@ -80,29 +90,29 @@
 > Cloudflare Access needs the Access issuer, audience and signing keys plus RS256 support
 > (`cryptography`, not installed here): owner decision, see the audit.
 >
-> **Limits are per client address, not per `X-Client-Id`.** The login lockout, the unlock
-> throttle, the `/api/*/auth` limiter and the global limiter count the client's address (IPv6
-> per /64), never a header the client writes, and every table is bounded. The shipped web UI
-> server (`frontend/server.mjs`) proxies to the backend from 127.0.0.1. Two layers believe
-> `X-Forwarded-For` only from a trusted peer and then take the LAST hop that is not itself a
-> trusted proxy (the address the proxy recorded from its own socket; whatever the client wrote to
-> the left of it is never read): uvicorn first (`--proxy-headers`, on by default, trusting
-> `FORWARDED_ALLOW_IPS`, default `127.0.0.1`; it replaces `request.client`), then the backend's
-> `core/peer_address.py` (`LAWN_BERRY_TRUSTED_PROXIES`: comma-separated addresses or networks,
-> default `127.0.0.0/8,::1`; an empty value trusts none). From any other peer the header is
-> ignored entirely. The UI server deletes inbound `X-Forwarded-For`/`Forwarded`/`X-Real-IP` and
-> sets the header itself (`xfwd: true`), so each browser has its own lockout and its own
-> rate-limit bucket. A proxy that passes a client-supplied `X-Forwarded-For` through unchanged
-> would let that client pick its own bucket: never list such a proxy in
-> `LAWN_BERRY_TRUSTED_PROXIES` or `FORWARDED_ALLOW_IPS`, and never set `FORWARDED_ALLOW_IPS=*`
-> (uvicorn then takes the FIRST hop, which the client wrote). With no header at all, every client
-> behind a proxy shares the proxy's one budget and one lockout. `POST /auth/ws-ticket` (the UI
-> calls it before every WebSocket (re)connect, with a token that may have expired) is exempt from
-> the `/api/*/auth` attempt limiter and lockout (`middleware/security.py::UNLIMITED_AUTH_PATHS`):
-> it only redeems a live bearer, and counting it would block the login after a few reconnects.
-> Tractor command POSTs and `/control/drive|blade` have their own buckets so UI polling cannot
-> starve them. Password checks (bcrypt, ~270 ms) run on a small dedicated thread pool, never on
-> the event loop that carries the deadman and the E-stop handlers.
+> **Limits are per client, not per `X-Client-Id`.** The login lockout, the unlock throttle, the
+> `/api/*/auth` limiter and the global limiter never count a header the client writes, and every
+> table is bounded. A request that carries a bearer for a LIVE login session is counted in its own
+> bucket, `session:<id>` (looked up silently by `AuthService.peek_session`: no log line, no side
+> effect); every other request (no bearer, an invalid, expired or revoked one) is counted against
+> the client's address (IPv6 per /64). That split is what keeps anonymous junk from a shared
+> address (every visitor behind an undeclared same-host forwarder is one address) from draining
+> the bucket the operator's lever POSTs use, and the login lockout only ever gates the login
+> routes, never a request that carries a valid bearer. The client address is the TCP peer, or,
+> only behind a forwarder DECLARED in `LAWN_BERRY_TRUSTED_PROXIES`, the `X-Forwarded-For` hop that
+> forwarder wrote (`core/peer_address.py`; the default trusts nobody and the loopback as a whole
+> is not trusted). uvicorn's own proxy handling is switched off (`--no-proxy-headers` in the unit)
+> because it runs first and takes whatever string it finds. What residual a shared address has:
+> with no declared forwarder all visitors share one lockout, so an anonymous visitor can delay a
+> LOGIN (a logged-in operator keeps working); declare the forwarder to separate them. Exact
+> settings per setup: "Forwarders, tunnels and client addresses" below. `POST /auth/ws-ticket` (the
+> UI calls it before every WebSocket (re)connect, with a token that may have expired) is exempt
+> from the `/api/*/auth` attempt limiter and lockout
+> (`middleware/security.py::UNLIMITED_AUTH_PATHS`): it only redeems a live bearer, and counting it
+> would block the login after a few reconnects. Tractor command POSTs and `/control/drive|blade`
+> have their own buckets so UI polling cannot starve them. Password checks (bcrypt, ~270 ms) run on
+> a small dedicated thread pool, never on the event loop that carries the deadman and the E-stop
+> handlers.
 >
 > **`SIM_MODE` is not a credential.** `SIM_MODE=1` alone no longer makes the login accept any
 > credential or admits any WebSocket client as an operator: that needs `LAWN_BERRY_SIM_OPEN_AUTH=1`
@@ -113,6 +123,57 @@
 > The `lawnberry-pi ...` command examples further down describe a CLI that is not shipped (no
 > console entry point in `pyproject.toml`); the supported configuration is the environment
 > and `.env` described here.
+
+## Forwarders, tunnels and client addresses
+
+The login lockout, every rate limit and the WebSocket budgets need to know who the client is. On
+this host that is not obvious: a browser request reaches the backend through up to three hops (a
+tunnel agent or nginx, the UI server `frontend/server.mjs`, uvicorn), all of them on
+127.0.0.0/8, and any process on the host can connect from any address in that range.
+
+1. **Nobody is trusted by default.** `LAWN_BERRY_TRUSTED_PROXIES` (backend) and
+   `UI_TRUSTED_PROXIES` (UI server) default to the empty list: every client behind a forwarder is
+   counted as the forwarder's own address (one lockout and one bucket for all of them; logged-in
+   operators are still counted per login session). Safe, coarse, and what you get when nothing is
+   declared. Trust is declared, never inferred from the loopback.
+2. **A declaration is `ADDRESS[/PREFIX][=SHAPE]`, comma separated.** `ADDRESS` is the address the
+   forwarder CONNECTS FROM. `SHAPE` is what it does to `X-Forwarded-For`: `single` (the default:
+   it replaces the header with exactly one hop; two hops or a non-address means the request did
+   not come through it, the header is ignored and a warning is logged) or `last` (it appends the
+   address it saw; only the last hop is believed, everything to its left is what the client wrote
+   and is never read; trailing hops that are themselves declared forwarders are skipped).
+3. **A bad declaration trusts nobody.** A `/0`, a network wider than one LAN (IPv4 shorter than
+   /24, IPv6 shorter than /64), host bits set (`192.168.1.64/24`), an unknown shape or something
+   that is not an address makes the WHOLE list invalid: ERROR at start-up naming each problem,
+   nobody trusted, never a widened list (the backend still starts: it carries the E-stop). The
+   old default `127.0.0.0/8,::1` and the old silent acceptance of `0.0.0.0/0` are gone.
+4. **Each trusted forwarder gets its own source address.** A forwarder that passes a
+   client-written `X-Forwarded-For` through (`ssh -R`, `socat`, `frp`, a custom tunnel command, an
+   nginx location without the header) lets its client choose its own identity, bucket and lockout,
+   so it must never be listed, and it cannot be told apart from a good one at `127.0.0.1`.
+
+What the repository ships, and what to change for a tunnel (the two settings live in the units:
+the backend reads `<root>/.env`, which overrides the unit; the UI server has no `.env`, use a
+systemd drop-in, `sudo systemctl edit lawnberry-frontend`, and restart it):
+
+| Setup | Connects from | Declare | Notes |
+|---|---|---|---|
+| UI server to backend (shipped) | `127.0.0.2` (`BACKEND_SOURCE_ADDRESS`) | backend: `127.0.0.2=single` | the UI server drops every inbound `X-Forwarded-For`/`Forwarded`/`X-Real-IP` and sends exactly one hop; if it cannot bind `127.0.0.2` it logs an ERROR and the backend sees one shared address |
+| nginx in front of the UI server (`scripts/setup_https.sh`, `config/nginx.conf`) | `127.0.0.3` (`proxy_bind`) | UI server: `UI_TRUSTED_PROXIES=127.0.0.3=last` (shipped) | every proxying location, the two WebSocket ones included, now sets `X-Forwarded-For $proxy_add_x_forwarded_for` (they sent none: all remote clients were one address) |
+| cloudflared or ngrok on this host, pointed at the UI server (port 3000) | `127.0.0.1` | drop-in: `Environment=UI_TRUSTED_PROXIES=127.0.0.3=last,127.0.0.1=last` | only if the tunnel agent is the ONLY process that forwards remote traffic to port 3000 from `127.0.0.1`; the Cloudflare or ngrok edge writes the last hop |
+| a tunnel pointed straight at the backend (port 8081) | `127.0.0.1` | `.env`: `LAWN_BERRY_TRUSTED_PROXIES=127.0.0.2=single,127.0.0.3=last,127.0.0.1=last` | same condition; without it every tunnel client is one address (safe, coarse) |
+| a tunnel or proxy on another host | its LAN address | list that address (`/32` host entry), shape per its behaviour | a LAN-wide network is refused: list the proxy host |
+
+`CF-Connecting-IP` and `True-Client-IP` are never read. Cloudflare Access is not accepted as a
+credential (see above); a tunnel is transport, the operator still logs in.
+
+**Check a setup from outside** (it locks that client out of the login for `AUTH_LOCKOUT_SECONDS`,
+30 s by default): send six wrong logins through the tunnel, each with a different
+`X-Forwarded-For`. The sixth must be `429` with `Retry-After`: the header was ignored and all six
+counted against your real address. Six `401`s mean the forwarder lets the client name its own
+address: remove it from the list. The start-up log (`journalctl -u lawnberry-backend | grep -i
+"forwarder\|WebSocket"`) states the resolved trusted list, the uvicorn proxy-headers state and the
+anonymous-WebSocket mode.
 
 This guide covers setting up and configuring the multi-level authentication system in LawnBerry Pi v2, from basic password authentication to enterprise-grade security.
 
