@@ -51,6 +51,14 @@ class FakeLgpio:
         """The line is free again (the kernel released it / the pin was moved)."""
         self._claim_faults.pop(pin, None)
 
+    def clear_read_fault(self, pin: int) -> None:
+        """The readback of ``pin`` works again."""
+        self._read_faults.pop(pin, None)
+
+    def clear_write_faults(self) -> None:
+        """Every write works again (the ``fail_write`` faults of every pin are removed)."""
+        self._write_faults.clear()
+
     def fail_write(self, pin: int, how: WriteFault = "raise", *, nth: int | None = None) -> None:
         """Writes to ``pin`` fail: ``raise`` raises, ``rc`` returns -1, ``ignore`` returns 0 but
         changes nothing. ``nth`` limits the fault to the nth write to that pin (1-based)."""
