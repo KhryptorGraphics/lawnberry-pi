@@ -338,9 +338,16 @@ class RoboHATService:
         # Refresh the current command so the firmware does not time out to RC
         # mode mid-command (SERIAL_TIMEOUT ≈ 2s on firmware). Under an E-stop hold the refresh is
         # the constant neutral, never ``_last_pwm``: a command that slipped past the hold check
-        # must not be re-sent as the "hold" (audit SF-02).
+        # must not be re-sent as the "hold" (audit SF-02). The hold is the whole stop, blade
+        # included: a process that restarted into a restored hold (``restore_emergency_hold``)
+        # never saw the previous process's ``blade=off``, and a firmware that is still running
+        # the blade (an RC receiver alive, or a reset) must be told to stop it (audit SAF-16).
         if (now - max(self._last_status_at, self._last_pwm_at)) >= 0.9:
-            steer_us, thr_us = (1500, 1500) if self._estop_hold else self._last_pwm
+            if self._estop_hold:
+                await self._send_line("blade=off")
+                steer_us, thr_us = 1500, 1500
+            else:
+                steer_us, thr_us = self._last_pwm
             await self._send_line(f"pwm,{steer_us},{thr_us}")
             self._last_pwm_at = now
 

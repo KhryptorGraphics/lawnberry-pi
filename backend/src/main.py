@@ -1,3 +1,10 @@
+"""The backend application.
+
+``app`` is the FastAPI instance; ``lifespan`` wires the safety stack, sensors, hub and the optional
+Thor link at start-up and, on shutdown, parks the actuators before anything else is torn down.
+Routers and middleware are registered here.
+"""
+
 import asyncio
 import logging
 import os
@@ -53,7 +60,7 @@ from .safety.watchdog import ACTUATION_SOURCE, SAFETY_MONITOR_SOURCE, Watchdog
 from .services.blade_service import get_blade_service
 from .services.camera_stream_service import camera_service
 from .services.emergency_stop_service import execute_emergency_stop, park_actuators
-from .services.navigation_service import NavigationService
+from .services.navigation_service import BLADE_PERMIT_NAME, NavigationService
 from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
 from .services.thor_link_wiring import ThorLinkStartError, start_thor_link, stop_thor_link
 from .services.thor_plan_follower import gnss_from_sensor_manager
@@ -263,6 +270,9 @@ async def lifespan(app: FastAPI):
     obstacle_guard = configure_obstacle_guard(safety_limits)
     guard_tractor = get_tractor_service()
     nav_service.attach_safety(obstacle_guard=obstacle_guard, gps_monitor=app.state.gps_deg_monitor)
+    # The gate's hold is also a standing reason for the IBT-4 blade while autonomy runs, so a
+    # client that keeps repeating blade ON cannot undo a stand-down (audit round 3, SAF-03).
+    get_blade_service().attach_permit(BLADE_PERMIT_NAME, nav_service.blade_permit)
     guard_tractor.motion_limiter = obstacle_guard
     obstacle_monitor = ObstacleStopMonitor(
         obstacle_guard,
@@ -398,6 +408,7 @@ async def lifespan(app: FastAPI):
     if getattr(app.state, "obstacle_monitor", None):
         await app.state.obstacle_monitor.stop()
         NavigationService.get_instance().attach_safety(obstacle_guard=None)
+        get_blade_service().detach_permit(BLADE_PERMIT_NAME)
         guard_tractor.motion_limiter = None
     if getattr(app.state, "gps_deg_monitor", None):
         await app.state.gps_deg_monitor.stop()

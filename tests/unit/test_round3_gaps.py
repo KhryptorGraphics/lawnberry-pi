@@ -118,7 +118,9 @@ async def test_a_robohat_hold_the_last_process_left_is_a_real_hold_after_the_res
     svc._last_pwm_at = svc._last_status_at = 0.0
     svc._last_pwm = (1700, 1700)
     await svc._maintain_usb_control()
-    assert fw.sent == [NEUTRAL_LINE], "the hold keeps asserting NEUTRAL, never a stale command"
+    assert fw.sent == ["blade=off", NEUTRAL_LINE], (
+        "the hold keeps asserting blade off and NEUTRAL, never a stale command"
+    )
 
     assert await svc.clear_emergency() is True  # only the authenticated clear releases it
     assert (await latch_store.persist(robohat=svc)).ok

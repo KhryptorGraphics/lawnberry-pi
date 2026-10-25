@@ -107,7 +107,8 @@ async def test_the_hold_resends_neutral_never_a_stale_command(monkeypatch):
 
     await svc._maintain_usb_control()
 
-    assert fw.lines == ["pwm,1500,1500"], "the 'hold neutral' must be the constant neutral"
+    # The hold re-asserts the whole stop: blade off, then the CONSTANT neutral (never _last_pwm).
+    assert fw.lines == ["blade=off", "pwm,1500,1500"], "the 'hold neutral' must be the constant"
     await svc.shutdown()
 
 
@@ -125,7 +126,9 @@ async def test_the_hold_keeps_neutral_alive_even_after_usb_maintenance_was_dropp
     fw.sent.clear()
     await svc._maintain_usb_control()
 
-    assert fw.lines == ["pwm,1500,1500"], "the hold must not depend on the request flag"
+    assert fw.lines == ["blade=off", "pwm,1500,1500"], (
+        "the hold must not depend on the request flag"
+    )
     await svc.shutdown()
 
 

@@ -5,6 +5,7 @@ Defines the output structure for Vision-Language-Action model predictions
 used in autonomous mowing control.
 """
 
+import math
 import time
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
@@ -70,7 +71,20 @@ class ActionPrediction:
     boundary_warning: bool = False
 
     def __post_init__(self):
-        """Validate action bounds."""
+        """Validate action bounds.
+
+        A control output or confidence that is not a finite number (a NaN or infinity from a broken
+        model run) must never be clamped into range: ``min(1.0, nan)`` is ``1.0``, which made a NaN
+        run full throttle with full confidence. The whole prediction becomes neutral, zero
+        confidence and blade off, marked as overridden, so nothing downstream acts on it.
+        """
+        if not all(math.isfinite(v) for v in (self.steering, self.throttle, self.confidence)):
+            self.steering = 0.0
+            self.throttle = 0.0
+            self.confidence = 0.0
+            self.blade = False
+            self.safety_override = True
+            return
         self.steering = max(-1.0, min(1.0, self.steering))
         self.throttle = max(0.0, min(1.0, self.throttle))
         self.confidence = max(0.0, min(1.0, self.confidence))

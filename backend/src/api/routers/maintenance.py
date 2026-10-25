@@ -1,3 +1,9 @@
+"""Maintenance routes: the system self-test, readiness and liveness probes, the time zone, and the
+IMU calibration start and status.
+
+The self-test and the calibration need the operator bearer token.
+"""
+
 import logging
 import time
 from typing import Any

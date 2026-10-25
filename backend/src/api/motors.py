@@ -1,3 +1,8 @@
+"""Motor dry-run route: ``POST /motors/drive`` mixes throttle and turn into left/right PWM.
+
+It computes the numbers only and never commands hardware; it needs the operator bearer token.
+"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

@@ -1,3 +1,9 @@
+"""The authenticated emergency-clear route: ``POST /control/emergency_clear``.
+
+A clear releases the general E-stop, lists every latch it did not release (the tractor's own latch,
+a RoboHAT hold that would not clear) and is recorded in the audit trail with its reason.
+"""
+
 from __future__ import annotations
 
 import logging

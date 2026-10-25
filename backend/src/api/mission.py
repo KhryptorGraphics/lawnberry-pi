@@ -1,3 +1,8 @@
+"""Mission routes: create, start, pause, resume, abort, status and list.
+
+The mutating routes need the operator bearer token; they drive ``MissionService``.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..models.mission import Mission, MissionCreationRequest, MissionStatus

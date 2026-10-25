@@ -432,3 +432,24 @@ class TestStatus:
 
         assert status.last_prediction is not None
         assert status.prediction_age_ms >= 0
+
+
+def test_a_model_run_that_outputs_nan_probabilities_yields_a_neutral_prediction(
+    service, sample_frame
+):
+    """The real decode path: NaN tensors give argmax index 0 and a NaN confidence (audit round 3).
+
+    ``ActionPrediction`` used to clamp that confidence to 1.0, so the run steered and drove on a
+    garbage model with full confidence.
+    """
+    outputs = {
+        "steering": np.full(service._model_config.steering_bins, np.nan, dtype=np.float32),
+        "throttle": np.full(service._model_config.throttle_bins, np.nan, dtype=np.float32),
+        "blade": np.array([np.nan], dtype=np.float32),
+    }
+
+    prediction = service._postprocess(outputs, sample_frame)
+
+    assert prediction.confidence == 0.0 and prediction.throttle == 0.0
+    assert prediction.steering == 0.0 and prediction.blade is False
+    assert prediction.safety_override is True

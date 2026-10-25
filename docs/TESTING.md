@@ -106,6 +106,22 @@ Update one of the following to satisfy the guard:
 - `README.md`
 - `.specify/memory/AGENT_JOURNAL.md`
 
+### Code structure overview
+
+`docs/code_structure_overview.md` has to follow the callable interfaces of the Python files a change
+touches (`backend/src`, `scripts`, `workshop`, `firmware`, `.specify/scripts`). CI runs the check on
+pull requests; locally:
+
+```bash
+python3 scripts/sync_code_structure.py --check            # exit 1 on drift, 2 if it cannot compare
+python3 scripts/sync_code_structure.py --fix              # regenerate the rows in place
+python3 scripts/sync_code_structure.py --check --base origin/main --all   # every file, not only changed
+```
+
+`--fix` rewrites the interface cell of a stale row from the source (purpose and subsystem are kept),
+adds a row for a new file (its purpose is the first two sentences of the module docstring, so a new
+file needs one), merges duplicate rows and drops the row of a deleted file.
+
 ## 4) On-device hardware testing (RPi)
 
 Run the backend and call the hardware self-test endpoint:

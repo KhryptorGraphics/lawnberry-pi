@@ -1,3 +1,9 @@
+"""The sensor-fusion state route.
+
+``GET /api/v2/fusion/state`` reports the EKF-fused position and heading with their uncertainty and
+the per-sensor health; in SIM_MODE the filter is fed synthetic motion.
+"""
+
 from __future__ import annotations
 
 import time

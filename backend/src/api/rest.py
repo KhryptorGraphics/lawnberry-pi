@@ -1,3 +1,10 @@
+"""The REST routes of the control surface: map zones and locations, the RoboHAT status, drive,
+blade and the emergency stop, and the bundled documentation.
+
+The drive and blade routes refuse motion while an emergency stop is active or its short drive-block
+window is open.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field

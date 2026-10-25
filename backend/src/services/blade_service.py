@@ -651,6 +651,7 @@ def get_blade_service() -> BladeService:
             fresh = BladeService(config)
             fresh._parked = service._parked
             fresh._driver._estop_latched = service._driver.estop_latched
+            fresh._permits = list(service._permits)  # the navigation gate's permit is attached once
             logger.warning("ibt4 config readable again: the blade service was rebuilt from it")
             _blade_service = service = fresh
         else:

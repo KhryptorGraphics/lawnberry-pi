@@ -135,6 +135,8 @@ class DeadReckoningSystem:
 
 NAV_SOURCE = "navigation"  # command-source label for the tractor service (autonomous)
 AI_SOURCE = "ai"
+#: The name under which ``NavigationService.blade_permit`` is attached to the ``BladeService``.
+BLADE_PERMIT_NAME = "navigation_gate"
 AUTONOMOUS_MODES = frozenset(
     {
         NavigationMode.AUTO,
@@ -362,6 +364,26 @@ class NavigationService:
         meant to be evaluated often.
         """
         return self._motion_gate(gnss=gnss)
+
+    def blade_permit(self) -> str | None:
+        """Why the IBT-4 blade must be off right now, else ``None`` (a ``BladeService`` permit).
+
+        While an autonomous run or a scripted drive is what moves the machine, the safety gate's
+        hold (obstacle, GNSS, heading) is a STANDING reason for the blade, read before every ON
+        and on every supervision tick: a client that keeps repeating ON cannot undo the stand-down
+        the hold handlers made (audit round-3 owner decision, SAF-03). In every other state,
+        manual driving included, the blade is the operator's own call, as it is for the motion
+        limiter: that exemption is a policy, kept on purpose.
+        """
+        autonomous = self.autonomy_active() or self._mission_loop_active
+        if not (autonomous or self._scripted_drive_active):
+            return None
+        # A scripted open-loop drive leaves the GNSS monitor and the heading age out of its gate
+        # (it neither navigates nor steers by them): the permit judges it by the same inputs.
+        gate = self._motion_gate(gnss=autonomous, heading=autonomous)
+        if not gate.hold:
+            return None
+        return "navigation safety gate holds: " + "; ".join(gate.reasons or ("no reason given",))
 
     # ---------------------------- stops end autonomous runs ----------------------------
 

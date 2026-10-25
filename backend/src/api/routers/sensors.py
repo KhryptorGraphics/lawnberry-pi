@@ -1,3 +1,10 @@
+"""Sensor routes: the dashboard status and the ToF, GPS (with RTK diagnostics), IMU, environmental
+and power status, plus the debug injectors.
+
+The status routes are open reads; the injectors answer 404 unless the debug routes are enabled
+(SIM_MODE or the debug flag) and then need the operator bearer token.
+"""
+
 import logging
 import time
 from datetime import UTC, datetime

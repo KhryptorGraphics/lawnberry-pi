@@ -1,3 +1,9 @@
+"""Health and liveness routes (open, for platform monitors).
+
+``/health`` and ``/api/v2/health`` (the full report, secret-named keys redacted),
+``/api/v2/health/liveness``, ``/api/v2/health/readiness`` and ``/healthz``.
+"""
+
 from fastapi import APIRouter
 
 from ..core.auth_posture import auth_health

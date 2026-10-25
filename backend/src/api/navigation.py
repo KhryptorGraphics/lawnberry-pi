@@ -1,3 +1,9 @@
+"""Navigation routes: waypoints, navigation mode and status, and the debug GPS/geofence injectors.
+
+Everything that changes state needs the operator bearer token; the injectors answer 404 unless the
+debug routes are enabled (SIM_MODE or the debug flag).
+"""
+
 from __future__ import annotations
 # ruff: noqa: I001
 

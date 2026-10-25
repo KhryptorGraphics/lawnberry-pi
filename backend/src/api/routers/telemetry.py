@@ -1,3 +1,9 @@
+"""Telemetry routes: the telemetry and control WebSockets, the SSE stream, export, ping and the
+dashboard telemetry read.
+
+Every WebSocket is admitted through ``admit_websocket`` before it is accepted.
+"""
+
 import asyncio
 import base64
 import datetime
