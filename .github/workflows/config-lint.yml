@@ -22,9 +22,9 @@ jobs:
           # valid unit files as they stand. Verify what the installer actually renders, via a
           # staged install (no root, nothing under /etc, a throw-away credential).
           stage="$(mktemp -d)"
-          mkdir "$stage/app"
+          # --root must be a LawnBerry checkout (the installer refuses anything else): this one.
           LAWN_BERRY_OPERATOR_CREDENTIAL="ci-$(openssl rand -hex 16)" \
-            bash systemd/install_services.sh --destdir "$stage/root" --root "$stage/app" --user "$(id -un)"
+            bash systemd/install_services.sh --destdir "$stage/root" --root "$PWD" --user "$(id -un)"
           status=0
           for f in "$stage"/root/etc/systemd/system/*.service "$stage"/root/etc/systemd/system/*.timer; do
             [ -f "$f" ] || continue
