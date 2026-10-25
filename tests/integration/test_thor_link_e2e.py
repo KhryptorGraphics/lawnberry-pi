@@ -447,8 +447,14 @@ async def test_spoofed_senders_cannot_pause_steer_or_poison_the_link(monkeypatch
             # Genuine replies the Pi already accepted, replayed by someone who recorded them.
             for old in captured[:3]:
                 attacker.send(old)
-            await eventually(lambda: s.link.rejected >= 30, what="the forgeries to be counted")
-            assert s.link.rejects["auth"] >= 20 and s.link.rejects["oversize"] >= 5
+            await eventually(lambda: s.link.rejected >= 33, what="all 33 forgeries to be counted")
+            # Each repetition is 3 forged answers that claim the sid and an ack the Pi has or has
+            # not sent yet (HMAC-checked and failed, or refused as an ack from the future), 2
+            # datagrams that do not carry the sid where a downlink does (the unsigned JSON and the
+            # zeros) and 1 oversize datagram; the three replays are copies of verified answers.
+            rejects = s.link.rejects
+            assert rejects["auth"] + rejects["future_ack"] >= 15, dict(rejects)
+            assert rejects["session"] >= 10 and rejects["oversize"] >= 5, dict(rejects)
             assert s.link.rejects["replay"] + s.link.rejects["stale"] >= 3
             # None of it paused, held or steered anything.
             await holds_for(lambda: not s.link.safe_hold, 0.6, "the live link")
