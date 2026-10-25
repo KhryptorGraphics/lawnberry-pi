@@ -34,6 +34,7 @@ from .api.status import router as status_router
 from .core.auth_posture import log_auth_posture
 from .core.config_loader import ConfigLoader
 from .core.env_validation import validate_environment
+from .core.network_posture import log_network_posture
 from .middleware.api_key_auth import register_api_key_auth_middleware
 from .middleware.correlation import register_correlation_middleware
 from .middleware.input_validation import register_input_validation_middleware
@@ -142,6 +143,9 @@ async def lifespan(app: FastAPI):
     # Say, before anything starts, every way this process is set to skip authentication
     # (OPERATOR_AUTH_REQUIRED disabled, SIM_MODE on a production or exposed process).
     log_auth_posture()
+    # ... and who is believed to name the client address (trusted forwarders, uvicorn's own
+    # proxy handling) and whether any WebSocket opens without a credential.
+    log_network_posture()
     # Load configuration (hardware + safety limits) and attach to app.state
     loader = ConfigLoader()
     hardware_cfg, safety_limits = loader.get()

@@ -10,8 +10,11 @@ Before:
 
 Now a browser trades its bearer token for a 30 s single-use ticket (``POST /auth/ws-ticket``),
 ``/ws/control`` needs a credential whenever operator auth is on, the URL token is no longer read,
-and the ``X-Forwarded-For`` of a TRUSTED proxy (last hop only) names the client the limiters
-and the lockout count. From any other peer the header is not read at all.
+and the ``X-Forwarded-For`` of a forwarder that was DECLARED trusted
+(``LAWN_BERRY_TRUSTED_PROXIES``, default nobody) names the client the limiters and the lockout
+count. From any other peer the header is not read at all. The declaration matrix itself is in
+``tests/unit/test_peer_address_trust.py``; the anonymous-admission matrix in
+``tests/integration/test_ws_admission_limits.py``.
 """
 
 from __future__ import annotations
@@ -26,7 +29,6 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.testclient import WebSocketDenialResponse
-from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from backend.src.api import status as status_api
 from backend.src.api.routers import auth as auth_router
@@ -34,8 +36,8 @@ from backend.src.api.routers.auth import _authorize_websocket
 from backend.src.core.peer_address import (
     TRUSTED_PROXIES_ENV,
     client_host,
+    parse_trusted_proxies,
     resolve_client_host,
-    trusted_proxy_networks,
 )
 from backend.src.main import app
 from backend.src.middleware.rate_limiting import register_global_rate_limiter
@@ -47,11 +49,10 @@ LOGIN = "/api/v2/auth/login"
 TICKET = "/api/v2/auth/ws-ticket"
 CONTROL = "/api/v2/ws/control"
 
-LOOPBACK = trusted_proxy_networks({})  # unset: the default, the loopback only
-
-
-def _nets(text: str):
-    return trusted_proxy_networks({TRUSTED_PROXIES_ENV: text})
+# The test "proxy" is on the loopback and APPENDS the address it saw (nginx
+# ``$proxy_add_x_forwarded_for``, a CDN edge): shape ``last``. 127.0.0.5 is a second forwarder
+# in front of it (a chain).
+FORWARDERS = parse_trusted_proxies("127.0.0.1=last,127.0.0.5=last")
 
 
 def _client_for(target, peer=("127.0.0.1", 123)) -> httpx.AsyncClient:
@@ -60,8 +61,9 @@ def _client_for(target, peer=("127.0.0.1", 123)) -> httpx.AsyncClient:
 
 
 @pytest.fixture(autouse=True)
-def default_trust(monkeypatch):
-    monkeypatch.delenv(TRUSTED_PROXIES_ENV, raising=False)
+def declared_forwarder(monkeypatch):
+    """Declare the loopback test proxy: nobody is trusted unless the variable says so."""
+    monkeypatch.setenv(TRUSTED_PROXIES_ENV, "127.0.0.1=last")
 
 
 # ---- who is the client --------------------------------------------------------------------------
@@ -70,46 +72,41 @@ def default_trust(monkeypatch):
 @pytest.mark.parametrize(
     ("peer", "lines", "expected"),
     [
-        # a trusted proxy recorded the real address as the LAST hop; what the client wrote to its
-        # left is never read
+        # a declared forwarder appended the real address as the LAST hop; what the client wrote
+        # to its left is never read
         ("127.0.0.1", ["203.0.113.9"], "203.0.113.9"),
         ("127.0.0.1", ["6.6.6.6, 203.0.113.9"], "203.0.113.9"),
         ("127.0.0.1", ["6.6.6.6", "203.0.113.9"], "203.0.113.9"),  # two header lines
-        ("::1", ["203.0.113.9"], "203.0.113.9"),
         ("::ffff:127.0.0.1", ["203.0.113.9"], "203.0.113.9"),
         ("127.0.0.1", ["203.0.113.9:51234"], "203.0.113.9"),
         ("127.0.0.1", ["[2001:db8::7]:51234"], "2001:db8::7"),
-        ("127.0.0.1", ["203.0.113.9, 127.0.0.2"], "203.0.113.9"),  # a trusted hop is skipped
+        ("127.0.0.1", ["203.0.113.9, 127.0.0.5"], "203.0.113.9"),  # a forwarder hop is skipped
         # nothing usable: the proxy's own address (one shared budget), never a guess
         ("127.0.0.1", [], "127.0.0.1"),
         ("127.0.0.1", ["203.0.113.9, unknown"], "127.0.0.1"),
         ("127.0.0.1", ["garbage"], "127.0.0.1"),
-        ("127.0.0.1", ["127.0.0.5"], "127.0.0.1"),  # only trusted hops
-        # not a trusted proxy: the header is not read at all
+        ("127.0.0.1", ["127.0.0.5"], "127.0.0.1"),  # only forwarder hops
+        # not a declared forwarder (another loopback process included): the header is not read
+        ("::1", ["203.0.113.9"], "::1"),
+        ("127.0.0.2", ["203.0.113.9"], "127.0.0.2"),
         ("198.51.100.9", ["127.0.0.1"], "198.51.100.9"),
         ("198.51.100.9", ["203.0.113.9"], "198.51.100.9"),
         ("testclient", ["203.0.113.9"], "testclient"),
         (None, ["203.0.113.9"], None),
     ],
 )
-def test_the_client_is_the_last_forwarded_hop_of_a_trusted_proxy_only(peer, lines, expected):
-    assert resolve_client_host(peer, lines, LOOPBACK) == expected
+def test_the_client_is_the_last_forwarded_hop_of_a_declared_forwarder_only(peer, lines, expected):
+    assert resolve_client_host(peer, lines, FORWARDERS) == expected
 
 
-def test_the_trusted_proxy_list_is_configurable():
-    ahead = ["203.0.113.9"]
-    assert resolve_client_host("10.1.2.3", ahead, _nets("10.0.0.0/8, 192.0.2.1")) == "203.0.113.9"
-    assert resolve_client_host("127.0.0.1", ahead, _nets("10.0.0.0/8")) == "127.0.0.1"
-    # an explicitly empty value trusts nobody, the loopback included
-    assert resolve_client_host("127.0.0.1", ahead, _nets("")) == "127.0.0.1"
-    # a bad entry is ignored and the good ones stay
-    assert resolve_client_host("10.1.2.3", ahead, _nets("nonsense, 10.0.0.0/8")) == "203.0.113.9"
-
-
-def test_the_environment_is_read_when_no_networks_are_passed(monkeypatch):
-    assert resolve_client_host("10.1.2.3", ["203.0.113.9"]) == "10.1.2.3"
-    monkeypatch.setenv(TRUSTED_PROXIES_ENV, "10.0.0.0/8")
+def test_the_environment_is_read_when_no_forwarders_are_passed(monkeypatch):
+    assert resolve_client_host("127.0.0.1", ["203.0.113.9"]) == "203.0.113.9"
+    monkeypatch.setenv(TRUSTED_PROXIES_ENV, "10.1.2.0/24=last")
+    assert resolve_client_host("127.0.0.1", ["203.0.113.9"]) == "127.0.0.1"
     assert resolve_client_host("10.1.2.3", ["203.0.113.9"]) == "203.0.113.9"
+    monkeypatch.delenv(TRUSTED_PROXIES_ENV)  # unset: nobody is trusted
+    assert resolve_client_host("10.1.2.3", ["203.0.113.9"]) == "10.1.2.3"
+    assert resolve_client_host("127.0.0.1", ["203.0.113.9"]) == "127.0.0.1"
 
 
 def _request(peer: str, *forwarded: str) -> Request:
@@ -178,24 +175,6 @@ async def test_an_untrusted_peer_cannot_dodge_the_lockout_with_forwarded_for(str
             LOGIN, json={"credential": CRED}, headers={"X-Forwarded-For": "10.0.0.250"}
         )
         assert locked.status_code == 429
-
-
-async def test_uvicorn_proxy_headers_and_the_backend_agree_on_the_client(strict):
-    """In the shipped deployment uvicorn (``--proxy-headers``, trusting 127.0.0.1) has already
-    replaced ``request.client`` with the forwarded hop before the backend looks. Both layers take
-    the last untrusted hop, so a client-written prefix is ignored and each browser is counted on
-    its own. Pins the documented assumption against a uvicorn upgrade."""
-    wrapped = ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")
-    async with _client_for(wrapped) as proxy:
-        assert await _bad_logins(proxy, [f"6.6.6.{n}, 203.0.113.9" for n in range(3)]) == [401] * 3
-        locked = await proxy.post(
-            LOGIN, json={"credential": CRED}, headers={"X-Forwarded-For": "6.6.6.99, 203.0.113.9"}
-        )
-        assert locked.status_code == 429
-        other = await proxy.post(
-            LOGIN, json={"credential": CRED}, headers={"X-Forwarded-For": "203.0.113.10"}
-        )
-        assert other.status_code == 200, other.text
 
 
 def _auth_app() -> FastAPI:
@@ -421,21 +400,41 @@ async def test_the_control_socket_helper_refuses_the_loopback_only_when_auth_is_
     with pytest.raises(HTTPException) as refused:
         await _authorize_websocket(loopback, command_capable=True)
     assert refused.value.status_code == 401
-    assert (await _authorize_websocket(loopback)).session_id, "read-only streams: unchanged"
     clean_env.setenv("OPERATOR_AUTH_REQUIRED", "0")
+    with pytest.raises(HTTPException) as still_refused:  # auth off does not open the sockets
+        await _authorize_websocket(loopback, command_capable=True)
+    assert still_refused.value.status_code == 401
+    clean_env.setenv("LAWN_BERRY_ANONYMOUS_TELEMETRY", "loopback")  # only the opt-in does
     assert (await _authorize_websocket(loopback, command_capable=True)).session_id
 
 
-async def test_the_websocket_helper_never_reads_forwarded_for(clean_env):
-    """The peer is ``websocket.client``; the helper itself ignores the header. (In the shipped
-    deployment uvicorn has already replaced the peer with the forwarded hop by then, so a LAN
-    browser behind the UI server arrives here as its own address: see the auth guide.)"""
+async def test_the_loopback_is_no_longer_a_trust_level_for_read_only_streams(clean_env):
+    """A browser on the mower used to be admitted without a credential on the read-only streams.
+    Behind a same-host forwarder (a tunnel agent, nginx) every remote visitor looks like that
+    browser, so no peer is admitted without a credential any more (review SEC20-02)."""
+    for host in ("127.0.0.1", "::1", "127.0.0.2", "::ffff:127.0.0.1", "localhost", "203.0.113.9"):
+        with pytest.raises(HTTPException) as refused:
+            await _authorize_websocket(FakeWebSocket(host=host))
+        assert refused.value.status_code == 401, host
+
+
+async def test_the_websocket_helper_trusts_only_a_declared_forwarders_forwarded_for(clean_env):
+    """The client is ``core.peer_address.client_host``: the TCP peer, or what a DECLARED
+    forwarder recorded. A header from any other peer names nobody."""
+    clean_env.setenv("LAWN_BERRY_ANONYMOUS_TELEMETRY", "loopback")
+    # a LAN peer that writes "127.0.0.1" is not the loopback
     forged = FakeWebSocket(host="203.0.113.9", headers={"X-Forwarded-For": "127.0.0.1"})
     with pytest.raises(HTTPException) as refused:
         await _authorize_websocket(forged)
     assert refused.value.status_code == 401
-    loopback = FakeWebSocket(host="127.0.0.1", headers={"X-Forwarded-For": "203.0.113.9"})
-    assert (await _authorize_websocket(loopback)).session_id, "the peer decides, not the header"
+    # the declared forwarder (127.0.0.1=last here) saw a remote client: not the loopback either
+    remote_via_proxy = FakeWebSocket(host="127.0.0.1", headers={"X-Forwarded-For": "203.0.113.9"})
+    with pytest.raises(HTTPException) as refused:
+        await _authorize_websocket(remote_via_proxy)
+    assert refused.value.status_code == 401
+    # ... and a declared forwarder that saw the local browser admits it in loopback mode
+    local_via_proxy = FakeWebSocket(host="127.0.0.1", headers={"X-Forwarded-For": "127.0.0.9"})
+    assert (await _authorize_websocket(local_via_proxy)).session_id
 
 
 async def test_the_status_stream_is_authorized_before_it_is_accepted(clean_env):

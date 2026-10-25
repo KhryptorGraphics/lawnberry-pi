@@ -74,6 +74,7 @@ server {
     # Frontend (Vue static server) at /
     location / {
         proxy_pass http://127.0.0.1:${FRONTEND_PORT};
+        proxy_bind 127.0.0.3;  # the address the backend and UI server trust (docs/authentication-config.md)
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -83,6 +84,7 @@ server {
     # API direct to backend
     location /api/ {
         proxy_pass http://127.0.0.1:${BACKEND_PORT};
+        proxy_bind 127.0.0.3;  # the address the backend and UI server trust (docs/authentication-config.md)
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -93,19 +95,23 @@ server {
     # WebSocket upgrades to frontend (which proxies to backend)
     location /ws {
         proxy_pass http://127.0.0.1:${FRONTEND_PORT};
+        proxy_bind 127.0.0.3;  # the address the backend and UI server trust (docs/authentication-config.md)
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
         proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 
     # Also allow direct WS to backend API paths
     location /api/v2/ws/ {
         proxy_pass http://127.0.0.1:${BACKEND_PORT};
+        proxy_bind 127.0.0.3;  # the address the backend and UI server trust (docs/authentication-config.md)
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
         proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 }
 EOF

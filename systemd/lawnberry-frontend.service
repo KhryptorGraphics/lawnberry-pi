@@ -11,6 +11,20 @@ WorkingDirectory=@LB_ROOT@/frontend
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=BACKEND_URL=http://127.0.0.1:8081
+# Client addresses (docs/authentication-config.md, "Forwarders, tunnels and client addresses").
+# This server connects to the backend FROM 127.0.0.2 so the backend can tell it from every other
+# process on the host (they all connect from 127.0.0.1) and believes the one X-Forwarded-For hop
+# we send; the backend unit lists 127.0.0.2=single. A forwarder in FRONT of this server is trusted
+# only if listed here: the repo's nginx connects from 127.0.0.3 and appends the address it saw. A
+# Cloudflare or ngrok agent on this host connects from 127.0.0.1: declare it with a drop-in
+# (`systemctl edit lawnberry-frontend`: Environment=UI_TRUSTED_PROXIES=127.0.0.3=last,127.0.0.1=last)
+# ONLY when the tunnel agent is the only thing forwarding remote traffic to port 3000 from
+# 127.0.0.1 (never with ssh -R, socat, frp). An invalid value trusts nobody (ERROR in the journal).
+Environment=BACKEND_SOURCE_ADDRESS=127.0.0.2
+Environment=UI_TRUSTED_PROXIES=127.0.0.3=last
+# Sockets that connect and send nothing are reaped and, at this many open sockets, the longest idle
+# one makes room for a new one (so the E-stop POST can always connect).
+Environment=UI_MAX_CONNECTIONS=512
 ExecStart=/usr/bin/node @LB_ROOT@/frontend/server.mjs
 Restart=always
 RestartSec=5
@@ -23,6 +37,9 @@ PrivateTmp=true
 ProtectHome=false
 ProtectSystem=strict
 ReadWritePaths=@LB_ROOT@/frontend
+
+# Descriptor budget (UI_MAX_CONNECTIONS is far below it)
+LimitNOFILE=4096
 
 # Logging
 StandardOutput=journal
