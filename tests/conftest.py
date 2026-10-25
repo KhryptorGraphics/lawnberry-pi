@@ -196,9 +196,10 @@ def _stale_heading_does_not_leak_between_tests():
     couple of seconds, which is the point of it. A test that fed one IMU reading must not leave
     the singleton to age into a hold for every test that follows.
     """
-    from backend.src.services.navigation_service import NavigationService
-
-    nav = NavigationService._instance
+    # Lazy on purpose: a test that never touches the backend must not get it imported by a
+    # fixture (see tests/unit/test_conftest_isolation.py), so reset only what is already loaded.
+    module = sys.modules.get("backend.src.services.navigation_service")
+    nav = getattr(getattr(module, "NavigationService", None), "_instance", None)
     if nav is not None:
         nav.navigation_state.heading_updated_at = None
         nav._last_imu_stamp = None
@@ -213,10 +214,12 @@ def _process_latches_do_not_leak_between_tests():
     blade latch an earlier test left set (the E-stop routes) would now show up in every later
     status read; the safety state and the blade service are rebuilt for each test instead.
     """
-    from backend.src.core import globals as core_globals
-    from backend.src.services import blade_service
-
-    core_globals._safety_state["emergency_stop_active"] = False
-    core_globals._client_emergency.clear()
-    blade_service._blade_service = None
+    # Lazy for the same reason as above: only modules a test has already imported can hold state.
+    core_globals = sys.modules.get("backend.src.core.globals")
+    if core_globals is not None:
+        core_globals._safety_state["emergency_stop_active"] = False
+        core_globals._client_emergency.clear()
+    blade = sys.modules.get("backend.src.services.blade_service")
+    if blade is not None:
+        blade._blade_service = None
     yield
