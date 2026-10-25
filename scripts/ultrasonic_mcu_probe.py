@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
 """Record raw frames from the ultrasonic MCU for audit measurement M-40 (JSN-SR04T behaviour).
 
-Read-only with respect to the machine: it opens the MCU's USB *data* serial port, performs the
-normal handshake (HELLO, then CONFIG with the values below), and logs what the sensors report. It
-actuates nothing and never touches a Raspberry Pi GPIO pin. Use it with the array on the bench to
-answer the questions the audit lists as unmeasured: what a healthy sensor reports in open air (no
-pulse? a maximum-length pulse?), the real blind zone (put a flat target at 10, 15, 20, 25, 30 cm),
-the beam edge, behaviour on grass / people / pets / low objects, rain, and the cycle timing.
+Read-only with respect to the machine: it opens the MCU's USB *data* serial port, listens for the
+MCU's own INFO (it writes nothing to a port that has not first sent a valid frame), performs the
+normal handshake (CONFIG with the values below) and logs what the sensors report. It actuates
+nothing and never touches a Raspberry Pi GPIO pin. Use it with the array on the bench to answer
+the questions the audit lists as unmeasured: what a healthy sensor reports in open air (no pulse?
+a maximum-length pulse?), the real blind zone (put a flat target at 10, 15, 20, 25, 30 cm), the
+beam edge, behaviour on grass / people / pets / low objects, rain, and the cycle timing.
 
     python scripts/ultrasonic_mcu_probe.py --port /dev/serial/by-id/<mcu data port> \\
         --seconds 60 --csv /tmp/m40_open_air.csv
 
-CSV columns: wall_time_utc, sensor, status, echo_us, distance_cm_at_343mps, health, fails,
-cycle, mcu_t_ms. ``distance_cm_at_343mps`` is only a convenience conversion; keep ``echo_us``.
-Exit code 0 if readings arrived, 2 if the link never delivered one (see the printed link state).
+The CSV is the raw frame log: ONE ROW PER VALID READING FRAME the MCU sent, including the ones the
+driver ignored (handshake, a channel it did not enable) or refused (a replay, a timestamp that
+does not fit the MCU clock), with what it did in the ``disposition`` column (``accepted``,
+``ignored_link``, ``ignored_channel``, ``bad_sensor``, ``refused_clock``). Columns: wall_time_utc,
+sensor, status, echo_us, distance_cm_at_343mps, health, fails, cycle, mcu_t_ms, disposition.
+``distance_cm_at_343mps`` is only a convenience conversion; keep ``echo_us``.
+
+The last line counts them: ``frames`` (all), ``refused``, ``ignored`` and ``readings`` (accepted).
+Exit code 0 if readings were accepted, 2 if the link never delivered a reading frame (see the
+printed link state), 3 if reading frames arrived but the driver accepted none of them (the CSV
+shows why), 64 if the timing arguments are not a valid configuration.
 
 The driver opens the data port EXCLUSIVELY: while the LawnBerry backend (or another probe) holds it
 this one fails with ``open_failed``. It then says so; stop that process first and run it again.
@@ -26,9 +35,13 @@ import contextlib
 import csv
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import TextIO
+
+from pydantic import ValidationError
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -36,16 +49,17 @@ if str(ROOT) not in sys.path:
 
 from backend.src.drivers.sensors import ultrasonic_mcu_protocol as proto  # noqa: E402
 from backend.src.drivers.sensors.jsn_sr04t_driver import (  # noqa: E402
+    Disposition,
     JsnSr04tMcuDriver,
     SerialFactory,
     echo_to_cm,
     open_pyserial,
 )
-from backend.src.models.hardware_config import UltrasonicConfig  # noqa: E402
+from backend.src.models.hardware_config import STALE_MARGIN_MS, UltrasonicConfig  # noqa: E402
 
 CSV_FIELDS = (
     "wall_time_utc", "sensor", "status", "echo_us", "distance_cm_at_343mps", "health", "fails",
-    "cycle", "mcu_t_ms",
+    "cycle", "mcu_t_ms", "disposition",
 )  # fmt: skip
 
 OPEN_FAILED_HINT = (
@@ -55,12 +69,34 @@ OPEN_FAILED_HINT = (
     "time is up."
 )
 
+#: Exit codes (0 = readings were accepted).
+EXIT_NO_FRAMES = 2
+EXIT_NONE_ACCEPTED = 3
+EXIT_BAD_TIMING = 64
+
 
 def _status_name(code: int) -> str:
     try:
         return proto.EchoStatus(code).name
     except ValueError:
         return f"UNKNOWN_{code}"
+
+
+def probe_config(port: str, echo_window_ms: int, gap_ms: int) -> UltrasonicConfig:
+    """The probe's configuration for the timings under test.
+
+    ``stale_after_ms`` follows the cycle (the configuration refuses one that is shorter than a
+    full cycle plus its margin), so slow timings such as ``--echo-window-ms 100 --gap-ms 500`` can
+    be measured: the probe judges nothing, it only logs.
+    """
+    cycle_ms = (echo_window_ms + gap_ms) * len(UltrasonicConfig().channels)
+    stale_after_ms = max(700, cycle_ms + 2 * STALE_MARGIN_MS)
+    return UltrasonicConfig(
+        port=port,
+        echo_window_ms=echo_window_ms,
+        inter_sensor_gap_ms=gap_ms,
+        stale_after_ms=stale_after_ms,
+    )
 
 
 def run(
@@ -75,11 +111,17 @@ def run(
     sleep: Callable[[float], None] = time.sleep,
     out: TextIO = sys.stdout,
 ) -> int:
-    cfg = UltrasonicConfig(port=port, echo_window_ms=echo_window_ms, inter_sensor_gap_ms=gap_ms)
+    try:
+        cfg = probe_config(port, echo_window_ms, gap_ms)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        where = ".".join(str(p) for p in first["loc"]) or "timing"
+        print(f"probe: not a valid configuration: {where}: {first['msg']}", file=out)
+        return EXIT_BAD_TIMING
     driver = JsnSr04tMcuDriver(
         cfg, serial_factory=serial_factory or open_pyserial, clock=clock, simulate=False
     )
-    rows = 0
+    fates: Counter[Disposition] = Counter()
     with contextlib.ExitStack() as stack:
         writer = None
         if csv_path:
@@ -88,15 +130,14 @@ def run(
             writer.writerow(CSV_FIELDS)
         stack.callback(driver.close)
 
-        def on_reading(r: proto.Reading, wall) -> None:
-            nonlocal rows
-            rows += 1
+        def on_reading(r: proto.Reading, wall: datetime, fate: Disposition) -> None:
+            fates[fate] += 1
             if writer:
                 sensor = cfg.channels[r.sensor] if r.sensor < len(cfg.channels) else r.sensor
                 approx = f"{echo_to_cm(r.echo_us, 343.0):.1f}" if r.echo_us else ""
                 writer.writerow(
                     [wall.isoformat(), sensor, _status_name(r.status), r.echo_us, approx,
-                     r.health, r.fails, r.cycle, r.t_ms]
+                     r.health, r.fails, r.cycle, r.t_ms, fate.value]
                 )  # fmt: skip
 
         driver.reading_hook = on_reading
@@ -113,8 +154,17 @@ def run(
                 print(_table(driver), file=out)
             sleep(0.005)
         final_state, final_fault = driver.link_state.value, driver.link_fault
-    print(f"link={final_state} fault={final_fault} readings={rows}", file=out)
-    return 0 if rows else 2
+    frames = sum(fates.values())
+    accepted = fates[Disposition.ACCEPTED]
+    refused = fates[Disposition.REFUSED_CLOCK]
+    print(
+        f"link={final_state} fault={final_fault} frames={frames} refused={refused} "
+        f"ignored={frames - accepted - refused} readings={accepted}",
+        file=out,
+    )
+    if accepted:
+        return 0
+    return EXIT_NONE_ACCEPTED if frames else EXIT_NO_FRAMES
 
 
 def _table(driver: JsnSr04tMcuDriver) -> str:
