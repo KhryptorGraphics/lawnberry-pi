@@ -180,6 +180,30 @@ class MotionGate:
     reasons: tuple[str, ...]
 
 
+class ScriptedOutcome(StrEnum):
+    """How ``NavigationService.drive_scripted`` ended (audit SAF-11)."""
+
+    DONE = "done"  # ran for its whole duration (the last command stays in force briefly)
+    REFUSED = "refused"  # never started: a hold, a stop latch or an autonomous run was in force
+    HELD = "held"  # the safety gate held it: stood down, the step is over
+    STOPPED = "stopped"  # a safety stop happened (E-stop, watchdog, revoke, ...): stood down
+    FAILED = "failed"  # the drive controller refused or failed a command: stood down
+
+
+@dataclass(frozen=True, slots=True)
+class ScriptedDrive:
+    """The result of one scripted drive step."""
+
+    outcome: ScriptedOutcome
+    reasons: tuple[str, ...] = ()
+    ran_s: float = 0.0
+    commands_accepted: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.outcome is ScriptedOutcome.DONE
+
+
 class NavigationService:
     """Main navigation service with sensor fusion and path planning"""
 
@@ -234,6 +258,9 @@ class NavigationService:
         stop_events.add_listener(self._on_stop_event)
         self._hold_error_logged = False
         self._last_hold_assert = 0.0
+        # True while ``drive_scripted`` owns the drive (the IMU calibration manoeuvre): the
+        # obstacle monitor's hold handler stops it exactly like an autonomous run (SAF-11).
+        self._scripted_drive_active = False
 
     _instance: Optional["NavigationService"] = None
 
@@ -284,11 +311,13 @@ class NavigationService:
             stamp = stamp.replace(tzinfo=UTC)
         return abs((datetime.now(UTC) - stamp).total_seconds())
 
-    def _motion_gate(self, *, gnss: bool = True) -> "MotionGate":
+    def _motion_gate(self, *, gnss: bool = True, heading: bool = True) -> "MotionGate":
         """One verdict from every safety input; a check that cannot run is a hold.
 
-        ``gnss=False`` leaves the GNSS monitor out (the IMU calibration drive does not
-        navigate); the obstacle guard and the heading age always count.
+        ``gnss=False`` leaves the GNSS monitor out and ``heading=False`` the heading age: a
+        scripted open-loop drive (the IMU calibration manoeuvre) neither navigates nor steers
+        by the heading, and it exists to make a dead IMU usable. The obstacle guard always
+        counts, whatever moves the machine.
         """
         hold = False
         cap: float | None = None
@@ -318,7 +347,7 @@ class NavigationService:
                 if not fix.healthy:
                     hold, cap = True, 0.0
                     reasons.extend(f"gnss: {reason}" for reason in fix.reasons)
-        age = self.heading_age_s()
+        age = self.heading_age_s() if heading else None
         if age is not None and age > self.max_heading_age_s:
             # A frozen heading is steered by for ever by a proportional controller: hold.
             hold, cap = True, 0.0
@@ -412,6 +441,18 @@ class NavigationService:
         if robohat is not None and getattr(robohat, "emergency_latched", False) is True:
             reasons.append("the RoboHAT stop hold is latched")
         return "; ".join(reasons) or None
+
+    def _start_refusal(self) -> str | None:
+        """Why no autonomous run may start now: a stop is latched, or a scripted drive runs.
+
+        A scripted drive (the IMU calibration manoeuvre) and a mission would be two writers on
+        the one drive, so neither may start while the other owns it (audit SAF-11).
+        """
+        if (latched := self._stop_latched()) is not None:
+            return latched
+        if self._scripted_drive_active:
+            return "a scripted drive (the IMU calibration) is running"
+        return None
 
     @staticmethod
     def _standing_refusal(result: Any) -> str | None:
@@ -576,22 +617,28 @@ class NavigationService:
             self._hold_reasons = None
 
     async def enforce_motion_hold(self, assessment: Any | None = None) -> None:
-        """Obstacle monitor hold handler for the differential platform.
+        """Obstacle monitor hold handler: stop what autonomy (or a scripted drive) has moving.
 
-        Stops whatever autonomy has moving the moment a hold begins, without waiting for the
-        planner's next tick: blade off first, then the drive to neutral. The tractor platform
-        has its own handler on the tractor service.
+        Acts the moment a hold begins, without waiting for the planner's next tick, and only
+        while an autonomous run or a scripted drive owns the machine (a person's manual drive
+        is left alone). Differential platform: blade off first, then the drive to neutral.
+        Tractor platform: the tractor service has its own handler for its levers and PTO relay,
+        so only the IBT-4 blade service, which nothing else asks, is asked to switch off here.
         """
         from .tractor_service import get_tractor_service
 
-        if get_tractor_service().enabled:
-            return
-        if self.navigation_state.navigation_mode not in AUTONOMOUS_MODES:
+        if (
+            self.navigation_state.navigation_mode not in AUTONOMOUS_MODES
+            and not self._scripted_drive_active
+        ):
             return
         now = time.monotonic()
         if now - self._last_hold_assert < 0.25:
             return
         self._last_hold_assert = now
+        if get_tractor_service().enabled:
+            self._request_blade_off("obstacle hold")
+            return
         failures = await self._stand_down_platform("obstacle hold")
         if failures:
             logger.error("Could not confirm the obstacle hold (retried next cycle): %s", failures)
@@ -614,7 +661,7 @@ class NavigationService:
 
         # A run that started under a latch would sit refused and drive off by itself at the
         # clear: after a stop, a person clears the latch AND starts the run again.
-        if (latched := self._stop_latched()) is not None:
+        if (latched := self._start_refusal()) is not None:
             raise RuntimeError(f"Cannot start mission: {latched}")
 
         # GNSS precondition (audit D.9): no mission starts on a missing, stale or inaccurate
@@ -925,12 +972,138 @@ class NavigationService:
             # Simulation of movement
             await asyncio.sleep(self.control_period_s)  # Control loop at 5Hz
 
+    # ------------------------------ scripted drives ------------------------------
+
+    def scripted_drive_refusal(self) -> str | None:
+        """Why a scripted drive may not start now, else ``None`` (audit SAF-11).
+
+        A scripted drive is open-loop motion that belongs to no mission (the IMU calibration
+        manoeuvre). It is held to the same rules as an autonomous leg: every stop latch that
+        ends an autonomous run forbids it (the process E-stop, the tractor's latches and
+        lock-out, the RoboHAT stop hold), so does the obstacle guard's hold, and so does an
+        autonomous run (two writers would fight over the drive) or another scripted drive.
+        GNSS quality and the heading age are not inputs: the drive neither navigates nor steers
+        by the heading (``_motion_gate``).
+        """
+        from .tractor_service import get_tractor_service
+
+        if self._scripted_drive_active:
+            return "another scripted drive is running"
+        if get_tractor_service().enabled:
+            return "the tractor platform is enabled: the RoboHAT drive is not this machine's drive"
+        if (latched := self._stop_latched()) is not None:
+            return f"a stop is latched: {latched}"
+        mode = self.navigation_state.navigation_mode
+        if mode in AUTONOMOUS_MODES:
+            return f"an autonomous run owns the drive (mode {getattr(mode, 'value', mode)})"
+        gate = self._motion_gate(gnss=False, heading=False)
+        if gate.hold:
+            return "motion is held: " + ("; ".join(gate.reasons) or "hold")
+        return None
+
+    async def drive_scripted(
+        self, left: float, right: float, duration_s: float, *, run_epoch: int | None = None
+    ) -> ScriptedDrive:
+        """Drive the differential platform open-loop for ``duration_s``, behind the safety path.
+
+        ``left``/``right`` are normalized wheel speeds in [-1, 1] (full scale, as
+        ``RoboHATService.send_motor_command`` takes them). Audit SAF-11: the IMU calibration
+        drive used to send one command with a validity window of the whole step and then sleep,
+        with no obstacle guard, no stop latch and no abort. Now the command is re-sent every
+        control tick (so a dead caller lets the drive lapse to neutral within the drive's
+        validity window), and every tick, before the command:
+
+        * a safety stop since ``run_epoch`` (``safety.stop_events``: E-stop, watchdog, revoke,
+          lock-out, tilt latch; default: the epoch when the call began) ends the drive with
+          no further motion command (blade off and neutral are re-asserted; the RoboHAT's own
+          stop hold refuses that neutral, which it is already holding);
+        * the obstacle guard's verdict holds the drive (blade off, neutral, the step is over)
+          or caps its forward speed to the stopping-distance model (reverse is not limited,
+          as for every autonomous path).
+
+        The call returns at the first tick that sees either, so a hold ends the drive at most
+        one control period after it appears (the obstacle monitor's hold handler,
+        ``enforce_motion_hold``, acts sooner). It never resumes by itself: the caller ends its
+        whole manoeuvre on any outcome but ``DONE``. On ``DONE`` the last command is left in
+        force for its short validity window (the next step follows at once); the caller sends
+        the final neutral. The blade is switched off before the first command, whatever else
+        happens. Never raises (a cancelled call stands the platform down first).
+        """
+        if not (math.isfinite(left) and math.isfinite(right) and math.isfinite(duration_s)):
+            return ScriptedDrive(ScriptedOutcome.REFUSED, ("non-finite scripted drive",))
+        refusal = self.scripted_drive_refusal()
+        if refusal is not None:
+            return ScriptedDrive(ScriptedOutcome.REFUSED, (refusal,))
+        epoch = stop_events.epoch() if run_epoch is None else run_epoch
+        from .tractor_service import get_tractor_service
+
+        self._scripted_drive_active = True
+        outcome, reasons = ScriptedOutcome.DONE, ()
+        accepted = 0
+        finished = False  # the loop ran to its end (by the clock or by a verdict)
+        started = time.monotonic()
+        try:
+            # Scripted motion never runs with the blade on: off first (idempotent), every path.
+            failures = await self._drop_blade(get_tractor_service(), "scripted drive")
+            if failures:
+                logger.error("Scripted drive: the blade could not be confirmed off: %s", failures)
+            while (remaining := duration_s - (time.monotonic() - started)) > 0:
+                if stop_events.epoch() != epoch:
+                    outcome = ScriptedOutcome.STOPPED
+                    reasons = ("a safety stop happened during the scripted drive",)
+                    break
+                gate = self._motion_gate(gnss=False, heading=False)
+                if gate.hold:
+                    outcome, reasons = ScriptedOutcome.HELD, gate.reasons or ("hold",)
+                    break
+                try:
+                    await self._command_drive(left * self.max_speed, right * self.max_speed, gate)
+                except Exception as exc:
+                    if stop_events.epoch() != epoch:  # the stop refused it: that is not a failure
+                        outcome = ScriptedOutcome.STOPPED
+                        reasons = ("a safety stop happened during the scripted drive",)
+                    else:
+                        outcome, reasons = ScriptedOutcome.FAILED, (f"drive command: {exc}",)
+                    break
+                accepted += 1
+                await asyncio.sleep(min(self.control_period_s, remaining))
+            finished = True
+        finally:
+            self._scripted_drive_active = False
+            # Anything but a complete step (a hold, a stop, a failure, a cancelled caller)
+            # stands the platform down: blade off, then neutral. A stop that does not reach the
+            # RoboHAT itself (a revoke, a lock-out, a tilt latch) must still end the drive at
+            # once, and under the RoboHAT's own stop hold the neutral is refused, harmlessly.
+            if outcome is not ScriptedOutcome.DONE or not finished:
+                standing = await self._stand_down_platform(
+                    "scripted drive ended: " + ("; ".join(reasons) or "interrupted")
+                )
+                if standing:
+                    (logger.warning if outcome is ScriptedOutcome.STOPPED else logger.error)(
+                        "Scripted drive stand-down not confirmed: %s", standing
+                    )
+        return ScriptedDrive(outcome, tuple(reasons), time.monotonic() - started, accepted)
+
     async def set_speed(self, left_speed: float, right_speed: float) -> None:
         """Drive command helper integrating with the RoboHAT controller.
 
         - Accepts normalized wheel speeds in m/s-like units scaled to [-1, 1].
         - In SIM_MODE, updates state without touching hardware.
+        - The full safety gate (obstacle guard, GNSS, heading age) applies: a hold is neutral.
         """
+        await self._command_drive(left_speed, right_speed, self._motion_gate())
+
+    async def _command_drive(
+        self, left_speed: float, right_speed: float, gate: "MotionGate"
+    ) -> None:
+        """Clamp the wheel speeds, apply ``gate`` and write them to the differential drive.
+
+        NaN and infinity are refused (``ValueError``): ``min``/``max`` would clamp a NaN to full
+        speed. A hold zeroes both wheels (reverse included, nothing senses behind the machine
+        but a hold is neutral); a cap scales the forward component.
+        """
+        if not (math.isfinite(left_speed) and math.isfinite(right_speed)):
+            raise ValueError(f"non-finite wheel speeds ({left_speed!r}, {right_speed!r}) refused")
         # Clamp inputs for safety
         ls = max(-self.max_speed, min(self.max_speed, float(left_speed)))
         rs = max(-self.max_speed, min(self.max_speed, float(right_speed)))
@@ -938,7 +1111,6 @@ class NavigationService:
         # Differential platform's chokepoint (the tractor has its own, in
         # TractorControlService.set_levers): never faster than the obstacle guard allows,
         # and neutral while it holds. Stops (0, 0) pass through untouched.
-        gate = self._motion_gate()
         if gate.hold:
             ls = rs = 0.0
         elif gate.speed_cap_mps is not None:
@@ -1189,7 +1361,7 @@ class NavigationService:
 
     async def start_autonomous_navigation(self) -> bool:
         """Start autonomous navigation"""
-        if (latched := self._stop_latched()) is not None:
+        if (latched := self._start_refusal()) is not None:
             logger.error("Cannot start navigation: %s", latched)
             return False
         if (
@@ -1271,7 +1443,7 @@ class NavigationService:
 
         ai_service = get_ai_inference_service()
 
-        if (latched := self._stop_latched()) is not None:
+        if (latched := self._start_refusal()) is not None:
             logger.error("Refusing AI navigation: %s", latched)
             return False
         # A stop that lands while the AI service starts up must end this run before it begins.
@@ -1528,7 +1700,7 @@ class NavigationService:
 
     async def return_home(self) -> bool:
         """Navigate back to home position"""
-        if (latched := self._stop_latched()) is not None:
+        if (latched := self._start_refusal()) is not None:
             logger.error("Cannot return home: %s", latched)
             return False
         if not self.navigation_state.home_position:

@@ -239,10 +239,10 @@ async def _await_path(
         return name, _failed_path(f"{type(exc).__name__}: {exc}")
 
 
-async def _tractor(kind: str, source: str) -> dict[str, Any]:
+async def _tractor(kind: str, source: str, tractor: Any | None = None) -> dict[str, Any]:
     from . import tractor_service
 
-    tractor = tractor_service.get_tractor_service()
+    tractor = tractor if tractor is not None else tractor_service.get_tractor_service()
     if not tractor.enabled:
         return _absent(NOT_ENABLED, tractor.not_enabled_text())
     result = await (tractor.emergency_stop(source) if kind == "stop" else tractor.park(source))
@@ -311,14 +311,24 @@ def _summarize(paths: dict[str, dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-async def _run_all(kind: str, source: str, path_timeout_s: float) -> dict[str, Any]:
+async def _run_all(
+    kind: str, source: str, path_timeout_s: float, tractor: Any | None = None
+) -> dict[str, Any]:
     track = kind == "stop"
     # Every path is scheduled in THIS loop turn, before the first await. Handing the coroutines to
     # ``gather`` instead wrapped them in tasks that only start on the next turn, so a caller
     # cancelled right there (a dropped request, a lifespan teardown) cancelled them before they
     # ran: no stop path executed although the latch was already set (audit BL-08).
     started = (
-        ("tractor", _start_path(lambda: _tractor(kind, source), track=track)),
+        (
+            "tractor",
+            _start_path(
+                lambda: (
+                    _tractor(kind, source) if tractor is None else _tractor(kind, source, tractor)
+                ),
+                track=track,
+            ),
+        ),
         ("robohat", _start_path(lambda: _robohat(kind, source), track=track)),
         ("blade_service", _start_path(lambda: _blade_service(kind, source), track=track)),
     )
@@ -329,14 +339,16 @@ async def _run_all(kind: str, source: str, path_timeout_s: float) -> dict[str, A
 
 
 async def execute_emergency_stop(
-    source: str = "api", *, path_timeout_s: float = PATH_TIMEOUT_S
+    source: str = "api", *, path_timeout_s: float = PATH_TIMEOUT_S, tractor: Any | None = None
 ) -> dict[str, Any]:
     """Latch the general E-stop and drive every stop path that exists to safe.
 
     Sets the process-wide latch first (``emergency_stop_active``), then returns
     ``{"emergency_stop_active": True, "motors_stopped": bool, "blade_disabled":
     bool, "complete": bool, "subsystems": {...}, "faults": [...]}``. The latch is
-    always set; the booleans say what was actually confirmed. Never raises.
+    always set; the booleans say what was actually confirmed. Never raises. ``tractor`` is the
+    tractor instance to stop (default: the process singleton); the lifespan's watchdog passes
+    the one it supervises.
     """
     global _stops_in_flight, _stop_epoch
     _safety_state["emergency_stop_active"] = True
@@ -350,7 +362,7 @@ async def execute_emergency_stop(
         # (audit SAF-16).
         stop_events.record_stop("emergency_stop", source)
         latch_store.request_persist()
-        report = await _run_all("stop", source, path_timeout_s)
+        report = await _run_all("stop", source, path_timeout_s, tractor)
     finally:
         _stops_in_flight -= 1
     # The final state (the RoboHAT hold the stop has just set) is what a restart must restore.

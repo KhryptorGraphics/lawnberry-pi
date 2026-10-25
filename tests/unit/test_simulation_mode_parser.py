@@ -20,18 +20,11 @@ from backend.src.core.simulation import is_simulation_mode, parse_sim_mode
 
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
 
-#: Files another track is rewriting in the same wave: they still carry their raw reads here and
-#: are converted on their branches (fix2/blade: the ultrasonic drivers and ``_sim`` in
-#: sensor_manager; fix2/nav: navigation_service, calibration_service). These are CEILINGS, not
-#: permissions: a raw read may not be added to them, and after all branches are merged every
-#: number must be 0 (edit this table then; the scan below prints what is left).
-PENDING_OTHER_TRACKS = {
-    "backend/src/drivers/sensors/jsn_sr04t_driver.py": 1,
-    "backend/src/drivers/sensors/ultrasonic_driver.py": 4,
-    "backend/src/services/sensor_manager.py": 1,
-    "backend/src/services/navigation_service.py": 5,
-    "backend/src/services/calibration_service.py": 1,
-}
+#: Files another track is rewriting in the same wave still carry their raw reads here until they
+#: are converted on their branches: a CEILING per file, not a permission (a raw read may not be
+#: added to one). Every file has been converted (the last two, navigation_service and
+#: calibration_service, in fix3/nav), so the table is empty and any raw read fails the scan.
+PENDING_OTHER_TRACKS: dict[str, int] = {}
 
 
 @pytest.mark.parametrize(

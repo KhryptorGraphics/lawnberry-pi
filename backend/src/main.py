@@ -52,7 +52,7 @@ from .safety.tractor_safety_monitor import TractorSafetyMonitor
 from .safety.watchdog import ACTUATION_SOURCE, SAFETY_MONITOR_SOURCE, Watchdog
 from .services.blade_service import get_blade_service
 from .services.camera_stream_service import camera_service
-from .services.emergency_stop_service import park_actuators
+from .services.emergency_stop_service import execute_emergency_stop, park_actuators
 from .services.navigation_service import NavigationService
 from .services.robohat_service import initialize_robohat_service, shutdown_robohat_service
 from .services.thor_link_wiring import ThorLinkStartError, start_thor_link, stop_thor_link
@@ -96,6 +96,25 @@ async def _fail_closed(app: FastAPI, tractor) -> None:
             _log.critical("Start-up fail-closed stop NOT confirmed: %s", report.get("faults"))
     except Exception:
         _log.exception("Start-up fail-closed stop failed")
+
+
+async def _watchdog_stop(tractor=None) -> dict:
+    """What a watchdog trip does: the all-platform E-stop, recorded (audit SAF-01 gap, round 3).
+
+    The trip used to call ``tractor.emergency_stop`` alone. On a platform whose tractor is
+    disabled that answers ``not_enabled``: nothing is stopped, no stop event is recorded (so a
+    running mission goes on) and the platform that IS driving, the RoboHAT, never hears of it;
+    the IBT-4 blade service only heard of a tractor stop. A trip means the control path that
+    keeps the machine safe stopped proving it can: the whole machine stops, whichever platforms
+    exist. ``execute_emergency_stop`` fans out to the tractor (when enabled), the RoboHAT and
+    the IBT-4 concurrently and independently, latches the process E-stop, records the stop
+    (``safety.stop_events``: every autonomous run ends, a clear never revives one), persists the
+    latch, and reports what each output actually did. The watchdog repeats it every second
+    while a heartbeat stays silent, and the general clear is refused while a repeat runs.
+    ``tractor`` is the instance the watchdog supervises (the lifespan passes it; default: the
+    process singleton, which is the same object in production).
+    """
+    return await execute_emergency_stop(source="watchdog", tractor=tractor)
 
 
 #: How long shutdown waits for cancelled mission/navigation tasks to finish before it parks.
@@ -285,12 +304,13 @@ async def lifespan(app: FastAPI):
             # it: the tractor's own actuation self-check (servo outputs read back from the
             # PCA9685, no write fault, deadman running, a latched stop really safe) and the
             # tilt monitor's completed cycle. A timeout revokes the tractor's own
-            # authorization and awaits its real emergency_stop (blade off, levers neutral,
-            # throttle idle), repeated every second while a heartbeat stays silent. A
-            # HARDWARE watchdog is still required (audit O-7): this one shares the event
-            # loop it supervises and cannot act if that loop or the process hangs.
-            async def _watchdog_stop():
-                return await tractor.emergency_stop(source="watchdog")
+            # authorization and awaits the all-platform E-stop (``_watchdog_stop``: the
+            # tractor's blade off, levers neutral and throttle idle, and the RoboHAT and the
+            # IBT-4 too), repeated every second while a heartbeat stays silent. A HARDWARE
+            # watchdog is still required (audit O-7): this one shares the event loop it
+            # supervises and cannot act if that loop or the process hangs. It exists only for
+            # the tractor platform: nothing feeds a heartbeat on the differential platform,
+            # whose failsafe is the RoboHAT firmware's own 2 s USB timeout.
 
             # A window shorter than a few self-check periods would trip on a healthy machine.
             min_window_ms = 3000.0 * tractor.supervise_interval_s
@@ -303,7 +323,7 @@ async def lifespan(app: FastAPI):
             tractor_watchdog = Watchdog(
                 EstopHandler(tractor),
                 timeout_ms=safety_limits.watchdog_timeout_ms,
-                on_timeout=_watchdog_stop,
+                on_timeout=lambda: _watchdog_stop(tractor),
                 required_sources=(ACTUATION_SOURCE, SAFETY_MONITOR_SOURCE),
             )
             app.state.tractor_watchdog = tractor_watchdog
