@@ -2731,3 +2731,10 @@ Fail-before / pass-after, run by the integrator per test file (old source with t
 | `integration/test_ws_admission_limits.py`, `test_ws_tickets_and_proxy_peer.py`, `unit/test_global_rate_limiter.py`, `unit/test_security_middleware.py` | pass on both | pass: they pin behaviour the fix keeps, they do not prove a fix |
 
 The UI-server findings (SEC3-03) are pinned by `frontend/tests/unit/serverEstopReserve.spec.ts` and `serverDeadlines.spec.ts` (vitest; the integrator's run of the whole frontend suite: 37 files, 665 tests passed).
+
+### Integration round 5: merged tip after the third review's fix wave
+
+Merged `fix4/blade`, `fix4/usonic`, `fix4/tool`, `fix4/nav`, `fix4/gnss`, `fix4/sec` into `feat/2026-10-24-finish`. Merge-found repairs: `test_suite_hang_bounds.py` built a bare `Platform` without the `nav` attribute Fix4Nav's `close()` now touches; `ControlView.blade.spec.ts` used `Promise.withResolvers` (Node 22+; the CI Playwright image runs Node 20); `docs/code_structure_overview.md` regenerated with `scripts/sync_code_structure.py --fix`. Correction made in this round: two audit sections written by the integrator for Fix4Gnss and Fix4Sec before their reports had arrived were not sourced from the agents; they were removed and replaced (Fix4Gnss: the agent's own section; Fix4Sec: built from its commits and a measured fail-before/pass-after table).
+
+Verification (merged tip, official command with `pytest-timeout` on `PYTHONPATH` because the shared venv does not have it, counts read from the junit XML): **6182 collected, 6155 passed, 27 skipped, 0 failed, 0 errors**. Without the plugin the 3 tests of `test_suite_hang_bounds.py` that need it fail with a message saying so (owner item: install `pytest-timeout` in the shared venv). `ruff check backend tests scripts workshop firmware` and `ruff format --check .` clean (571 files); `scripts/sync_code_structure.py --check --base origin/main` current; frontend `npm test`: 37 files, 665 tests passed.
+
