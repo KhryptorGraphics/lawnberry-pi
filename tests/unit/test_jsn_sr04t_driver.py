@@ -333,9 +333,13 @@ class ScriptedPort:
         self.decoder = proto.FrameDecoder()
         self.sent: list[proto.Frame] = []
         self.closed = False
+        self.mcu_ms = 100  # the MCU clock of auto-stamped readings: every one is newer
+        self.broken: Exception | None = None  # set to make the port fail like an unplugged cable
 
     @property
     def in_waiting(self):
+        if self.broken is not None:
+            raise self.broken
         return len(self.inbox)
 
     def read(self, size=1):
@@ -366,10 +370,13 @@ class ScriptedPort:
         payload[2] = proto_version
         self.push(proto.FrameType.INFO, bytes(payload))
 
-    def reading(self, sensor=0, status=0, echo_us=5828, health=0, fails=0):
+    def reading(self, sensor=0, status=0, echo_us=5828, health=0, fails=0, t_ms=None):
+        if t_ms is None:
+            self.mcu_ms += 10
+            t_ms = self.mcu_ms
         self.push(
             proto.FrameType.READING,
-            fw.pack_reading(sensor, status, health, fails, echo_us, 1, 100),
+            fw.pack_reading(sensor, status, health, fails, echo_us, 1, t_ms),
         )
 
     def ack(self, cfg: proto.McuConfig):
@@ -394,6 +401,35 @@ def scripted_rig(**cfg):
         simulate=False,
     )  # fmt: skip
     return clock, port, driver, opens
+
+
+def scripted_active(**cfg):
+    """A scripted rig whose handshake is complete (INFO, CONFIG, CONFIG_ACK): readings count."""
+    clock, port, driver, opens = scripted_rig(**cfg)
+    driver.poll()
+    port.info()
+    driver.poll()
+    port.ack(driver.expected_mcu_config())
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE
+    return clock, port, driver, opens
+
+
+MCU_BASE_MS = 500_000  # the scripted MCU booted 500 s before the fake host clock's origin
+
+
+def mcu_ms(clock: FakeClock, behind_s: float = 0.0) -> int:
+    """The MCU clock (ms) ``behind_s`` seconds before the host's 'now', with no transport delay."""
+    return MCU_BASE_MS + round((clock.now() - 1000.0 - behind_s) * 1000)
+
+
+def steady(clock, port, driver, seconds=1.0, sensors=(0, 1, 2, 3)):
+    """A healthy stream: every 100 ms each of ``sensors`` reports, stamped with the MCU clock."""
+    for _ in range(round(seconds / 0.1)):
+        clock.advance(0.1)
+        for sensor in sensors:
+            port.reading(sensor=sensor, t_ms=mcu_ms(clock))
+        driver.poll()
 
 
 def test_handshake_order_and_readings_before_the_config_echo_are_not_trusted():
@@ -969,3 +1005,208 @@ async def test_a_closed_driver_does_not_reopen_the_port_either():
     rig.step(2.0)
     assert len(rig.factory.opens) == 1 and rig.driver.link_state is LinkState.DISCONNECTED
     assert all(c.status is ChannelStatus.LINK_DOWN for c in rig.driver.snapshot())
+
+
+# ---- US-05: a reading is as old as the MCU's own clock says, not "just received" ---------------
+
+
+def stall(rig: Rig, seconds: float, *, target_at: float | None = None, target=None) -> None:
+    """The host's loop does not run for ``seconds``; the MCU keeps measuring and talking."""
+    for i in range(round(seconds / 0.02)):
+        rig.clock.advance(0.02)
+        if target_at is not None and i == round(target_at / 0.02):
+            rig.port.set_sensor(0, target)  # the wall closes in on outer_left at +target_at
+        rig.port.sync()
+
+
+async def test_a_backlog_is_drained_in_one_poll_and_the_newest_frame_decides():
+    # reviewer exp e4: 40 s loop stall, a tty that hands out 4096 bytes per read(), the target
+    # steps from 200 to 28 cm at +20 s. Two polls used to report 200 cm "clear" with age 0.
+    rig = await Rig(sensors=[echo(200)] * 4, factory_kwargs={"max_read": 4096}).boot()
+    rig.step(0.6)
+    stall(rig, 40.0, target_at=20.0, target=echo(28))
+    assert len(rig.port._deliverable()) > 20_000  # ~22 kB queued, five reads' worth
+    rig.driver.poll()
+    c = rig.ch("outer_left")
+    assert (c.status, c.distance_cm, c.verdict) == (ChannelStatus.OK, 28.0, Verdict.OBSTACLE)
+    assert all(x.age_ms < 400 for x in rig.driver.snapshot())
+    assert rig.driver.stats.readings > 500 and rig.driver.stats.readings_stale_mcu == 0
+    assert rig.driver.obstacle_verdict()["state"] == "obstacle"
+
+
+async def test_a_backlog_that_one_poll_cannot_drain_is_still_aged_by_the_mcu_clock():
+    # 64-byte reads and at most MAX_DRAIN_READS reads per poll: ~4 kB per poll, ~6 polls to drain
+    rig = await Rig(sensors=[echo(200)] * 4, factory_kwargs={"max_read": 64}).boot()
+    rig.step(0.6)
+    stall(rig, 40.0, target_at=20.0, target=echo(28))
+    seen = []
+    for _ in range(12):
+        rig.driver.poll()
+        seen.append(rig.ch("outer_left"))
+    assert seen[0].status is ChannelStatus.STALE and not seen[0].valid
+    assert seen[0].age_ms > 20_000, "the first poll holds data from ~29 s ago"
+    # a valid reading is only ever the CURRENT state, never the old 200 cm
+    assert all(c.distance_cm == 28.0 for c in seen if c.valid)
+    assert seen[-1].valid and seen[-1].verdict is Verdict.OBSTACLE and seen[-1].age_ms < 400
+
+
+def test_frames_drained_in_one_poll_are_dated_by_their_own_mcu_timestamps():
+    clock, port, driver, _ = scripted_active()
+    steady(clock, port, driver, 1.0)
+    assert driver.snapshot()[0].valid
+    clock.advance(40.0)  # the event loop stalls; the MCU's next three frames queue up
+    for behind in (39.9, 39.8, 39.7):
+        port.reading(sensor=0, t_ms=mcu_ms(clock, behind_s=behind))
+    driver.poll()
+    c = driver.snapshot()[0]
+    assert c.status is ChannelStatus.STALE and not c.valid and c.verdict is Verdict.UNKNOWN
+    assert 39_500 < c.age_ms < 39_900
+    assert 39.0 < (clock.wall() - c.timestamp).total_seconds() < 40.0
+    assert c.as_dict()["measured_mono"] == pytest.approx(clock.now() - c.age_ms / 1000, abs=0.01)
+    port.reading(sensor=0, t_ms=mcu_ms(clock))  # the newest frame of the backlog is fresh
+    driver.poll()
+    c = driver.snapshot()[0]
+    assert c.valid and c.age_ms < 20
+    assert c.as_dict()["measured_mono"] == pytest.approx(clock.now(), abs=0.01)
+
+
+def test_a_reading_older_than_the_newest_by_more_than_a_cycle_is_rejected_and_counted():
+    clock, port, driver, _ = scripted_active()  # default cycle: 4 * (30 + 30) = 240 ms
+    steady(clock, port, driver, 1.0, sensors=(0,))  # only outer_left has reported
+    n = driver.stats.readings
+    port.reading(sensor=1, t_ms=mcu_ms(clock, behind_s=0.3))  # 60 ms beyond a cycle
+    port.reading(sensor=1, t_ms=mcu_ms(clock, behind_s=5.0))
+    driver.poll()
+    assert driver.stats.readings_stale_mcu == 2 and driver.stats.readings == n
+    assert driver.snapshot()[1].status is ChannelStatus.NO_DATA  # neither was applied
+    port.reading(sensor=1, t_ms=mcu_ms(clock, behind_s=0.2))  # inside a cycle: slightly late
+    driver.poll()
+    c = driver.snapshot()[1]
+    assert c.valid and 190 <= c.age_ms <= 215  # accepted, and dated by its own timestamp
+    assert driver.stats.readings_stale_mcu == 2 and driver.stats.readings == n + 1
+
+
+def test_a_duplicated_or_replayed_frame_on_a_channel_is_rejected_and_counted():
+    clock, port, driver, _ = scripted_active()
+    steady(clock, port, driver, 1.0)
+    n, rejected = driver.stats.readings, driver.stats.readings_stale_mcu
+    port.reading(sensor=2, t_ms=mcu_ms(clock))  # the very same measurement again
+    driver.poll()
+    assert (driver.stats.readings, driver.stats.readings_stale_mcu) == (n, rejected + 1)
+    port.reading(sensor=2, t_ms=mcu_ms(clock, behind_s=0.05))  # older than its last, within a cycle
+    driver.poll()
+    assert (driver.stats.readings, driver.stats.readings_stale_mcu) == (n, rejected + 2)
+    seen = []
+    driver.reading_hook = lambda r, wall: seen.append(r)
+    port.reading(sensor=2, t_ms=mcu_ms(clock))
+    driver.poll()
+    assert seen == [], "a rejected frame never reaches the reading hook"
+
+
+def test_the_uint32_mcu_clock_wraps_without_breaking_freshness_or_ordering():
+    clock, port, driver, _ = scripted_active()
+    base = 2**32 - 3000  # the MCU is 3 s away from wrapping to 0
+
+    def mcu(behind_s: float = 0.0) -> int:
+        return (base + round((clock.now() - 1000.0 - behind_s) * 1000)) & 0xFFFFFFFF
+
+    for _ in range(80):  # 3 s before the wrap and 5 s after it
+        clock.advance(0.1)
+        port.reading(sensor=0, t_ms=mcu())
+        driver.poll()
+        c = driver.snapshot()[0]
+        assert c.valid and c.age_ms < 50, f"t={clock.now() - 1000:.1f}s"
+    assert driver.stats.readings == 80 and driver.stats.readings_stale_mcu == 0
+    port.reading(sensor=1, t_ms=mcu(behind_s=9.0))  # from before the wrap: old, not "future"
+    driver.poll()
+    assert driver.stats.readings_stale_mcu == 1
+    assert driver.snapshot()[1].status is ChannelStatus.NO_DATA
+
+
+def test_a_new_boot_id_resets_the_mcu_clock_baseline():
+    clock, port, driver, _ = scripted_active()
+    steady(clock, port, driver, 1.0)  # the MCU clock reads ~501 s
+    port.info(boot_id=8)  # the MCU rebooted: its clock restarts near zero
+    clock.advance(0.1)
+    driver.poll()
+    assert driver.link_state is LinkState.HANDSHAKE and driver.stats.mcu_resets == 1
+    port.ack(driver.expected_mcu_config())
+    clock.advance(0.1)
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE
+    for k in range(5):
+        clock.advance(0.1)
+        port.reading(sensor=0, t_ms=200 + 100 * k)
+        driver.poll()
+    c = driver.snapshot()[0]
+    assert c.valid and c.age_ms < 50 and driver.stats.readings_stale_mcu == 0
+
+
+def test_a_reconnect_resets_the_mcu_clock_baseline():
+    clock, port, driver, opens = scripted_active()
+    steady(clock, port, driver, 1.0)
+    port.broken = OSError("device reports readiness to read but returned no data")
+    clock.advance(0.1)
+    driver.poll()  # unplugged
+    assert driver.link_state is LinkState.DISCONNECTED
+    port.broken = None
+    port.inbox.clear()
+    clock.advance(0.3)
+    driver.poll()  # reconnects to a freshly booted MCU
+    assert len(opens) == 2 and driver.link_state is LinkState.HANDSHAKE
+    port.info(boot_id=9)
+    driver.poll()
+    port.ack(driver.expected_mcu_config())
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE
+    clock.advance(0.1)
+    port.reading(sensor=0, t_ms=150)  # a restarted clock
+    driver.poll()
+    assert driver.snapshot()[0].valid and driver.stats.readings_stale_mcu == 0
+
+
+async def test_initialising_again_after_a_stop_accepts_a_restarted_mcu_clock():
+    clock, port, driver, opens = scripted_active()
+    steady(clock, port, driver, 1.0)  # the MCU clock reads ~501 s
+    await driver.stop()
+    port.inbox.clear()
+    port.info(boot_id=9)  # a freshly booted MCU answers the new handshake at once
+    port.ack(driver.expected_mcu_config())
+    await driver.initialize()
+    assert len(opens) == 2 and driver.link_state is LinkState.ACTIVE
+    for k in range(3):
+        clock.advance(0.1)
+        for sensor in range(4):
+            port.reading(sensor=sensor, t_ms=200 + 100 * k)  # its clock started over
+        driver.poll()
+    assert all(c.valid and c.age_ms < 50 for c in driver.snapshot())
+    assert driver.stats.readings_stale_mcu == 0
+
+
+def test_a_frame_split_across_two_polls_is_reassembled():
+    clock, port, driver, _ = scripted_active()
+    payload = fw.pack_reading(0, 0, 0, 0, 5828, 1, 5000)
+    frame = proto.encode_frame(proto.FrameType.READING, 9, payload)
+    port.inbox += frame[:9]
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.readings == 0
+    port.inbox += frame[9:]
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.readings == 1 and driver.snapshot()[0].valid
+
+
+@pytest.mark.parametrize("ppm", [-400, 400], ids=["mcu_clock_slow", "mcu_clock_fast"])
+def test_clock_drift_within_the_allowance_never_makes_fresh_data_look_old(ppm):
+    clock, port, driver, _ = scripted_active()
+    mcu, worst = float(MCU_BASE_MS), 0
+    for _ in range(3000):  # ten minutes of 200 ms polls; the two clocks disagree by 400 ppm
+        clock.advance(0.2)
+        mcu += 200.0 * (1 + ppm * 1e-6)
+        port.reading(sensor=0, t_ms=round(mcu))
+        driver.poll()
+        c = driver.snapshot()[0]
+        assert c.valid
+        worst = max(worst, c.age_ms)
+    assert worst < 50

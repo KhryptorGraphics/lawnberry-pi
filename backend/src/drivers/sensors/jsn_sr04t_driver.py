@@ -36,7 +36,7 @@ import random
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -62,6 +62,12 @@ MAX_SANE_ECHO_US = 1_000_000
 #: An echo closer than this many stop thresholds (or blind-zone lines, whichever is larger) is
 #: NEAR: if the channel then goes silent, the object may have entered the sensor's dead zone.
 NEAR_ECHO_FACTOR = 2.0
+#: Most read() calls one poll() makes: it drains what the port holds so no backlog is left behind,
+#: but a babbling port can never keep it spinning.
+MAX_DRAIN_READS = 64
+#: Relative drift between the host's and the MCU's clock that the age estimate tolerates (NTP
+#: slew plus two crystals); a backlog that grows slower than this is not detectable, nor harmful.
+MCU_CLOCK_DRIFT = 5e-4
 #: Seconds between simulated measurement cycles.
 SIM_CYCLE_S = 0.12
 _SIM_BASE_CM = (150.0, 200.0, 200.0, 180.0)
@@ -138,13 +144,16 @@ class ChannelReading:
     valid: bool  # True only for a fresh in-range echo
     distance_cm: float  # 0.0 unless valid
     echo_us: int | None
-    timestamp: datetime | None  # host receive time of the measurement
+    timestamp: datetime | None  # when the MEASUREMENT was taken, on the host's wall clock
     age_ms: int | None
     health: Health
     alive: bool
     verdict: Verdict
     clear_to_cm: float | None
     fails: int
+    #: the same instant on the driver's monotonic clock (None if the channel never reported); a
+    #: consumer that must not trust the wall clock ages an entry as ``clock() - measured_mono``
+    measured_mono: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -161,6 +170,7 @@ class ChannelReading:
             "clear_to_cm": self.clear_to_cm,
             "echo_us": self.echo_us,
             "fails": self.fails,
+            "measured_mono": self.measured_mono,
         }
 
 
@@ -175,9 +185,11 @@ class _Channel:
     fails: int = 0
     cycle: int = 0
     t_ms: int = 0
-    measured_at: float | None = None  # host monotonic time the last real measurement arrived
+    #: host monotonic time of the last real measurement, dated by the MCU's own clock
+    measured_at: float | None = None
     measured_wall: datetime | None = None
     pulse_at: float | None = None  # host monotonic time of the last real echo pulse
+    mcu_ms: int | None = None  # unwrapped MCU t_ms of the last accepted reading (replay guard)
     #: Host monotonic time of the last real echo that was NEAR (closer than twice the stop
     #: threshold), None once a far echo has been heard. Deliberately NOT cleared by ``clear()``:
     #: an object that was right in front before a link blip is still right in front after it.
@@ -191,6 +203,7 @@ class _Channel:
         self.measured_at = None
         self.measured_wall = None
         self.pulse_at = None
+        self.mcu_ms = None
 
 
 @dataclass(slots=True)
@@ -211,6 +224,7 @@ class LinkStats:
     bad_length: int = 0
     garbage_bytes: int = 0
     partial_timeouts: int = 0
+    readings_stale_mcu: int = 0  # readings refused: older than the MCU's newest, or a replay
 
 
 def echo_to_cm(echo_us: float, speed_of_sound_mps: float) -> float:
@@ -220,6 +234,12 @@ def echo_to_cm(echo_us: float, speed_of_sound_mps: float) -> float:
 
 def cm_to_echo_us(distance_cm: float, speed_of_sound_mps: float) -> int:
     return round(distance_cm * 20000.0 / speed_of_sound_mps)
+
+
+def mcu_delta(new: int, ref: int) -> int:
+    """Signed milliseconds from ``ref`` to ``new`` on the MCU's wrapping uint32 clock."""
+    d = (new - ref) & 0xFFFFFFFF
+    return d - (1 << 32) if d >= 1 << 31 else d
 
 
 def evaluate_channel(
@@ -257,6 +277,7 @@ def evaluate_channel(
             verdict=verdict,
             clear_to_cm=clear_to,
             fails=ch.fails,
+            measured_mono=ch.measured_at,
         )
 
     if not ch.enabled:
@@ -396,6 +417,13 @@ class JsnSr04tMcuDriver(HardwareDriver):
         self._sim_last = -1e9
         self._sim_cycle = 0
         self._last_ping_nonce: int | None = None
+        # MCU clock bookkeeping (US-05). READING.t_ms is uint32 ms on the MCU's clock and wraps.
+        # ``_mcu_top`` is the newest unwrapped t_ms accepted on this link, ``_clock_off`` the host
+        # monotonic time of MCU time zero (the lowest ``receive time - t_ms`` seen, see _place).
+        self._cycle_ms = (cfg.echo_window_ms + cfg.inter_sensor_gap_ms) * len(cfg.channels)
+        self._mcu_top: int | None = None
+        self._clock_off: float | None = None
+        self._clock_off_at = 0.0
         #: True after ``stop()`` / ``close()``: ``poll()`` then never (re)opens the port, so a late
         #: caller cannot leave a port open that nobody will close. ``initialize()`` clears it.
         self._closed = False
@@ -487,6 +515,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
             return
         self._decoder.reset()
         self._rx_seq = None
+        self._reset_mcu_clock()
         self._boot_id = None
         self._last_rx = None
         self.info = None
@@ -499,8 +528,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
         transport = self._transport
         assert transport is not None
         try:
-            waiting = transport.in_waiting
-            data = transport.read(waiting) if waiting else b""
+            data = self._drain(transport)
         except Exception as exc:  # SerialException / OSError: the device went away
             self._link_lost(now, f"read_error: {exc}")
             return
@@ -511,6 +539,20 @@ class JsnSr04tMcuDriver(HardwareDriver):
             if self._transport is None:
                 break
             self._on_frame(frame, now, wall)
+
+    @staticmethod
+    def _drain(transport: SerialTransport) -> bytes:
+        """Everything the port holds right now, so no backlog is left to be read (stale) later."""
+        chunks: list[bytes] = []
+        for _ in range(MAX_DRAIN_READS):
+            waiting = transport.in_waiting
+            if not waiting:
+                break
+            chunk = transport.read(waiting)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     def _sync_decoder_stats(self) -> None:
         d = self._decoder
@@ -580,6 +622,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
             logger.warning("ultrasonic MCU rebooted (reset reason %d)", info.reset_reason)
             for ch in self._channels:
                 ch.clear()
+            self._reset_mcu_clock()
         if self.link_state is LinkState.ACTIVE and not rebooted:
             return  # heartbeat
         self._send_config(now)
@@ -633,12 +676,54 @@ class JsnSr04tMcuDriver(HardwareDriver):
             return
         self._ingest(r, now, wall)
 
+    def _reset_mcu_clock(self) -> None:
+        """Forget the MCU clock baseline (new connection or MCU boot: its clock starts over)."""
+        self._mcu_top = None
+        self._clock_off = None
+        for ch in self._channels:
+            ch.mcu_ms = None  # the same coordinate system: the last timestamps mean nothing now
+
+    def _place(self, t_ms: int, ch: _Channel, now: float) -> float | None:
+        """Date a reading on the host's monotonic timeline using the MCU's own clock (US-05).
+
+        ``t_ms`` is the MCU clock at the end of the measurement. The host keeps the lowest
+        ``receive time - t_ms`` it has seen (its best-case latency; it creeps up by the worst
+        clock drift so a slow MCU clock cannot make fresh data look old) and dates every reading
+        ``t_ms`` after that: a backlog of old frames drained in one poll is as old as the MCU says,
+        not "just received". Returns None for a frame that is out of order by more than one
+        measurement cycle, or not newer than its own channel's last one (replayed, duplicated).
+
+        Known limit: a CRC-valid but corrupted frame with a wild ``t_ms`` poisons the baseline until
+        the next reconnect or MCU boot; readings then age out (fail closed, counted in
+        ``stats.readings_stale_mcu``). The odds are about one in 65536 per corrupted READING.
+        """
+        top = self._mcu_top
+        u = t_ms if top is None else top + mcu_delta(t_ms, top)
+        if top is not None and u < top - self._cycle_ms:
+            return None
+        if ch.mcu_ms is not None and u <= ch.mcu_ms:
+            return None
+        self._mcu_top = u if top is None else max(top, u)
+        sample = now - u / 1000.0
+        if self._clock_off is None:
+            off = sample
+        else:
+            creep = MCU_CLOCK_DRIFT * max(0.0, now - self._clock_off_at)
+            off = min(self._clock_off + creep, sample)
+        self._clock_off, self._clock_off_at = off, now
+        ch.mcu_ms = u
+        return min(now, off + u / 1000.0)
+
     def _ingest(self, r: proto.Reading, now: float, wall: datetime) -> None:
         if r.sensor >= len(self._channels):
             self.stats.bad_readings += 1
             return
-        self.stats.readings += 1
         ch = self._channels[r.sensor]
+        measured_at = self._place(r.t_ms, ch, now)
+        if measured_at is None:
+            self.stats.readings_stale_mcu += 1
+            return
+        self.stats.readings += 1
         try:
             status = proto.EchoStatus(r.status)
         except ValueError:
@@ -650,15 +735,15 @@ class JsnSr04tMcuDriver(HardwareDriver):
         ch.fails = r.fails
         ch.cycle = r.cycle
         ch.t_ms = r.t_ms
-        ch.measured_at = now
-        ch.measured_wall = wall
+        ch.measured_at = measured_at
+        ch.measured_wall = wall - timedelta(seconds=now - measured_at)
         if status is proto.EchoStatus.OK and 0 < r.echo_us <= MAX_SANE_ECHO_US:
             # A complete echo pulse is the only proof of life (NO_FALL is no echo: a line stuck
             # high looks the same). Remember whether it came from something right in front.
-            ch.pulse_at = now
+            ch.pulse_at = measured_at
             near_line_cm = NEAR_ECHO_FACTOR * max(self.cfg.min_range_cm, self.obstacle_threshold_cm)
             near = echo_to_cm(r.echo_us, self.cfg.speed_of_sound_mps) < near_line_cm
-            ch.near_at = now if near else None
+            ch.near_at = measured_at if near else None
         if self.reading_hook is not None:
             try:
                 self.reading_hook(r, wall)
@@ -746,7 +831,15 @@ class JsnSr04tMcuDriver(HardwareDriver):
             else:
                 status, echo = proto.EchoStatus.OK, cm_to_echo_us(dist, self.cfg.speed_of_sound_mps)
             self._ingest(
-                proto.Reading(ch.index, status, 0, 0, echo, self._sim_cycle & 0xFFFF, 0),
+                proto.Reading(
+                    ch.index,
+                    status,
+                    0,
+                    0,
+                    echo,
+                    self._sim_cycle & 0xFFFF,
+                    round(now * 1000) & 0xFFFFFFFF,
+                ),
                 now,
                 wall,
             )

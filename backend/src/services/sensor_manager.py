@@ -751,7 +751,10 @@ class UltrasonicSensorInterface:
     channels: a channel in ``disabled_channels`` still has an entry, with verdict ``disabled``,
     but nothing waits for it. Stable keys per entry: ``sensor_id``, ``distance_cm`` (0.0 unless
     ``valid``), ``valid`` (True ONLY for a fresh in-range echo), ``timestamp`` (ISO-8601 UTC of the
-    MEASUREMENT, host receive time of the MCU frame, or None if the channel never reported),
+    MEASUREMENT: when the MCU took it, placed on the host clock by the MCU's own timestamp, so a
+    backlog is not "just received"; None if the channel never reported), ``measured_mono`` (the
+    same instant on the driver's monotonic clock, for a consumer that ages entries without the
+    wall clock; None if never reported or legacy),
     ``status`` (``ok|stale|blind_zone|no_echo|out_of_range|fault|disabled|link_down|no_data``),
     ``age_ms``, ``health``, ``alive``, ``verdict`` (``clear|obstacle|unknown|disabled``, fail
     closed, from the owner's policy in ``hardware.yaml``), ``clear_to_cm``, ``echo_us``,
@@ -890,6 +893,7 @@ class UltrasonicSensorInterface:
             "clear_to_cm": None,
             "echo_us": None,
             "fails": 0,
+            "measured_mono": None,
         }
 
     def _legacy_entry(self, r: Any) -> dict[str, Any]:
@@ -919,6 +923,7 @@ class UltrasonicSensorInterface:
             "clear_to_cm": dist if verdict == "clear" else None,
             "echo_us": None,
             "fails": 0,
+            "measured_mono": None,
         }
 
     def get_minimum_distance(self) -> float | None:

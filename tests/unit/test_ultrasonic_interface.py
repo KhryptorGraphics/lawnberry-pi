@@ -25,7 +25,7 @@ from tests.unit._usonic_fakes import FakeClock, FakeMcuFactory, SensorModel
 
 CONTRACT_KEYS = {
     "sensor_id", "index", "distance_cm", "valid", "timestamp", "status", "age_ms", "health",
-    "alive", "verdict", "clear_to_cm", "echo_us", "fails",
+    "alive", "verdict", "clear_to_cm", "echo_us", "fails", "measured_mono",
 }  # fmt: skip
 NAMES = ["outer_left", "inner_left", "inner_right", "outer_right"]
 
