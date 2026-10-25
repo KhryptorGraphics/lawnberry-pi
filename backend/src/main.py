@@ -97,7 +97,7 @@ async def _fail_closed(app: FastAPI, tractor) -> None:
         _log.exception("Start-up fail-closed stop failed")
 
 
-async def _watchdog_stop() -> dict:
+async def _watchdog_stop(tractor=None) -> dict:
     """What a watchdog trip does: the all-platform E-stop, recorded (audit SAF-01 gap, round 3).
 
     The trip used to call ``tractor.emergency_stop`` alone. On a platform whose tractor is
@@ -110,8 +110,10 @@ async def _watchdog_stop() -> dict:
     (``safety.stop_events``: every autonomous run ends, a clear never revives one), persists the
     latch, and reports what each output actually did. The watchdog repeats it every second
     while a heartbeat stays silent, and the general clear is refused while a repeat runs.
+    ``tractor`` is the instance the watchdog supervises (the lifespan passes it; default: the
+    process singleton, which is the same object in production).
     """
-    return await execute_emergency_stop(source="watchdog")
+    return await execute_emergency_stop(source="watchdog", tractor=tractor)
 
 
 #: How long shutdown waits for cancelled mission/navigation tasks to finish before it parks.
@@ -317,7 +319,7 @@ async def lifespan(app: FastAPI):
             tractor_watchdog = Watchdog(
                 EstopHandler(tractor),
                 timeout_ms=safety_limits.watchdog_timeout_ms,
-                on_timeout=_watchdog_stop,
+                on_timeout=lambda: _watchdog_stop(tractor),
                 required_sources=(ACTUATION_SOURCE, SAFETY_MONITOR_SOURCE),
             )
             app.state.tractor_watchdog = tractor_watchdog
