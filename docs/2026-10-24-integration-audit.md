@@ -1558,13 +1558,16 @@ a configured pin, an actuator calibration or `tractor.enabled`.
 | SD-7 | Who may clear an E-stop and how | owner and reviewer | WP-P1-05 | none |
 | SD-8 | The authentication posture per platform (differential-drive LAN-only versus the Toro build) | owner | WP-P1-11 | a threat model |
 
-### F.4 Release gates at this baseline
+### F.4 Release gates (current state after the finish and review-fix tracks)
+
+Every gate is still **CLOSED**: the tracks added software behaviour proven against fakes and nothing is validated
+on hardware. "Blocking items" lists what still keeps each gate shut; the baseline wording is kept where it still holds.
 
 | Release gate | State | Blocking items |
 |---|---|---|
 | 1. No live motion while H-01 to H-08 are unresolved | **CLOSED** | H-01 documentation corrected, physical rail check open; H-02 open (live SPI0 conflict); H-03 open; H-04 documentation corrected, no `OE` or E-stop design; H-05 24 V text superseded, label and stall unmeasured; H-06 documented, contradicted by the mission auto-crank; H-07 unresolved (SD-5); H-08 unresolved (S-01 to S-06) |
-| 2. No autonomous mowing until sensor and RTK health, a physical fail-safe, operator protections and field acceptance are proven | **CLOSED** | S-01 to S-21; no obstacle stop path; no JSN driver; the BNO085 is a stub; no local base |
-| 3. No remote VR driving until authentication, a dead-man, measured latency and a local override are proven | **CLOSED** | S-07, S-08, S-22; no control channel; no latency measurement (M-52) |
+| 2. No autonomous mowing until sensor and RTK health, a physical fail-safe, operator protections and field acceptance are proven | **CLOSED** | S-01 to S-21 as listed in F.2, less the software parts now in place and tested on fakes: obstacle stop on real ToF/ultrasonic readings with an UNVALIDATED stopping-distance model, the GNSS monitor, a two-source software watchdog, the IBT-4 `lgpio` driver (never run on the pins), the JSN-SR04T firmware and driver (unflashed, unwired, `ultrasonic_enabled` false). Still open: the hardwired E-stop and hardware watchdog (O-7), the BNO085 is a stub, no local RTK base, and nothing proven on the mower |
+| 3. No remote VR driving until authentication, a dead-man, measured latency and a local override are proven | **CLOSED** | S-07, S-08, S-22: the Thor link is wired behind a default-off flag and tested over loopback UDP only; there is no operator or VR control channel, no latency measurement (M-52) and no proven local override |
 
 ### F.5 Limits of this audit
 
@@ -1644,6 +1647,39 @@ unverified (gates G0-G1).
 | Pi-Thor link authentication | MISSING | IMPLEMENTED (protocol, tests); not wired |
 | Replay and stale-plan protection | PARTIALLY IMPLEMENTED | IMPLEMENTED (protocol, tests) |
 | Pin and address conflict checker | PARTIALLY IMPLEMENTED | IMPLEMENTED: reports GPIO5, GPIO25, GPIO12, GPIO3 conflicts and the disabled header I2C bus; tested |
+
+### Tracks merged after the first four
+
+Each track has its own section below with its commits, evidence and tests; the branch history has one merge per track.
+
+| Track | Branch | Section | Headline |
+|---|---|---|---|
+| Finish nav (T2.1-T2.4) | `finish/nav` | "Finish track nav" | Obstacle stop wired from real sensors, stopping-distance model, N-30, N-31, two-source watchdog |
+| Finish deploy (T3) | `finish/deploy` | "Finish track deploy" | Templated units, `--dry-run`/`--destdir`, persistent auth secret, default credentials refused, A.12 doc rows |
+| Finish jsn (T2.6-T2.8) | `finish/jsn` | "Finish track jsn" | JSN-SR04T MCU firmware and 4-channel driver, real IBT-4 `lgpio` driver, placeholder services and tests resolved |
+| Finish thor (T2.5) | `finish/thor` | "Finish track thor" | Thor link wired behind a default-off flag, Thor-side client, real-UDP end-to-end test |
+| Finish detector (T5) | `finish/detector` | "Finish track detector" | SDG v2 (2080 frames, 24 classes), training, ONNX baseline, DALI compile in flight, HAR emulation eval |
+| Review-fix wave 1 | `fix/tool`, `fix/thor`, `fix/act`, `fix/auth`, `fix/fe` | "Review-fix track ..." | Findings of the first independent review of PR #19 |
+| Review-fix wave 2 | `fix2/authA`, `fix2/authB`, `fix2/blade`, `fix2/gnss`, `fix2/nav`, `fix2/tool` | "Review-fix round 2 ..." | Findings of the second review of PR #20 |
+| Review-fix wave 3 | `fix3/nav` | "Review-fix round 3 nav" | Scripted motion limiter, IBT-4 stand-downs, mutation survivors |
+| Integration round 4 | `feat/2026-10-24-finish` | "Integration round 4" | Merge-found issues, navigation-gate blade permit, hold re-asserts blade off, NaN-safe predictions, structure-sync tool |
+
+### Status changes from the finish and review-fix tracks
+
+Same convention as the table above: the state column is software on fakes unless it says otherwise.
+
+| Row | Baseline | Now |
+|---|---|---|
+| Obstacle stop (N-11) | no production caller of the triggers | SIMULATED: one fail-closed `ObstacleGuard` and a 20 Hz monitor on real ToF/ultrasonic readings gate missions, the AI loop and Thor plans; manual driving is exempt by policy |
+| Stopping-distance model | MISSING | SIMULATED: config-driven (`obstacle_stop` in `config/limits.yaml`), every default `validated: false` |
+| GNSS degradation (N-31) | debug route only | SIMULATED: fed from the real fix and part of the motion gate; thresholds UNVALIDATED (SD-4) |
+| Watchdog | event-loop liveness only | SIMULATED: two heartbeats (PCA9685 read-back and tilt check) trip blade off, levers neutral, throttle idle, authorization revoked; a hardware watchdog (O-7) is still required; the differential platform has no software watchdog |
+| Thor link | not wired | WIRED behind `config/thor_link.yaml` (default off); plans reach actuators only through the local navigation gate; Thor-side client in `scripts/thor_link_client.py`; not deployed |
+| JSN-SR04T x4 | no driver | SIMULATED: RP2040 CircuitPython firmware, framed serial protocol, host driver, four-channel interface; unflashed, unwired, no pins assigned |
+| IBT-4 blade | stub | SIMULATED: real `lgpio` driver (disarmed by default), OFF confirmed from the pad read-back, standing reasons including the navigation-gate permit |
+| Operator authentication | unit enabled, routes partly covered | SIMULATED: every state-changing route is gated or reviewed (a coverage test walks the app), WebSocket admission, persistent secret, default credentials refused at install; **the deployed Pi still has auth off** |
+| Installer | `User=pi` units | IMPLEMENTED in the repo: templated units, `--dry-run`, `--destdir`, credential refusal; never run on the Pi |
+| Test suite | order-dependent | `scripts/run_tests_shuffled.py`; shared singletons reset between tests |
 
 ### Verification (integrated branch)
 
@@ -1933,6 +1969,73 @@ Measured SDG throughput: 108 frames from the four shards in the first 28 minutes
 the ~3 min start-up); an earlier sample at 11:08 gave 11.3 s/frame and did not hold. The cause was not investigated.
 Owner actions still open for this track: **O-4** (3080 Ti), **O-8** (Pi reachable for the HEF gate); the live
 `detector.hef` is untouched.
+
+#### Update 2026-10-25 (integrator): training, baseline, and what the gate can decide
+
+All numbers below were read from commands on the workshop box (`$LB` = `~/nvme2/lawnberrypiserver`, logs in `$LB/logs/t5/`).
+
+**Training finished** (`$LB/data/models/yolo26s_sdgv1v2/`): `yolo26s` from `pretrained/yolo26s.pt`, 100 epochs, batch 32, `imgsz` 640,
+seed 1, mosaic 1.0 with `close_mosaic` 10, on 3586 train + 427 val frames (v1: 1736 + 197; v2-full: 1850 + 230;
+split `md5(filename) % 10 < 9`). Validation at epoch 100: mAP50 0.915, mAP50-95 0.842, precision 0.901, recall 0.881; best epoch
+by mAP50-95 is 90 (0.849, mAP50 0.921). mAP50 stopped improving near epoch 37 (0.917), so more epochs would not help.
+
+**Data checks the first pass did not make.** A 12-frame overlay sheet of random production frames (seed 7) shows the boxes on the
+objects (dog, yellow post, chair frame, small items); the scenes are a flat single-colour lawn with primitive meshes and visible
+render grain, so the sim-to-real gap is large whatever the numbers say. Exposure over all 2080 frames: mean luma p05 69.5, p25 157.9,
+median 184.7; 56 frames (2.7 %) have more than half of their pixels below 16/255 and 21 (1.0 %) have a mean luma under 15. The rule
+rejects only a mean below 3 or above 250 on purpose (`idpass.exposure_problem`: shade under an oak starts at 4.2), so dim frames stay.
+
+**ONNX baseline** (CPU, 427 SDG-val frames, 78 ms/image, conf 0.25 as the sidecar sets it). The per-class counts are identical between
+the older and the hardened `eval_detector` (24 classes, 0 differences).
+
+| Class | Tier | Gate | GT | Recall at 0.25 (production) | at 0.10 | at 0.05 | Gate at 0.25 |
+|---|---|---|---|---|---|---|---|
+| person | 1 | 0.98 | 63 | 0.905 | 0.952 | 0.952 | FAIL |
+| pet | 1 | 0.98 | 70 | 0.843 | 0.843 | 0.843 | FAIL |
+| wildlife | 1 | 0.98 | 30 | 0.900 | 0.933 | 0.933 | FAIL |
+| hose | 2 | 0.85 | 57 | 0.860 | 0.877 | 0.895 | pass |
+| sprinkler_head | 2 | 0.85 | 49 | 0.898 | 0.918 | 0.918 | pass |
+| toy | 2 | 0.85 | 52 | 0.923 | 0.942 | 0.962 | pass |
+| tool | 2 | 0.85 | 52 | 0.788 | 0.808 | 0.808 | FAIL |
+| rock | 2 | 0.85 | 52 | 0.923 | 0.942 | 0.962 | pass |
+| root | 2 | 0.85 | 64 | 0.922 | 0.938 | 0.953 | pass |
+| furniture | 2 | 0.85 | 76 | 0.947 | 0.947 | 0.947 | pass |
+| planter | 2 | 0.85 | 53 | 0.887 | 0.887 | 0.887 | pass |
+| house | 3 | 0.80 | 28 | 0.786 | 0.857 | 0.929 | FAIL |
+| fence | 3 | 0.80 | 78 | 0.885 | 0.910 | 0.923 | pass |
+| shed | 3 | 0.80 | 28 | 0.929 | 0.929 | 0.929 | pass |
+| wall | 3 | 0.80 | 38 | 0.737 | 0.737 | 0.789 | FAIL |
+| bed | 3 | 0.80 | 29 | 0.897 | 0.931 | 0.931 | pass |
+| edging | 3 | 0.80 | 34 | 0.765 | 0.824 | 0.824 | FAIL |
+| tree | 3 | 0.80 | 77 | 0.883 | 0.909 | 0.948 | pass |
+| path | 4 | 0.70 | 37 | 0.730 | 0.784 | 0.784 | pass |
+| driveway | 4 | 0.70 | 29 | 0.793 | 0.793 | 0.828 | pass |
+| mulch | 4 | 0.70 | 30 | 0.967 | 0.967 | 0.967 | pass |
+| water | 4 | 0.70 | 32 | 0.938 | 0.938 | 0.969 | pass |
+| dropoff | 4 | 0.70 | 27 | 0.889 | 0.963 | 0.963 | pass |
+| unknown_obstacle | 5 | 0.80 | 61 | 0.918 | 0.951 | 0.951 | pass |
+
+At the production confidence 0.25 seven classes are below their tier gate (person, pet, wildlife, tool, house, wall, edging). Lowering the
+confidence helps the safety classes only partly: person reaches 0.952 at 0.10 and 0.05, wildlife 0.933, pet stays at 0.843; no threshold
+brings wall, tool or any tier-1 class to its gate. The sweep is `$LB/logs/t5/confsweep/conf_<c>.json`.
+
+**The hardened gate cannot decide on this split.** The review-fix pass made `--gate` refuse thin evidence (TOOL-01/03). On this model and
+split it exits 3: `tier-1 classes need at least 150 ground-truth boxes each, found: person 63, pet 70, wildlife 30`, and writes
+`verdict: invalid` with no per-class numbers. The copies of `scripts/eval_detector.py` and `workshop/detector_eval.py` that the box
+had were older and decided on those counts (they printed the seven GATE FAILs). The hardened pair is now in `$LB/repo` (originals in
+`$LB/finish-sync/box-originals/`), the schema-1 baseline is kept as `eval_onnx_val.schema1.json`, and `eval_onnx_val.json` is a schema-2
+measure-only run (`verdict: not_applied`). A verdict needs a held-out set with at least 150 boxes of each tier-1 class: real frames, or
+about a quarter of the SDG data held out of training (retrain, recompile). The relative check does work on this split: a compiled model
+against the float baseline, per class with at least 20 boxes (`--baseline --max-recall-drop 0.10`, no `--gate`).
+
+**Chain change.** `post_train.sh` step 4 would run `--gate --baseline` and now exits 3 at once, and the HAR emulation takes about 100 s per
+image (8 images measured at 101.8 s each with the hardened script on the P100; 427 frames is about 12 h). `$LB/logs/t5/post_compile2.sh`
+(detached, pid in `post_compile2.pid`) waits for the chain, then runs the HAR emulation over the whole val split with `--baseline` and without
+`--gate`, and rebuilds the Pi bundle with `RUN_ON_PI.md` updated to the same relative check and the reason `--gate` must not be added.
+
+**Compile** (`hailo_compile.sh --tag sdgv1v2 --gpu 2`, DALI active, opt level 4 + adaround, started 22:07 CDT 2026-10-24): block 5 of 116
+finished at 2:15:52 elapsed (per-block times 5:42, 47:00, 38:28, 22:32, 22:12 minutes; the later blocks run at 54 to 107 batches/s, against
+28 for the early ones). No end time can be given yet. HEF, sidecar, sha256 and the HAR emulation report follow from the chain.
 
 ### Review-fix track tooling
 
@@ -2382,3 +2485,32 @@ Left, with the reason: (a) **OWNER-DECISION**: an IBT-4 ON that a client keeps r
 Regression the full suite caught in my own first version of the watchdog change: `execute_emergency_stop` stops the process singleton, so the lifespan's injected tractor was not the one stopped (`test_lifespan_runs_a_two_source_watchdog_fed_by_the_actuation_self_check` failed, the blade track's `_tractor` stubs failed on a changed call shape). `execute_emergency_stop(..., tractor=None)` now takes the instance the watchdog supervises (the lifespan passes it; the two-argument call is kept for the default).
 
 Verification (worktree `lw-nav2`, official command, counts read from `/tmp/fix3nav.xml`): **3416 collected, 3389 passed, 27 skipped, 0 failed, 0 errors** (start of the round: about 3328 collected, 0 failed; +88 tests: `test_scripted_drive_gate` 31, `test_ibt4_stand_down_integration` 18 (1 skipped), `test_differential_platform_blade` 16, `test_tractor_survivors` 15, `test_round3_gaps` 8). `uvx ruff@0.15.19 check backend tests scripts workshop firmware` and `format --check .` clean (505 files); `verification_artifacts/` restored. Proofs: `/tmp/fix3nav/proof/saf11_old_vs_new.py` (old 13.01 s vs new 1.02 s), `/tmp/fix3nav/repro/saf01_repro.py`, mutation runs `/tmp/fix3nav/m_pre.py` (the review's survivors against the existing suite) and `/tmp/fix3nav/m_new.py` (the new tests).
+
+### Integration round 4
+
+Branch `feat/2026-10-24-finish` (worktree `lawnberry-pi-audit`), 2026-10-24/25, from the merge of round-3 nav (`afbb153`)
+onward. Software on fakes only: nothing ran on the mower, on real GPIO or on the Pi, and no pin, calibration or
+`tractor.enabled` value changed.
+
+Issues the merges exposed. Each was reproduced from a failing run, fixed, and is pinned by a test that fails without the fix.
+
+| Issue | Cause | Fix | Test |
+|---|---|---|---|
+| `test_the_status_route_shows_commanded_versus_observed` answered 429 in one full run (4097 passed, 1 failed) | `/control/blade` has a strict limiter override (8 requests/s, burst 20) and every test client is one anonymous peer, so a route's own tests drained the bucket for whichever test ran next | `tests/conftest.py::_clear_rate_limit_buckets` empties the global limiter's buckets with the other shared state | `test_conftest_isolation.py::test_the_reset_empties_the_limiter_buckets_a_route_s_own_tests_drained` (429 without the reset) |
+| `config-lint` CI red on #20 | `install_services.sh` now refuses a `--root` that is not a LawnBerry checkout; the workflow staged against an empty directory | the workflow stages against `$PWD` | `actionlint`; CI `lint` green |
+| `uv-lock-check` would fail | authB raised `uvicorn[standard]` to `>=0.36.0` | `uv lock` | `uv lock --check` |
+| Five WebSocket tests assumed the old authorizer name and anonymous admission | authB's `admit_websocket` and tickets | the coverage test accepts `admit_websocket` (or the inner authorizer); the secret test opens every socket with a ticket | `test_operator_auth_coverage.py`, `test_get_routes_expose_no_secrets.py` |
+| Fix2Tool's isolation test failed once the nav fixtures landed | two autouse fixtures imported backend modules for every test | made lazy: only what a test has already imported is reset | `test_conftest_isolation.py` |
+| `docs/code_structure_overview.md` held duplicate and stale rows after the union merges (TOOL-08), and nothing compared it with the source | every track appended rows by hand | `scripts/sync_code_structure.py` (`--check`, `--fix`, `--all`) regenerates a row's interface cell from the AST; the docs-drift workflow runs `--check` on pull requests; ten API modules and `main.py` gained the module docstrings that become a new row's purpose | `test_sync_code_structure.py` (12); it caught a stale row of this branch's own `NavigationService` before CI could |
+| `test_telemetry_5hz_frequency` (3.2 Hz) and `test_telemetry_scalable_to_10hz` (5.9 Hz) failed under host load | one wall-clock run on a machine at load average 11-14 (the route itself answered in a median 50 ms) | the first of three attempts that reaches the floor; contention can only lower a measured rate, so a route that is really slow still misses it every time (a 400 ms route measured 2.18 Hz and failed) | `tests/integration/test_dashboard_telemetry.py` |
+
+Round-3 leftovers closed:
+
+| Item | Result | Evidence |
+|---|---|---|
+| `restore_emergency_hold` held neutral but never told the firmware `blade=off` (a restarted process never saw the previous stop) | **FIXED**: while a hold is latched or restored, every refresh sends `blade=off` and then the constant neutral; after the authenticated clear nothing sends `blade=off` | `test_robohat_command_validity.py::test_a_process_that_restarts_into_a_hold_switches_the_blade_off_before_neutral` (fails on the old code); the two existing tests that pinned the blade-less refresh were updated |
+| `ActionPrediction` clamped a NaN or infinite model output to full throttle at confidence 1.0 (`min(1.0, nan)` is `1.0`) | **FIXED**: a non-finite steering, throttle or confidence makes the whole prediction neutral, zero confidence, blade off, marked overridden | `test_action_prediction_non_finite.py` (11 cases) and `test_ai_inference_service.py` (the real decode path with NaN tensors); 11 fail on the old code |
+| OWNER-DECISION: an IBT-4 ON that a client keeps repeating defeated a hold's OFF | **DECIDED and FIXED, owner may reverse**: `NavigationService.blade_permit` is a standing reason for the `BladeService` while an autonomous run or a scripted drive moves the machine and the safety gate holds; read before every ON and on every supervision tick; attached by the lifespan, carried over a config-repair rebuild. **Policy kept on purpose:** with no autonomous run and no scripted drive the blade is the operator's own call, as it is for the motion limiter | `test_blade_navigation_permit.py` (9, including the real `lifespan`); mutation run: 4 mutants (permit never refuses, manual driving gated too, lifespan does not attach, rebuild drops permits) all killed |
+| Differential platform has no tilt cutoff and no software watchdog | **NOT DONE**: nothing feeds a heartbeat there and an RC-mode idle firmware does not echo, so a software trip would latch an E-stop that cannot be tested; the failsafe is the firmware's 2 s USB timeout plus the hardware E-stop (O-7) | n/a |
+
+Verification: @@COUNTS@@

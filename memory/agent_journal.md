@@ -529,3 +529,24 @@ completes, so `stop_supervision` could wait forever on the supervise loop (shutd
 
 Owner needed: hardwired E-stop (hardware watchdog), pin moves, measurements, reading the live-only HaLow units
 from the Pi once reachable, installing on the Pi, licence clicks for Cosmos/GR00T.
+
+## 2026-10-25 — Integration round 4: merge fixes, blade permit, structure sync (simulation only)
+
+On the finish branch (PR #20, stacked on #19). Software on fakes; nothing ran on the mower or the Pi, no pin,
+calibration or `tractor.enabled` change.
+
+The merges of the review-fix tracks exposed a limiter bucket drained across tests (`/control/blade` 8 req/s),
+a CI install step that needs a real checkout as `--root`, a stale `uv.lock`, WebSocket tests written for the old
+authorizer, load-sensitive telemetry rate tests, and duplicate stale rows in `docs/code_structure_overview.md`.
+All fixed with tests that fail without the fix. New: a latched or restored RoboHAT hold re-asserts `blade=off`;
+a NaN model output is neutral instead of full throttle; the navigation safety gate is a standing reason for the
+IBT-4 blade while autonomy runs (manual driving stays the operator's call); `scripts/sync_code_structure.py`
+keeps the structure overview in step with the source and CI runs it on pull requests.
+
+Detector (T5, workshop box): SDG v2 full (2080 frames, 24 classes) and `yolo26s` training finished; the ONNX
+baseline fails the recall tiers on 7 classes at conf 0.25 and the hardened gate cannot decide at all (tier-1
+held-out boxes 63/70/30 against the 150 it needs). The DALI compile at opt level 4 + adaround is still running
+on the V100; the Pi HEF gate waits for the Pi (O-8).
+
+Owner needed: unchanged (O-1 merge decisions, O-2 credential, O-3 licences, O-4 3080 Ti, O-5 pin moves, O-6
+measurements, O-7 hardwired E-stop, O-8 Pi power/network).
