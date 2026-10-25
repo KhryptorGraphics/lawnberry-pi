@@ -4,6 +4,16 @@
 **Purpose:** Comprehensive hardware configuration guide and capability matrix  
 **Last Updated:** December 2024
 
+**Audit annotations (2026-10-24):** platform tags and corrected rows added by the integration audit
+([`2026-10-24-integration-audit.md`](2026-10-24-integration-audit.md)). In this document "✅ Implemented" had come to
+mean "a driver file exists", not "verified on hardware"; rows the audit found wrong now say so explicitly.
+
+> **Platform scope (H-11).** The tables describe the **differential-drive LawnBerry mower** (RoboHAT → Cytron
+> MDDRC10, IBT-4 blade driver, LiFePO4 + solar) except the "Ride-On Tractor Platform (Alternate Configuration)"
+> tables, which are the **Toro TimeCutter variant**. They are different wiring harnesses. The GPIO and I2C tables
+> near the end are the mower registry only and omit the Toro PCA9685, the BNO085 UART, the HaLow radio and the
+> legacy ultrasonic pins.
+
 ## Overview
 
 This document provides a complete matrix of hardware components, their capabilities, configuration options, and compatibility information. Use this guide to understand what features are available with different hardware configurations and plan system deployments.
@@ -19,7 +29,7 @@ This document provides a complete matrix of hardware components, their capabilit
 | **CPU** | ARM Cortex-A76 Quad-core 2.4GHz | ✅ Implemented | Sufficient for all processing needs |
 | **RAM** | 8GB LPDDR4X | ✅ Implemented | Supports advanced computer vision |
 | **Storage** | MicroSD 64GB+ Class 10 | ✅ Implemented | High-speed card recommended |
-| **GPIO** | 40-pin header | ✅ Fully Utilized | Pin mapping 100% compliant |
+| **GPIO** | 40-pin header | ⚠️ Conflicts found (audit 2026-10-24) | The earlier "100% compliant" claim covered only `spec/hardware.yaml` + `config/tractor.yaml`. The HaLow HAT's GPIO3/5/7/8-11/25 are not in that registry and header I2C1 is disabled on the deployed Pi (see "Pin Usage" below; H-02, H-17) |
 | **Camera Interface** | CSI connector | ✅ Implemented | 1920x1080@30fps capability |
 | **USB Ports** | 4x USB 3.0 | ✅ Utilized | GPS, TPU, external devices |
 | **Network** | Gigabit Ethernet + WiFi | ✅ Implemented | Dual connectivity options |
@@ -39,8 +49,8 @@ This document provides a complete matrix of hardware components, their capabilit
 
 | Component | Model | Interface | Status | Accuracy | Features |
 |-----------|-------|-----------|--------|----------|----------|
-| **Primary GPS** | SparkFun GPS-RTK-SMA | USB (/dev/ttyACM0) | ✅ Implemented | <10cm RTK | Real-time corrections |
-| **RTK Corrections** | Ohio DOT Network | Internet | ✅ Active | <2cm | Professional grade |
+| **Primary GPS** | **Unreconciled (H-09):** SparkFun GPS-RTK-SMA (u-blox ZED-F9P) per `spec/hardware.yaml:9`, `hardware.md`; Quectel LC29H-DA per `config/hardware.yaml:9-11`, `docs/autonomy-toolchain-matrix.md:14` | USB `/dev/ttyACM0` (ZED-F9P) or UART0 `/dev/ttyAMA0` (LC29H-DA) | ⚠️ `gps_driver.py` supports both; the fitted receiver is UNVERIFIED (live Pi 2026-10-24: no `/dev/ttyACM*`, `/dev/ttyAMA0` present, one CP2102N on `/dev/ttyUSB0`) | <10cm RTK (target, unmeasured) | Real-time corrections |
+| **RTK Corrections** | NTRIP caster (Ohio DOT per the earlier text) | Internet | ⚠️ Client implemented (`backend/src/services/ntrip_client.py`); live status not evidenced (no `.env` on the deployed Pi); LC29H-BS local base MISSING (H-09, H-22) | <2cm (target, unmeasured) | Caster-to-serial RTCM forwarding |
 | **Backup GPS** | Pi Hat GPS (optional) | GPIO UART | ⚠️ Optional | 3-5m | Fallback capability |
 
 **GPS Feature Matrix:**
@@ -55,18 +65,19 @@ This document provides a complete matrix of hardware components, their capabilit
 
 | Component | Model | Interface | Status | Capabilities |
 |-----------|-------|-----------|--------|--------------|
-| **IMU** | BNO085 9-DOF | UART (/dev/ttyAMA4) | ✅ Implemented | Full orientation |
-| **Accelerometer** | Built-in 3-axis | Hardware | ✅ Active | ±16g range |
-| **Gyroscope** | Built-in 3-axis | Hardware | ✅ Active | ±2000°/s |
-| **Magnetometer** | Built-in 3-axis | Hardware | ✅ Active | Compass heading |
+| **IMU** | BNO085 9-DOF | UART4 `/dev/ttyAMA4` per spec — **not enabled on the deployed Pi** (no `uart4-pi5` overlay, device absent); `sensor_manager.py:188` probes I2C 0x4A/0x4B instead | ⚠️ **Driver STUBBED** (`backend/src/drivers/sensors/bno085_driver.py:69-78` returns constants on real hardware); transport UNVERIFIED (H-03) | Full orientation (chip feature; not read by the backend) |
+| **Accelerometer** | Built-in 3-axis | Hardware | ⚠️ Chip capability only (driver stub) | ±16g range |
+| **Gyroscope** | Built-in 3-axis | Hardware | ⚠️ Chip capability only (driver stub) | ±2000°/s |
+| **Magnetometer** | Built-in 3-axis | Hardware | ⚠️ Chip capability only (driver stub) | Compass heading |
 
-**IMU Capabilities:**
-- ✅ Tilt and slope detection
-- ✅ Collision impact detection
-- ✅ Heading determination
-- ✅ Motion detection
-- ✅ Stability monitoring
-- ✅ Drop detection
+**IMU Capabilities (BNO085 chip features; none is delivered by the backend until the driver reads real hardware):**
+- ⚠️ Tilt and slope detection (on real hardware the IMU interface is ONLINE only after an I2C ACK at 0x4A/0x4B
+  and the stub then reports roll = pitch = 0, so the 30° tilt cutoff cannot trip; `sensor_manager.py:186-190,197-200`)
+- ⚠️ Collision impact detection
+- ⚠️ Heading determination
+- ⚠️ Motion detection
+- ⚠️ Stability monitoring
+- ⚠️ Drop detection
 
 ---
 
@@ -76,18 +87,21 @@ This document provides a complete matrix of hardware components, their capabilit
 
 | Sensor Type | Model | Interface | Range | Status | Use Case |
 |-------------|-------|-----------|-------|--------|----------|
-| **ToF Left** | VL53L0X | I2C (0x29) | 30-2000mm | ✅ Implemented | Left side obstacles |
-| **ToF Right** | VL53L0X | I2C (0x30) | 30-2000mm | ✅ Implemented | Right side obstacles |
+| **ToF Left** | VL53L0X | I2C (0x29) | 30-2000mm | ⚠️ Driver implemented; header I2C1 is disabled on the deployed Pi so the sensor is unreachable there (H-17); INT pin GPIO6 is not read by any code | Left side obstacles |
+| **ToF Right** | VL53L0X | I2C (0x30) | 30-2000mm | ⚠️ As above; INT pin GPIO12 also collides with BNO085 TXD4 in `spec/hardware.yaml` (H-03) | Right side obstacles |
 | **Mono Vision** | Raspberry Pi Camera 2 | CSI | Visual range | ✅ Implemented | RGB scene capture |
-| **Stereo Vision** | ELP-USB960P2CAM-V90 | USB | Visual range with depth cues | ✅ Implemented | Stereo depth and recording |
-| **Ultrasonic** | Planned side sensors | GPIO/I2C TBD | Near-field deck clearance | ⚠️ Planned | Deck-overhang obstacle detection |
+| **Stereo Vision** | ELP-USB960P2CAM-V90 | USB | Visual range with depth cues | ⚠️ Capture only (2560x960 split, `stereo_camera_driver.py`); **stereo depth MISSING** (no disparity or calibration code, H-26); a UVC camera `32e4:9750` enumerates on the live Pi | Stereo capture and recording |
+| **Ultrasonic** | **4x JSN-SR04T** (owner requirement, H-19); variant, mode and voltage UNVERIFIED | Trigger/echo vs serial TBD; no GPIO allocation is free of HaLow conflicts (H-02) | Near-field deck clearance; blind zone to be measured | ❌ **MISSING for JSN-SR04T** (no driver). A legacy 3x HC-SR04 driver (`ultrasonic_driver.py`) exists, is disabled in the deployed config (`config/limits.yaml:17`) and uses HaLow SPI0 pins | Deck-width obstacle detection (target) |
 
-**Sensor Fusion Matrix:**
-- ✅ Multi-sensor obstacle detection
-- ✅ Cross-validation between sensors
-- ✅ Confidence scoring
-- ✅ Real-time processing
-- ✅ Environmental adaptation
+**Sensor Fusion Matrix (corrected 2026-10-24, H-26):** there is no fused obstacle model. `ObstacleDetector` uses the
+two ToF sensors only (distance < 1000, unit assumed mm) with a `Position(0, 0)` placeholder
+(`backend/src/services/navigation_service.py:33-82`), and the mission loop `go_to_waypoint` never reads it.
+`tests/contract/test_sensor_fusion.py` is a skipped placeholder.
+- ⚠️ ToF-only obstacle flag (advisory)
+- ❌ Cross-validation between sensors (no second obstacle source is connected)
+- ⚠️ Confidence is a constant (0.8 per ToF hit)
+- ⚠️ Real-time processing: not measured
+- ❌ Environmental adaptation
 
 ### Environmental Monitoring
 
@@ -126,6 +140,14 @@ This document provides a complete matrix of hardware components, their capabilit
 | **Google Coral TPU** | USB Accelerator | USB 3.0 | ⚠️ Optional Baseline | Alternate edge acceleration |
 | **Neural Compute Stick** | Intel Movidius | USB 3.0 | ❌ Not in Baseline | Not supported |
 | **Jetson Nano** | NVIDIA | GPIO/USB | ❌ Not in Baseline | Not supported |
+
+> **Hailo identification (2026-10-24).** `lspci` on the deployed Pi lists `0001:01:00.0 Hailo-8 AI Processor`;
+> the PCI ID is shared by Hailo-8 and Hailo-8L, so `lspci` cannot tell them apart. `spec/hardware.yaml:37` says
+> "Hailo-8 AI Hat"; `docs/autonomy-toolchain-matrix.md:21-26` records `hailortcli fw-control identify` →
+> `HAILO8L`, part `HM21LB1C2LAE` (2026-10-06), and measured detector throughput on HailoRT 4.24.0
+> (yolo26s 41.7 FPS; `:87`). Re-run `hailortcli fw-control identify` on the current unit and photograph the
+> module label; the HEF target must match the device (`HAILO_HEF_NOT_COMPATIBLE_WITH_DEVICE` was observed for
+> hailo8 builds on the 8L).
 
 **AI Enhancement Matrix:**
 - ❌ TPU-accelerated object detection
@@ -179,6 +201,12 @@ This document provides a complete matrix of hardware components, their capabilit
 | **Channel 2** | Reserved | INA3221 | ⚠️ Available | Future expansion |
 | **Channel 3** | Battery Bank | INA3221 | ✅ Active | Consumption monitoring |
 
+> **Channel map disputed (audit 2026-10-24).** This table follows the driver
+> (`backend/src/drivers/sensors/ina3221_driver.py:3-6,101`: CH1 solar, CH3 battery; `config/hardware.yaml`
+> shunt comments). `spec/hardware.yaml:61-70`, `docs/hardware-integration.md:54-57` and
+> `.github/workflows/hardware-guard.yml:54-59` say CH1 battery / CH3 solar. Which shunt carries which current is
+> unmeasured.
+
 ---
 
 ## Motor and Drive Systems
@@ -204,8 +232,8 @@ This document provides a complete matrix of hardware components, their capabilit
 | Component | Specification | Status | Safety Features |
 |-----------|---------------|--------|-----------------|
 | **Blade Motor** | 997 DC Motor | ✅ Implemented | High-speed cutting |
-| **Blade Driver** | IBT-4 H-Bridge | ✅ Implemented | Bidirectional control (GPIO24/25) |
-| **Safety Switch** | Tilt cutoff | ✅ Implemented | Auto-disable on tilt |
+| **Blade Driver** | IBT-4 H-Bridge | ❌ **STUBBED**: `backend/src/drivers/blade/ibt4_gpio.py:25-50` (`_GPIOAdapter.setup/set_active`) only sets flags; no GPIO library is imported, so GPIO24/25 are never driven. GPIO25 is also the HaLow IRQ line on the deployed Pi (H-02c) | Bidirectional control (GPIO24/25): not functional |
+| **Safety Switch** | Tilt cutoff | ⚠️ Tractor path only, and it cannot trip on real hardware at baseline (see IMU rows); the mission loop re-asserts `blade_engaged` every 0.2 s tick (`navigation_service.py:354-361`) | Auto-disable on tilt: not demonstrated |
 | **Blade Guard** | Physical protection | ✅ Required | User safety |
 
 ### Ride-On Tractor Platform (Alternate Configuration)
@@ -219,19 +247,17 @@ sets that side's speed/direction directly. Enabled via `config/tractor.yaml`
 
 | Component | Specification | Status | Notes |
 |-----------|---------------|--------|-------|
-| **left_lever** | Positional, PCA9685 I2C PWM (ch 0) | ⚠️ PCA9685 transport implemented; lever actuation logic in rework (platform swap) | −1 (full reverse)..0 (neutral)..+1 (full forward) |
-| **throttle** | Positional, PCA9685 I2C PWM (ch 1) | ⚠️ PCA9685 transport implemented; actuation logic in rework (platform swap) | 0 (idle)..1 (full RPM) |
-| **right_lever** | Positional, PCA9685 I2C PWM (ch 2) | ⚠️ PCA9685 transport implemented; lever actuation logic in rework (platform swap) | −1 (full reverse)..0 (neutral)..+1 (full forward) |
-| **Starter** | Momentary GPIO relay | ✅ Functional on hardware | Crank pulse |
-| **Blade PTO** | Latching GPIO relay | ✅ Functional on hardware, GPIO 26 | Reassigned off GPIO 6 (ToF Left Interrupt conflict); verified conflict-free by `scripts/check_hardware_pin_conflicts.py` |
+| **left_lever** | Positional, PCA9685 I2C PWM (ch 0) | ⚠️ Driver and service implemented and unit-tested in SIM (`pca9685_driver.py`, `tractor_service.py`); the header I2C bus the config names does not exist on the deployed Pi; no `OE` failsafe (H-04, H-08) | −1 (full reverse)..0 (neutral)..+1 (full forward) |
+| **throttle** | Positional, PCA9685 I2C PWM (ch 1) | ⚠️ As above; throttle actuator model not yet identified | 0 (idle)..1 (full RPM) |
+| **right_lever** | Positional, PCA9685 I2C PWM (ch 2) | ⚠️ As for left_lever | −1 (full reverse)..0 (neutral)..+1 (full forward) |
+| **Starter** | Momentary GPIO relay (BCM5, `config/tractor.yaml:31`) | ⚠️ Software path exists (`tractor_actuators.py:80-125`), **not commissioned**: GPIO5 is the HaLow RESET line on the deployed Pi (H-02b); relay-board polarity and boot-time state unmeasured; autonomous crank is blocked by the OEM PARK interlock (H-06) | Crank pulse |
+| **Blade PTO** | Latching GPIO relay (BCM26); the owner reports a **momentary** OEM PTO switch (H-21) | ⚠️ Software path exists, **not commissioned**; no feedback that the PTO is actually off | Reassigned off GPIO 6 (ToF Left Interrupt conflict). The pin checker reports no collision against its registry, which omits the HaLow HAT |
 
-**Known gap** (verified, not speculative): the actuation transport has moved
-from RC-PWM (RoboHAT — not parsed by firmware, silently dropped) to PCA9685
-I2C PWM. That transport swap has landed, but `tractor_service.py`'s actuator
-*logic* is still mid-rework — from the superseded 7-actuator (steering/
-throttle/gas-pedal/clutch/gear) set to the 5-actuator (`left_lever`/
-`throttle`/`right_lever`/`starter`/`blade_pto`) set described here — in a
-parallel workstream. Do not treat lever actuation as field-ready until
+**Known gaps (corrected 2026-10-24):** the earlier text here said `tractor_service.py`'s actuator logic was
+"mid-rework" from the superseded 7-actuator set; that rework landed (`docs/RELEASE_NOTES.md`, 2026-09-01 entry) and
+`config/tractor.yaml` still ships `enabled: false`. What remains is physical and safety work: no independent
+hardwired E-stop, no `OE`/servo-power failsafe, no I2C route on the deployed Pi, an unverified PTO circuit and no
+verified lever neutral. Do not treat lever actuation as field-ready until
 `docs/tractor-acceptance-criteria.md` is satisfied on real hardware.
 
 ---
@@ -245,15 +271,16 @@ parallel workstream. Do not treat lever actuation as field-ready until
 | **WiFi** | 802.11n/ac | ✅ Implemented | Primary connectivity |
 | **Ethernet** | Gigabit | ✅ Available | Backup/setup |
 | **Bluetooth** | 5.0 | ⚠️ Available | Optional RC/maintenance |
+| **Wi-Fi HaLow (802.11ah)** | Morse Micro MM6108 on SPI0 (HAT identity inconsistent across docs: Heltec HT-HC01P V2 vs Seeed WM6108) | ⚠️ Measured working at one location (2026-10-06, 2026-10-13: ~4.8 Mbit/s TCP, 0% loss; `docs/autonomy-toolchain-matrix.md:30-70`); `halow0` was DOWN on the live Pi during the 2026-10-24 audit (traffic via `eth0`/`tun0`) | Pi to AP/Thor link; occupies GPIO3/5/7/8-11/25 |
 
 ### Internal Communication
 
 | Interface | Protocol | Devices | Status |
 |-----------|----------|---------|--------|
-| **I2C Bus** | 400kHz | Sensors, Display | ✅ Implemented |
-| **UART** | Various baud | GPS, IMU | ✅ Implemented |
-| **USB** | USB 3.0 | GPS, TPU | ✅ Implemented |
-| **GPIO** | Digital I/O | Motors, switches | ✅ Implemented |
+| **I2C Bus** | 400kHz | Sensors, Display | ⚠️ Header I2C1 is **disabled** on the deployed Pi (`dtparam=i2c_arm=off`; GPIO3 is HaLow WAKE); `/dev/i2c-1` is absent (H-17) |
+| **UART** | Various baud | GPS, IMU | ⚠️ UART0 `/dev/ttyAMA0` present (GPS per config); UART4 for the BNO085 is not enabled (the Pi 5 needs `uart4-pi5`; overlay `uart4` is BCM2711-only) |
+| **USB** | USB 3.0 | GPS, TPU | ⚠️ Live Pi 2026-10-24: ELP `32e4:9750` and a CP2102N `10c4:ea60` enumerate; no ZED-F9P, RoboHAT or Coral seen (sensors are detached at this site, so absence is not proof of design) |
+| **GPIO** | Digital I/O | Motors, switches | ⚠️ Conflicts with the HaLow HAT; see "Pin Usage" |
 
 ---
 
@@ -263,7 +290,7 @@ parallel workstream. Do not treat lever actuation as field-ready until
 
 | Component | Specification | Status | Capabilities |
 |-----------|---------------|--------|--------------|
-| **OLED Display** | SSD1306 128x64 | ✅ Implemented | Status information |
+| **OLED Display** | SSD1306 128x64 | ⚠️ UNVERIFIED: no OLED driver in `backend/src/` (only a baseline entry, `hardware_baseline.py:314-316`) | Status information |
 | **Interface** | I2C (0x3c) | ✅ Active | Real-time updates |
 | **Backlight** | None (OLED) | ✅ Self-lit | Day/night readable |
 
@@ -313,11 +340,11 @@ parallel workstream. Do not treat lever actuation as field-ready until
 | System | Components | Status | Capability Level |
 |--------|------------|--------|------------------|
 | **Processing** | Pi 5 8GB | ✅ Complete | Professional |
-| **Navigation** | RTK GPS + IMU | ✅ Complete | Sub-centimeter |
+| **Navigation** | RTK GPS + IMU | ⚠️ GPS driver and EKF implemented; IMU driver stubbed; RTK accuracy unmeasured here | Not demonstrated |
 | **Sensors** | ToF + Camera + Environmental | ✅ Complete | Comprehensive |
 | **Power** | 30Ah LiFePO4 + 30W Solar | ✅ Complete | Full-day operation |
-| **Communication** | WiFi + I2C + UART | ✅ Complete | Fully connected |
-| **Safety** | Multi-sensor fusion | ✅ Complete | Professional grade |
+| **Communication** | HaLow + WiFi + I2C + UART | ⚠️ HaLow measured once; header I2C disabled; UART4 not enabled | Partially connected |
+| **Safety** | Software interlocks | ❌ No independent hardwired E-stop, no fused obstacle model (H-08, H-26) | Not field-ready |
 
 ### Enhanced Configuration (With Optional Components)
 
@@ -346,16 +373,19 @@ parallel workstream. Do not treat lever actuation as field-ready until
 
 | Physical Pin | GPIO | Function | Device | Status |
 |--------------|------|----------|--------|--------|
-| 15 | 22 | Output | Left ToF Shutdown | ✅ Used |
-| 16 | 23 | Output | Right ToF Shutdown | ✅ Used |
-| 18 | 24 | Output | Blade Controller IN1 | ✅ Used |
-| 22 | 25 | Output | Blade Controller IN2 | ✅ Used |
-| 31 | 6 | Input | Left ToF Interrupt | ✅ Used |
-| 32 | 12 | Input | Right ToF Interrupt | ✅ Used |
-| 19 | 10 | - | **Available** | ⚠️ Free |
-| 23 | 11 | - | **Available** | ⚠️ Free |
-| 26 | 7 | - | **Available** | ⚠️ Free |
-| 29 | 5 | - | **Available** | ⚠️ Free |
+| 15 | 22 | Output | Left ToF Shutdown | ✅ Used (held LOW by the backend via lgpio on the live Pi) |
+| 16 | 23 | Output | Right ToF Shutdown | ✅ Used (held HIGH on the live Pi) |
+| 18 | 24 | Output | Blade Controller IN1 | ⚠️ Assigned; the IBT-4 driver is a stub and never drives it |
+| 22 | 25 | Output | Blade Controller IN2 | ❌ **Conflict:** HaLow IRQ (`mm610x_spi_irq_gpio`) on the deployed Pi (H-02c) |
+| 31 | 6 | Input | Left ToF Interrupt | ⚠️ Reserved; no code reads it |
+| 32 | 12 | Input | Right ToF Interrupt | ❌ **Conflict:** also UART4 TXD4 for the BNO085 in `spec/hardware.yaml:142,144` (H-03); no code reads it |
+| 19 | 10 | SPI0 MOSI | HaLow radio | ❌ **Not free** (earlier listed "Available") |
+| 23 | 11 | SPI0 SCLK | HaLow radio | ❌ **Not free** (earlier listed "Available") |
+| 21 | 9 | SPI0 MISO | HaLow radio | ❌ Not free (missing from the earlier table) |
+| 24 | 8 | SPI0 CE0 | HaLow radio chip select | ❌ Not free (missing from the earlier table) |
+| 26 | 7 | HaLow BUSY (live `config.txt` comment) | HaLow HAT | ❌ **Not free** (earlier listed "Available") |
+| 29 | 5 | HaLow RESET | HaLow radio; also the `starter` relay in `config/tractor.yaml:31` | ❌ **Conflict** (H-02b); earlier listed "Available" |
+| 5 | 3 | HaLow WAKE (live `config.txt` comment) | HaLow HAT; also header I2C1 SCL | ❌ Not free; I2C1 is disabled because of it |
 
 ### I2C Device Addresses
 
@@ -369,14 +399,21 @@ parallel workstream. Do not treat lever actuation as field-ready until
 | 0x48 | **Available** | ⚠️ Free | ADC expansion |
 | 0x50-0x57 | **Available** | ⚠️ Free | EEPROM range |
 
+> **Header I2C1 is disabled on the deployed Pi** (`dtparam=i2c_arm=off`), so none of the addresses above can be
+> reached there until a bus route is decided (H-17, H-25). Not in this registry: PCA9685 `0x41` (Toro,
+> `config/tractor.yaml:17`), the PCA9685 all-call address `0x70`, and the BNO085 `0x4A/0x4B` probed in
+> `sensor_manager.py:188`. The "Available" rows above are registry gaps, not verified-free addresses.
+
 ### Expansion Capabilities
 
-**Available Interfaces:**
-- 5x GPIO pins available for expansion
-- 3x I2C addresses available  
-- 2x USB 3.0 ports available
-- SPI interface available
-- Additional UART via GPIO
+**Available Interfaces (corrected 2026-10-24; earlier text listed "5x GPIO pins" and "SPI interface" as available):**
+- Header GPIO is **not** freely available: see the allocation table above and
+  [`2026-10-24-integration-audit.md`](2026-10-24-integration-audit.md) Part B.1 for the unclaimed-pin candidates,
+  none of which may be used before the HAT stack is inspected.
+- I2C: no header bus on the deployed Pi.
+- SPI0 is consumed by the HaLow radio (CS0 only, `dtoverlay=spi0-1cs`).
+- USB: the live Pi shows the ELP camera and one CP2102N; the spare-port count is not verified.
+- UART: UART4 needs `uart4-pi5` (not enabled).
 
 **Potential Expansions:**
 - Additional ToF sensors (front/rear)
@@ -504,6 +541,9 @@ parallel workstream. Do not treat lever actuation as field-ready until
 - Power efficiency: 45-60W typical consumption
 - Communication latency: <50ms local network
 - Safety response time: <100ms emergency stop
+
+*These benchmark figures are targets, not measurements. In particular "<100ms emergency stop" is the speed of
+flipping a Python flag (`tests/integration/test_safety_systems.py:14-29`), not a hardware E-stop (H-08).*
 
 ---
 

@@ -26,7 +26,15 @@ class _GPIOAdapter:
     """Tiny GPIO adapter to allow testing without real hardware.
 
     In SIM_MODE or when adapter is not available, methods are no-ops.
+
+    ``hardware_backed`` is ``False`` here: this stub only tracks flags (no GPIO
+    library is imported), so toggling it has no effect on the IBT-4. A real
+    adapter must set it ``True``; callers that report a stop (the E-stop
+    orchestrator) use it to avoid claiming a hardware outcome the stub cannot
+    produce.
     """
+
+    hardware_backed = False
 
     def __init__(self, in1: int, in2: int):
         self.in1 = in1
@@ -69,6 +77,15 @@ class IBT4BladeDriver(HardwareDriver):
         self._blade_active = False
         self._estop_latched = False
 
+    @property
+    def hardware_backed(self) -> bool:
+        """Does ``set_active`` drive real GPIO (vs. only tracking a flag)?"""
+        return bool(getattr(self._gpio, "hardware_backed", False))
+
+    @property
+    def estop_latched(self) -> bool:
+        return self._estop_latched
+
     async def initialize(self) -> None:
         if not is_simulation_mode():
             try:
@@ -98,6 +115,7 @@ class IBT4BladeDriver(HardwareDriver):
             "active": self._blade_active,
             "pins": {"in1": self.in1, "in2": self.in2},
             "estop_latched": self._estop_latched,
+            "hardware_backed": self.hardware_backed,
         }
 
     async def set_estop(self, active: bool) -> None:

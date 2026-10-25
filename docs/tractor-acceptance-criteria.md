@@ -23,8 +23,26 @@ mid-mission could freeze the drive levers or throttle at whatever was last
 commanded, with the engine running.
 
 - [ ] A failsafe mechanism is designed and documented (e.g., a hardware watchdog
-      driving the PCA9685 `OE` pin low on timeout, or spring-return actuator
-      hardware for throttle/left-lever/right-lever).
+      that drives the PCA9685 `OE` pin **high** on timeout and/or removes servo
+      power, or spring-return actuator hardware for throttle/left-lever/right-lever).
+
+      > **Correction (2026-10-24, gap register H-04).** This item previously read "driving
+      > the PCA9685 `OE` pin low on timeout". The PCA9685 `OE` input is **active-low**: LOW
+      > *enables* the outputs and HIGH *disables* them, so driving it low on timeout would
+      > leave the outputs enabled (datasheet knowledge, not repo evidence; confirm on the
+      > actual breakout). Disabling the outputs is also **not** "go to neutral": the driver
+      > writes `MODE2 = 0x04` (`backend/src/drivers/actuators/pca9685_driver.py:57,111`,
+      > OUTNE = 00), which per the datasheet forces the outputs LOW while `OE` is high, i.e.
+      > **no pulse at all**. What a given servo does with no pulse (hold, drift or go limp)
+      > depends on the servo and is unmeasured. `OE` is a "stop commanding" mechanism, not a
+      > safe-position mechanism; the safe position has to come from servo power removal plus
+      > lever return springs (§10) or another mechanism proven on the bench. No `OE` GPIO is
+      > assigned in `config/tractor.yaml`, `spec/hardware.yaml` or code, and the 74HC123
+      > watchdog in `hardware.md` (Safety) has no GPIO assigned either.
+- [ ] **Measure `OE` on the real breakout (added 2026-10-24):** its level at power-up, during
+      Pi boot and with the host/I2C lost; whether the board has an `OE` pull-down resistor or
+      jumper; the output on a scope with `OE` high; and, with servo power on, the physical
+      lever behaviour with no pulse (hold / drift / limp).
 - [ ] The failsafe is **physically demonstrated on the bench**: with the engine
       running and a non-idle throttle/lever command active, the I2C bus or
       the PCA9685's host connection is physically interrupted, and the actuators
@@ -99,13 +117,20 @@ there is no clutch/brake or gear selector on a hydrostatic ZTR for
   commanded value.
 - [ ] For `left_lever` and `right_lever` specifically, the measured
       physical-settle time is recorded **at the actual servo supply voltage
-      used** (24V via boost converter, per `docs/hardware-overview.md`'s
-      Power section) — this measurement is the entire justification for
-      running the lever servos at 24V instead of 12V and must not be
-      skipped. If bench measurement on the real linkage and real lap-bar
-      load shows the <500ms requirement is comfortably met at 12V instead,
-      that is a legitimate simplification to revisit — but only once
-      measured on hardware, never assumed from a datasheet speed rating.
+      used**, on the real linkage with the real lap-bar load. The servo rail is
+      **12 V-class**: the 12 V servos named in `hardware.md` (Actuation) and the owner's
+      report of two matching 150 kg·cm-class servos at nominal 10–12.6 V with possibly
+      8 A or more stall current (owner-reported, not bench-verified; label and measured
+      values pending, H-05 / H-20).
+
+      > **Superseded (2026-10-24):** the earlier text here said the servos run at "24V via
+      > boost converter, per `docs/hardware-overview.md`'s Power section" and called the
+      > settle measurement "the entire justification for running the lever servos at 24V
+      > instead of 12V". That 24 V design belonged to the Wingxine ASMC-04B (90 kg·cm @ 12 V,
+      > 1.0 s per 60°) and does not carry over to the 12 V servos now selected. Do not feed
+      > 24 V to any servo, to PCA9685 `V+` or to the Pi rails. The <500ms physical-settle
+      > requirement itself is unchanged: it must be shown on hardware at the real supply
+      > voltage, never assumed from a datasheet speed rating.
 
 ## 5. Navigation controller — interlocked-path-only verification
 

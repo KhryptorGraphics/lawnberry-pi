@@ -380,7 +380,9 @@ stop path, within the latency tiers in Constitution Principle VI (relay:
 <100ms; positional command issuance: <100ms; positional physical settle:
 <500ms). Measure each lever's physical settle **separately** — an E-stop
 drives both simultaneously, which is the worst-case load, and the 500ms tier
-is the specific reason the servos run at 24V rather than 12V (see
+is the budget the lever servos must be shown to meet at their actual (12 V-class)
+supply voltage. The earlier wording here ("the specific reason the servos run at
+24V rather than 12V") is superseded (H-05, H-20; see
 `docs/tractor-acceptance-criteria.md` §4). This test's result is necessary
 evidence, not sufficient evidence, for `docs/tractor-acceptance-criteria.md` —
 see that document for full measurement and sign-off requirements.

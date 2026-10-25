@@ -28,11 +28,16 @@ actuators:
 
 relays:
   # Momentary starter solenoid (crank for pulse_ms, then release).
+  # KNOWN CONFLICT (audit H-02b): GPIO5 is the HaLow HAT RESET_N line (runtime DT
+  # reset-gpios=<&gpio 5>). Listed in spec/known_conflicts.yaml; the pin checker fails
+  # if this relay is enabled (enabled: true) while the conflict stands. Do not wire the
+  # starter relay to GPIO5 until an alternative pin is chosen and measured.
   starter:    { gpio: 5, active_high: true, pulse_ms: 800 }
   # Electric PTO clutch (blade engage/disengage), latching on/off.
   # GPIO 6 (the old default) collides with spec/hardware.yaml's ToF Left
-  # Interrupt. Reassigned to GPIO 26, which is not in spec/hardware.yaml's
-  # gpio_used list today.
+  # Interrupt. Reassigned to GPIO 26: no verified claim on it today. The Heltec reference
+  # overlay (not loaded on the deployed Pi) would also configure GPIO26 as a pulled-up
+  # input, so confirm the pin state with the HAT fitted before wiring the relay.
   blade_pto:  { gpio: 26, active_high: true }
 
 # Standard interlocks (ANSI/OPEI-style), adapted for a hydrostatic ZTR with
@@ -44,3 +49,15 @@ interlocks:
   # Reverse Operation System: reverse is defined as BOTH levers pulled back
   # together (a single lever back is a pivot turn) -- no blade in reverse.
   disengage_blade_in_reverse: true
+
+# Command deadman: a lever/throttle command is only in force for a bounded hold.
+# Unless it is refreshed, the levers return to neutral and the throttle to idle
+# (the blade is NOT touched by the deadman -- it follows the interlocks above and
+# the tilt/E-stop latches). Clients must re-send inside the hold: navigation
+# sends at 5 Hz and scripts/teleop.py at 20 Hz. A client may ask for a shorter or
+# longer hold with `duration_ms`; the service clamps it to max_hold_ms and echoes
+# the effective `hold_ms` in the response. Starting values are conservative and
+# must be validated on the machine (servo settle time, stopping distance).
+command_deadman:
+  default_hold_ms: 500   # hold for a command that carries no duration_ms
+  max_hold_ms: 2000      # ceiling for any client-requested duration_ms

@@ -134,6 +134,16 @@ async def test_emergency_stop_disengages_but_engine_runs():
 
     r = await s.emergency_stop()
     assert r["status"] == "emergency_stop"
+    # Every output was driven (SIM_MODE: simulated), and the result says so.
+    assert r["complete"] is True and r["faults"] == []
+    assert set(r["subsystems"]) == {
+        "blade_pto",
+        "starter",
+        "left_lever",
+        "right_lever",
+        "throttle",
+    }
+    assert all(v["ok"] and v["simulated"] for v in r["subsystems"].values())
     assert s.state.emergency_stop_active is True
     assert s.state.blade_engaged is False
     assert s.state.left_lever == 0.0
@@ -175,9 +185,14 @@ async def test_apply_full_command_moving():
 class _FaultyPCA9685:
     """Test double: set_pwm_us raises OSError for configured channels only."""
 
+    last_error = None
+
     def __init__(self, fail_channels: set[int]):
         self.fail_channels = fail_channels
         self.calls: list[tuple[int, int]] = []
+
+    def is_ready(self) -> bool:
+        return True
 
     async def set_pwm_us(self, channel: int, us: int) -> None:
         self.calls.append((channel, us))
@@ -201,6 +216,11 @@ async def test_initialize_brings_up_pca9685_driver_first():
     calls: list[str] = []
 
     class _Spy:
+        last_error = None
+
+        def is_ready(self) -> bool:
+            return True
+
         async def initialize(self) -> None:
             calls.append("init")
 
@@ -239,6 +259,15 @@ async def test_emergency_stop_survives_one_bad_channel():
 
     r = await s.emergency_stop()
     assert r["status"] == "emergency_stop"
+    # The latch is set, but the result must not claim a clean stop: the left
+    # lever's output is unconfirmed and is named in `faults`.
+    assert r["complete"] is False
+    assert r["subsystems"]["left_lever"]["ok"] is False
+    assert "OSError" in r["subsystems"]["left_lever"]["error"]
+    assert r["subsystems"]["right_lever"]["ok"] is True
+    assert r["subsystems"]["throttle"]["ok"] is True
+    assert r["subsystems"]["blade_pto"]["ok"] is True
+    assert [f.split(":")[0] for f in r["faults"]] == ["left_lever"]
     assert s.state.emergency_stop_active is True
     assert s.state.authorized is False
     assert s.state.blade_engaged is False  # GPIO relay, unaffected by I2C fault

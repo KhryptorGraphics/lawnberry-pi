@@ -89,7 +89,6 @@ class ThorStrategist:
         self.no_go = [Polygon([self.frame.xy(p) for p in z]).buffer(0) for z in (no_go or [])]
         self.state = CoverageState(plan_id=plan_id)
         self.legs: list[PlanLeg] = []
-        self._seq = 0
         self.replan()
 
     # ---- geometry ---------------------------------------------------------
@@ -228,22 +227,27 @@ class ThorStrategist:
             out.append(Waypoint(lat=lat, lon=lon, blade=leg.blade))
         return out
 
-    def _down(self, pause: bool = False) -> Downlink:
-        self._seq += 1
+    def _down(self, up: Uplink, pause: bool = False) -> Downlink:
+        """Answer ``up``: echo its ``sid``/``seq`` so the Pi can tell this reply is fresh."""
         i = self.state.next_index
         wps = [] if pause else self.waypoints()[i : i + MAX_WAYPOINTS]
         return Downlink(
-            seq=self._seq, plan_id=self.state.plan_id, start_index=i, waypoints=wps, pause=pause
+            sid=up.sid,
+            ack=up.seq,
+            plan_id=self.state.plan_id,
+            start_index=i,
+            waypoints=wps,
+            pause=pause,
         )
 
     def on_uplink(self, up: Uplink) -> Downlink:
-        """Advance progress, absorb obstacles, and answer with the next window."""
+        """Advance progress, absorb obstacles, and answer ``up`` with the next window."""
         if up.waypoint_index is not None:
             self.state.next_index = max(
                 self.state.next_index, min(up.waypoint_index, len(self.legs))
             )
         if up.lat is None or up.lon is None or up.fix != self.cfg.require_fix:
-            return self._down(pause=True)
+            return self._down(up, pause=True)
         here = self.frame.xy((up.lat, up.lon))
         new = []
         for d in up.detections:
@@ -258,8 +262,8 @@ class ThorStrategist:
             self.legs = self.legs[: self.state.next_index]
             self.replan(start=here)
         if up.estop or self.state.next_index >= len(self.legs):
-            return self._down(pause=True)
-        return self._down()
+            return self._down(up, pause=True)
+        return self._down(up)
 
     # ---- resume -----------------------------------------------------------
     def save(self, path: Path) -> None:

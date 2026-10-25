@@ -1,10 +1,12 @@
 """Unit tests for the PCA9685 I2C PWM driver (ride-on tractor actuation).
 
-Covers the pure microsecond<->tick math and, critically, the two distinct
-failure-mode behaviors the driver must get right: hardware absent at
-``initialize()`` is a tolerated no-op, but a write failure on hardware that
-was already confirmed present must propagate (see the driver's module
-docstring for why: swallowing it would make the tractor's emergency-stop
+Covers the pure microsecond<->tick math and, critically, the failure-mode
+behaviors the driver must get right: in SIM_MODE the driver is a simulated
+success; hardware absent/failed at ``initialize()`` is tolerated at start-up but
+is **never silent** (``is_ready()`` False, ``ok: False`` in ``health_check``,
+``set_pwm_us`` raises ``PCA9685UnavailableError``); and a write failure on
+hardware that was already confirmed present must propagate (see the driver's
+module docstring for why: swallowing it would make the tractor's emergency-stop
 escalation path unreachable dead code).
 """
 
@@ -15,7 +17,10 @@ import types
 
 import pytest
 
-from backend.src.drivers.actuators.pca9685_driver import PCA9685Driver
+from backend.src.drivers.actuators.pca9685_driver import (
+    PCA9685Driver,
+    PCA9685UnavailableError,
+)
 
 
 def _install_fake_smbus2(monkeypatch, *, fail_write: bool = False):
@@ -97,8 +102,8 @@ async def test_set_pwm_us_rejects_out_of_range_channel():
 
 
 @pytest.mark.asyncio
-async def test_hardware_absent_at_init_is_a_tolerated_noop(monkeypatch):
-    """SIM_MODE (or no board wired): initialize() succeeds, set_pwm_us() no-ops."""
+async def test_sim_mode_driver_is_ready_and_a_simulated_noop(monkeypatch):
+    """SIM_MODE: there is no chip by design: ready, and set_pwm_us() is a simulated no-op."""
     d = PCA9685Driver({})
     await d.initialize()
     assert d.initialized is True
@@ -116,14 +121,78 @@ async def test_hardware_absent_at_init_is_a_tolerated_noop(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_initialize_without_smbus2_degrades_gracefully(monkeypatch):
-    """No smbus2 / no I2C bus at all: initialize() tolerates, doesn't raise."""
+async def test_initialize_without_smbus2_is_a_reported_fault_not_a_noop(monkeypatch):
+    """No smbus2 / no I2C bus outside SIM_MODE: initialize() tolerates it so the
+    backend can still start, but the driver is NOT ready, says why, and refuses
+    to pretend a pulse was emitted."""
     _force_real(monkeypatch)
     monkeypatch.setitem(sys.modules, "smbus2", None)  # import raises ImportError
     d = PCA9685Driver({})
     await d.initialize()  # must not raise
     assert d.initialized is True
     assert d._hw_ok is False
+    assert d.is_ready() is False
+    health = await d.health_check()
+    assert health["ok"] is False and health["hardware_ok"] is False
+    assert "not available" in health["error"]
+    with pytest.raises(PCA9685UnavailableError):
+        await d.set_pwm_us(0, 1500)
+
+
+@pytest.mark.asyncio
+async def test_chip_that_does_not_answer_setup_is_a_reported_fault(monkeypatch):
+    """smbus2 present but the chip NAKs (not wired / wrong address / bus down)."""
+    _force_real(monkeypatch)
+
+    class _DeadChipSMBus:
+        def __init__(self, bus):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def write_byte_data(self, addr, reg, val):
+            raise OSError(121, "Remote I/O error")
+
+    mod = types.ModuleType("smbus2")
+    mod.SMBus = _DeadChipSMBus
+    monkeypatch.setitem(sys.modules, "smbus2", mod)
+    d = PCA9685Driver({"address": 0x41, "bus": 1})
+    await d.initialize()
+    assert d.is_ready() is False
+    assert "0x41" in d.last_error and "Remote I/O error" in d.last_error
+    with pytest.raises(PCA9685UnavailableError, match="Remote I/O error"):
+        await d.set_pwm_us(2, 1500)
+
+
+@pytest.mark.asyncio
+async def test_never_initialised_driver_outside_sim_refuses(monkeypatch):
+    _force_real(monkeypatch)
+    d = PCA9685Driver({})
+    assert d.is_ready() is False
+    with pytest.raises(PCA9685UnavailableError):
+        await d.set_pwm_us(0, 1500)
+
+
+@pytest.mark.asyncio
+async def test_write_failure_is_recorded_and_cleared_by_the_next_success(monkeypatch):
+    """A transient bus fault shows up in health until a later write succeeds."""
+    _force_real(monkeypatch)
+    _install_fake_smbus2(monkeypatch, fail_write=True)
+    d = PCA9685Driver({})
+    await d.initialize()
+    with pytest.raises(OSError):
+        await d.set_pwm_us(0, 1500)
+    health = await d.health_check()
+    assert health["ok"] is False and "write failed" in health["error"]
+
+    # Bus recovers: swap in a fake whose writes succeed.
+    _install_fake_smbus2(monkeypatch, fail_write=False)
+    await d.set_pwm_us(0, 1500)
+    assert (await d.health_check())["ok"] is True
 
 
 @pytest.mark.asyncio

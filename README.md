@@ -4,26 +4,47 @@
 
 An advanced autonomous lawn mower powered by Raspberry Pi 5 with Hailo 8L AI accelerator, featuring Vision-Language-Action (VLA) model inference, RTK GPS positioning, multi-sensor fusion, and a professional web dashboard.
 
+> **Platform variants (H-11).** This repository supports two **different** machines, selected by
+> `config/tractor.yaml` `enabled`: the **differential-drive LawnBerry mower** (RoboHAT RP2040 → Cytron MDDRC10,
+> IBT-4 blade driver, 12 V LiFePO4 + solar) and the **Toro TimeCutter 50-inch zero-turn conversion** (PCA9685 lever
+> servos, starter and PTO relays; BOM in [`hardware.md`](hardware.md), design in
+> [`docs/tractor-platform.md`](docs/tractor-platform.md)). They are separate wiring harnesses and a deployment
+> runs exactly one. The hardware tables below are tagged per platform.
+>
+> **Status: read first.** Capability statements in this README are targets unless marked otherwise. What is
+> implemented, simulated, stubbed or missing, checked against the source tree and the deployed Pi on 2026-10-24,
+> is in [`docs/2026-10-24-integration-audit.md`](docs/2026-10-24-integration-audit.md). The Toro variant is
+> bench-only and **not cleared for unattended motion**
+> ([`docs/tractor-acceptance-criteria.md`](docs/tractor-acceptance-criteria.md)).
+
 ---
 
 ## Features
 
 ### AI-Powered Autonomous Navigation
 - **Vision-Language-Action (VLA) Model**: 37M parameter neural network with ResNet50 visual encoder and 4-layer Transformer
-- **Hailo 8L Acceleration**: 13 TOPS INT8 inference at 10+ FPS for real-time control
-- **Multi-Modal Sensor Fusion**: Stereo depth, RGB vision, GPS, IMU, ultrasonic inputs
+- **Hailo 8L Acceleration** (target): 13 TOPS INT8 is the vendor rating and "10+ FPS" for the VLA policy is a target;
+  the only measured Hailo figure is the YOLO26 detector (yolo26s 41.7 FPS, `docs/autonomy-toolchain-matrix.md`).
+  `lspci` on the deployed Pi says "Hailo-8" (shared PCI ID) while `hailortcli` said "HAILO8L" on 2026-10-06: re-verify
+- **Multi-Modal Sensor Fusion** (target): stereo depth, 2D LiDAR and ultrasonic fusion are not implemented
 - **Model-Based Reinforcement Learning**: DreamerV3-style imagination training with world model
 
 ### Precision Positioning
-- **RTK GPS**: Centimeter-level accuracy via LC29H-DA dual-band GNSS module
+- **RTK GPS**: centimeter-level accuracy is a target. The receiver is unreconciled across documents (Quectel LC29H-DA
+  on UART0 per `config/hardware.yaml`, or SparkFun ZED-F9P over USB per `spec/hardware.yaml`; H-09), and an
+  LC29H-BS base station exists only as an owner requirement
 - **NTRIP Client**: Real-time RTK corrections from CORS networks
 - **Dead Reckoning**: IMU-based position estimation during GPS outages
 - **Geofencing**: Virtual boundary enforcement with configurable zones
 
 ### Safety Systems
-- **Multi-Layer Obstacle Detection**: Ultrasonic (HC-SR04 array), ToF (VL53L0X), stereo vision
-- **Emergency Stop**: Hardware and software E-STOP with watchdog timer
-- **Tilt Protection**: BNO085 IMU monitors orientation for rollover prevention
+- **Multi-Layer Obstacle Detection** (target): the only obstacle input the code uses is two VL53L0X ToF sensors, and it
+  is advisory. Four JSN-SR04T ultrasonics (owner requirement), stereo depth and optional 2D LiDAR are not
+  implemented; the legacy 3x HC-SR04 driver is disabled because its pins collide with the HaLow radio
+- **Emergency Stop**: software only, with a watchdog; an independent hardwired E-stop is **not implemented** (H-08).
+  Which stop routes actually actuate hardware is listed under "Emergency stop and recovery" below
+- **Tilt Protection**: tractor path only, and the BNO085 driver is a simulation stub, so the cutoff cannot trip on real
+  hardware at the audit baseline
 - **Safety Interlocks**: Motor authorization, blade guards, perimeter enforcement
 
 ### Professional Dashboard
@@ -37,6 +58,9 @@ An advanced autonomous lawn mower powered by Raspberry Pi 5 with Hailo 8L AI acc
 - **Isaac Sim Environment**: Physics-accurate lawn simulation for data generation
 - **NVIDIA Cosmos**: Synthetic data augmentation and domain randomization
 - **Knowledge Distillation**: Teacher-student pipeline for Hailo 8L deployment
+- **Planned live role (H-23, not an implemented primary navigator):** the owner intends the Thor to lead
+  high-level navigation over Wi-Fi HaLow while the Pi keeps local safety authority. Implemented vs target:
+  [audit Part C](docs/2026-10-24-integration-audit.md)
 
 ---
 
@@ -74,6 +98,11 @@ An advanced autonomous lawn mower powered by Raspberry Pi 5 with Hailo 8L AI acc
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+*Diagram scope: differential-drive mower, target architecture. The Toro variant replaces the RoboHAT stage with the
+PCA9685 and relays; the owner's ultrasonic requirement is four JSN-SR04T (the HC-SR04 array shown is the legacy design,
+H-19); the "Wireless Link" is Wi-Fi HaLow. Implemented vs target:
+[`docs/2026-10-24-integration-audit.md`](docs/2026-10-24-integration-audit.md) Part C.*
+
 ---
 
 ## Hardware Requirements
@@ -82,28 +111,39 @@ An advanced autonomous lawn mower powered by Raspberry Pi 5 with Hailo 8L AI acc
 | Component | Specification |
 |-----------|---------------|
 | CPU | Broadcom BCM2712, Cortex-A76 @ 2.4GHz |
-| AI Accelerator | Hailo 8L M.2 (13 TOPS INT8) |
+| AI Accelerator | Hailo-8L M.2 (13 TOPS INT8, vendor rating); `lspci` on the deployed Pi shows "Hailo-8", verify |
 | Memory | 8-16GB LPDDR4X |
 | Storage | 128GB microSD + USB SSD |
-| OS | Raspberry Pi OS Lite Bookworm (64-bit) |
+| OS | Raspberry Pi OS Lite Bookworm (64-bit) per `spec/hardware.yaml`; the deployed Pi runs kernel 6.12.21-morse+ and `docs/autonomy-toolchain-matrix.md` records Ubuntu 24.04.4: reconcile |
 
 ### Sensors
 | Sensor | Model | Interface | Purpose |
 |--------|-------|-----------|---------|
 | Stereo Camera | ELP-USB960P2CAM-V90 | USB 2.0 | Depth perception |
 | Pi Camera | Raspberry Pi Camera 2 | CSI | High-res analysis |
-| GPS/RTK | LC29H(DA) HAT | UART | Centimeter positioning |
-| Ultrasonic | HC-SR04 x3 | GPIO | Close-range detection |
-| IMU | BNO085 | UART | Orientation sensing |
-| ToF | VL53L0X x2 | I2C | Blade height sensing |
+| GPS/RTK | **Unreconciled (H-09):** Quectel LC29H-DA rover (`config/hardware.yaml`) or SparkFun ZED-F9P (`spec/hardware.yaml`); LC29H-BS base = owner requirement, not implemented | UART / USB | Centimeter positioning (target) |
+| Ultrasonic | **4x JSN-SR04T** (owner requirement, variant unverified; H-19); the legacy 3x HC-SR04 driver is disabled and uses HaLow SPI0 pins ([`docs/ultrasonic-wiring-guide.md`](docs/ultrasonic-wiring-guide.md), H-02) | GPIO (TBD) | Close-range detection (not implemented for JSN-SR04T) |
+| IMU | BNO085 (driver is a simulation stub; UART4 vs I2C unverified, H-03) | UART4 (spec) | Orientation sensing |
+| ToF | VL53L0X x2 | I2C | Close-range obstacle detection (front-left / front-right per `docs/hardware-overview.md`), not blade height |
 
-### Motor Control
+### Motor Control — differential-drive mower platform
 | Component | Model | Interface |
 |-----------|-------|-----------|
-| Motor Controller | RoboHAT MM1 | I2C/UART |
-| Drive Motors | 24V DC brushless | PWM |
-| Blade Motor | 24V DC brushless | PWM |
-| Battery | Victron 25.6V LiFePO4 | BLE monitoring |
+| Motor Controller | RoboHAT MM1 (RP2040-Zero) → Cytron MDDRC10 | USB CDC `/dev/ttyACM0` at 115200 (`docs/servo-hat-pins.md`); the MDDRC10 takes RC PWM |
+| Drive Motors | 2x 12 V worm-gear DC with Hall encoders | via the MDDRC10 |
+| Blade Motor | 997 DC motor via IBT-4 | GPIO24/25 (driver is a stub; GPIO25 collides with the HaLow IRQ) |
+| Battery | 12.8 V 30 Ah LiFePO4 (`spec/hardware.yaml`) + Victron SmartSolar MPPT | BLE monitoring + INA3221 |
+
+*The earlier rows here ("24V DC brushless" motors, "Victron 25.6V LiFePO4", RoboHAT "I2C/UART") contradicted
+`.github/copilot-instructions.md`, `spec/hardware.yaml` and `config/hardware.yaml`.*
+
+### Actuation — Toro TimeCutter zero-turn variant
+| Component | Model | Interface |
+|-----------|-------|-----------|
+| Lever servos | 2x 12 V-class, 150 kg·cm-class (owner-reported 10–12.6 V; `hardware.md` lists DSSERVO/ANNIMOS RDS51150SG); label unverified (H-05, H-20) | PWM from PCA9685 ch 0 / ch 2 |
+| Throttle actuator | model not yet identified | PCA9685 ch 1 |
+| PWM driver | PCA9685 at I2C 0x41 (A0 bridged) | I2C bus 1 is **absent** on the deployed Pi (H-17) |
+| Starter / PTO | GPIO relays (BCM5 / BCM26); the OEM PTO switch is reported momentary (H-21) | GPIO5 collides with the HaLow RESET line (H-02b) |
 
 ### Training Server (Optional)
 | Component | Specification |
@@ -147,75 +187,96 @@ npm install
 ### Running the System
 
 ```bash
-# Terminal 1: Backend API
-cd backend
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+# Terminal 1: Backend API (from the repo root; the package is backend.src)
+SIM_MODE=1 uvicorn backend.src.main:app --host 0.0.0.0 --port 8081 --reload
 
 # Terminal 2: Frontend Dashboard
 cd frontend
-npm run dev -- --host 0.0.0.0 --port 3001
+npm run dev -- --host 0.0.0.0 --port 3000
 ```
 
+The Vite dev proxy still targets `127.0.0.1:8000` (`frontend/vite.config.ts`): either start the backend on port 8000
+for `npm run dev`, or point the proxy at 8081.
+
 ### Access Points
+Deployed units (`systemd/lawnberry-backend.service`, `systemd/lawnberry-frontend.service`) use 8081 and 3000.
+
 | Service | URL |
 |---------|-----|
-| Dashboard | http://localhost:3001 |
-| API Docs | http://localhost:8000/docs |
-| WebSocket | ws://localhost:8000/api/v2/ws/telemetry |
+| Dashboard | http://localhost:3000 |
+| API Docs | http://localhost:8081/docs |
+| WebSocket | ws://localhost:8081/api/v2/ws/telemetry |
 
 ---
 
 ## API Reference
 
+Examples assume the deployed port. **Operator authentication is disabled in the shipped unit**
+(`OPERATOR_AUTH_REQUIRED=0`), so these routes are open to anything that can reach the port.
+
+```bash
+export API=http://localhost:8081
+```
+
 ### AI Control
 
 ```bash
 # Enable AI autonomous mode
-curl -X POST http://localhost:8000/api/v2/ai/enable \
+curl -X POST $API/api/v2/ai/enable \
   -H "Content-Type: application/json" \
   -d '{"mode": "ai_autonomous"}'
 
 # Check AI status
-curl http://localhost:8000/api/v2/ai/status
+curl $API/api/v2/ai/status
 
 # View inference metrics
-curl http://localhost:8000/api/v2/ai/metrics
+curl $API/api/v2/ai/metrics
 
 # Disable AI mode (return to manual)
-curl -X POST http://localhost:8000/api/v2/ai/disable
+curl -X POST $API/api/v2/ai/disable
 ```
 
 ### Telemetry
 
 ```bash
-# Get current sensor readings
-curl http://localhost:8000/api/v2/telemetry/current
+# Real-time dashboard telemetry snapshot (the earlier /telemetry/current, /gps and /battery routes do not exist)
+curl $API/api/v2/dashboard/telemetry
 
-# Get GPS position
-curl http://localhost:8000/api/v2/telemetry/gps
+# Contract-shaped telemetry stream (polling)
+curl "$API/api/v2/telemetry/stream?limit=5"
 
-# Get battery status
-curl http://localhost:8000/api/v2/telemetry/battery
+# Sensor health (GPS, IMU, ToF, power)
+curl $API/api/v2/sensors/health
 ```
 
 ### Mission Control
 
 ```bash
 # Create a new mission
-curl -X POST http://localhost:8000/api/v2/missions \
+curl -X POST $API/api/v2/missions/create \
   -H "Content-Type: application/json" \
   -d '{"name": "Front Yard", "waypoints": [...]}'
 
-# Start mission
-curl -X POST http://localhost:8000/api/v2/missions/{id}/start
-
-# Pause/Resume mission
-curl -X POST http://localhost:8000/api/v2/missions/{id}/pause
-curl -X POST http://localhost:8000/api/v2/missions/{id}/resume
-
-# Emergency stop
-curl -X POST http://localhost:8000/api/v2/control/estop
+# Start / pause / resume / abort / status / list
+curl -X POST $API/api/v2/missions/{id}/start
+curl -X POST $API/api/v2/missions/{id}/pause
+curl -X POST $API/api/v2/missions/{id}/resume
+curl -X POST $API/api/v2/missions/{id}/abort
+curl $API/api/v2/missions/{id}/status
+curl $API/api/v2/missions/list
 ```
+
+### Emergency stop and recovery
+
+The route the earlier README gave (`POST /api/v2/control/estop`) does not exist. Routes that do exist, and what they
+do at the audit baseline (2026-10-24, commit 765c737; later changes are listed in the audit's "Implemented in this PR"):
+
+| Route | Platform | What it does |
+|---|---|---|
+| `POST /api/v2/tractor/emergency-stop` | Toro | Disengages the PTO relay, commands both levers to neutral and the throttle to idle, revokes authorization; no auth by design (`backend/src/services/tractor_service.py:258-288`). Cleared by `POST /api/v2/tractor/clear-emergency` |
+| `POST /api/v2/control/emergency` | differential-drive | Sets software flags and stops the RoboHAT only if its serial link is up; does not stop the tractor or the IBT-4 blade (`backend/src/api/rest.py:600-673`) |
+| `POST /api/v2/control/emergency-stop` | alias | Sets software flags and replies `motors_stopped: true, blade_disabled: true` but calls neither the RoboHAT, the blade service nor the tractor (`backend/src/api/rest.py:676-692`) |
+| `POST /api/v2/control/emergency_clear` | any | Clears the flag from a body `confirmation`; has no auth dependency (`backend/src/api/safety.py:19`) |
 
 ---
 
@@ -253,8 +314,9 @@ lawnberry-pi/
 │       ├── stores/           # Pinia state management
 │       └── services/         # API clients
 ├── config/                   # Configuration files
-│   ├── hardware.yaml
-│   └── safety.yaml
+│   ├── hardware.yaml         # differential-drive mower hardware
+│   ├── limits.yaml           # safety limits
+│   └── tractor.yaml          # Toro variant actuation (enabled: false by default)
 ├── docs/                     # Documentation
 ├── tests/                    # Test suites
 │   ├── unit/
@@ -344,56 +406,54 @@ pytest tests/hil/ -v            # Hardware-in-loop tests
 ```
 
 ### Test Coverage
-| Category | Tests | Status |
-|----------|-------|--------|
-| Unit | 50+ | Passing |
-| Integration | 40+ | Passing |
-| Contract | 30+ | Passing |
-| HIL | 15+ | Passing |
+Baseline on 2026-10-24 (commit 765c737): `SIM_MODE=1 pytest tests --ignore=tests/soak` gave **530 passed, 69 skipped,
+0 failed**. The skips include placeholder tests that never run by default, gated perf tests and TDD stubs for
+WebSocket and manual-control authentication. `tests/hil/` is a probe only and no CI job runs it or `tests/soak`.
+Every passing safety test runs against fakes or simulation; none proves a physical outcome. Details:
+[`docs/2026-10-24-integration-audit.md`](docs/2026-10-24-integration-audit.md) Part A (tests).
 
 ---
 
 ## Configuration
 
-### Hardware Configuration (`config/hardware.yaml`)
+Configuration files live in `config/`. The earlier README showed a non-existent `config/safety.yaml` and an
+`estop: gpio_pin: 17` that no code reads; the safety limits are in `config/limits.yaml`.
+
+### Hardware Configuration (`config/hardware.yaml`, differential-drive mower; excerpt)
 ```yaml
+gps:
+  type: LC29H-DA       # Quectel LC29H(DA) HAT via UART at 115200
+  uart_device: /dev/ttyAMA0
+  baudrate: 115200
+imu:
+  type: BNO085
 sensors:
-  gps:
-    port: /dev/ttyAMA3
-    baud: 115200
-  imu:
-    port: /dev/ttyAMA4
-    baud: 115200
-  stereo_camera:
-    device: /dev/video0
-    resolution: [960, 540]
-
-ai:
-  model_path: /opt/hailo/models/lawnmower_vla.hef
-  inference_fps: 10
-  confidence_threshold: 0.7
-
-ntrip:
-  enabled: true
-  host: rtk2go.com
-  port: 2101
-  mountpoint: NEAREST
+  tof:
+    - left
+    - right
+motor_controller: robohat-rp2040
+blade_controller: ibt-4
 ```
 
-### Safety Configuration (`config/safety.yaml`)
+NTRIP corrections are configured through `.env` (`NTRIP_HOST`, `NTRIP_PORT`, `NTRIP_MOUNTPOINT`, `NTRIP_USERNAME`,
+`NTRIP_PASSWORD`, `NTRIP_SERIAL_DEVICE`) and `gps_ntrip_enabled` in `config/hardware.yaml`; see
+[`docs/gps-ntrip-setup.md`](docs/gps-ntrip-setup.md).
+
+### Safety Limits (`config/limits.yaml`; excerpt)
 ```yaml
-estop:
-  gpio_pin: 17
-  active_low: true
-
-watchdog:
-  timeout_ms: 500
-
-interlocks:
-  tilt_max_degrees: 25
-  obstacle_min_distance_cm: 30
-  boundary_margin_m: 0.5
+estop_latency_ms: 100
+tilt_threshold_degrees: 30.0
+tilt_cutoff_latency_ms: 200
+watchdog_timeout_ms: 1000
+tof_obstacle_distance_meters: 0.2
+ultrasonic_obstacle_distance_cm: 30.0
+ultrasonic_enabled: false  # Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi
 ```
+
+These are configured thresholds, not measured performance. `estop_latency_ms` is validated only as
+`watchdog_timeout_ms >= estop_latency_ms` (`backend/src/safety/safety_validator.py:37-38`), and the two obstacle
+thresholds are consumed only by the debug injection endpoint (`backend/src/api/routers/sensors.py:474`), not by any
+stop path.
 
 ---
 
@@ -408,6 +468,9 @@ interlocks:
 | [Hardware Overview](docs/hardware-overview.md) | Sensor specifications |
 | [Operations Guide](docs/OPERATIONS.md) | Day-to-day operations |
 | [Field Validation](docs/field-validation-protocol.md) | Testing protocols |
+| [Integration Audit (2026-10-24)](docs/2026-10-24-integration-audit.md) | Implemented vs target, hardware conflicts, safety review, development plan |
+| [Tractor Platform](docs/tractor-platform.md) | Toro zero-turn variant design and physical decisions |
+| [Tractor Acceptance Criteria](docs/tractor-acceptance-criteria.md) | Safety sign-off checklist for the Toro variant |
 
 ---
 

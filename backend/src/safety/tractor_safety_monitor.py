@@ -10,6 +10,14 @@ Polls at 50ms (20Hz) -- 4x margin under the 200ms constitutional tilt-cutoff
 deadline, since that deadline is threshold-breach-to-blade-stop, not
 threshold-breach-to-next-poll.
 
+A tilt trip *latches* the blade interlock on the tractor
+(``TractorControlService.latch_interlock``): navigation re-sends
+``blade_engaged=True`` every tick, so merely switching the blade off once would
+have it re-engaged ~200ms later while still tilted. The latch is released only
+by an explicit authenticated ``clear_emergency()``, never by the tilt returning
+to normal, and it is re-asserted every tick while the machine is still over the
+threshold, so clearing it on a tilted machine cannot reopen the blade path.
+
 SIM-safe: the default IMU reader lazily reaches into the sensor manager the
 same way the rest of the backend does (``websocket_hub._ensure_sensor_manager``)
 and simply returns ``None`` on any failure, in which case tilt is not
@@ -100,16 +108,23 @@ class TractorSafetyMonitor:
             return
         roll_deg, pitch_deg = reading
         triggered = self._triggers.trigger_tilt(roll_deg, pitch_deg, self._threshold)
-        if triggered and not self._tilted:
-            self._tilted = True
-            if self._tractor.state.blade_engaged:
+        if triggered:
+            state = self._tractor.state
+            if not self._tilted:
                 logger.warning(
-                    "Tilt cutoff: roll=%.1f pitch=%.1f >= %.1f deg -- disengaging blade",
+                    "Tilt cutoff: roll=%.1f pitch=%.1f >= %.1f deg -- latching blade off",
                     roll_deg,
                     pitch_deg,
                     self._threshold,
                 )
-                await self._tractor.engage_blade(False)
-        elif not triggered and self._tilted:
+            self._tilted = True
+            # Level-triggered, not edge-triggered: latch even if the blade is
+            # already off (the next navigation leg would turn it on), and
+            # re-latch if an operator clear landed while still tilted.
+            if not state.interlock_latched or state.blade_engaged:
+                await self._tractor.latch_interlock("tilt", source="tilt_monitor")
+        elif self._tilted:
+            # Back under the threshold: the SafetyTrigger interlock clears, but the
+            # tractor's blade latch deliberately stays until an operator clears it.
             self._tilted = False
             self._triggers.clear_tilt()

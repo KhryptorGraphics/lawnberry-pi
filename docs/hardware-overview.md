@@ -2,6 +2,13 @@
 
 This guide provides a comprehensive overview of the LawnBerryPi hardware components and their functions. Understanding your hardware helps with maintenance, troubleshooting, and system optimization.
 
+> **Platform scope (H-11, tagged 2026-10-24).** This document describes the **differential-drive LawnBerry
+> mower** (RoboHAT RP2040 → Cytron MDDRC10, IBT-4 blade driver, 12 V LiFePO4 + solar) everywhere except the
+> "Ride-On Tractor Platform (Alternate Configuration)" section, which is the **Toro TimeCutter zero-turn
+> variant**. They are different wiring harnesses and a deployment runs exactly one. Nothing here is an
+> as-built wiring record. Subsystem status against the source tree and the deployed Pi:
+> [`2026-10-24-integration-audit.md`](2026-10-24-integration-audit.md).
+
 ## System Architecture Diagram
 
 ```
@@ -253,6 +260,18 @@ venv/bin/python -m scripts.gps_smoke_test --duration 20 --interval 0.5
 
 ## Ride-On Tractor Platform (Alternate Configuration)
 
+> **Platform tag: Toro TimeCutter zero-turn variant (H-11). Not the differential-drive mower above, and not
+> an as-built record.**
+>
+> **SUPERSEDED (2026-10-24, H-05 / H-20): the 24 V servo design in this section** (Wingxine ASMC-04B,
+> 12 V→24 V boost converter, "Why 24V") is withdrawn. `hardware.md` (Actuation) selects 12 V
+> DSSERVO/ANNIMOS RDS51150SG servos and `docs/tractor-platform.md` states the 24 V design is superseded.
+> The owner reports two matching 150 kg·cm-class servos at nominal 10–12.6 V with possibly 8 A or more
+> stall current (owner-reported, not bench-verified; purchased label pending). Do not build the boost
+> converter, and never connect 24 V to a servo labelled 12 V, to PCA9685 `V+`, or to the Pi rails. Fuse
+> ratings, wire gauges and the stall-current budget are not specified anywhere in the repo; they are listed
+> as measurements in [`2026-10-24-integration-audit.md`](2026-10-24-integration-audit.md) Part B.3.
+
 **Function**: A second, constitutionally-recognized platform (Constitution
 Principle V): a converted 50" Toro TimeCutter zero-turn mower (ZTR) — gas
 engine, twin-lever hydrostatic drive — operated through five discrete
@@ -266,11 +285,13 @@ safety sign-off checklist this platform must pass before unsupervised use.
 
 **Components**:
 - **3 positional actuators** (`left_lever`, `throttle`, `right_lever`) — PCA9685
-  I2C PWM channels, bench-calibrated per channel. Two lever servos (Wingxine
-  ASMC-04B; manufacturer-rated 90 kg·cm @ 12V / 1.0s per 60°, 180 kg·cm @
-  24V / 0.5s per 60°) physically push/pull the mower's existing lap-bar
-  drive levers, run at 24V for E-stop settle-time margin (see Power below);
-  the engine and hydrostatic transaxles are otherwise stock.
+  I2C PWM channels, bench-calibrated per channel. Two lever servos physically
+  push/pull the mower's existing lap-bar drive levers; the engine and hydrostatic
+  transaxles are otherwise stock. **Servo model and rail (superseded 2026-10-24):**
+  ~~Wingxine ASMC-04B; manufacturer-rated 90 kg·cm @ 12V / 1.0s per 60°, 180 kg·cm @
+  24V / 0.5s per 60°, run at 24V for E-stop settle-time margin~~. `hardware.md` selects 12 V
+  DSSERVO/ANNIMOS RDS51150SG units and the owner reports 150 kg·cm-class servos at nominal
+  10–12.6 V; the purchased label is unverified (H-05, H-20).
 - **2 GPIO relays** (starter, blade PTO) — momentary crank pulse and latching
   PTO engage/disengage respectively.
 - **Standard lawn-tractor safety interlocks** (ANSI/OPEI-style): engine start
@@ -281,36 +302,53 @@ safety sign-off checklist this platform must pass before unsupervised use.
   Operation System); emergency stop disengages the blade, returns both levers
   to neutral, and idles the throttle while the engine keeps running.
 
-**Power**: three separately-fused taps off the mower's 12V starting battery:
-1. 12V→5V/5A buck regulator (Pololu D24V50F5) → Raspberry Pi 5 (rated 5.1V/5A).
-2. 12V→24V boost converter (20A/480W) → both lever servos, powered directly
-   (the throttle servo shares this rail pending bench calibration otherwise).
+**Power**: three separately-fused taps off the mower's 12V starting battery. Fuse ratings, wire gauges and the
+stall-current budget are **not specified anywhere in the repo (TBD)**:
+1. 12V→5V buck regulator → Raspberry Pi 5. The part is inconsistent across documents: Pololu D24V50F5
+   (5V/5A, rated 5.1V/5A here) vs a DROK 9–36V→5.2V, 3.5–6A module in `hardware.md` (Power). Neither has been
+   load-tested with the Pi + Hailo + HaLow stack.
+2. ~~12V→24V boost converter (20A/480W) → both lever servos~~ **superseded (2026-10-24)**: the lever servos
+   are 12 V-class. Their supply is a separately fused branch off the 12V battery, sized from the **measured**
+   stall current (owner-reported possibly 8 A or more each; unverified). The throttle actuator is a separate
+   third channel whose model is not yet identified.
 3. 12V → relay module (starter, blade PTO).
 
-**Wiring constraint (hardware-damage risk if skipped)**: the 24V rail does
-**NOT** connect to the PCA9685 breakout's `V+` terminal — that terminal is a
-passive pass-through bussed to every servo header, and the breakout's
-decoupling capacitor is typically rated 10-16V. Servo power runs directly
-from the boost converter to each servo; only the PWM signal wire from each
-servo goes to its PCA9685 channel; ground must be common across the boost
-converter, the PCA9685, and the Pi, or the servos will not see a valid pulse.
+**Wiring constraint (hardware-damage risk if skipped; originally written for a 24V rail)**: no servo supply
+may connect to the PCA9685 breakout's `V+` terminal — that terminal is a passive pass-through bussed to every
+servo header, and the breakout's decoupling capacitor is typically rated 10-16V (a typical-value statement,
+not a datasheet quote for the purchased board; TBD from the actual board). Servo power runs directly from its
+fused branch to each servo; only the PWM signal wire from each servo goes to its PCA9685 channel; ground must
+be common across the servo supply, the PCA9685, and the Pi, or the servos will not see a valid pulse. Whether
+the breakout's `V+` path could carry the servos' stall current at all is unmeasured, so direct wiring is the
+default.
 
-**Why 24V**: this is a safety-margin choice, not a torque preference. The
-Constitution (Principle VI) requires positional actuators to *physically
-settle* within 500ms of an E-stop signal. At 12V the ASMC-04B's ~1.0s/60°
-rate leaves that 500ms budget only ~30° of unloaded rotation and zero
-margin — worse once real lap-bar spring/detent resistance and a
-simultaneous both-levers E-stop (worst-case load) are accounted for; at 24V
-the same budget buys roughly 60°. This is the datasheet rationale for the
-choice, not proof it holds on the real linkage — the actual measured
-settle time at 24V (not assumed) is required by
-`docs/tractor-acceptance-criteria.md` item 4.
+**Settle-time budget (unchanged requirement)**: the Constitution (Principle VI) requires positional actuators
+to *physically settle* within 500ms of an E-stop signal. Whether the 12 V servos meet it under a simultaneous
+both-levers E-stop on the real linkage is a bench measurement (`docs/tractor-acceptance-criteria.md` item 4),
+not something a datasheet speed rating proves.
 
-**Caution**: the boost converter draws roughly double its 24V-side current
-on the 12V input side, so sustained servo load could exceed what the
-TimeCutter's small-engine charging stator can supply. Bench-verify the
-mower's actual charging output before relying on this under sustained
-autonomous operation.
+**Caution (still applies at 12 V)**: peak servo current plus the Pi, relays and any other load must be
+compared with the TimeCutter's actual battery and charging-system capacity. That capacity is unmeasured;
+bench-verify it before relying on sustained autonomous operation.
+
+> **Superseded 2026-10-24 — historical rationale for the ASMC-04B 24V design (kept for reference):**
+>
+> **Why 24V**: this is a safety-margin choice, not a torque preference. The
+> Constitution (Principle VI) requires positional actuators to *physically
+> settle* within 500ms of an E-stop signal. At 12V the ASMC-04B's ~1.0s/60°
+> rate leaves that 500ms budget only ~30° of unloaded rotation and zero
+> margin — worse once real lap-bar spring/detent resistance and a
+> simultaneous both-levers E-stop (worst-case load) are accounted for; at 24V
+> the same budget buys roughly 60°. This is the datasheet rationale for the
+> choice, not proof it holds on the real linkage — the actual measured
+> settle time at 24V (not assumed) is required by
+> `docs/tractor-acceptance-criteria.md` item 4.
+>
+> **Caution**: the boost converter draws roughly double its 24V-side current
+> on the 12V input side, so sustained servo load could exceed what the
+> TimeCutter's small-engine charging stator can supply. Bench-verify the
+> mower's actual charging output before relying on this under sustained
+> autonomous operation.
 
 (This power arrangement is distinct from — and not a replacement for — the
 original push-mower's LiFePO4/solar power system described above, which is

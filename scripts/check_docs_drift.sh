@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # Logic:
 # - Determine diff range (BASE..HEAD). In PRs, use merge-base with base branch.
-# - code_changed: files in backend/, frontend/src/, systemd/, scripts/, pyproject.toml, backend/src/
+# - code_changed: files in backend/, frontend/src/, systemd/, scripts/, pyproject.toml
 #                 excluding tests/** and this script itself and CI files.
 # - docs_changed: files in docs/**, spec/**, README.md, .specify/memory/AGENT_JOURNAL.md
 # If code_changed is true and docs_changed is false -> exit 1 with a helpful message.
@@ -14,18 +14,26 @@ set -euo pipefail
 BASE_REF=${BASE_REF:-"origin/${GITHUB_BASE_REF:-main}"}
 HEAD_REF=${HEAD_REF:-"HEAD"}
 
-# Ensure git history depth is sufficient
-git fetch --no-tags --depth=0 origin || true
-
-# Compute range; fallback to BASE_REF..HEAD_REF
-MERGE_BASE=$(git merge-base "$BASE_REF" "$HEAD_REF" 2>/dev/null || true)
-if [[ -n "${MERGE_BASE}" ]]; then
-  RANGE="$MERGE_BASE..$HEAD_REF"
-else
-  RANGE="$BASE_REF..$HEAD_REF"
+# Ensure we have sufficient git history (unshallow if needed)
+if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" == "true" ]]; then
+  echo "Shallow repository detected; unshallowing..." >&2
+  git fetch --unshallow origin 2>/dev/null || git fetch --unshallow 2>/dev/null || true
 fi
 
-CHANGED_FILES=$(git diff --name-only "$RANGE" | tr '\n' '\n')
+# Fetch base ref if not present locally (CI checkout with fetch-depth: 0 already has it)
+git fetch --no-tags origin "$BASE_REF" 2>/dev/null || true
+
+# Compute merge-base range
+MERGE_BASE=$(git merge-base "$BASE_REF" "$HEAD_REF" 2>/dev/null || true)
+if [[ -n "${MERGE_BASE}" ]]; then
+  RANGE="${MERGE_BASE}..${HEAD_REF}"
+else
+  # Fallback: two-dot diff between tips (noisy if histories diverged, but better than silent pass)
+  echo "Warning: no merge-base found for ${BASE_REF}..${HEAD_REF}; using tip-to-tip diff" >&2
+  RANGE="${BASE_REF}..${HEAD_REF}"
+fi
+
+CHANGED_FILES=$(git diff --name-only "$RANGE" 2>/dev/null || true)
 
 # No changes (shouldn't happen in CI) => succeed
 if [[ -z "$CHANGED_FILES" ]]; then

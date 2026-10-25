@@ -17,11 +17,18 @@ Environment=LAWNBERRY_LOG_DIR=/apps/lawnberry-pi/logs
 Environment=LAWNBERRY_DATA_DIR=/apps/lawnberry-pi/data
 Environment=SIM_MODE=0
 Environment=PYTHONUNBUFFERED=1
-# Auth disabled project-wide (LAN-only single-operator deployment, no
-# internet exposure): login, operator-auth-gated writes, and the manual
-# control unlock step are all bypassed. See api/deps.py::require_operator_auth
-# and api/routers/auth.py's manual-unlock handlers.
-Environment=OPERATOR_AUTH_REQUIRED=0
+# Operator auth is ENFORCED (was 0 = disabled, 2026-10-24 safety audit): login,
+# operator-auth-gated writes (tractor/control/missions) and the manual-control
+# unlock step are required. The E-stop endpoints stay unauthenticated by design
+# (POST /api/v2/control/emergency, /control/emergency-stop, /tractor/emergency-stop);
+# clearing an E-stop or latch is authenticated. See api/deps.py::require_operator_auth.
+# DEPLOYMENT REQUIRES: set LAWN_BERRY_OPERATOR_CREDENTIAL in /apps/lawnberry-pi/.env
+# (EnvironmentFile below) BEFORE restarting this unit. Unset, the shipped default
+# credential ("operator123", public in the repo) is accepted, which is NOT secure.
+# The web UI login form posts {username, password}: the password is that credential
+# (any username). Scripts need a bearer token (scripts/teleop.py --token).
+# To disable again (LAN bench only): set this to 0 and restart.
+Environment=OPERATOR_AUTH_REQUIRED=1
 # Auto-upload recorded mowing sessions to the Thor training server.
 # Set THOR_UPLOAD_ENABLED=1 and THOR_BASE_URL to Thor's receiver (host:port).
 Environment=THOR_UPLOAD_ENABLED=0

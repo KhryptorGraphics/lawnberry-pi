@@ -4,6 +4,13 @@ Operate the mower's actuators (left/right drive lever, throttle, blade PTO,
 starter) with the standard safety interlocks enforced by
 ``TractorControlService``. Writes require operator auth; the emergency stop
 and state read are always available.
+
+Lever and throttle commands are held only for a bounded time (the optional
+``duration_ms``, clamped by the service's configured maximum, else its default
+hold) and then return to neutral/idle unless refreshed -- a dropped client
+stops the machine. The effective ``hold_ms`` is echoed in the response.
+``POST /tractor/clear-emergency`` is the explicit authenticated clear for both
+the E-stop latch and the blade interlock latch (tilt).
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ router = APIRouter()
 
 class ValueBody(BaseModel):
     value: float = Field(..., ge=-1.0, le=1.0)
+    duration_ms: int | None = Field(None, ge=1, le=60_000)
 
 
 class BladeBody(BaseModel):
@@ -35,17 +43,17 @@ async def tractor_state() -> dict[str, Any]:
 
 @router.post("/tractor/left-lever", dependencies=[Depends(require_operator_auth)])
 async def tractor_left_lever(body: ValueBody) -> dict[str, Any]:
-    return await get_tractor_service().set_left_lever(body.value)
+    return await get_tractor_service().set_left_lever(body.value, duration_ms=body.duration_ms)
 
 
 @router.post("/tractor/right-lever", dependencies=[Depends(require_operator_auth)])
 async def tractor_right_lever(body: ValueBody) -> dict[str, Any]:
-    return await get_tractor_service().set_right_lever(body.value)
+    return await get_tractor_service().set_right_lever(body.value, duration_ms=body.duration_ms)
 
 
 @router.post("/tractor/throttle", dependencies=[Depends(require_operator_auth)])
 async def tractor_throttle(body: ValueBody) -> dict[str, Any]:
-    return await get_tractor_service().set_throttle(body.value)
+    return await get_tractor_service().set_throttle(body.value, duration_ms=body.duration_ms)
 
 
 @router.post("/tractor/blade", dependencies=[Depends(require_operator_auth)])
@@ -84,10 +92,16 @@ async def tractor_revoke() -> dict[str, Any]:
 
 @router.post("/tractor/emergency-stop")
 async def tractor_emergency_stop() -> dict[str, Any]:
-    """Disengage the blade and center/idle the drive immediately (always available)."""
+    """Latch the E-stop and drive the blade/levers/throttle to safe (always available).
+
+    The body reports each output's actual result (``complete``, ``subsystems``,
+    ``faults``): ``complete: false`` means the latch is set but at least one
+    output could not be confirmed driven.
+    """
     return await get_tractor_service().emergency_stop()
 
 
 @router.post("/tractor/clear-emergency", dependencies=[Depends(require_operator_auth)])
 async def tractor_clear_emergency() -> dict[str, Any]:
+    """Explicit authenticated clear of the E-stop latch and any blade interlock latch."""
     return await get_tractor_service().clear_emergency()
