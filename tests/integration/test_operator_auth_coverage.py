@@ -13,9 +13,10 @@ This module:
   any state-changing route with no ``require_operator_auth`` dependency that is not in
   ``OPEN_BY_DESIGN``, any read route that is neither gated nor in ``OPEN_READS``/``SELF_AUTH_READS``
   with a reason, and any stale entry;
-* requires every WebSocket route to be in ``WEBSOCKET_CONTRACT``, to start with
-  ``await _authorize_websocket(...)`` (``command_capable=True`` exactly for the command socket),
-  and proves the contract at the handshake: no anonymous peer outside the loopback, no bad
+* requires every WebSocket route to be in ``WEBSOCKET_CONTRACT`` and to start with
+  ``await admit_websocket(...)`` (or the inner ``_authorize_websocket``), with
+  ``command_capable=True`` exactly for the command socket, and proves the contract at the
+  handshake: no anonymous peer (loopback included, unless explicitly opted in), no bad
   credential for anyone, and no credential-less command socket while operator auth is on;
 * proves every gated route answers 401 without a real bearer token;
 * proves the walk itself with the two backdoors of the review (and a mounted sub-application, an
@@ -251,8 +252,13 @@ def _unreviewed_websockets(target) -> list[str]:
     )
 
 
+# ``admit_websocket`` is the handlers' admission call: it wraps ``_authorize_websocket`` and adds
+# the per-session connection slot. A handler may also call the inner authorizer directly.
+WEBSOCKET_AUTHORIZERS = frozenset({"admit_websocket", "_authorize_websocket"})
+
+
 def _first_statement_authorizes(endpoint: Callable) -> tuple[bool, bool]:
-    """(the first statement awaits ``_authorize_websocket``, with command_capable=True)."""
+    """(the first statement awaits an admission call, with command_capable=True)."""
     tree = ast.parse(textwrap.dedent(inspect.getsource(endpoint)))
     function = tree.body[0]
     body = [
@@ -267,7 +273,7 @@ def _first_statement_authorizes(endpoint: Callable) -> tuple[bool, bool]:
     if not (
         isinstance(call, ast.Call)
         and isinstance(call.func, ast.Name)
-        and call.func.id == "_authorize_websocket"
+        and call.func.id in WEBSOCKET_AUTHORIZERS
     ):
         return False, False
     command = any(
@@ -287,7 +293,7 @@ def _websocket_handler_problems(target) -> list[str]:
         authorizes, command = _first_statement_authorizes(info.endpoint)
         wants_command = WEBSOCKET_CONTRACT.get(info.path) == COMMAND
         if not authorizes:
-            problems.append(f"{info.path}: does not start with `await _authorize_websocket(...)`")
+            problems.append(f"{info.path}: does not start with `await admit_websocket(...)`")
         elif command != wants_command:
             problems.append(
                 f"{info.path}: command_capable={command}, the contract says {wants_command}"
@@ -438,9 +444,7 @@ def test_an_unauthenticated_actuating_websocket_is_caught():
     copy.add_api_websocket_route("/api/v2/ws/backdoor", _ws_backdoor)
     assert _unreviewed_websockets(copy) == ["/api/v2/ws/backdoor"]
     problems = _websocket_handler_problems(copy)
-    assert any("/api/v2/ws/backdoor" in p and "_authorize_websocket" in p for p in problems), (
-        problems
-    )
+    assert any("/api/v2/ws/backdoor" in p and "admit_websocket" in p for p in problems), problems
 
 
 def test_a_websocket_that_authorizes_but_is_not_reviewed_is_still_caught():

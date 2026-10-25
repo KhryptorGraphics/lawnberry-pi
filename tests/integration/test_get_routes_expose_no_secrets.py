@@ -432,17 +432,14 @@ async def test_the_scan_catches_a_route_that_dumps_the_environment_or_a_store(
 
 
 def test_the_first_frames_of_the_websockets_carry_no_secret(session_seeds):
-    """Anonymous loopback (read-only sockets) and ticketed connections; first frame only."""
+    """First frame of every WebSocket for a ticketed operator (anonymous admission is refused)."""
     seeds, operator = session_seeds
     client = TestClient(app, client=("127.0.0.1", 50000))
     frames = []
-    with client.websocket_connect("/api/v2/ws/status") as ws:
-        frames.append(ws.receive_text())
-    with client.websocket_connect("/api/v2/ws/telemetry") as ws:
-        frames.append(ws.receive_text())
-    ticket = client.post("/api/v2/auth/ws-ticket", json={}, headers=operator).json()["ticket"]
-    with client.websocket_connect(f"/api/v2/ws/control?ticket={ticket}") as ws:
-        frames.append(ws.receive_text())
+    for path in ("/api/v2/ws/status", "/api/v2/ws/telemetry", "/api/v2/ws/control"):
+        ticket = client.post("/api/v2/auth/ws-ticket", json={}, headers=operator).json()["ticket"]
+        with client.websocket_connect(f"{path}?ticket={ticket}") as ws:
+            frames.append(ws.receive_text())
     assert len(frames) == 3
     for frame in frames:
         for label, value in seeds.items():
