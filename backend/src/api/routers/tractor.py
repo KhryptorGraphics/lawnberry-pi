@@ -13,7 +13,11 @@ stops the machine. The effective ``hold_ms`` is echoed in the response.
 E-stop latch and, when it is safe, the blade interlock latch (tilt): a clear on a
 tilted machine, or one whose tilt sensor is unavailable, releases the E-stop but keeps the
 blade latch and answers ``status: "partial"`` with ``still_latched``. Every clear is audited
-with its optional ``reason``.
+with its optional ``reason``. A clear never authorizes: after a stop (which revokes the
+authorization) nothing autonomous moves the machine until ``POST /tractor/authorize`` is called
+again and a new run is started. The lever and throttle routes here are the ``operator`` source
+and keep their documented behaviour (no ``authorize`` needed for an authenticated person's
+own drive; the blade and starter still need it).
 
 A platform that is not enabled in ``config/tractor.yaml`` is never driven through these
 routes outside SIM_MODE: writes answer ``rejected`` and the E-stop answers ``not_enabled``,
@@ -29,6 +33,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from ...core.peer_address import client_host
 from ...core.persistence import persistence
 from ...models.tractor_control import TractorCommand
 from ...services.tractor_service import TractorControlService, get_tractor_service
@@ -132,8 +137,14 @@ async def tractor_authorize() -> dict[str, Any]:
 
 @router.post("/tractor/revoke", dependencies=[Depends(require_operator_auth)])
 async def tractor_revoke() -> dict[str, Any]:
-    get_tractor_service().revoke()
-    return {"status": "revoked"}
+    """Withdraw the authorization and stand the machine down (audit SAF-01, T15).
+
+    Not just a flag: the blade is switched off first, autonomous lever motion goes neutral and
+    every mission or AI run ends, because none of them may command anything without the
+    authorization. A person's own manual drive is left alone. The body lists any step that
+    could not be done (``errors``).
+    """
+    return await get_tractor_service().withdraw_authorization(source="operator")
 
 
 @router.post("/tractor/emergency-stop")
@@ -144,7 +155,8 @@ async def tractor_emergency_stop() -> dict[str, Any]:
     ``faults``): ``complete: false`` means the latch is set but at least one
     output could not be confirmed driven. ``status: "not_enabled"`` means the platform is
     disabled in ``config/tractor.yaml`` and nothing was touched. The stop is shielded from a
-    cancelled request: once started it runs to completion.
+    cancelled request: once started it runs to completion. ``latch_persisted: false`` means
+    the latch could not be saved to disk (a restart would release it).
     """
     return await asyncio.shield(get_tractor_service().emergency_stop())
 
@@ -157,16 +169,14 @@ async def tractor_clear_emergency(
 
     ``status`` is ``ok`` when everything was released, ``partial`` when the blade latch had to
     stay (``still_latched``), ``rejected`` while a stop is still in flight or the tractor is
-    locked out. The call and its outcome are written to the audit log with ``reason``.
+    locked out. The call and its outcome are written to the audit log with ``reason``, attributed
+    to the connection's peer address (never to a client-written header).
     """
     result = await get_tractor_service().clear_emergency()
     try:
-        client = request.headers.get("X-Client-Id") or (
-            request.client.host if request.client else None
-        )
         persistence.add_audit_log(
             "tractor.clear_emergency",
-            client_id=client,
+            client_id=client_host(request),
             resource="tractor_emergency_stop",
             details={"reason": body.reason if body else None, "result": result},
         )

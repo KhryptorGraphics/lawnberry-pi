@@ -155,6 +155,11 @@ async def test_emergency_stop_disengages_but_engine_runs():
     # commands are rejected until the emergency is cleared
     assert (await s.set_left_lever(0.5))["status"] == "rejected"
     await s.clear_emergency()
+    # A clear never authorizes (audit SAF-01): a lever command from an unlabeled (autonomous)
+    # caller stays refused until a person calls authorize() again.
+    refused = await s.set_left_lever(0.5)
+    assert refused["status"] == "rejected" and refused["code"] == "not_authorized"
+    s.authorize()
     assert (await s.set_left_lever(0.5))["status"] == "ok"
 
 
