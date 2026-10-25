@@ -358,7 +358,13 @@ describe('ControlView blade keep-alive', () => {
       const { wrapper, vm } = await mountUnlocked()
       getBladeStatus.mockResolvedValue(statusOn())
       vi.useFakeTimers()
-      const request = Promise.withResolvers()
+      // Promise.withResolvers() requires Node 22+; use compatible manual construction for Node 20
+      let requestResolve, requestReject
+      const request = {
+        promise: new Promise((resolve, reject) => { requestResolve = resolve; requestReject = reject; }),
+        resolve: requestResolve,
+        reject: requestReject,
+      }
       store().submitCommand.mockReturnValueOnce(request.promise)
       const started = vm.toggleMowing()
       await tick(0)
