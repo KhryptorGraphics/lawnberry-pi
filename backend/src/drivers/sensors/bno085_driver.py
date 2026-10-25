@@ -11,7 +11,6 @@ This stub only supplies data; enforcement occurs in safety triggers (T051).
 from __future__ import annotations
 
 import math
-import os
 import random
 import time
 from typing import Any
@@ -49,7 +48,7 @@ class BNO085Driver(HardwareDriver):
     async def read_orientation(self) -> dict[str, float] | None:
         if not self.initialized:
             return None
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             # Produce a smooth yaw change and periodic tilt spike
             yaw = (self._cycle * 3) % 360
             roll = math.sin(self._cycle / 20) * 5

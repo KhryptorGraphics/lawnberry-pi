@@ -114,7 +114,7 @@ class HailoDriver(HardwareDriver):
 
     async def initialize(self) -> None:
         """Initialize Hailo device and load model."""
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             await self._init_simulation()
         else:
             await self._init_hardware()

@@ -98,7 +98,7 @@ class VL53L0XDriver(HardwareDriver):
         higher layers can proceed while we gracefully no-op on reads.
         """
         self.initialized = True
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             return
 
         # Try Adafruit CircuitPython backend first (most common on Pi via Blinka)
@@ -114,9 +114,7 @@ class VL53L0XDriver(HardwareDriver):
 
     async def stop(self) -> None:  # noqa: D401
         self.running = False
-        if self._driver is not None and not (
-            is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
-        ):
+        if self._driver is not None and not is_simulation_mode():
             try:
                 stop_fn = getattr(self._driver, "stop_ranging", None)
                 if callable(stop_fn):
@@ -155,7 +153,7 @@ class VL53L0XDriver(HardwareDriver):
         if not self.initialized:
             return None
 
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             # Deterministic pattern to keep tests stable
             base = 1500
             if self._sim_distance_cycle % 20 == 5:
@@ -460,7 +458,7 @@ async def _reinit_if_needed(self: VL53L0XDriver) -> None:
 
     Avoids tight loops by spacing attempts at least 2 seconds apart.
     """
-    if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+    if is_simulation_mode():
         return
     now = time.time()
     # Only try after a few consecutive failures

@@ -1,5 +1,4 @@
 import logging
-import os
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -8,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...core.globals import _debug_overrides
+from ...core.simulation import is_simulation_mode
 from ...services.websocket_hub import websocket_hub
 from ..deps import require_debug_routes, require_operator_auth
 
@@ -185,7 +185,7 @@ async def get_tof_status() -> ToFStatusResponse:
     Returns per-sensor backend info (binding name), bus/address, and last reading.
     Safe on systems without the VL53L0X binding: fields will be None.
     """
-    sim_mode = _ = os.getenv("SIM_MODE", "0") != "0"
+    sim_mode = is_simulation_mode()
     left_probe: ToFProbe | None = None
     right_probe: ToFProbe | None = None
     try:
@@ -241,7 +241,6 @@ async def get_tof_status() -> ToFStatusResponse:
 
 @router.get("/sensors/gps/status", response_model=GPSSummary)
 async def get_gps_status() -> GPSSummary:
-    _ = os.getenv("SIM_MODE", "0") != "0"
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore

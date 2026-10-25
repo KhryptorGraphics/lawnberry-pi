@@ -28,6 +28,7 @@ from ..core.auth_posture import sim_open_auth_enabled
 from ..core.context import get_correlation_id
 from ..core.credential_policy import assess_signing_secret, known_default_reason
 from ..core.peer_address import peer_key
+from ..core.simulation import is_simulation_mode
 from ..models import (
     AuthenticationMethod,
     Permission,
@@ -115,7 +116,7 @@ class JWTManager:
 
     def __init__(self, secret_key: str | None = None, *, expiry_hours: int = 8) -> None:
         configured = secret_key or os.getenv("LAWN_BERRY_AUTH_SECRET")
-        simulated = os.getenv("SIM_MODE", "0") == "1"
+        simulated = is_simulation_mode()
         if configured:
             weak = assess_signing_secret(configured)
             if weak and not simulated:

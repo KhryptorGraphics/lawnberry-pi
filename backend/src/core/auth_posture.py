@@ -23,7 +23,9 @@ Switches that decide whether the backend asks for credentials, or exposes test h
     while ``SIM_MODE=1`` or this is set to a true token; otherwise they answer 404, before any
     authentication check. Default off. Operator authentication is required on top, always.
 
-Imports only the standard library and ``credential_policy`` (itself standard library only).
+``SIM_MODE`` itself is parsed by ``core.simulation`` (the one reader of that variable: exactly ``1``
+is simulation, anything else is not). Imports only the standard library, ``credential_policy`` and
+``simulation`` (both standard library only).
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .credential_policy import AUTH_FLAG_TRUE_TOKENS, parse_operator_auth_flag
+from .simulation import is_simulation_mode
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +74,7 @@ def operator_auth_required(environ: Mapping[str, str] | None = None) -> bool:
 
 
 def sim_mode(environ: Mapping[str, str] | None = None) -> bool:
-    return _env(environ).get("SIM_MODE", "0") == "1"
+    return is_simulation_mode(environ)
 
 
 def in_production(environ: Mapping[str, str] | None = None) -> bool:

@@ -34,6 +34,7 @@ from .api.status import router as status_router
 from .core.auth_posture import log_auth_posture
 from .core.config_loader import ConfigLoader
 from .core.env_validation import validate_environment
+from .core.simulation import is_simulation_mode
 from .middleware.api_key_auth import register_api_key_auth_middleware
 from .middleware.correlation import register_correlation_middleware
 from .middleware.input_validation import register_input_validation_middleware
@@ -152,7 +153,7 @@ async def lifespan(app: FastAPI):
 
     # Small boot hook: ensure dual VL53L0X are addressed uniquely via XSHUT (left 0x29, right default 0x30)  # noqa: E501
     try:
-        if os.getenv("SIM_MODE", "0") == "0":
+        if not is_simulation_mode():
             tc = getattr(hardware_cfg, "tof_config", None)
             if (
                 tc
@@ -244,6 +245,9 @@ async def lifespan(app: FastAPI):
     app.state.tractor_watchdog = None  # not wired until the block below succeeds
     app.state.tractor_safety_monitor = None
     tractor = None
+    # True only once the watchdog, the actuation supervision and the tilt monitor have all
+    # STARTED (audit SAF-12): the monitor object existing is not the monitor running.
+    tractor_monitor_started = False
     try:
         tractor = get_tractor_service()
         if tractor.enabled:
@@ -285,6 +289,7 @@ async def lifespan(app: FastAPI):
             await tractor_watchdog.start()
             await tractor.start_supervision()
             await app.state.tractor_safety_monitor.start()
+            tractor_monitor_started = True
     except Exception:
         _log.exception("Tractor service initialization failed")
         if tractor is not None and tractor.enabled:
@@ -298,7 +303,7 @@ async def lifespan(app: FastAPI):
     try:
         app.state.thor_link = await start_thor_link(
             get_tractor_service(),
-            safety_monitor_running=getattr(app.state, "tractor_safety_monitor", None) is not None,
+            safety_monitor_running=tractor_monitor_started,
             gnss=lambda: gnss_from_sensor_manager(getattr(app.state, "sensor_manager", None)),
         )
     except Exception as exc:
@@ -315,7 +320,7 @@ async def lifespan(app: FastAPI):
     # over its IPC socket, see api/routers/camera.py). Only embed a camera
     # instance here in SIM_MODE, where there's no real device to contend
     # for and other code paths expect simulated telemetry.camera data.
-    if os.getenv("SIM_MODE", "0") == "1":
+    if is_simulation_mode():
         try:
             await camera_service.initialize()
             await camera_service.start_streaming()
@@ -359,7 +364,7 @@ async def lifespan(app: FastAPI):
     if getattr(app.state, "tractor_safety_monitor", None):
         await app.state.tractor_safety_monitor.stop()
     await websocket_hub.stop_telemetry_loop()
-    if os.getenv("SIM_MODE", "0") == "1":
+    if is_simulation_mode():
         try:
             await camera_service.shutdown()
         except Exception:

@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 
+from ...core.simulation import is_simulation_mode
 from ...models.auth_security_config import SecurityLevel
 from ..deps import require_operator_auth
 
@@ -105,7 +106,7 @@ def _default_profile() -> dict[str, Any]:
             "cadence_hz": 5,
             "latency_targets": {"pi5_ms": 250, "pi4b_ms": 350},
         },
-        "simulation_mode": os.getenv("SIM_MODE", "0") == "1",
+        "simulation_mode": is_simulation_mode(),
         "ai_acceleration": "hailo8l",
         "branding_checksum": _branding_checksum(),
     }

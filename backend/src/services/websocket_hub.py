@@ -12,6 +12,8 @@ from typing import Any
 from fastapi import WebSocket
 from fastapi.encoders import jsonable_encoder
 
+from ..core.simulation import is_simulation_mode
+from ..drivers.sensors.gps_driver import preferred_gps_device
 from ..models.hardware_config import GPSType
 from ..models.sensor_data import GpsMode
 from ..services.ntrip_client import NtripForwarder
@@ -99,19 +101,14 @@ class WebSocketHub:
             gps_mode = GpsMode.LC29H_UART
             ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
 
-        # Hint GPS device if a common device node is present
+        # Hint the GPS device: the hardware UART for a UART-wired receiver, the u-blox USB port
+        # for an F9P on USB (found by USB identity, never by guessing an ACM number: the RoboHAT
+        # and the ultrasonic MCU are ACM ports too, audit SAF-S1). No sign of one: no hint.
         try:
             if not os.environ.get("GPS_DEVICE"):
-                candidates = [
-                    "/dev/ttyACM1",
-                    "/dev/ttyACM0",
-                    "/dev/ttyAMA0",
-                    "/dev/ttyUSB0",
-                ]
-                for candidate in candidates:
-                    if os.path.exists(candidate):
-                        os.environ["GPS_DEVICE"] = candidate
-                        break
+                hint = preferred_gps_device(gps_mode)
+                if hint:
+                    os.environ["GPS_DEVICE"] = hint
         except Exception:
             pass
 
@@ -181,7 +178,7 @@ class WebSocketHub:
         """Start the NTRIP client when hardware requests RTK corrections."""
         if self._ntrip_forwarder is not None:
             return
-        if os.getenv("SIM_MODE", "0") == "1":
+        if is_simulation_mode():
             return
         forwarder = NtripForwarder.from_environment(gps_mode=gps_mode)
         if forwarder is None:
@@ -737,7 +734,7 @@ class WebSocketHub:
 
         Safe on CI: imports and hardware init are lazy and wrapped in try/except.
         """
-        sim_mode = os.getenv("SIM_MODE", "0") != "0"
+        sim_mode = is_simulation_mode()
 
         manager: Any | None = None
         try:
@@ -803,11 +800,7 @@ class WebSocketHub:
                 speed_mps = getattr(pos, "speed", None) if pos else None
                 accuracy_m = getattr(pos, "accuracy", None) if pos else None
                 hdop = getattr(pos, "hdop", None) if pos else None
-                if accuracy_m is None and hdop is not None:
-                    try:
-                        accuracy_m = float(hdop)
-                    except Exception:
-                        accuracy_m = None
+                # HDOP is a geometry factor, not metres: unknown accuracy stays unknown (SAF-04).
 
                 cal_status = getattr(imu, "calibration_status", None)
                 _cal_map = {
