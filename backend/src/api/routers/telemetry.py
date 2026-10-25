@@ -608,6 +608,7 @@ async def dashboard_telemetry():
                 "hdop": position_data.get("hdop", None),
                 "rtk_status": rtk_status,
                 "rtk_fallback_message": rtk_fallback_message,
+                "fix_age_s": position_data.get("fix_age_s", None),
             },
             "imu": {
                 "roll": imu_data.get("roll", None),
@@ -666,6 +667,7 @@ async def dashboard_telemetry():
                 "hdop": telemetry_data.get("position", {}).get("hdop", None),
                 "rtk_status": telemetry_data.get("position", {}).get("rtk_status", "simulated"),
                 "rtk_fallback_message": None,
+                "fix_age_s": telemetry_data.get("position", {}).get("fix_age_s", None),
             },
             "imu": {
                 "roll": None,
