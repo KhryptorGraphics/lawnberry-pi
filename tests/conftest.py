@@ -81,6 +81,51 @@ os.environ.setdefault("AUTH_LOCKOUT_FAILURES", "1000")
 os.environ.setdefault("AUTH_LOCKOUT_SECONDS", "0")
 
 
+# ---- process-wide state that one test must not leave for the next ----------------------------
+# Two singletons keep state that decides a later test's outcome, so the suite passed only in
+# its default order (audit review of PR #20, "order-dependent tests"; found with
+# scripts/run_tests_shuffled.py, which is how to check this block still holds):
+#
+# * `auth_service` (backend/src/services/auth_service.py, the facade the auth-level unit tests
+#   use) counts failed logins per user in `_failed_attempts`; five failures lock the user out
+#   ("Too many attempts"), so test_password_authentication_* failed whenever the tests that fail
+#   logins ran before them.
+# * `/control/emergency` arms a 0.2 s drive-block window (`rest._emergency_until`) and a 0.3 s
+#   per-client one (`_client_emergency`); a legacy `/control/drive` test that started inside it
+#   got "403 Emergency stop active" after any E-stop test.
+#
+# Only modules the test run has already imported are touched: a reset must not import the
+# backend for a test that never uses it. tests/unit/test_conftest_isolation.py proves the reset
+# and fails when the facade grows state this does not reset.
+def reset_shared_backend_state() -> None:
+    """Put the auth facade's counters and the E-stop drive-block window back to their start."""
+    auth = sys.modules.get("backend.src.services.auth_service")
+    if auth is not None:
+        facade = auth.auth_service
+        facade._failed_attempts.clear()
+        facade.active_sessions.clear()
+        facade._invalidated_session_ids.clear()
+        facade._initialized = False
+        facade.config = auth.AuthSecurityConfig()
+    rest = sys.modules.get("backend.src.api.rest")
+    if rest is not None:
+        rest._emergency_until = 0.0
+        rest._client_emergency.clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_backend_state():
+    reset_shared_backend_state()
+    yield
+    reset_shared_backend_state()
+
+
+@pytest.fixture
+def reset_shared_state():
+    """The reset the autouse fixture above runs, for a test that wants to call it itself."""
+    return reset_shared_backend_state
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Create an instance of the default event loop for the test session."""
