@@ -28,7 +28,7 @@ by declaring items out of scope.
    must stay at 0 failures (current: 762 collected, 693 passed, 69 skipped). The suite rewrites
    `verification_artifacts/001-integrate-hardware-and/telemetry_integration_evidence.json`; restore it,
    never commit it. `ruff check` clean; update `docs/code_structure_overview.md` for interface changes.
-7. **Shared machines:** workshop box `kp@192.168.1.53` (sudo `terramax123`), GPUs PCI order
+7. **Shared machines:** workshop box `kp@192.168.1.53` (sudo password: the owner supplies it in the session; **never write any credential into a file, commit, PR, comment or log**), GPUs PCI order
    0 = P100, 1 = 3080 Ti, 2 = V100 (PG500). Never `pkill -f` a pattern that can match your own ssh
    command; kill by session id. Long jobs detached (`nohup setsid ... &`) with a log.
 
@@ -83,8 +83,8 @@ Each item: its own commit with fault-injection tests on fakes; update the audit'
 
 ### T4 — Deploy to the mower Pi (only when reachable and only after the owner merges)
 
-- Pi: `kp@10.8.0.2` (via the girlfriend's network VPN) or `kp@192.168.50.20` (home HaLow). Sudo
-  `terramax123`. Check reachability first; if unreachable, record it and move on.
+- Pi: `kp@10.8.0.2` (via the remote-site VPN) or `kp@192.168.50.20` (home HaLow). The sudo password is
+  supplied by the owner in the session, never stored in the repo. Check reachability first; if unreachable, record it and move on.
 - After the owner merges #19: `git pull` in `/apps/lawnberry-pi`, install the updated units, set the
   operator credential the owner provides, restart backend/camera/frontend, rebuild frontend, run
   `scripts/pi_detector_ctl.py status`, `/health`, login through the UI flow, unit suite on the Pi.

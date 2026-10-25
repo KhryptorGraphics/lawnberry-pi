@@ -645,15 +645,17 @@ lawnberry-pi config auth --validate
 
 ### Recovery Procedures
 
-#### Emergency Access
+#### Recovering operator access
+
+There is **no** emergency-access command and **no** built-in recovery password: an earlier version of this
+guide described a `lawnberry-pi auth emergency-access` command that created a well-known temporary
+password. No such command exists in the code, and a documented default credential is exactly what this
+hardening removes. Recovery needs shell access to the Pi:
 
 ```bash
-# Physical recovery mode (requires Pi access)
 sudo systemctl stop lawnberry-backend
-sudo lawnberry-pi auth emergency-access --enable
-
-# This creates temporary password: "emergency123"
-# Login and reconfigure authentication
+# set a NEW operator credential in the service's environment file (see "Configuration" above);
+# choose a long random value and never reuse a credential that has appeared in a file or chat
 sudo systemctl start lawnberry-backend
 ```
 
