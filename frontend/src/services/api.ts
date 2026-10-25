@@ -36,6 +36,11 @@ export async function getRoboHATStatus(): Promise<RoboHATStatus> {
   return response.data
 }
 
+export async function getBladeStatus(): Promise<BladeStatus> {
+  const response = await apiService.get<BladeStatus>('/api/v2/control/blade/status')
+  return response.data
+}
+
 // Map API methods
 export async function getMapConfiguration(configId: string = 'default') {
   const response = await apiService.get(`/api/v2/map/configuration?config_id=${configId}`)
@@ -170,6 +175,7 @@ import type {
   BladeCommandResponse,
   EmergencyStopResult,
   RoboHATStatus,
+  BladeStatus,
   AutonomyStartResult,
   AutonomyStopResult,
   AutonomyPauseResult,

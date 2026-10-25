@@ -226,8 +226,8 @@ class IBT4BladeDriver(HardwareDriver):
         self.running = False
         self.initialized = False
 
-    async def health_check(self) -> dict[str, Any]:
-        """The blade output as it reads NOW, not as it was last commanded.
+    def snapshot(self) -> dict[str, Any]:
+        """The blade output as it reads NOW, not as it was last commanded (synchronous).
 
         With a real adapter the inputs are read back on every call (``observed``, ``pad``): a
         pad forced high by something else shows ``active`` True and ``state_confirmed`` False
@@ -235,6 +235,8 @@ class IBT4BladeDriver(HardwareDriver):
         inputs were READ low (or, for the flag-only stub, nothing was ever turned on); a failed
         readback, an uninitialised real adapter and an unconfirmed command all read as "may be
         on". ``state_confirmed`` is True only when what was observed equals what was commanded.
+        Reads only, never writes, never raises: the sync callers (the safety status) use it
+        directly; :meth:`health_check` is the same dict for ``await``.
         """
         obs = self.observe()
         if obs.state in ("off", "on", "mixed"):
@@ -262,6 +264,10 @@ class IBT4BladeDriver(HardwareDriver):
             "observe_error": obs.error,
             "last_error": self.last_error,
         }
+
+    async def health_check(self) -> dict[str, Any]:
+        """The blade output as it reads NOW: :meth:`snapshot`, for callers that ``await``."""
+        return self.snapshot()
 
     async def set_estop(self, active: bool) -> bool:
         """Set/clear the E-stop latch; setting it also drives the blade OFF.

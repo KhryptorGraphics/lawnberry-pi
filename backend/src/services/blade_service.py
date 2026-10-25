@@ -199,7 +199,13 @@ class BladeService:
                 self.last_refusal = f"{why} and the OFF could not be confirmed: ON refused"
                 return False
         if not drv.drive(True):
-            self.last_refusal = drv.last_error or "IBT-4 ON not confirmed"
+            refusal = drv.last_error or "IBT-4 ON not confirmed"
+            # The ON write may have landed although it was not confirmed: the readback failed and
+            # the adapter's own rollback failed too ("the output state is UNKNOWN"). So an ON
+            # that fails is followed by a service-level OFF, which is confirmed on the pads or
+            # stays pending and is retried by the supervision loop every tick (HW-01).
+            self._drive_off("ON not confirmed")
+            self.last_refusal = refusal
             return False
         self._commanded_on = True
         self._on_deadline = now + self.deadman_s
@@ -561,6 +567,21 @@ class BladeService:
         return self._stop_report(latched=False, off=off, error=error)
 
     # ------------------------------------------------------------------ state
+
+    def blade_may_be_on(self) -> bool:
+        """Is the IBT-4 blade (possibly) on RIGHT NOW? Synchronous, read-only, never raises.
+
+        What the pads read, not what was commanded: ``True`` for a pad forced high by something
+        else, for a failed readback, for lines that are not claimed on an armed service and for
+        an unconfirmed write (the same conservative rule as ``status()["active"]``). ``False``
+        only when the inputs were READ low, or, for the flag-only stub, nothing was ever turned
+        on. Any failure to find out reads as "may be on".
+        """
+        try:
+            return bool(self._driver.snapshot()["active"])
+        except Exception:
+            logger.exception("blade_may_be_on: the pads could not be read")
+            return True
 
     async def status(self) -> dict[str, Any]:
         """The blade as it is NOW: pads read back, latch, deadman, pending OFF, ON refusal."""

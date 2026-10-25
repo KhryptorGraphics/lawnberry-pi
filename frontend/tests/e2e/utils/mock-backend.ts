@@ -490,6 +490,20 @@ export class MockBackend {
       return respond(200, { result: 'ok' })
     }
 
+    if (method === 'GET' && pathname === '/api/v2/control/blade/status') {
+      return respond(200, {
+        commanded: 'on',
+        observed: 'on',
+        active: true,
+        deadman_ms: 2000,
+        deadman_remaining_ms: 1500,
+        off_pending: false,
+        last_drop: null,
+        refusal: null,
+        emergency_latched: false,
+      })
+    }
+
     if (method === 'POST' && pathname === '/api/v2/control/emergency-stop') {
       this.emergencyCalls.push({ at: Date.now(), body, type: 'legacy' })
       return respond(200, { result: 'ok' })

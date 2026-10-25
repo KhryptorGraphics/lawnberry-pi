@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Ina3221Config(BaseModel):
@@ -92,6 +92,8 @@ class BladeControllerType(StrEnum):
 class Ibt4Pins(BaseModel):
     """BCM GPIO numbers for the IBT-4 inputs (``cutting_system.blade_driver`` in the spec)."""
 
+    model_config = ConfigDict(extra="forbid")
+
     in1: int = Field(default=24, ge=0, le=27, description="BCM GPIO wired to IBT-4 IN1")
     in2: int = Field(
         default=25,
@@ -114,6 +116,8 @@ class Ibt4Levels(BaseModel):
     UNVERIFIED: the IBT-4 truth table (which input must be high for the blade direction, whether
     PWM or an enable line is needed) has not been read from the fitted board or measured.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     in1: Literal[0, 1] = 1
     in2: Literal[0, 1] = 0
@@ -143,6 +147,8 @@ class Ibt4Config(BaseModel):
     the blade running; a client that wants it to keep running re-sends ON about every
     ``deadman_ms / 3``.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     gpio_enabled: bool = Field(default=False)
     pins: Ibt4Pins = Field(default_factory=Ibt4Pins)
@@ -178,6 +184,8 @@ class UltrasonicConfig(BaseModel):
     are done. The two ``*_is_clear`` policy flags default to the conservative setting: a silent
     or out-of-range channel is UNKNOWN (not clear) unless the owner proves otherwise.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     backend: Literal["mcu_usb", "gpio_hcsr04"] = Field(
         default="mcu_usb",
