@@ -159,15 +159,26 @@ async def clear_emergency_stop(payload: EmergencyClearRequest, request: Request)
         return _clear_refused(request, payload, superseded)
 
     # Inform RoboHAT firmware if available. A clear that did not go through leaves the hold set
-    # (audit SAF-15): the platform is then reported as still held, never as cleared.
+    # (audit SAF-15): the platform is then reported as still held, never as cleared. What the
+    # service says AFTER the attempt decides, not whether the attempt could be made: a RoboHAT
+    # that is not connected (unplugged, not enumerated after a restart) was never asked, and its
+    # hold used to be answered as cleared while a restart restored it and every run was refused
+    # (audit NAV-08).
+    cleared = True
     try:
         if robohat and robohat.status.serial_connected:
-            if not await robohat.clear_emergency():
-                still_latched = [*still_latched, "robohat_hold"]
+            cleared = bool(await robohat.clear_emergency())
     except Exception:
         # Don't fail the clear operation if hardware isn't present in SIM/CI
-        if robohat and robohat.emergency_latched:
-            still_latched = [*still_latched, "robohat_hold"]
+        logger.warning("RoboHAT E-stop clear raised", exc_info=True)
+        cleared = False
+    if robohat is not None and (not cleared or robohat.emergency_latched):
+        logger.warning(
+            "RoboHAT stop hold NOT released (serial connected: %s, clear accepted: %s)",
+            robohat.status.serial_connected,
+            cleared,
+        )
+        still_latched = [*still_latched, "robohat_hold"]
 
     if ess.stop_epoch() != epoch or ess.stop_in_flight():
         return _clear_refused(request, payload, superseded)
