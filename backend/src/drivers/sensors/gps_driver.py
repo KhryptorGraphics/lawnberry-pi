@@ -7,30 +7,63 @@ SIM_MODE notes:
 - When SIM_MODE=1 (default in CI), returns deterministic positions without
   touching hardware. Accuracy reflects module class (F9P <1m, Neo-8M ~3m).
 
-Hardware notes (audit SAF-04, SAF-06, SAF-S1):
+Hardware notes (audit SAF-04, SAF-06, SAF-S1, GPS-01 .. GPS-15):
 
 * **Accuracy is an error estimate, never HDOP.** ``GpsReading.accuracy`` is the receiver's own
   horizontal 1-sigma in metres, from the GST sentence (``sqrt(sigma_lat^2 + sigma_lon^2)``, else
-  the error ellipse), and for an RTK fix never better than a typical figure for that fix level
-  (fixed 3 cm, float 20 cm); when both exist the **larger** wins. HDOP is a dimensionless
-  geometry factor: it was once copied into ``accuracy`` as metres, so a plain 3-4 m fix with a
-  good satellite geometry read "0.8 m accurate" and passed the GNSS health gate. It is still
-  reported, as ``hdop``. Without a GST (and no RTK fix) the accuracy is ``None``: unknown, which
-  the GNSS monitor does not accept. A receiver that is expected to drive autonomously therefore
-  has to output GST (``$GNGST``) or hold an RTK fix.
-* **Nothing blocks the event loop.** Every serial open, ``readline`` and the gpsd socket run on
-  one daemon worker thread; ``read_position`` waits at most ``READ_DEADLINE_S`` for it and then
-  returns the last reading (which ages out and degrades the fix) while the worker finishes. A
-  second call while the worker is still busy starts nothing: a wedged tty can occupy one thread,
-  never the loop, never more threads. Autodetection is never on the hot path: after a probe pass
-  finds nothing it is not repeated for ``AUTODETECT_RETRY_S``.
+  the error ellipse), and never better than a floor for the fix level (plain fix 0.5 m, DGPS
+  0.3 m, RTK float 0.2 m, RTK fixed 3 cm); when both exist the **larger** wins. HDOP is a
+  dimensionless geometry factor: it was once copied into ``accuracy`` as metres, so a plain 3-4 m
+  fix with a good satellite geometry read "0.8 m accurate" and passed the GNSS health gate. It is
+  still reported, as ``hdop``. Without a GST the accuracy is ``None``: unknown, which the GNSS
+  monitor does not accept, except for an RTK fix whose GGA carries a plausible age of corrections
+  (at most ``RTK_MAX_CORRECTION_AGE_S``): that keeps the typical figure of its level (fixed 3 cm,
+  float 20 cm). A fix level claimed by one GGA digit, with no GST and no age of corrections, is not
+  believed. A receiver that is expected to drive autonomously therefore has to output GST
+  (``$GNGST``) or report the age of its RTK corrections.
+* **A reading is dated by the receiver's epoch and is never a replay.** Sentences are grouped
+  into epochs by their UTC field. The newest epoch in the tty buffer is the one reported (the
+  buffer is drained, never read oldest-first), and an epoch is stamped with the host time of its
+  position sentence minus the delay estimated from the receiver's own UTC (:class:`EpochClock`:
+  how much later than ever before in this session, per the receiver's clock, the epoch was read).
+  An epoch whose UTC is not later than the last accepted one (a frozen, repeated or backwards
+  stream) is not a new fix and builds nothing, so the previous reading keeps its old stamp and
+  ages out; a UTC that jumps ahead of real time is held back until a second epoch continues from
+  it (one wild epoch cannot move the reference). Design limit: with no independent time source a
+  replay that advances its own UTC at the real rate is indistinguishable from a live receiver, and
+  a receiver whose clock is reset to an earlier time without a pause of ``SILENCE_REPROBE_S`` is
+  refused until its UTC passes the last accepted one (reopening the port starts a new session).
+* **Only a real fix is a position.** A GGA fix quality of 1, 2, 4 or 5 (an RMC with status ``A``
+  and a fix mode) with a valid, finite, in-range coordinate pair is a position. Quality 0, 6, 7,
+  8, 3, 9, an unknown or garbled digit, a coordinate that is out of range or has minutes >= 60,
+  a hemisphere letter on the wrong axis, or an RMC with status ``V`` yields a reading with *no*
+  position and the fix status, so the monitor and the navigation loops see "no fix" at once.
+* **Nothing blocks the event loop and no line can wedge the reader.** Every serial open, read and
+  the gpsd socket run on one daemon worker thread; ``read_position`` waits at most
+  ``READ_DEADLINE_S`` for it and then returns the last reading (which ages out and degrades the
+  fix) while the worker finishes. Lines are assembled here from ``read()`` chunks
+  (:class:`NmeaLineReader`): CR or LF ends a line, a line is bounded, a sentence is taken from its
+  last ``$`` (binary UBX frames and junk in front of it cost nothing), and the deadline and the
+  closing flag are checked per chunk, so a stream with no line ends cannot hold the worker (and
+  discovery of the real receiver behind it) for longer than one port timeout. A port that
+  delivers no valid NMEA for ``SILENCE_REPROBE_S`` is dropped and probed again (a receiver
+  reconfigured to another baud). Autodetection is never on the hot path: after a probe pass finds
+  nothing it is not repeated for ``AUTODETECT_RETRY_S``.
+* **The driver can be stopped and forgotten.** ``stop()`` closes the port and ends the worker; a
+  driver that is dropped without it releases its worker and, with the port object, the exclusive
+  lock (the idle worker holds no reference to its owner).
 * **No other driver's port.** The RoboHAT MM1 and the ultrasonic MCU enumerate as USB CDC ACM
   ports next to a USB GNSS receiver, and a second reader on a tty steals the bytes the owner is
   waiting for (a RoboHAT ``pwm`` acknowledgement, an ultrasonic frame). The candidate list drops
-  every device that is configured for another driver (``ROBOHAT_*`` environment, ``ultrasonic.port``
-  in ``hardware.yaml``, ``GPS_EXCLUDE_DEVICES``) or identifies as one (USB vendor 0x2E8A, a
-  RoboHAT/CircuitPython descriptor), and every port is opened with ``exclusive=True`` so one that
-  another LawnBerry driver has locked is skipped, not read.
+  every device that is configured for another driver (``ROBOHAT_*`` environment, the RoboHAT port
+  of the settings profile, ``ultrasonic.port`` in ``hardware.yaml``, ``GPS_EXCLUDE_DEVICES``) or
+  identifies as one (USB vendor 0x2E8A, a RoboHAT/CircuitPython descriptor); a ``/dev/ttyACM*``
+  device is probed only if it was enumerated (so its identity could be checked) and the
+  configuration that names the other drivers' ports could be read; and every port is opened with
+  ``exclusive=True`` so one that another LawnBerry driver has locked is skipped, not read.
+  Design limits: ``exclusive`` is an advisory ``flock`` that only helps against openers that take
+  it too (the operator self-test in ``services/hw_selftest.py`` does not), and probing an
+  unidentified port asserts DTR and holds the lock for up to ``PROBE_WINDOW_S`` per baud rate.
 
 Platform notes:
 - Real hardware access is guarded by lazy imports and not exercised in tests.
@@ -47,13 +80,17 @@ import logging
 import math
 import os
 import queue
+import re
 import socket
 import threading
 import time
+import weakref
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from ...core.freshness import parse_stamp
 from ...core.simulation import is_simulation_mode
 from ...models.sensor_data import GpsMode, GpsReading
 from ..base import HardwareDriver
@@ -76,6 +113,61 @@ EXCLUDE_ENV = "GPS_EXCLUDE_DEVICES"
 _UART_DEVICES = ("/dev/ttyAMA0", "/dev/serial0", "/dev/ttyS0")
 #: USB-serial adapters a receiver may sit behind.
 _USB_SERIAL_DEVICES = ("/dev/ttyUSB0", "/dev/ttyUSB1")
+
+#: Knots to metres per second.
+_KNOTS_TO_MS = 1852.0 / 3600.0
+
+#: The statuses that are a GNSS position fix (GGA quality 1, 2, 4, 5). Everything else the driver
+#: reports (``NO_FIX``, ``DEAD_RECKONING``, ``MANUAL``, ``SIMULATION``) carries no position.
+FIX_STATUSES = frozenset({"GPS_FIX", "DGPS", "RTK_FLOAT", "RTK_FIXED"})
+_RTK_STATUSES = frozenset({"RTK_FLOAT", "RTK_FIXED"})
+#: GGA fix quality -> status. Anything not listed (3, 9, a garbled digit, ...) is ``NO_FIX``.
+_QUALITY_STATUS = {
+    0: "NO_FIX",
+    1: "GPS_FIX",
+    2: "DGPS",
+    4: "RTK_FIXED",
+    5: "RTK_FLOAT",
+    6: "DEAD_RECKONING",
+    7: "MANUAL",
+    8: "SIMULATION",
+}
+#: RMC mode indicator (NMEA 2.3+) -> status. ``A`` and ``P`` are a plain fix; an unlisted letter is
+#: ``NO_FIX``. An RMC without a mode field says nothing beyond its ``A``/``V`` status.
+_RMC_MODE_STATUS = {
+    "A": "GPS_FIX",
+    "P": "GPS_FIX",
+    "D": "DGPS",
+    "F": "RTK_FLOAT",
+    "R": "RTK_FIXED",
+    "E": "DEAD_RECKONING",
+    "M": "MANUAL",
+    "S": "SIMULATION",
+    "N": "NO_FIX",
+}
+#: gpsd TPV ``status`` -> status (gpsd >= 3.18). 0 / absent with ``mode`` >= 2 is a plain fix.
+_GPSD_STATUS = {
+    0: "GPS_FIX",
+    1: "GPS_FIX",
+    2: "DGPS",
+    3: "RTK_FIXED",
+    4: "RTK_FLOAT",
+    5: "DEAD_RECKONING",
+    6: "DEAD_RECKONING",
+    8: "SIMULATION",
+}
+#: Quality order used to decide whether a borrowed GST still describes the fix: a worse status
+#: than the one it was measured under may not inherit its sigma.
+_STATUS_RANK = {
+    "NO_FIX": 0,
+    "DEAD_RECKONING": 0,
+    "MANUAL": 0,
+    "SIMULATION": 0,
+    "GPS_FIX": 1,
+    "DGPS": 2,
+    "RTK_FLOAT": 3,
+    "RTK_FIXED": 4,
+}
 
 
 # ------------------------------------------------------------------------------ NMEA helpers
@@ -103,13 +195,139 @@ def nmea_checksum_ok(sentence: str) -> bool:
     return check == given
 
 
-def _finite_non_negative(text: str) -> float | None:
-    """``text`` as a finite number >= 0, else ``None`` (empty, ``nan``, ``inf``, negative)."""
+def _finite(text: str) -> float | None:
+    """``text`` as a finite number, else ``None`` (empty, ``nan``, ``inf``, garbage)."""
     try:
         value = float(text)
     except (TypeError, ValueError):
         return None
-    return value if math.isfinite(value) and value >= 0.0 else None
+    return value if math.isfinite(value) else None
+
+
+def _finite_non_negative(text: str) -> float | None:
+    """``text`` as a finite number >= 0, else ``None`` (empty, ``nan``, ``inf``, negative)."""
+    value = _finite(text)
+    return value if value is not None and value >= 0.0 else None
+
+
+def _digits(text: str) -> int | None:
+    """``text`` as a non-negative integer if it is nothing but ASCII digits, else ``None``."""
+    return int(text) if text.isascii() and text.isdigit() else None
+
+
+_UTC_FIELD = re.compile(r"(\d{2})(\d{2})(\d{2})(\.\d{1,9})?")
+_LAT_FIELD = re.compile(r"(\d{2})(\d{2}\.\d{1,10})")
+_LON_FIELD = re.compile(r"(\d{3})(\d{2}\.\d{1,10})")
+
+
+def parse_nmea_utc(text: str) -> float | None:
+    """Seconds since 00:00 UTC from an ``hhmmss[.ss]`` field, or ``None`` if it is not one.
+
+    Hours 0-23, minutes 0-59, seconds 0-60 (a leap second is ``..60``).
+    """
+    match = _UTC_FIELD.fullmatch(text)
+    if match is None:
+        return None
+    hours, minutes, seconds = int(match[1]), int(match[2]), int(match[3])
+    if hours > 23 or minutes > 59 or seconds > 60:
+        return None
+    return hours * 3600.0 + minutes * 60.0 + seconds + (float(match[4]) if match[4] else 0.0)
+
+
+def parse_nmea_coordinate(value: str, hemisphere: str, axis: str) -> float | None:
+    """Decimal degrees from NMEA ``ddmm.mmmm`` (``axis`` ``"lat"``) / ``dddmm.mmmm`` (``"lon"``).
+
+    ``None`` unless the field has exactly that shape (digits only, 4 or 5 before the dot), the
+    minutes are below 60, the hemisphere letter belongs to the axis (``N``/``S`` for latitude,
+    ``E``/``W`` for longitude, upper case) and the result is within 90 / 180 degrees.
+    """
+    if axis == "lat":
+        match, signs, limit = _LAT_FIELD.fullmatch(value), {"N": 1.0, "S": -1.0}, 90.0
+    else:
+        match, signs, limit = _LON_FIELD.fullmatch(value), {"E": 1.0, "W": -1.0}, 180.0
+    sign = signs.get(hemisphere)
+    if match is None or sign is None:
+        return None
+    minutes = float(match[2])
+    if minutes >= 60.0:
+        return None
+    degrees = int(match[1]) + minutes / 60.0
+    return sign * degrees if degrees <= limit else None
+
+
+@dataclass(frozen=True, slots=True)
+class Gga:
+    """The fields of a GGA sentence this driver uses; ``None`` where a field is empty or bad."""
+
+    utc_s: float | None
+    quality: int | None  # the raw fix-quality digit
+    lat: float | None
+    lon: float | None
+    altitude_m: float | None
+    satellites: int | None
+    hdop: float | None
+    correction_age_s: float | None  # age of the differential / RTK corrections
+
+
+@dataclass(frozen=True, slots=True)
+class Rmc:
+    """The fields of an RMC sentence this driver uses."""
+
+    utc_s: float | None
+    valid: bool  # status field ``A``
+    mode: str | None  # NMEA 2.3+ mode indicator, ``None`` if the sentence has none
+    lat: float | None
+    lon: float | None
+    speed_mps: float | None
+    course_deg: float | None
+
+
+def parse_gga(sentence: str) -> Gga | None:
+    """``$--GGA,time,lat,N,lon,E,quality,sats,hdop,alt,M,sep,M,corr_age,station`` or ``None``.
+
+    ``None`` only when the sentence is too short to carry a fix quality. A latitude without its
+    longitude (or the other way round) is no position at all.
+    """
+    parts = sentence.split("*")[0].split(",")
+    if len(parts) < 7:
+        return None
+    lat = parse_nmea_coordinate(parts[2], parts[3], "lat")
+    lon = parse_nmea_coordinate(parts[4], parts[5], "lon")
+    if lat is None or lon is None:
+        lat = lon = None
+    return Gga(
+        utc_s=parse_nmea_utc(parts[1]),
+        quality=_digits(parts[6]),
+        lat=lat,
+        lon=lon,
+        altitude_m=_finite(parts[9]) if len(parts) > 9 else None,
+        satellites=_digits(parts[7]) if len(parts) > 7 else None,
+        hdop=_finite_non_negative(parts[8]) if len(parts) > 8 else None,
+        correction_age_s=_finite_non_negative(parts[13]) if len(parts) > 13 else None,
+    )
+
+
+def parse_rmc(sentence: str) -> Rmc | None:
+    """``$--RMC,time,status,lat,N,lon,E,speed_kn,course,date,magvar,E,mode`` or ``None``."""
+    parts = sentence.split("*")[0].split(",")
+    if len(parts) < 3:
+        return None
+    lat = parse_nmea_coordinate(parts[3], parts[4], "lat") if len(parts) > 4 else None
+    lon = parse_nmea_coordinate(parts[5], parts[6], "lon") if len(parts) > 6 else None
+    if lat is None or lon is None:
+        lat = lon = None
+    knots = _finite_non_negative(parts[7]) if len(parts) > 7 else None
+    course = _finite_non_negative(parts[8]) if len(parts) > 8 else None
+    mode = parts[12] if len(parts) > 12 and parts[12] else None
+    return Rmc(
+        utc_s=parse_nmea_utc(parts[1]),
+        valid=parts[2] == "A",
+        mode=mode,
+        lat=lat,
+        lon=lon,
+        speed_mps=None if knots is None else knots * _KNOTS_TO_MS,
+        course_deg=course if course is not None and course <= 360.0 else None,
+    )
 
 
 def parse_gst_sigma(sentence: str) -> float | None:
@@ -139,21 +357,327 @@ def parse_gst_sigma(sentence: str) -> float | None:
     return sigma if sigma > 0.0 else None
 
 
+def fix_status_from_quality(quality: int | None) -> str:
+    """The status of a GGA fix quality digit; anything outside the table is ``NO_FIX``."""
+    return _QUALITY_STATUS.get(quality, "NO_FIX") if quality is not None else "NO_FIX"
+
+
+def fix_status_from_rmc(rmc: Rmc) -> str:
+    """The status an RMC claims: ``V`` is ``NO_FIX``, else its mode indicator, else a plain fix."""
+    if not rmc.valid:
+        return "NO_FIX"
+    if rmc.mode is None:
+        return "GPS_FIX"
+    return _RMC_MODE_STATUS.get(rmc.mode, "NO_FIX")
+
+
 #: Typical 1-sigma horizontal accuracy of an RTK solution, by receiver fix status. Typical, not
-#: measured here: used as a floor under (never instead of) the receiver's own estimate.
+#: measured here: used as a floor under (never instead of) the receiver's own estimate, and as the
+#: estimate itself only when the GGA vouches for the corrections (see ``classify``).
 _RTK_TYPICAL_M = {"RTK_FIXED": 0.03, "RTK_FLOAT": 0.20}
+#: No fix level is ever more accurate than this, whatever a GST claims (a sigma of 1e-9 on a plain
+#: fix is a corrupt or lying figure). Plain fix and DGPS are floored well above RTK.
+_ACCURACY_FLOOR_M = {"GPS_FIX": 0.5, "DGPS": 0.3, "RTK_FLOAT": 0.20, "RTK_FIXED": 0.03}
+_ABSOLUTE_FLOOR_M = 0.005
 
 
-def combine_accuracy(gst_sigma_m: float | None, rtk_status: str | None) -> float | None:
-    """The accuracy to report: the larger of the receiver's GST sigma and the RTK figure.
+def combine_accuracy(
+    gst_sigma_m: float | None, rtk_status: str | None, assume_typical: bool = True
+) -> float | None:
+    """The accuracy to report: the larger of the receiver's GST sigma, the RTK figure and a floor.
 
-    ``None`` when there is neither (HDOP does not count, audit SAF-04).
+    ``None`` when there is neither a sigma nor (``assume_typical``) an RTK figure (HDOP does not
+    count, audit SAF-04). The floor depends on the fix level: a plain fix is never reported better
+    than 0.5 m, DGPS 0.3 m, RTK float 0.2 m, RTK fixed 3 cm (anything else 5 mm).
     """
-    typical = _RTK_TYPICAL_M.get(rtk_status or "")
+    typical = _RTK_TYPICAL_M.get(rtk_status or "") if assume_typical else None
     known = [v for v in (gst_sigma_m, typical) if v is not None]
     if not known:
         return None
-    return max(0.005, *known)
+    return max(_ACCURACY_FLOOR_M.get(rtk_status or "", _ABSOLUTE_FLOOR_M), *known)
+
+
+def reading_age_s(reading: Any, now: datetime | None = None) -> float | None:
+    """Seconds since ``reading``'s own timestamp, or ``None`` if it has none that can be aged.
+
+    A missing or unreadable stamp, and one from the future, are unknown rather than fresh. Meant
+    for displays: the GNSS monitor ages a fix on the monotonic clock.
+    """
+    stamp = parse_stamp(getattr(reading, "timestamp", None))
+    if stamp is None:
+        return None
+    age = ((now or datetime.now(UTC)) - stamp).total_seconds()
+    return age if age >= 0.0 else None
+
+
+# ------------------------------------------------------------------------------ line framing
+
+
+class NmeaLineReader:
+    """Bounded assembly of NMEA sentences from the chunks a serial port returns.
+
+    ``pyserial``'s ``readline`` has no overall timeout: it returns on a line feed or after one
+    silent port timeout, so a stream that never sends a line feed (a CR-only device, a stuck
+    line, a binary protocol) holds the caller for ever and its buffer grows without bound. This
+    reader is fed whatever ``read`` returned and never waits. CR and LF both end a line; the text
+    after the last ``$`` of a line is the candidate sentence (a UBX frame or other junk in front
+    of it is dropped, and nothing in a sentence can contain ``$``); a line that is still open
+    after ``MAX_LINE`` bytes is not a sentence and is dropped, keeping only a tail that starts at
+    a ``$``.
+    """
+
+    MAX_LINE = 256
+
+    def __init__(self) -> None:
+        self._open = b""
+
+    def feed(self, data: bytes) -> list[str]:
+        """The complete candidate sentences ``data`` finished (not yet checksum-checked)."""
+        parts = (self._open + data).replace(b"\r", b"\n").split(b"\n")
+        tail = parts.pop()  # after the last line end: an unfinished line
+        sentences: list[str] = []
+        for part in parts:
+            start = part.rfind(b"$")
+            if start >= 0:
+                text = part[start:].decode("ascii", errors="ignore")
+                if len(text) <= self.MAX_LINE:
+                    sentences.append(text)
+        if len(tail) > self.MAX_LINE:
+            start = tail.rfind(b"$")
+            tail = tail[start:] if 0 <= start and len(tail) - start <= self.MAX_LINE else b""
+        self._open = tail
+        return sentences
+
+
+# ------------------------------------------------------------------------------ epoch clock
+
+
+@dataclass(frozen=True, slots=True)
+class EpochVerdict:
+    """What :meth:`EpochClock.accept` decided about one epoch."""
+
+    accepted: bool
+    delay_s: float  # how much older than the freshest epoch of the session it was when read
+    reason: str  # ``first``, ``ok``, ``rebased``, ``stale`` or ``jump``
+
+
+class EpochClock:
+    """Judges a source's epoch times (UTC) against the host's monotonic clock.
+
+    ``accept(u, t)`` takes the receiver's time ``u`` of an epoch (seconds; time of day when
+    ``period_s`` is 86400, absolute otherwise) and the host monotonic time ``t`` at which it was
+    read. It returns whether the epoch is a NEW fix and, if so, how late it was read.
+
+    * An epoch whose time is not later than the last accepted one is **stale**: repeated by a
+      frozen receiver, replayed, or running backwards. It is never accepted, and never moves the
+      reference.
+    * An epoch that is later than real time says it should be (the receiver's time advanced more
+      than the host's did, by more than ``TOLERANCE_S``) is a **jump**: held back, and accepted
+      (with the reference moved) only when the NEXT epoch continues from it at the host's rate.
+      So one wild epoch cannot poison the reference (the next genuine epoch is judged against the
+      old one and the wild one is forgotten), and a receiver whose clock really moves forward
+      loses one epoch.
+    * Otherwise the epoch is new. Its **delay** is its host-minus-receiver time offset above the
+      lowest offset of the session (the freshest the stream has been), which creeps up at
+      ``CREEP`` seconds per second so crystal drift between the two clocks cannot read as lag. A
+      queue that grows, a stream running slower than real time, a backlog read late: all show as
+      delay. A constant delay from the very first epoch cannot be seen from the stream.
+    """
+
+    TOLERANCE_S = 5.0
+    CREEP = 2e-4
+
+    def __init__(self, period_s: float | None = 86400.0) -> None:
+        self._period = period_s
+        self._ref: tuple[float, float] | None = None  # last accepted (u, t)
+        self._candidate: tuple[float, float] | None = None  # a held-back jump (u, t)
+        self._base_off = 0.0
+        self._base_t = 0.0
+
+    def _near(self, u: float, reference: float) -> float:
+        """``u`` shifted by whole periods to the representation nearest ``reference``."""
+        if self._period is None:
+            return u
+        return u + self._period * round((reference - u) / self._period)
+
+    def _rebase(self, u: float, t: float, reason: str) -> EpochVerdict:
+        self._ref = (u, t)
+        self._candidate = None
+        self._base_off = t - u
+        self._base_t = t
+        return EpochVerdict(True, 0.0, reason)
+
+    def accept(self, u: float, t: float) -> EpochVerdict:
+        """Judge the epoch with receiver time ``u`` that was read at host time ``t``."""
+        if self._ref is None:
+            return self._rebase(u, t, "first")
+        ref_u, ref_t = self._ref
+        u = self._near(u, ref_u)
+        if u <= ref_u:
+            return EpochVerdict(False, 0.0, "stale")
+        if (u - ref_u) - (t - ref_t) > self.TOLERANCE_S:
+            held = self._candidate
+            if held is not None:
+                u_held = self._near(u, held[0])
+                if u_held > held[0] and abs((u_held - held[0]) - (t - held[1])) <= self.TOLERANCE_S:
+                    return self._rebase(u_held, t, "rebased")
+            self._candidate = (u, t)
+            return EpochVerdict(False, 0.0, "jump")
+        self._candidate = None
+        self._ref = (u, t)
+        offset = t - u
+        self._base_off = min(offset, self._base_off + self.CREEP * (t - self._base_t))
+        self._base_t = t
+        return EpochVerdict(True, offset - self._base_off, "ok")
+
+
+# ------------------------------------------------------------------------------ epochs
+
+
+@dataclass(slots=True)
+class _Epoch:
+    """What one burst of NMEA sentences (one UTC field) has said so far."""
+
+    key: float  # receiver time of the burst, seconds of the UTC day
+    t_pos: float  # host monotonic time its position sentence (GGA, else RMC) was read
+    gga: Gga | None = None
+    rmc: Rmc | None = None
+    gst_seen: bool = False
+    gst_sigma: float | None = None
+    gst_t: float = 0.0  # host monotonic time its GST was read
+    kinds: set[str] = field(default_factory=set)
+    judged: bool = False
+    accepted: bool = False
+    delay_s: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class _Classified:
+    """What an epoch amounts to: a status, a position only for a real fix."""
+
+    status: str
+    lat: float | None
+    lon: float | None
+    altitude_m: float | None
+    typical_ok: bool  # may the typical RTK figure stand in for a missing GST sigma?
+
+    @property
+    def is_fix(self) -> bool:
+        return self.status in FIX_STATUSES
+
+
+def classify(epoch: _Epoch, max_correction_age_s: float) -> _Classified:
+    """The status and position of ``epoch``.
+
+    The GGA is authoritative; an RMC alone (a GGA lost or never sent) is judged by its own status
+    and mode indicator; an RMC that says the fix is invalid, estimated, manual or simulated vetoes
+    a GGA that claims a fix. A claimed fix without a valid coordinate pair is ``NO_FIX``. The
+    typical RTK figure is allowed only for a GGA RTK fix that reports a correction age within
+    ``max_correction_age_s``.
+    """
+    gga, rmc = epoch.gga, epoch.rmc
+    if gga is not None:
+        status = fix_status_from_quality(gga.quality)
+        lat, lon, alt = gga.lat, gga.lon, gga.altitude_m
+        age = gga.correction_age_s
+        typical = status in _RTK_STATUSES and age is not None and age <= max_correction_age_s
+    elif rmc is not None:
+        status = fix_status_from_rmc(rmc)
+        lat, lon, alt, typical = rmc.lat, rmc.lon, None, False
+    else:
+        return _Classified("NO_FIX", None, None, None, False)
+    if status in FIX_STATUSES and (lat is None or lon is None):
+        status = "NO_FIX"
+    if status in FIX_STATUSES and gga is not None and rmc is not None:
+        veto = fix_status_from_rmc(rmc)
+        if veto not in FIX_STATUSES:
+            status = veto
+    if status not in FIX_STATUSES:
+        return _Classified(status, None, None, None, False)
+    return _Classified(status, lat, lon, alt, typical)
+
+
+class _Assembler:
+    """Groups sentences into epochs and learns which kinds a receiver sends.
+
+    ``add`` returns the epochs a sentence CLOSED (the burst before it); the epoch being built is
+    ``cur``. A sentence of the epoch just closed (a GST that follows the next epoch's first
+    sentence, an RMC the reader did not wait for) still counts: it is merged into that epoch and
+    the kind is learned, so the next read waits for it. Until the first epoch has closed every
+    kind is awaited (a new session finds out what the receiver sends); afterwards the kinds
+    awaited are those seen within ``EXPECT_WITHIN_S``.
+    """
+
+    KINDS = ("GGA", "RMC", "GST")
+    EXPECT_WITHIN_S = 5.0
+
+    def __init__(self) -> None:
+        self.cur: _Epoch | None = None
+        self.prev: _Epoch | None = None
+        self.learned: dict[str, float] = {}
+        self.discovering = True
+        #: Sentences that an epoch already had (a repeated burst, a replay), ignored.
+        self.repeats = 0
+
+    def expected(self, now: float) -> frozenset[str]:
+        if self.discovering:
+            return frozenset(self.KINDS)
+        return frozenset(
+            kind for kind, seen in self.learned.items() if now - seen <= self.EXPECT_WITHIN_S
+        )
+
+    def complete(self, epoch: _Epoch, now: float) -> bool:
+        """Has ``epoch`` every kind this receiver is known to send (and a position sentence)?"""
+        return bool({"GGA", "RMC"} & epoch.kinds) and self.expected(now) <= epoch.kinds
+
+    def add(self, kind: str, utc_s: float | None, payload: Any, t: float) -> list[_Epoch]:
+        self.learned[kind] = t
+        if utc_s is None:
+            return []  # an untimed sentence belongs to no epoch
+        closed: list[_Epoch] = []
+        cur = self.cur
+        if cur is None or utc_s != cur.key:
+            if self.prev is not None and utc_s == self.prev.key:
+                # late: it belongs to the epoch just closed
+                self._merge(self.prev, kind, payload, t)
+                return closed
+            if cur is not None:
+                self.prev = cur
+                self.discovering = False
+                closed.append(cur)
+            cur = self.cur = _Epoch(key=utc_s, t_pos=t)
+        self._merge(cur, kind, payload, t)
+        return closed
+
+    def _merge(self, epoch: _Epoch, kind: str, payload: Any, t: float) -> None:
+        if kind in epoch.kinds:
+            self.repeats += 1  # a second GGA (RMC, GST) of one epoch is a repeat: the first stands
+            return
+        epoch.kinds.add(kind)
+        if kind == "GGA":
+            epoch.gga, epoch.t_pos = payload, t
+        elif kind == "RMC":
+            epoch.rmc = payload
+            if epoch.gga is None:
+                epoch.t_pos = t
+        else:
+            epoch.gst_seen, epoch.gst_sigma, epoch.gst_t = True, payload, t
+
+
+class _Stream:
+    """Everything that belongs to one open port; dropped with it."""
+
+    def __init__(self, opened_at: float) -> None:
+        self.reader = NmeaLineReader()
+        self.asm = _Assembler()
+        self.last_valid_t = opened_at  # when a checksum-valid ``$G`` sentence last arrived
+        self.last_accept_t = opened_at  # when an epoch was last taken as a new reading
+        self.last_delivered: _Epoch | None = None
+        self.last_nofix_key: float | None = None
+
+
+class _PortSilent(Exception):
+    """The port delivered no valid NMEA for ``SILENCE_REPROBE_S``."""
 
 
 # ------------------------------------------------------------------------------ serial ports
@@ -168,12 +692,12 @@ class SerialPortInfo:
     description: str = ""
 
 
-def list_serial_ports() -> list[SerialPortInfo]:
-    """The ports pyserial can see, with their USB identity; ``[]`` if it cannot enumerate."""
+def _enumerate_serial_ports() -> tuple[list[SerialPortInfo], bool]:
+    """``(ports pyserial can see, whether the enumeration worked)``."""
     try:
         from serial.tools import list_ports  # type: ignore
     except Exception:
-        return []
+        return [], False
     found: list[SerialPortInfo] = []
     try:
         for info in list_ports.comports():
@@ -190,8 +714,13 @@ def list_serial_ports() -> list[SerialPortInfo]:
                 )
             )
     except Exception:
-        return found
-    return found
+        return found, False
+    return found, True
+
+
+def list_serial_ports() -> list[SerialPortInfo]:
+    """The ports pyserial can see, with their USB identity; ``[]`` if it cannot enumerate."""
+    return _enumerate_serial_ports()[0]
 
 
 def _normalised(text: str) -> str:
@@ -205,14 +734,40 @@ def _real(device: str) -> str:
         return device
 
 
-def ports_owned_by_other_drivers(ports: list[SerialPortInfo] | None = None) -> set[str]:
-    """Real paths of the serial devices that belong to another LawnBerry driver.
+def _profile_robohat_port() -> str:
+    """The RoboHAT port of the persisted settings profile (``hardware.robohat_port``), or ``""``.
 
-    From configuration (``ROBOHAT_*`` variables, ``GPS_EXCLUDE_DEVICES``, ``ultrasonic.port`` in
-    ``hardware.yaml``) and from identity (USB vendor 0x2E8A, a RoboHAT or CircuitPython
-    descriptor). Never raises.
+    Read from the same files, in the same order, as ``services.robohat_service`` does (the
+    service honours it, so it is that driver's port); not imported from there, because importing
+    the services package from a hardware driver's worker thread drags in the whole backend.
     """
+    bases: list[str] = []
+    env_dir = os.getenv("LAWN_SETTINGS_DIR") or os.getenv("LAWN_CONFIG_DIR")
+    if env_dir:
+        bases.append(env_dir)
+    bases.extend(["./config", os.path.join(os.getcwd(), "config")])
+    for base in bases:
+        for name in ("default.json", "settings.json"):
+            try:
+                with open(os.path.join(base, name), encoding="utf-8") as handle:
+                    data = json.load(handle)
+                hardware = data.get("hardware") if isinstance(data, dict) else None
+                port = hardware.get("robohat_port") if isinstance(hardware, dict) else None
+            except Exception:
+                continue
+            if isinstance(port, str) and port.strip():
+                return port.strip()
+    return ""
+
+
+_warned_ownership_config = False
+
+
+def _other_driver_ports(ports: list[SerialPortInfo] | None) -> tuple[set[str], bool]:
+    """``(real paths another LawnBerry driver owns, whether every source could be read)``."""
+    global _warned_ownership_config
     named: list[str] = []
+    complete = True
     for var in _OTHER_DRIVER_PORT_ENV:
         named.append(os.environ.get(var, ""))
     named.extend(os.environ.get(EXCLUDE_ENV, "").split(","))
@@ -221,14 +776,32 @@ def ports_owned_by_other_drivers(ports: list[SerialPortInfo] | None = None) -> s
 
         ultrasonic = ConfigLoader().get()[0].ultrasonic_config
         named.append(str(getattr(ultrasonic, "port", "") or ""))
-    except Exception:
-        pass
+    except Exception as exc:
+        complete = False
+        if not _warned_ownership_config:
+            _warned_ownership_config = True
+            logger.warning(
+                "GPS: the hardware configuration could not be read (%r); the ultrasonic port is "
+                "unknown, so no unidentified /dev/ttyACM* device will be probed",
+                exc,
+            )
+    named.append(_profile_robohat_port())
     owned = {_real(p.strip()) for p in named if p and p.strip()}
     for info in ports if ports is not None else list_serial_ports():
         text = _normalised(f"{info.device} {info.description}")
         if info.vid == RP2040_VID or any(word in text for word in _OTHER_DRIVER_WORDS):
             owned.add(_real(info.device))
-    return owned
+    return owned, complete
+
+
+def ports_owned_by_other_drivers(ports: list[SerialPortInfo] | None = None) -> set[str]:
+    """Real paths of the serial devices that belong to another LawnBerry driver.
+
+    From configuration (``ROBOHAT_*`` variables, the RoboHAT port of the settings profile,
+    ``GPS_EXCLUDE_DEVICES``, ``ultrasonic.port`` in ``hardware.yaml``) and from identity (USB
+    vendor 0x2E8A, a RoboHAT or CircuitPython descriptor). Never raises.
+    """
+    return _other_driver_ports(ports)[0]
 
 
 def preferred_gps_device(mode: GpsMode, ports: list[SerialPortInfo] | None = None) -> str | None:
@@ -253,15 +826,12 @@ def preferred_gps_device(mode: GpsMode, ports: list[SerialPortInfo] | None = Non
 # ------------------------------------------------------------------------------ the worker
 
 
-#: While the receiver has not been seen to send GST, one read in this many seconds waits for one.
-_GST_PROBE_EVERY_S = 30.0
-
-
 class _IoWorker:
     """One daemon thread that runs blocking calls one at a time.
 
     A daemon thread, not a ``ThreadPoolExecutor``: a tty that never answers must not be able to
-    hold the interpreter open at exit.
+    hold the interpreter open at exit. Between jobs it holds no reference to the job it ran, so an
+    idle worker never keeps the driver that owns it (and the driver's port) alive.
     """
 
     def __init__(self, name: str) -> None:
@@ -284,31 +854,16 @@ class _IoWorker:
             if job is None:
                 return
             future, fn = job
-            if not future.set_running_or_notify_cancel():
-                continue
-            try:
-                future.set_result(fn())
-            except BaseException as exc:  # delivered to the future, never lost
-                future.set_exception(exc)
+            job = None
+            if future.set_running_or_notify_cancel():
+                try:
+                    future.set_result(fn())
+                except BaseException as exc:  # delivered to the future, never lost
+                    future.set_exception(exc)
+            future = fn = None  # nothing is held while the thread waits for the next job
 
 
 # ------------------------------------------------------------------------------ the driver
-
-
-@dataclass
-class _Epoch:
-    """What one burst of NMEA sentences (one UTC field) has said so far."""
-
-    utc: str | None = None
-    lat: float | None = None
-    lon: float | None = None
-    alt: float | None = None
-    spd: float | None = None
-    hdop: float | None = None
-    sats: int | None = None
-    status: str | None = None
-    gga: bool = False
-    gst: float | None = None
 
 
 @dataclass
@@ -337,20 +892,36 @@ class GPSDriver(HardwareDriver):
     AUTODETECT_RETRY_S = 15.0
     #: After a read error on a port that worked, reopen it after this long.
     REOPEN_DELAY_S = 1.0
-    #: Lines read from a freshly opened port to decide it streams NMEA.
-    PROBE_LINES = 5
-    #: A GST this old no longer describes the fix.
+    #: How long a freshly opened port is read to decide it streams NMEA.
+    PROBE_WINDOW_S = 1.5
+    #: A port that delivers no valid NMEA for this long is dropped and probed again.
+    SILENCE_REPROBE_S = 5.0
+    #: A GST (of the previous epoch) this old no longer describes the fix.
     GST_MAX_AGE_S = 2.0
-    #: GST is awaited (to the end of the epoch) only while the receiver has sent one this recently.
-    GST_EXPECTED_WITHIN_S = 5.0
-    #: More input than this waiting means the reader fell behind: the backlog is old, drop it.
-    BACKLOG_BYTES = 2048
+    #: An epoch that is still missing a kind the receiver normally sends is reported as it is
+    #: only once its position sentence is this old; before that the read ends without it and the
+    #: next read goes on waiting.
+    EPOCH_GRACE_S = 0.5
+    #: An RTK fix keeps its typical accuracy only if its corrections are at most this old.
+    RTK_MAX_CORRECTION_AGE_S = 30.0
+    #: Below this speed over ground the course is noise and is not reported as a heading.
+    COURSE_MIN_SPEED_MS = 0.5
+    #: The most one ``read`` takes from the port.
+    READ_CHUNK = 4096
     #: No gpsd retry sooner than this after one that found nothing.
     GPSD_RETRY_S = 5.0
 
-    def __init__(self, config: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        monotonic: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ):
         super().__init__(config=config)
         cfg = config or {}
+        self._mono = monotonic
+        self._wall = wall_clock
         self.cfg = GPSDriverConfig(
             mode=GpsMode(cfg.get("mode", GpsMode.NEO8M_UART)),
             usb_device=cfg.get("usb_device"),
@@ -362,23 +933,27 @@ class GPSDriver(HardwareDriver):
         self._sim_counter: int = 0
         # Real hardware handles (lazy). Only the worker thread touches them while a read is on.
         self._serial = None
+        self._stream: _Stream | None = None
         self._first_read_done = False
         self._worker: _IoWorker | None = None
+        self._worker_finalizer: weakref.finalize | None = None
         self._inflight: concurrent.futures.Future | None = None
         self._closing = False
         self._next_probe_at = 0.0
-        # The first sentence of the epoch after the one a read ended on (kept for the next read)
-        self._pushback: str | None = None
         self._next_gpsd_at = 0.0
-        # Newest GST: (horizontal sigma m, receive time on the monotonic clock, UTC field)
-        self._gst: tuple[float, float, str] | None = None
-        self._gst_seen_at: float | None = None
-        self._next_gst_probe_at = 0.0
-        self.backlog_discards = 0
+        # The receiver's time line. It outlives a port that was reopened after an error (a USB
+        # receiver that re-enumerates keeps its clock, and a frozen one must not be taken as fresh
+        # again by the reopen); it starts afresh after silence or ``start()``.
+        self._clock = EpochClock()
+        self._gpsd_clock = EpochClock(period_s=None)
+        #: Epochs refused as repeated, backwards or too far ahead (a frozen / replayed stream).
+        self.epochs_refused = 0
+        #: Estimated delay of the newest reading behind the receiver's own clock, seconds.
+        self.lag_s = 0.0
         # Last observed NMEA sentences (for diagnostics)
         self._last_nmea: dict[str, str] = {}
         # Rate-limit state for hardware failure diagnostics (see _diag)
-        self._diag_last_ts: float = 0.0
+        self._diag_last_ts: float | None = None
         self._diag_last_reason: str | None = None
         # Cached baudrates to try for different modules
         self._baud_candidates = [self.cfg.baudrate]
@@ -417,34 +992,39 @@ class GPSDriver(HardwareDriver):
             await self.initialize()
         # In real mode the port is opened by the first read, on the worker thread
         self._closing = False
+        self._clock = EpochClock()
         self.running = True
 
     async def stop(self) -> None:  # noqa: D401
         self.running = False
         self._closing = True
-        worker, self._worker = self._worker, None
-        if worker is not None:
-            worker.close()
+        self._worker = None
+        finalizer, self._worker_finalizer = self._worker_finalizer, None
+        if finalizer is not None:
+            finalizer()  # lets the worker thread end after the job it is on
         # A read that is still on the worker closes the port itself when it ends (it checks
-        # ``_closing``); closing it from this thread under a blocked readline would race.
+        # ``_closing``); closing it from this thread under a blocked read would race.
         if not self._busy():
             self._drop_port()
 
     async def health_check(self) -> dict[str, Any]:  # noqa: D401
+        stream = self._stream
         return {
             "driver": "gps",
             "mode": self.cfg.mode.value,
             "initialized": self.initialized,
             "running": self.running,
             "last_read_age_s": (
-                (time.monotonic() - self._last_read_mono)
-                if self._last_read_mono is not None
-                else None
+                (self._mono() - self._last_read_mono) if self._last_read_mono is not None else None
             ),
             "simulation": is_simulation_mode(),
             "device": getattr(self._serial, "port", None),
             "read_in_flight": self._busy(),
-            "backlog_discards": self.backlog_discards,
+            "last_sentence_age_s": (
+                self._mono() - stream.last_valid_t if stream is not None else None
+            ),
+            "epochs_refused": self.epochs_refused,
+            "lag_s": self.lag_s,
         }
 
     def _diag(self, reason: str, message: str) -> None:
@@ -455,8 +1035,12 @@ class GPSDriver(HardwareDriver):
         no NMEA) — otherwise these failures are swallowed and the dashboard just
         shows "SEARCHING" with no clue in the logs.
         """
-        now = time.time()
-        if reason == self._diag_last_reason and (now - self._diag_last_ts) < 30.0:
+        now = self._mono()
+        if (
+            reason == self._diag_last_reason
+            and self._diag_last_ts is not None
+            and (now - self._diag_last_ts) < 30.0
+        ):
             return
         self._diag_last_reason = reason
         self._diag_last_ts = now
@@ -501,7 +1085,7 @@ class GPSDriver(HardwareDriver):
                 hdop=hdop,
             )
             self._last_read = reading
-            self._last_read_mono = time.monotonic()
+            self._last_read_mono = self._mono()
             return reading
 
         if self._closing or self._busy():
@@ -530,8 +1114,18 @@ class GPSDriver(HardwareDriver):
     def _submit(self, fn: Callable[[], Any]) -> concurrent.futures.Future:
         if self._worker is None:
             self._worker = _IoWorker("gps-io")
+            # A driver that is dropped without ``stop()`` must not leave its thread behind.
+            self._worker_finalizer = weakref.finalize(self, self._worker.close)
         future = self._worker.submit(fn)
-        future.add_done_callback(self._adopt)
+        # A weak method: the worker's future must not keep the driver (and its port) alive.
+        adopt = weakref.WeakMethod(self._adopt)
+
+        def _adopt_if_alive(done: concurrent.futures.Future) -> None:
+            method = adopt()
+            if method is not None:
+                method(done)
+
+        future.add_done_callback(_adopt_if_alive)
         self._inflight = future
         return future
 
@@ -546,7 +1140,7 @@ class GPSDriver(HardwareDriver):
         reading = future.result()
         if reading is not None:
             self._last_read = reading
-            self._last_read_mono = time.monotonic()
+            self._last_read_mono = self._mono()
 
     # ------------------------------------------------------------------ the worker side
 
@@ -554,26 +1148,35 @@ class GPSDriver(HardwareDriver):
         """One hardware read. Runs on the worker thread only; may block, must not raise."""
         try:
             if self._serial is None:
-                if time.monotonic() < self._next_probe_at or not self._open_port():
+                if self._mono() < self._next_probe_at or not self._open_port():
                     return None
             reading = self._read_nmea()
             if reading is not None:
                 self._first_read_done = True
                 return reading
             # Optional gpsd fallback (if service is present on localhost:2947)
-            if time.monotonic() >= self._next_gpsd_at:
+            if self._mono() >= self._next_gpsd_at:
                 reading = self._read_from_gpsd(timeout_sec=0.5 if self._first_read_done else 1.0)
                 if reading is not None:
                     self._first_read_done = True
                     return reading
-                self._next_gpsd_at = time.monotonic() + self.GPSD_RETRY_S
+                self._next_gpsd_at = self._mono() + self.GPSD_RETRY_S
+            return None
+        except _PortSilent as exc:
+            # The port is open but says nothing (a receiver reconfigured to another baud, a tty
+            # another opener changed): drop it and probe again, as for a read error. A receiver
+            # that was silent that long may have restarted, so its time line starts afresh.
+            self._diag("port-silent", str(exc))
+            self._drop_port()
+            self._clock = EpochClock()
+            self._next_probe_at = self._mono() + self.REOPEN_DELAY_S
             return None
         except Exception as exc:
             # On errors, keep the last reading; surface the cause (rate-limited) and reopen the
             # port next time (a USB receiver that was unplugged is a new device when it returns).
             self._diag("read-error", f"GPS read failed: {exc!r}")
             self._drop_port()
-            self._next_probe_at = time.monotonic() + self.REOPEN_DELAY_S
+            self._next_probe_at = self._mono() + self.REOPEN_DELAY_S
             return None
         finally:
             if self._closing:
@@ -581,7 +1184,7 @@ class GPSDriver(HardwareDriver):
 
     def _drop_port(self) -> None:
         ser, self._serial = self._serial, None
-        self._pushback = None
+        self._stream = None
         if ser is not None:
             try:
                 ser.close()
@@ -590,8 +1193,9 @@ class GPSDriver(HardwareDriver):
 
     def _candidates(self) -> tuple[list[str], list[str]]:
         """``(devices to probe in order, devices skipped because another driver owns them)``."""
-        ports = list_serial_ports()
-        owned = ports_owned_by_other_drivers(ports)
+        ports, enumerated = _enumerate_serial_ports()
+        owned, complete = _other_driver_ports(ports)
+        identified = {info.device for info in ports}
         wanted: list[str] = []
 
         def add(device: str | None) -> None:
@@ -605,9 +1209,13 @@ class GPSDriver(HardwareDriver):
                 add(info.device)
         for device in (*_UART_DEVICES, *_USB_SERIAL_DEVICES):
             add(device)
-        for pattern in ("/dev/ttyACM*", "/dev/ttyUSB*"):
-            for device in sorted(glob.glob(pattern)):
+        for device in sorted(glob.glob("/dev/ttyACM*")):
+            # An unidentified ACM device may be another board (the RoboHAT, the ultrasonic MCU):
+            # probe it only if its identity was checked and the configuration was readable.
+            if enumerated and complete and device in identified:
                 add(device)
+        for device in sorted(glob.glob("/dev/ttyUSB*")):
+            add(device)
         usable = [d for d in wanted if _real(d) not in owned]
         return usable, [d for d in wanted if _real(d) in owned]
 
@@ -639,6 +1247,7 @@ class GPSDriver(HardwareDriver):
                     streams = False
                 if streams:
                     self._serial = ser
+                    self._stream = _Stream(self._mono())
                     self.cfg.baudrate = baud
                     self._next_probe_at = 0.0
                     return True
@@ -648,7 +1257,7 @@ class GPSDriver(HardwareDriver):
                 except Exception:
                     pass
         # Not found: say why (rate-limited), and do not probe again soon.
-        self._next_probe_at = time.monotonic() + self.AUTODETECT_RETRY_S
+        self._next_probe_at = self._mono() + self.AUTODETECT_RETRY_S
         if isinstance(last_open_error, PermissionError):
             self._diag(
                 "serial-permission",
@@ -670,107 +1279,180 @@ class GPSDriver(HardwareDriver):
             )
         return False
 
+    def _take(self, ser: Any) -> bytes:
+        """What the port has now (at most ``READ_CHUNK``); waits for one byte if it has none."""
+        waiting = ser.in_waiting
+        return ser.read(min(waiting, self.READ_CHUNK) if waiting else 1)
+
     def _streams_nmea(self, ser: Any) -> bool:
-        """Does ``ser`` carry NMEA? A few lines, each a complete sentence with a good checksum."""
-        for _ in range(self.PROBE_LINES):
-            line = ser.readline()
-            if not line:
-                continue
-            text = line.decode("ascii", errors="ignore").strip()
-            if text.startswith("$G") and nmea_checksum_ok(text):
-                return True
+        """Does ``ser`` carry NMEA? A complete sentence with a good checksum within the window."""
+        reader = NmeaLineReader()
+        deadline = self._mono() + self.PROBE_WINDOW_S
+        while not self._closing and self._mono() < deadline:
+            for text in reader.feed(self._take(ser)):
+                if text.startswith("$G") and nmea_checksum_ok(text):
+                    return True
         return False
 
+    def _judge(self, st: _Stream, epoch: _Epoch) -> bool:
+        """Does ``epoch`` just become a new reading? An epoch is judged once, when it is first
+        complete or closed (whichever comes first). A fix must be a new time; a no-fix just not a
+        repeat."""
+        if epoch.judged:
+            return False
+        epoch.judged = True
+        if epoch.gga is None and epoch.rmc is None:
+            return False  # a GST alone says nothing about a position
+        if classify(epoch, self.RTK_MAX_CORRECTION_AGE_S).is_fix:
+            verdict = self._clock.accept(epoch.key, epoch.t_pos)
+            if not verdict.accepted:
+                self.epochs_refused += 1
+                self._diag(
+                    "stale-epoch",
+                    f"NMEA epoch {epoch.key:.2f} s of the UTC day is not a new fix "
+                    f"({verdict.reason}): a repeated, replayed or too-far-ahead time",
+                )
+                return False
+            epoch.delay_s = verdict.delay_s
+        elif epoch.key == st.last_nofix_key:
+            return False
+        else:
+            st.last_nofix_key = epoch.key
+        epoch.accepted = True
+        st.last_accept_t = epoch.t_pos
+        return True
+
+    def _ingest(self, st: _Stream, text: str, now: float) -> list[_Epoch]:
+        """Feed one candidate sentence read at host time ``now``; the epochs it closed."""
+        if not (text.startswith("$G") and nmea_checksum_ok(text)):
+            return []
+        st.last_valid_t = now
+        kind = text[3:6]
+        payload: Gga | Rmc | float | None
+        if kind == "GGA":
+            payload = parse_gga(text)
+            utc = payload.utc_s if payload is not None else None
+        elif kind == "RMC":
+            payload = parse_rmc(text)
+            utc = payload.utc_s if payload is not None else None
+        elif kind == "GST":
+            payload = parse_gst_sigma(text)
+            utc = parse_nmea_utc(text.split(",", 2)[1])
+        else:
+            return []
+        self._last_nmea[kind] = text
+        if payload is None and kind != "GST":
+            return []
+        repeats = st.asm.repeats
+        closed = st.asm.add(kind, utc, payload, now)
+        self.epochs_refused += st.asm.repeats - repeats
+        return closed
+
     def _read_nmea(self) -> GpsReading | None:
-        """Read NMEA for one window and build a reading from one complete epoch.
+        """Read NMEA for one window and build a reading from the newest epoch it has.
 
-        An epoch is the burst of sentences that share one UTC field. A reading needs the epoch's
-        GGA (position, fix status, satellites, HDOP); the read goes on to the end of the epoch to
-        pick up its GST too, but only if this receiver sends GST at all, so the accuracy belongs
-        to the position it is reported with. The first sentence of the next epoch is kept for the
-        next read, not lost. A window that ends with only an RMC position still yields a reading
-        (no fix status, so no RTK figure).
+        An epoch is the burst of sentences that share one UTC field. What is waiting in the port
+        is read first and every epoch in it judged in order, so the reading is the NEWEST complete
+        one, never the oldest of a backlog; the read waits for more only while it has no epoch
+        yet. An epoch is complete when it has every kind this receiver is known to send (GGA,
+        RMC for speed and course, GST for accuracy), so the accuracy belongs to the position it is
+        reported with; otherwise it ends when the next epoch starts or the window closes.
         """
-        ser = self._serial
-        started = time.monotonic()
-        deadline = started + (self.WINDOW_S if self._first_read_done else self.FIRST_WINDOW_S)
-        waiting = getattr(ser, "in_waiting", 0)
-        if isinstance(waiting, int) and waiting > self.BACKLOG_BYTES:
-            ser.reset_input_buffer()
-            self._pushback = None
-            self.backlog_discards += 1
-        # GST is awaited, to the end of the epoch, while this receiver is known to send it, and
-        # on one read in ``_GST_PROBE_EVERY_S`` otherwise (to find out when it starts to).
-        expect_gst = (
-            self._gst_seen_at is not None
-            and started - self._gst_seen_at <= self.GST_EXPECTED_WITHIN_S
-        )
-        if not expect_gst and started >= self._next_gst_probe_at:
-            expect_gst = True
-            self._next_gst_probe_at = started + _GST_PROBE_EVERY_S
-
-        epoch = _Epoch()
-        while time.monotonic() < deadline and not self._closing:
-            if self._pushback is not None:
-                raw, self._pushback = self._pushback, None
-            else:
-                raw = ser.readline().decode("ascii", errors="ignore").strip()
-            if not raw.startswith("$G") or not nmea_checksum_ok(raw):
-                continue
-            kind = raw[3:6]
-            if kind not in ("GGA", "RMC", "GST"):
-                continue
-            utc = raw.split(",", 2)[1] if raw.count(",") >= 2 else ""
-            if epoch.utc is not None and utc != epoch.utc:
-                if epoch.gga:
-                    self._pushback = raw
-                    break  # the next epoch has started: this one is complete
-                epoch = _Epoch()  # a new epoch began before this one had a GGA: start over
-            epoch.utc = utc
-            self._last_nmea[kind] = raw
-            if kind == "GGA":
-                gga = self._parse_gga(raw)
-                if gga and gga[0] is not None and gga[1] is not None:
-                    epoch.lat, epoch.lon, epoch.alt, epoch.sats, hdop, fix_quality = gga
-                    epoch.hdop = hdop if hdop is not None and math.isfinite(hdop) else None
-                    epoch.status = self._map_fix_quality(fix_quality)
-                    epoch.gga = True
-            elif kind == "RMC":
-                rmc = self._parse_rmc(raw)
-                if rmc:
-                    lat, lon, spd_knots, _course = rmc
-                    if not epoch.gga and lat is not None and lon is not None:
-                        epoch.lat, epoch.lon = lat, lon
-                    if spd_knots is not None:
-                        epoch.spd = spd_knots * 0.514444  # knots -> m/s
-            else:  # GST
-                sigma = self._parse_gst(raw)
-                self._gst_seen_at = time.monotonic()
-                if sigma is not None:
-                    self._gst = (sigma, time.monotonic(), utc)
-            # This epoch's GST, wherever in the burst it came (it may precede the position).
-            if self._gst is not None and self._gst[2] == epoch.utc:
-                epoch.gst = self._gst[0]
-            if epoch.gga and (epoch.gst is not None or not expect_gst):
-                break
-
-        if epoch.lat is None or epoch.lon is None:
+        ser, st = self._serial, self._stream
+        if ser is None or st is None:
             return None
-        gst_sigma = epoch.gst
-        if gst_sigma is None and self._gst is not None:
-            sigma, received, _utc = self._gst
-            if time.monotonic() - received <= self.GST_MAX_AGE_S:
-                gst_sigma = sigma
+        deadline = self._mono() + (self.WINDOW_S if self._first_read_done else self.FIRST_WINDOW_S)
+        best: _Epoch | None = None
+        while not self._closing:
+            cur = st.asm.cur
+            if cur is not None and not cur.judged and st.asm.complete(cur, self._mono()):
+                if self._judge(st, cur):
+                    best = cur
+            if not ser.in_waiting and best is not None:
+                break  # nothing more is queued: this is the newest there is
+            if self._mono() >= deadline:
+                break
+            data = self._take(ser)
+            now = self._mono()
+            for text in st.reader.feed(data):
+                for epoch in self._ingest(st, text, now):
+                    if self._judge(st, epoch):
+                        best = epoch
+        cur = st.asm.cur
+        if (
+            best is None
+            and cur is not None
+            and not cur.judged
+            and not self._closing
+            and self._mono() - cur.t_pos >= self.EPOCH_GRACE_S
+        ):
+            # The window closed on an epoch that is still missing a sentence and has waited long
+            # enough for it: report what it has.
+            if self._judge(st, cur):
+                best = cur
+        if best is None:
+            now = self._mono()
+            if now - st.last_valid_t >= self.SILENCE_REPROBE_S:
+                raise _PortSilent(
+                    f"no valid NMEA for {now - st.last_valid_t:.1f} s on "
+                    f"{getattr(ser, 'port', '?')} at {self.cfg.baudrate} baud"
+                )
+            if now - st.last_accept_t >= self.SILENCE_REPROBE_S:
+                self._diag(
+                    "frozen",
+                    "valid NMEA keeps arriving but nothing new for "
+                    f"{now - st.last_accept_t:.1f} s: the receiver's UTC is not advancing "
+                    "(a frozen or replayed stream)",
+                )
+            return None
+        return self._reading_from(st, best)
+
+    def _sigma_for(self, st: _Stream, epoch: _Epoch, status: str) -> float | None:
+        """The GST sigma that describes ``epoch``: its own, else the previous epoch's if recent."""
+        if epoch.gst_seen:
+            return epoch.gst_sigma
+        prev = st.last_delivered
+        if (
+            prev is None
+            or not prev.gst_seen
+            or prev.gst_sigma is None
+            or not 0.0 < epoch.key - prev.key <= self.GST_MAX_AGE_S
+            or self._mono() - prev.gst_t > self.GST_MAX_AGE_S
+        ):
+            return None
+        prev_status = classify(prev, self.RTK_MAX_CORRECTION_AGE_S).status
+        if _STATUS_RANK[status] < _STATUS_RANK[prev_status]:
+            return None  # the fix got worse: the old sigma described a better one
+        return prev.gst_sigma
+
+    def _reading_from(self, st: _Stream, epoch: _Epoch) -> GpsReading:
+        """The ``GpsReading`` of an accepted epoch, dated by the receiver's own epoch."""
+        got = classify(epoch, self.RTK_MAX_CORRECTION_AGE_S)
+        sigma = self._sigma_for(st, epoch, got.status) if got.is_fix else None
+        accuracy = (
+            combine_accuracy(sigma, got.status, assume_typical=got.typical_ok)
+            if got.is_fix
+            else None
+        )
+        speed = epoch.rmc.speed_mps if got.is_fix and epoch.rmc is not None else None
+        course = epoch.rmc.course_deg if got.is_fix and epoch.rmc is not None else None
+        heading = course if speed is not None and speed >= self.COURSE_MIN_SPEED_MS else None
+        gga = epoch.gga
+        age = max(0.0, self._mono() - epoch.t_pos) + epoch.delay_s
+        st.last_delivered = epoch
+        self.lag_s = age
         return GpsReading(
-            latitude=epoch.lat,
-            longitude=epoch.lon,
-            altitude=epoch.alt,
-            accuracy=combine_accuracy(gst_sigma, epoch.status),
-            speed=epoch.spd,
-            satellites=epoch.sats,
+            latitude=got.lat,
+            longitude=got.lon,
+            altitude=got.altitude_m,
+            accuracy=accuracy,
+            heading=heading,
+            speed=speed,
+            satellites=gga.satellites if gga is not None else None,
+            hdop=gga.hdop if gga is not None else None,
             mode=self.cfg.mode,
-            rtk_status=epoch.status,
-            hdop=epoch.hdop,
+            rtk_status=got.status,
+            timestamp=self._wall() - timedelta(seconds=age),
         )
 
     def get_last_nmea(self) -> dict[str, str]:
@@ -780,96 +1462,14 @@ class GPSDriver(HardwareDriver):
         except Exception:
             return {}
 
-    @staticmethod
-    def _parse_nmea_coord(val: str, hemi: str) -> float | None:
-        """Convert NMEA ddmm.mmmm (lat) / dddmm.mmmm (lon) to decimal degrees.
-
-        hemi is 'N'/'S' or 'E'/'W'. Returns None if invalid.
-        """
-        try:
-            if not val or not hemi:
-                return None
-            # Split degrees and minutes
-            if "." not in val:
-                return None
-            dot = val.find(".")
-            deg_len = dot - 2  # two digits of minutes before dot
-            deg = int(val[:deg_len])
-            mins = float(val[deg_len:])
-            dec = deg + mins / 60.0
-            if hemi in ("S", "W"):
-                dec = -dec
-            return dec if math.isfinite(dec) else None
-        except Exception:
-            return None
-
-    def _parse_gga(
-        self, line: str
-    ) -> (
-        tuple[float | None, float | None, float | None, int | None, float | None, int | None] | None
-    ):
-        """Parse GGA: returns (lat, lon, altitude_m, satellites, hdop, fix_quality)."""
-        try:
-            parts = line.split(",")
-            # GGA fields: 2=lat,3=N/S,4=lon,5=E/W,6=fix,7=sats,8=HDOP,9=altitude
-            lat = self._parse_nmea_coord(parts[2], parts[3]) if len(parts) > 4 else None
-            lon = self._parse_nmea_coord(parts[4], parts[5]) if len(parts) > 6 else None
-            fix_quality = parts[6] if len(parts) > 6 else "0"
-            sats = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else None
-            hdop = float(parts[8]) if len(parts) > 8 and parts[8] not in ("", None) else None
-            alt = float(parts[9]) if len(parts) > 9 and parts[9] not in ("", None) else None
-            if fix_quality in {"0", ""}:  # no fix
-                # Keep lat/lon if parser produced values but no fix -> treat as unreliable
-                pass
-            try:
-                fix_int = int(fix_quality)
-            except (TypeError, ValueError):
-                fix_int = None
-            return (lat, lon, alt, sats, hdop, fix_int)
-        except Exception:
-            return None
-
-    def _parse_rmc(
-        self, line: str
-    ) -> tuple[float | None, float | None, float | None, float | None] | None:
-        """Parse RMC: returns (lat, lon, speed_knots, course_deg)."""
-        try:
-            parts = line.split(",")
-            # RMC fields: 3=lat,4=N/S,5=lon,6=E/W,7=speed(knots),8=track/course
-            lat = self._parse_nmea_coord(parts[3], parts[4]) if len(parts) > 4 else None
-            lon = self._parse_nmea_coord(parts[5], parts[6]) if len(parts) > 6 else None
-            spd = float(parts[7]) if len(parts) > 7 and parts[7] not in ("", None) else None
-            course = float(parts[8]) if len(parts) > 8 and parts[8] not in ("", None) else None
-            return (lat, lon, spd, course)
-        except Exception:
-            return None
-
-    def _parse_gst(self, line: str) -> float | None:
-        """Horizontal 1-sigma accuracy in metres from a GST sentence (see ``parse_gst_sigma``)."""
-        return parse_gst_sigma(line)
-
-    @staticmethod
-    def _map_fix_quality(fix_quality: int | None) -> str | None:
-        if fix_quality is None:
-            return None
-        mapping = {
-            0: "NO_FIX",
-            1: "GPS_FIX",
-            2: "DGPS",
-            4: "RTK_FIXED",
-            5: "RTK_FLOAT",
-            6: "DEAD_RECKONING",
-            7: "MANUAL",
-            8: "SIMULATION",
-        }
-        return mapping.get(fix_quality)
-
     def _read_from_gpsd(self, timeout_sec: float = 0.5) -> GpsReading | None:
         """Try reading a TPV report from gpsd if available.
 
         Uses a raw TCP socket to 127.0.0.1:2947 to avoid external deps. Blocking: only ever
-        called on the worker thread. Returns a GpsReading if lat/lon are present, else None.
-        ``accuracy`` is gpsd's ``eph`` (an error estimate in metres); gpsd's TPV carries no HDOP.
+        called on the worker thread. Returns a GpsReading for the first TPV that is a fix
+        (``mode`` >= 2, a finite in-range position, a ``time`` that is later than the last one
+        accepted), else None. ``accuracy`` is gpsd's ``eph`` (an error estimate in metres);
+        gpsd's TPV carries no HDOP.
         """
         host = os.environ.get("GPSD_HOST", "127.0.0.1")
         port = int(os.environ.get("GPSD_PORT", "2947"))
@@ -878,9 +1478,9 @@ class GPSDriver(HardwareDriver):
                 s.settimeout(timeout_sec)
                 # Issue WATCH command
                 s.sendall(b'?WATCH={"enable":true,"json":true}\n')
-                start = time.monotonic()
+                start = self._mono()
                 buf = b""
-                while time.monotonic() - start < timeout_sec:
+                while self._mono() - start < timeout_sec and len(buf) < 65536:
                     chunk = s.recv(4096)
                     if not chunk:
                         break
@@ -895,57 +1495,89 @@ class GPSDriver(HardwareDriver):
                             obj = json.loads(line.decode("utf-8", errors="ignore"))
                         except Exception:
                             continue
-                        if obj.get("class") == "TPV":
-                            lat = obj.get("lat")
-                            lon = obj.get("lon")
-                            if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-                                alt = (
-                                    obj.get("alt")
-                                    if isinstance(obj.get("alt"), (int, float))
-                                    else None
-                                )
-                                spd = (
-                                    obj.get("speed")
-                                    if isinstance(obj.get("speed"), (int, float))
-                                    else None
-                                )
-                                crs = (
-                                    obj.get("track")
-                                    if isinstance(obj.get("track"), (int, float))
-                                    else None
-                                )
-                                eph = (
-                                    obj.get("eph")
-                                    if isinstance(obj.get("eph"), (int, float))
-                                    else None
-                                )
-                                accuracy = (
-                                    float(eph)
-                                    if eph is not None and math.isfinite(eph) and eph > 0
-                                    else None
-                                )
-                                return GpsReading(
-                                    latitude=float(lat),
-                                    longitude=float(lon),
-                                    altitude=float(alt) if alt is not None else None,
-                                    accuracy=accuracy,
-                                    speed=float(spd) if spd is not None else None,
-                                    heading=float(crs) if crs is not None else None,
-                                    mode=self.cfg.mode,
-                                )
+                        if isinstance(obj, dict) and obj.get("class") == "TPV":
+                            reading = self._reading_from_tpv(obj, self._mono())
+                            if reading is not None:
+                                return reading
                 return None
         except Exception:
             return None
 
+    def _reading_from_tpv(self, obj: dict[str, Any], t: float) -> GpsReading | None:
+        """A fix ``GpsReading`` from a gpsd TPV object read at host time ``t``, else ``None``."""
+
+        def number(key: str) -> float | None:
+            value = obj.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            return float(value) if math.isfinite(value) else None
+
+        mode = obj.get("mode")
+        status = _GPSD_STATUS.get(obj.get("status", 0), "NO_FIX")
+        lat, lon = number("lat"), number("lon")
+        if (
+            isinstance(mode, bool)
+            or not isinstance(mode, int)
+            or mode < 2
+            or status not in FIX_STATUSES
+            or lat is None
+            or lon is None
+            or abs(lat) > 90.0
+            or abs(lon) > 180.0
+        ):
+            return None
+        stamp = parse_stamp(obj.get("time"))
+        if stamp is None:
+            return None  # a fix that cannot be dated cannot be called fresh
+        verdict = self._gpsd_clock.accept(stamp.timestamp(), t)
+        if not verdict.accepted:
+            self.epochs_refused += 1
+            self._diag(
+                "stale-epoch",
+                f"gpsd TPV time {obj.get('time')!r} is not a new fix ({verdict.reason})",
+            )
+            return None
+        eph = number("eph")
+        sigma = eph if eph is not None and eph > 0 else None
+        speed, track = number("speed"), number("track")
+        speed = speed if speed is not None and speed >= 0.0 else None
+        track = track if track is not None and 0.0 <= track <= 360.0 else None
+        age = max(0.0, self._mono() - t) + verdict.delay_s
+        return GpsReading(
+            latitude=lat,
+            longitude=lon,
+            altitude=number("alt"),
+            accuracy=combine_accuracy(sigma, status, assume_typical=False),
+            speed=speed,
+            heading=track if speed is not None and speed >= self.COURSE_MIN_SPEED_MS else None,
+            mode=self.cfg.mode,
+            rtk_status=status,
+            timestamp=self._wall() - timedelta(seconds=age),
+        )
+
 
 __all__ = [
+    "FIX_STATUSES",
+    "EpochClock",
+    "EpochVerdict",
     "GPSDriver",
     "GPSDriverConfig",
+    "Gga",
+    "NmeaLineReader",
+    "Rmc",
     "SerialPortInfo",
+    "classify",
     "combine_accuracy",
+    "fix_status_from_quality",
+    "fix_status_from_rmc",
     "list_serial_ports",
     "nmea_checksum_ok",
+    "parse_gga",
     "parse_gst_sigma",
+    "parse_nmea_coordinate",
+    "parse_nmea_utc",
+    "parse_rmc",
     "ports_owned_by_other_drivers",
     "preferred_gps_device",
+    "reading_age_s",
 ]

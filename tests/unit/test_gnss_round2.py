@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import math
-import sys
-import threading
 import time
 import types
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from _gnss_fakes import Port, install_serial, nmea
 
 from backend.src.drivers.sensors import gps_driver
 from backend.src.drivers.sensors.gps_driver import (
@@ -140,94 +139,6 @@ def test_a_fix_with_no_timestamp_is_unusable_not_fresh():
 # ------------------------------------------------------------------------------ NMEA helpers
 
 
-def nmea(body: str) -> bytes:
-    check = 0
-    for ch in body:
-        check ^= ord(ch)
-    return f"${body}*{check:02X}\r\n".encode()
-
-
-def epoch_lines(k, *, fix=1, hdop="0.8", gst=(3.0, 2.9), bad_gst_checksum=False):
-    t = f"12{(k // 60) % 60:02d}{k % 60:02d}.00"
-    lines = [nmea(f"GNGGA,{t},4807.038,N,01131.000,E,{fix},08,{hdop},545.4,M,46.9,M,,")]
-    if gst is not None:
-        line = nmea(f"GNGST,{t},2.1,4.4,3.1,45.0,{gst[0]},{gst[1]},5.5")
-        lines.append(line.replace(b"*", b"*0") if bad_gst_checksum else line)
-    lines.append(nmea(f"GNRMC,{t},A,4807.038,N,01131.000,E,0.5,84.4,230394,,,A"))
-    return lines
-
-
-class Port:
-    """What is behind one device node: an NMEA stream, silence, a hang, or a lock held elsewhere."""
-
-    def __init__(self, mode="nmea", **stream):
-        self.mode, self.stream = mode, stream
-        self.release = threading.Event()
-        self.entered = 0  # readline() calls that reached this port
-        self._k = 0
-        self._buf: list[bytes] = []
-
-    def next_line(self, timeout):
-        self.entered += 1
-        if self.mode == "blocking":
-            self.release.wait(3.0)
-            return b""
-        if self.mode in ("silent", "locked"):
-            time.sleep(0.005)
-            return b""
-        if not self._buf:
-            self._buf = epoch_lines(self._k, **self.stream)
-            self._k += 1
-        return self._buf.pop(0)
-
-
-def install_serial(monkeypatch, ports, found=()):
-    """A fake ``serial`` module; ``found`` is what ``list_ports.comports()`` enumerates."""
-    module = types.ModuleType("serial")
-    module.opens = []
-
-    class SerialException(Exception):
-        pass
-
-    class Serial:
-        in_waiting = 0
-
-        def __init__(self, port=None, baudrate=9600, timeout=None, **kw):
-            module.opens.append((port, baudrate, dict(kw)))
-            script = ports.get(port)
-            if script is None:
-                raise SerialException(2, f"could not open port {port}: no such file")
-            if script.mode == "locked" and kw.get("exclusive"):
-                raise SerialException(f"Could not exclusively lock port {port}")
-            self.port, self.timeout, self.script = port, timeout, script
-
-        def readline(self):
-            return self.script.next_line(self.timeout)
-
-        def reset_input_buffer(self):
-            pass
-
-        def close(self):
-            pass
-
-    module.SerialException, module.Serial = SerialException, Serial
-    listing = types.ModuleType("serial.tools.list_ports")
-    listing.comports = lambda: [
-        SimpleNamespace(device=d, vid=v, description=text, manufacturer="", product="")
-        for d, v, text in found
-    ]
-    tools = types.ModuleType("serial.tools")
-    tools.list_ports = listing
-    module.tools = tools
-    for name, mod in (
-        ("serial", module),
-        ("serial.tools", tools),
-        ("serial.tools.list_ports", listing),
-    ):
-        monkeypatch.setitem(sys.modules, name, mod)
-    return module
-
-
 @pytest.fixture
 def hardware(monkeypatch):
     monkeypatch.setenv("SIM_MODE", "0")
@@ -243,6 +154,7 @@ def hardware(monkeypatch):
 
     async def make(mode=GpsMode.LC29H_UART, **cfg):
         driver = GPSDriver({"mode": mode, **cfg})
+        driver.PROBE_WINDOW_S = 0.1  # a silent fake port costs real time per baud rate
         drivers.append(driver)
         await driver.initialize()
         await driver.start()
@@ -297,7 +209,9 @@ async def read_twice(driver):
 
 
 async def test_a_plain_fix_with_a_good_hdop_is_not_reported_as_accurate(monkeypatch, hardware):
-    install_serial(monkeypatch, {"/dev/ttyAMA0": Port(fix=1, hdop="0.8", gst=(3.0, 2.9))})
+    install_serial(
+        monkeypatch, {"/dev/ttyAMA0": Port("nmea", fix=1, hdop="0.8", gst_sigma=(3.0, 2.9))}
+    )
     reading = await read_twice(await hardware())
     assert reading.rtk_status == "GPS_FIX" and reading.hdop == 0.8
     assert reading.accuracy == pytest.approx(math.hypot(3.0, 2.9)) and reading.accuracy > 4.0
@@ -310,7 +224,7 @@ async def test_a_plain_fix_with_a_good_hdop_is_not_reported_as_accurate(monkeypa
 async def test_a_plain_fix_without_gst_has_no_accuracy_and_the_monitor_refuses_it(
     monkeypatch, hardware
 ):
-    install_serial(monkeypatch, {"/dev/ttyAMA0": Port(fix=1, hdop="0.5", gst=None)})
+    install_serial(monkeypatch, {"/dev/ttyAMA0": Port("nmea", fix=1, hdop="0.5", gst_sigma=None)})
     reading = await read_twice(await hardware())
     assert reading.hdop == 0.5 and reading.accuracy is None  # HDOP is not an accuracy
     m = GPSDegradationMonitor(GPSDegradationConfig(resume_dwell_s=0.0))
@@ -330,13 +244,16 @@ async def test_a_plain_fix_without_gst_has_no_accuracy_and_the_monitor_refuses_i
 async def test_an_rtk_fix_keeps_its_typical_figure_unless_the_receiver_says_worse(
     monkeypatch, hardware, fix_quality, gst, expected
 ):
-    install_serial(monkeypatch, {"/dev/ttyAMA0": Port(fix=fix_quality, hdop="0.5", gst=gst)})
+    install_serial(
+        monkeypatch, {"/dev/ttyAMA0": Port("nmea", fix=fix_quality, hdop="0.5", gst_sigma=gst)}
+    )
     assert (await read_twice(await hardware())).accuracy == pytest.approx(expected)
 
 
 async def test_a_gst_with_a_bad_checksum_is_not_believed(monkeypatch, hardware):
     install_serial(
-        monkeypatch, {"/dev/ttyAMA0": Port(fix=1, gst=(0.2, 0.2), bad_gst_checksum=True)}
+        monkeypatch,
+        {"/dev/ttyAMA0": Port("nmea", fix=1, gst_sigma=(0.2, 0.2), bad_gst_checksum=True)},
     )
     assert (await read_twice(await hardware())).accuracy is None
 
@@ -419,7 +336,7 @@ async def test_the_probe_never_opens_a_port_another_driver_owns(monkeypatch, har
         "/dev/ttyACM0": Port("silent"),
         "/dev/ttyACM2": Port("silent"),
         "/dev/ttyACM5": Port("silent"),
-        "/dev/ttyAMA0": Port(fix=1, gst=(3.0, 2.9)),
+        "/dev/ttyAMA0": Port("nmea", fix=1, gst_sigma=(3.0, 2.9)),
     }
     serial = install_serial(monkeypatch, ports, found=[ROBOHAT, UBLOX, ULTRASONIC_MCU])
     monkeypatch.setenv("ROBOHAT_SERIAL_PORT", "/dev/ttyACM5")  # named by configuration
@@ -436,7 +353,10 @@ async def test_the_probe_never_opens_a_port_another_driver_owns(monkeypatch, har
 async def test_every_probe_is_exclusive_and_a_port_locked_elsewhere_is_skipped_unread(
     monkeypatch, hardware
 ):
-    ports = {"/dev/ttyACM3": Port("locked"), "/dev/ttyAMA0": Port(fix=1, gst=(3.0, 2.9))}
+    ports = {
+        "/dev/ttyACM3": Port("locked"),
+        "/dev/ttyAMA0": Port("nmea", fix=1, gst_sigma=(3.0, 2.9)),
+    }
     serial = install_serial(monkeypatch, ports)
     monkeypatch.setenv("GPS_DEVICE", "/dev/ttyACM3")
     driver = await hardware()
