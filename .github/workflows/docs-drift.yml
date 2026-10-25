@@ -26,4 +26,8 @@ jobs:
 
       - name: Code structure overview follows the changed files
         if: github.event_name == 'pull_request'
-        run: python3 scripts/sync_code_structure.py --check --base "origin/${{ github.base_ref }}"
+        env:
+          # A branch name is attacker-chosen text (`a"$(id)"` is a valid ref name): it goes in an
+          # environment variable, never into the script text with ${{ }}.
+          PR_BASE_BRANCH: ${{ github.base_ref }}
+        run: python3 scripts/sync_code_structure.py --check --base "origin/$PR_BASE_BRANCH"
