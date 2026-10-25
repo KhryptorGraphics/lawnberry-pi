@@ -137,7 +137,14 @@ async def _stop_autonomy() -> None:
     park, and the PCA9685 then holds that pulse after the process exits. The services' park
     latches refuse non-neutral commands from anything this misses (e.g. a ``return_home`` job
     task, which nothing tracks); stopping the known loops first keeps them from spinning
-    against that refusal. Never raises; bounded by ``AUTONOMY_STOP_TIMEOUT_S``.
+    against that refusal.
+
+    The loops are ended cooperatively and awaited (audit NAV-02): a task cancelled in the middle
+    of a lever write releases the actuation lock with the transfer still on the bus, and that
+    transfer can land after the park's neutral, where the PCA9685 holds it past process exit. Only
+    a task that ignored the stop for ``ABORT_UNWIND_TIMEOUT_S`` (not a mission loop: it reads its
+    status every tick) is cancelled, as the last resort, and logged. Never raises; bounded by
+    ``AUTONOMY_STOP_TIMEOUT_S``.
     """
     from .models import NavigationMode
     from .services.mission_service import current_mission_service
@@ -146,10 +153,9 @@ async def _stop_autonomy() -> None:
     mission_tasks: list[asyncio.Task] = []
     service = current_mission_service()
     if service is not None:
-        # Cancel the tasks themselves: MissionService's own done-callback records "aborted".
+        # Every running or paused mission is marked aborted: its loop ends at its next tick.
         mission_tasks = list(service.mission_tasks.values())
-        for task in mission_tasks:
-            task.cancel()
+        service.abort_all("shutdown")
     try:
         async with asyncio.timeout(AUTONOMY_STOP_TIMEOUT_S):
             if nav.navigation_state.navigation_mode in (
@@ -158,17 +164,30 @@ async def _stop_autonomy() -> None:
             ):
                 await nav.stop_ai_navigation()
             await nav.stop_navigation()
+            await nav.await_unwind(*mission_tasks)
     except Exception:
         _log.exception("Stopping navigation on shutdown failed")
-    pending = [t for t in mission_tasks if not t.done()]
-    if pending:
-        _done, still_running = await asyncio.wait(pending, timeout=AUTONOMY_STOP_TIMEOUT_S)
+    stragglers = [t for t in (*mission_tasks, *nav.stragglers()) if not t.done()]
+    if stragglers:
+        _log.critical(
+            "%d run task(s) ignored the stop: cancelling them as the last resort (a write that "
+            "was in flight could still land after the park)",
+            len(stragglers),
+        )
+        for task in stragglers:
+            task.cancel()
+        _done, still_running = await asyncio.wait(stragglers, timeout=AUTONOMY_STOP_TIMEOUT_S)
         if still_running:
             _log.critical(
-                "%d mission task(s) still running after cancellation; the actuator park latches "
+                "%d run task(s) still running after cancellation; the actuator park latches "
                 "will refuse their commands",
                 len(still_running),
             )
+    # The loops are over: the stand-down after them is the last word before the park.
+    try:
+        await nav.stop_navigation()
+    except Exception:
+        _log.exception("Final navigation stop on shutdown failed")
 
 
 @asynccontextmanager

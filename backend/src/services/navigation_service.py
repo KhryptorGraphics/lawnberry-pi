@@ -153,8 +153,10 @@ DEFAULT_MAX_HEADING_AGE_S = 2.0
 #: A mission whose drive commands fail this many legs in a row is ended (blade off, neutral)
 #: instead of retrying for ever.
 MAX_CONSECUTIVE_FAILED_LEGS = 25
-#: How long an aborted mission's cancelled task may take to unwind before the platform is
-#: stopped anyway (its last write must not land after the stop's neutral).
+#: How long a run's task, told to stop, may take to END BY ITSELF before the platform is stopped
+#: anyway and the task is left to finish (see ``NavigationService.await_unwind``). Such a task is
+#: never cancelled: a cancel releases the actuation lock while its write is still on the bus, and
+#: that write lands after the stop's neutral (audit NAV-02). It is about two control ticks.
 ABORT_UNWIND_TIMEOUT_S = 1.0
 #: A blade-on that failed is not retried more often than this (the RC to USB handshake behind
 #: it can take seconds, and the control loop must keep its period).
@@ -422,6 +424,51 @@ class NavigationService:
     def _on_stop_event(self, reason: str, source: str) -> None:
         """``safety.stop_events`` listener: every safety stop ends this service's runs."""
         self.abort_autonomy(f"{reason} ({source})" if source else reason)
+
+    async def await_unwind(
+        self, *tasks: "asyncio.Future[Any] | None", timeout_s: float | None = None
+    ) -> bool:
+        """Wait, bounded, for run tasks that were told to stop to END; they are never cancelled.
+
+        A run is ended cooperatively (a mission status, the AI mode, ``abort_autonomy``): its loop
+        reads that at the top of its next tick, stands the platform down itself and returns.
+        Cancelling the task instead is what abandoned an actuator write in flight (audit NAV-02):
+        the cancel releases the actuation lock (or the serial lock) while the I2C / serial
+        transfer, which runs in a worker thread, is still on the bus, and that transfer can land
+        AFTER the stop's neutral and leave the machine driving under a state that says neutral.
+        ``timeout_s`` defaults to ``ABORT_UNWIND_TIMEOUT_S``. Returns ``True`` when every task has
+        ended; ``False`` when one is still running at the bound: it is left running (it ends at
+        its next check; every command it still makes is ordered behind the caller's own stop on
+        the actuation lock) and the caller stops the platform regardless. Never raises.
+        """
+        pending = {
+            task
+            for task in tasks
+            if task is not None and not task.done() and task is not asyncio.current_task()
+        }
+        if not pending:
+            return True
+        bound = ABORT_UNWIND_TIMEOUT_S if timeout_s is None else timeout_s
+        _done, still_running = await asyncio.wait(pending, timeout=bound)
+        if still_running:
+            logger.critical(
+                "%d run task(s) did not end within %.1fs of being told to stop: the platform was "
+                "stopped, they are left to end at their next check",
+                len(still_running),
+                bound,
+            )
+            return False
+        return True
+
+    def stragglers(self) -> list["asyncio.Future[Any]"]:
+        """Run tasks of this service that were told to stop and are still alive.
+
+        Only the shutdown path (``main._stop_autonomy``) uses it, for its last resort: a task that
+        ignored the cooperative stop for ``ABORT_UNWIND_TIMEOUT_S`` is cancelled there, because
+        nothing may be left able to command the actuators when they are parked.
+        """
+        task = self._ai_task
+        return [task] if task is not None and not task.done() else []
 
     def abort_autonomy(self, reason: str) -> list[str]:
         """End every autonomous run this service owns, now (audit SAF-01); never raises.
@@ -1506,6 +1553,11 @@ class NavigationService:
         if (latched := self._start_refusal()) is not None:
             logger.error("Refusing AI navigation: %s", latched)
             return False
+        if self._ai_task is not None and not self._ai_task.done():
+            # A second loop would fight the first one over the drive (and the first one is not
+            # cancelled, see stop_ai_navigation).
+            logger.error("Refusing AI navigation: the previous AI run has not ended")
+            return False
         # A stop that lands while the AI service starts up must end this run before it begins.
         run_epoch = stop_events.epoch()
 
@@ -1624,25 +1676,31 @@ class NavigationService:
     async def stop_ai_navigation(self) -> bool:
         """Stop AI-controlled navigation and return to manual.
 
+        The loop is never cancelled (audit NAV-02): a task cancelled in the middle of a lever write
+        releases the actuation lock while the write is still on the bus, and that write could land
+        after the stop's neutral. The mode flips first (the loop's while-condition ends at its next
+        check and ``apply_ai_prediction`` applies nothing any more), the platform is stood down at
+        once, the loop is given ``ABORT_UNWIND_TIMEOUT_S`` to END (it stands the platform down
+        itself on the way out), and the stand-down is repeated after it as the last word.
+
         Returns:
             True if AI mode stopped successfully.
         """
         from .ai_inference_service import get_ai_inference_service
 
-        # Flip mode first so the loop's while-condition exits, then cancel it.
         self.navigation_state.navigation_mode = NavigationMode.MANUAL
         self.navigation_state.target_velocity = 0.0
 
-        if self._ai_task is not None:
-            self._ai_task.cancel()
-            try:
-                await self._ai_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._ai_task = None
+        task = self._ai_task
+        if task is not None:
+            await self._stop_platform()  # the loop's last command may still be in force
+            if await self.await_unwind(task):
+                self._ai_task = None
+            # else: it is still ending and stays registered (autonomy_active, no second AI run)
         self._coverage = None
         self._ai_datum = None
         self._ai_epoch = None
+        self._unusable_predictions = 0
 
         ai_service = get_ai_inference_service()
         await ai_service.disable()
