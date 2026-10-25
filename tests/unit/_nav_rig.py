@@ -13,7 +13,7 @@ import contextlib
 import inspect
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -156,7 +156,10 @@ class LiveTof:
     def _reading(self):
         self._n += 1
         return SimpleNamespace(
-            range_status="valid", distance=self.mm + (self._n % 2), timestamp=datetime.now(UTC)
+            range_status="valid",
+            distance=self.mm + (self._n % 2),
+            # measured a moment ago: a stamp later than the sampler's own clock reads is "future"
+            timestamp=datetime.now(UTC) - timedelta(milliseconds=20),
         )
 
     @property
