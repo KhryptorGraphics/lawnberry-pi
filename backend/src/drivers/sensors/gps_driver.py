@@ -444,7 +444,7 @@ class NmeaLineReader:
                     sentences.append(text)
         if len(tail) > self.MAX_LINE:
             start = tail.rfind(b"$")
-            tail = tail[start:] if 0 <= start and len(tail) - start <= self.MAX_LINE else b""
+            tail = tail[start:] if len(tail) - start <= self.MAX_LINE else b""  # start -1: no "$"
         self._open = tail
         return sentences
 
@@ -547,7 +547,6 @@ class _Epoch:
     gst_t: float = 0.0  # host monotonic time its GST was read
     kinds: set[str] = field(default_factory=set)
     judged: bool = False
-    accepted: bool = False
     delay_s: float = 0.0
 
 
@@ -1318,7 +1317,6 @@ class GPSDriver(HardwareDriver):
             return False
         else:
             st.last_nofix_key = epoch.key
-        epoch.accepted = True
         st.last_accept_t = epoch.t_pos
         return True
 
