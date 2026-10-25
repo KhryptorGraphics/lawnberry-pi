@@ -13,9 +13,9 @@ Field validation ensures the AI-powered mowing system operates safely and effect
 | Check | Requirement | How to Verify |
 |-------|-------------|---------------|
 | Emergency Stop | Physical button accessible | Press and release, verify motor stop |
-| Battery Level | > 80% charge | `curl localhost:8000/api/v2/sensors/status \| jq .battery` |
-| GPS Fix | RTK Fixed or Float | `curl localhost:8000/api/v2/sensors/status \| jq .gps` |
-| All Sensors | Healthy status | `curl localhost:8000/api/v2/health` |
+| Battery Level | > 80% charge | `curl localhost:8081/api/v2/sensors/status \| jq .battery` |
+| GPS Fix | RTK Fixed or Float | `curl localhost:8081/api/v2/sensors/status \| jq .gps` |
+| All Sensors | Healthy status | `curl localhost:8081/api/v2/health` |
 | Blade Guard | Installed and secure | Visual inspection |
 | Wheels | Properly inflated, no damage | Visual inspection |
 
@@ -23,13 +23,13 @@ Field validation ensures the AI-powered mowing system operates safely and effect
 
 ```bash
 # Run system health check
-curl http://localhost:8000/api/v2/health
+curl http://localhost:8081/api/v2/health
 
 # Verify AI service ready
-curl http://localhost:8000/api/v2/ai/health
+curl http://localhost:8081/api/v2/ai/health
 
 # Check all sensors streaming
-curl http://localhost:8000/api/v2/sensors/status
+curl http://localhost:8081/api/v2/sensors/status
 ```
 
 ### Environmental Conditions
@@ -127,9 +127,12 @@ curl http://localhost:8000/api/v2/sensors/status
 **Observer**: Required
 
 1. Start system in manual mode
-2. Enable AI autonomous mode via API:
+2. Enable AI autonomous mode via API (log in first: `TOKEN` is the `access_token` of
+   `POST /api/v2/auth/login`, see `docs/deployment-guide.md`, "Operator authentication"; without
+   a Bearer token the call answers 401 while operator auth is on, as it is in the deployed unit):
    ```bash
-   curl -X POST http://localhost:8000/api/v2/ai/enable \
+   curl -X POST http://localhost:8081/api/v2/ai/enable \
+     -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"mode": "ai_autonomous"}'
    ```
@@ -139,7 +142,7 @@ curl http://localhost:8000/api/v2/sensors/status
 6. Test web interface stop button
 7. Test API emergency stop:
    ```bash
-   curl -X POST http://localhost:8000/api/v2/control/emergency_stop
+   curl -X POST http://localhost:8081/api/v2/control/emergency-stop
    ```
 
 **Pass Criteria**: All stop methods halt mower within 1 second
@@ -254,10 +257,10 @@ The system automatically logs:
 Access logs:
 ```bash
 # View real-time telemetry
-curl http://localhost:8000/api/v2/ai/metrics
+curl http://localhost:8081/api/v2/ai/metrics
 
 # Export session data
-curl http://localhost:8000/api/v2/recording/sessions
+curl http://localhost:8081/api/v2/recording/sessions
 ```
 
 ### Manual Observations
