@@ -41,7 +41,8 @@ obstacle_stop:
   min_motion_speed_mps: 0.10  # below this the machine is held rather than allowed to creep
   detection_range_m: 1.0      # reach beyond which a sensor proves nothing; caps speed when clear
   max_reading_age_s: 1.0      # older than this = unusable = blocked
-  clear_dwell_s: 2.0          # continuously clear this long before a hold is released
+  clear_dwell_s: 2.0          # continuously clear this long before a hold is released (0 = no hysteresis, logged)
+  frozen_reading_count: 50    # a ToF source repeating ONE in-range distance this many readings in a row is frozen = unknown
   apply_to_manual: false      # manual operator/teleop commands are NOT limited unless true
   ignored_sources: []         # e.g. [tof_left]; REMOVES a safety input and is logged CRITICAL
 
