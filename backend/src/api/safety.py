@@ -100,6 +100,7 @@ async def clear_emergency_stop(payload: EmergencyClearRequest, request: Request)
         return _clear_refused(request, payload, "an emergency stop is still in progress")
     epoch = ess.stop_epoch()
 
+    from ..safety import latch_store
     from ..services.blade_service import get_blade_service
     from ..services.robohat_service import get_robohat_service
 
@@ -120,6 +121,9 @@ async def clear_emergency_stop(payload: EmergencyClearRequest, request: Request)
         }
         if still_latched:
             response["still_latched"] = still_latched
+        saved = await latch_store.persist()
+        if not saved.ok:  # the quiet response stays exactly as the contract has it
+            response["latch_persisted"] = False
         _audit_clear(
             request, payload, "idempotent", status=response["status"], still_latched=still_latched
         )
@@ -148,21 +152,28 @@ async def clear_emergency_stop(payload: EmergencyClearRequest, request: Request)
     if ess.stop_epoch() != epoch or ess.stop_in_flight():
         return _clear_refused(request, payload, superseded)
 
-    # Inform RoboHAT firmware if available
+    # Inform RoboHAT firmware if available. A clear that did not go through leaves the hold set
+    # (audit SAF-15): the platform is then reported as still held, never as cleared.
     try:
         if robohat and robohat.status.serial_connected:
-            await robohat.clear_emergency()
+            if not await robohat.clear_emergency():
+                still_latched = [*still_latched, "robohat_hold"]
     except Exception:
         # Don't fail the clear operation if hardware isn't present in SIM/CI
-        pass
+        if robohat and robohat.emergency_latched:
+            still_latched = [*still_latched, "robohat_hold"]
 
     if ess.stop_epoch() != epoch or ess.stop_in_flight():
         return _clear_refused(request, payload, superseded)
+
+    # Mirror what is still latched to disk (audit SAF-16): the file is removed when nothing is.
+    saved = await latch_store.persist()
 
     # Minimal response aligned with integration tests
     response = {
         "status": "EMERGENCY_PARTIALLY_CLEARED" if still_latched else "EMERGENCY_CLEARED",
         "timestamp": datetime.now(UTC).isoformat(),
+        "latch_persisted": saved.ok,
     }
     if still_latched:
         response["still_latched"] = still_latched

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...core.globals import _debug_overrides
+from ...core.safety_status import collect_blade_active, collect_safety_status
 from ...core.simulation import is_simulation_mode
 from ...services.websocket_hub import websocket_hub
 from ..deps import require_debug_routes, require_operator_auth
@@ -107,8 +108,13 @@ class PowerSummary(BaseModel):
 
 @router.get("/dashboard/status", response_model=MowerStatus)
 def dashboard_status():
-    # Placeholder data; will be wired to services later
-    return MowerStatus()
+    # Position/battery/navigation stay placeholder defaults (no data is invented here); the
+    # safety block and blade state are real.
+    return MowerStatus(
+        safety_status=SafetyStatus(**collect_safety_status()),
+        blade_active=collect_blade_active(),
+        last_updated=datetime.now(UTC),
+    )
 
 
 @router.get("/sensors/health")

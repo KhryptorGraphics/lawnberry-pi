@@ -42,6 +42,7 @@ from typing import Any
 
 from ..core.globals import _blade_state, _safety_state
 from ..core.simulation import is_simulation_mode
+from ..safety import latch_store, stop_events
 
 logger = logging.getLogger(__name__)
 
@@ -343,10 +344,20 @@ async def execute_emergency_stop(
     _stop_epoch += 1
     _stops_in_flight += 1
     try:
+        # Every autonomous run ends with the stop, in this same event-loop turn (audit SAF-01):
+        # a clear of the latch below must never re-activate a mission or an AI loop. The latch
+        # is queued for the disk before the slow fan-out so a restart cannot release it
+        # (audit SAF-16).
+        stop_events.record_stop("emergency_stop", source)
+        latch_store.request_persist()
         report = await _run_all("stop", source, path_timeout_s)
     finally:
         _stops_in_flight -= 1
+    # The final state (the RoboHAT hold the stop has just set) is what a restart must restore.
+    saved = await latch_store.persist()
     report["emergency_stop_active"] = True
+    report["latch_persisted"] = saved.ok
+    report["latch_error"] = saved.error
     if report["complete"]:
         logger.warning("Emergency stop (%s): all outputs confirmed", source)
     else:

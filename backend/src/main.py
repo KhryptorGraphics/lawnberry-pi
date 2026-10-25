@@ -254,6 +254,17 @@ async def lifespan(app: FastAPI):
         await initialize_robohat_service()
     except Exception:
         pass
+    # Durable latches (audit SAF-16): whatever E-stop or interlock latch the previous process
+    # left set is set again before anything can actuate. It needs the same authenticated,
+    # explicit clear as any other latch, and authorization is never restored. A file that
+    # cannot be read fails closed (every latch is assumed set).
+    try:
+        from .safety import latch_store
+        from .services.robohat_service import get_robohat_service
+
+        latch_store.restore(tractor=get_tractor_service(), robohat=get_robohat_service())
+    except Exception:
+        _log.exception("Restoring the persisted E-stop latches failed")
     app.state.tractor_watchdog = None  # not wired until the block below succeeds
     app.state.tractor_safety_monitor = None
     tractor = None

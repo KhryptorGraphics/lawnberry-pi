@@ -145,6 +145,13 @@ class RoboHATService:
         """Is a software E-stop hold latched (drive/blade-on refused until cleared)?"""
         return self._estop_hold
 
+    def restore_emergency_hold(self) -> None:
+        """Re-latch the stop hold a previous process left set (audit SAF-16); never clears one."""
+        self._estop_hold = True
+        self._last_pwm = (1500, 1500)
+        self._last_pwm_at = time.monotonic()
+        self.status.last_error = "emergency_stop_latched"
+
     async def initialize(self) -> bool:
         """Initialize RoboHAT serial connection"""
         self._parked = False  # a fresh bring-up re-arms a parked service
@@ -706,20 +713,27 @@ class RoboHATService:
         return detail
 
     async def clear_emergency(self) -> bool:
-        """Clear emergency stop on RoboHAT"""
+        """Clear emergency stop on RoboHAT.
+
+        The hold is released only AFTER the firmware is under USB control and acknowledged the
+        handshake (audit SAF-15). Until then it keeps sending neutral, so neither the RC
+        receiver nor a stale command can move the machine. A clear that fails leaves the hold
+        set and returns ``False``; the caller must report the platform as still held.
+        """
         logger.info("Clearing emergency stop on RoboHAT")
         if not self.serial_conn or not self.serial_conn.is_open or not self.running:
             return False
 
-        self._estop_hold = False
         if not await self._ensure_usb_control(timeout=0.9, retries=2):
+            self.status.last_error = "clear_emergency_failed"
             return False
         ok = await self._send_line("rc=disable")
         if not ok:
             self.status.last_error = "clear_emergency_failed"
-        else:
-            self.status.last_error = None
-        return ok
+            return False
+        self._estop_hold = False
+        self.status.last_error = None
+        return True
 
     def get_status(self) -> RoboHATStatus:
         """Get current RoboHAT status"""

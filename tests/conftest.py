@@ -133,3 +133,47 @@ async def test_client():
 def operator_credential() -> str:
     """The explicit operator credential the suite configures (there is no built-in one)."""
     return TEST_OPERATOR_CREDENTIAL
+
+
+@pytest.fixture(autouse=True)
+def _isolated_latch_file(tmp_path, monkeypatch):
+    """Every test gets its own durable-latch file (audit SAF-16).
+
+    An E-stop persists its latch to disk and the next start-up restores it: without this a
+    stop in one test would be restored by the next test's lifespan (or the next session's).
+    """
+    monkeypatch.setenv("LAWNBERRY_LATCH_FILE", str(tmp_path / "emergency_latch.json"))
+
+
+@pytest.fixture(autouse=True)
+def _stale_heading_does_not_leak_between_tests():
+    """The process-wide NavigationService must not carry one test's IMU stamp into the next.
+
+    The heading gate (audit SAF-14) holds autonomous motion once the heading is older than a
+    couple of seconds, which is the point of it. A test that fed one IMU reading must not leave
+    the singleton to age into a hold for every test that follows.
+    """
+    from backend.src.services.navigation_service import NavigationService
+
+    nav = NavigationService._instance
+    if nav is not None:
+        nav.navigation_state.heading_updated_at = None
+        nav._last_imu_stamp = None
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _process_latches_do_not_leak_between_tests():
+    """A latch one test set in the process-wide state must not be in force for the next.
+
+    The status routes report the real safety state (audit SAF-13), so an E-stop or an IBT-4
+    blade latch an earlier test left set (the E-stop routes) would now show up in every later
+    status read; the safety state and the blade service are rebuilt for each test instead.
+    """
+    from backend.src.core import globals as core_globals
+    from backend.src.services import blade_service
+
+    core_globals._safety_state["emergency_stop_active"] = False
+    core_globals._client_emergency.clear()
+    blade_service._blade_service = None
+    yield

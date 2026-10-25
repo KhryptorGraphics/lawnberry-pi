@@ -5,6 +5,7 @@ from .deps import require_operator_auth
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any
+import asyncio
 import json
 import hashlib
 import logging
@@ -184,26 +185,46 @@ def _emergency_active() -> bool:
         return False
 
 
-def _client_key(request: Request) -> str:
-    auth = request.headers.get("authorization") or request.headers.get("Authorization")
-    if auth:
-        return auth
-    cid = request.headers.get("X-Client-Id") or request.headers.get("x-client-id")
-    if cid:
-        return cid
-    # Fall back to a per-request ephemeral anon id to avoid cross-test leakage
-    try:
-        anon = getattr(request.state, "_anon_client_id", None)
-        if not anon:
-            anon = "anon-" + uuid.uuid4().hex
-            try:
-                request.state._anon_client_id = anon
-            except Exception:
-                pass
-        return anon
-    except Exception:
-        # As a last resort, return a fresh anon id each time
-        return "anon-" + uuid.uuid4().hex
+# Per-client emergency flag table bounds (see ``_remember_client_emergency``).
+CLIENT_EMERGENCY_MAX = 256
+CLIENT_EMERGENCY_TTL_S = 0.3
+# Audit rows for the unauthenticated stop routes are coalesced per this window.
+ESTOP_AUDIT_WINDOW_S = 5.0
+# Never read more than this of an E-stop request body (the stop does not need it).
+ESTOP_BODY_CAP_BYTES = 64 * 1024
+ESTOP_BODY_READ_TIMEOUT_S = 1.0
+
+
+def _client_key(request: Request) -> str | None:
+    """Identify a client by ``Authorization`` / ``X-Client-Id``; ``None`` if it sent neither.
+
+    The key is a fixed-size digest so an attacker-sized header is never stored. A request
+    without either header has no identity another request could ever look up.
+    """
+    raw = request.headers.get("authorization") or request.headers.get("x-client-id")
+    if not raw:
+        return None
+    return hashlib.sha256(raw.encode("utf-8", "surrogatepass")).hexdigest()[:32]
+
+
+def _remember_client_emergency(request: Request | None) -> None:
+    """Flag this client as in-emergency for the TTL; keeps the table bounded.
+
+    Expired entries are pruned on every insert and the oldest entry is evicted at the cap.
+    Entries are inserted in time order, so the oldest insertion is also the earliest expiry.
+    """
+    if request is None:
+        return
+    key = _client_key(request)
+    if key is None:
+        return
+    now = time.time()
+    for k in [k for k, exp in _client_emergency.items() if exp <= now]:
+        _client_emergency.pop(k, None)
+    _client_emergency.pop(key, None)
+    while len(_client_emergency) >= CLIENT_EMERGENCY_MAX:
+        _client_emergency.pop(next(iter(_client_emergency)), None)
+    _client_emergency[key] = now + CLIENT_EMERGENCY_TTL_S
 
 
 def _client_emergency_active(request: Request | None) -> bool:
@@ -216,6 +237,8 @@ def _client_emergency_active(request: Request | None) -> bool:
         if request is None:
             return False
         key = _client_key(request)
+        if key is None:
+            return False
         exp = _client_emergency.get(key)
         now = time.time()
         if exp is None:
@@ -227,6 +250,40 @@ def _client_emergency_active(request: Request | None) -> bool:
         return False
     except Exception:
         return False
+
+
+async def _read_estop_body(request: Request | None) -> dict[str, Any]:
+    """Best-effort JSON-object body of an E-stop request; never raises, never blocks long.
+
+    Anything that is not a JSON object (form, text, list, string, invalid JSON, binary,
+    oversized, slow) degrades to ``{}``: the stop never depends on the body.
+    """
+    if request is None:
+        return {}
+    try:
+        declared = request.headers.get("content-length")
+        if declared is not None and int(declared) > ESTOP_BODY_CAP_BYTES:
+            return {}
+        chunks: list[bytes] = []
+        size = 0
+        async with asyncio.timeout(ESTOP_BODY_READ_TIMEOUT_S):
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > ESTOP_BODY_CAP_BYTES:
+                    return {}
+                chunks.append(chunk)
+        data = json.loads(b"".join(chunks).decode("utf-8")) if chunks else {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _audit_estop_coalesced(action: str, details: dict[str, Any]) -> None:
+    """Off-loop, coalesced, never-raising audit row for the unauthenticated stop routes."""
+    try:
+        persistence.add_audit_log_coalesced(action, details=details, window_s=ESTOP_AUDIT_WINDOW_S)
+    except Exception as exc:
+        logger.error("E-stop audit failed: %s", exc)
 
 
 # Import helper from auth router for session resolution
@@ -741,45 +798,43 @@ async def _run_emergency_stop(source: str) -> dict[str, Any]:
 
 
 @router.post("/control/emergency", response_model=ControlResponseV2, status_code=202)
-async def control_emergency_v2(body: Optional[dict] = None, request: Request = None):
+async def control_emergency_v2(request: Request):
     """Latch the emergency stop and drive every stop path that exists.
 
     Always available: it never requires a valid manual-control session (the
-    session is only resolved for the audit trail). The response reports what
-    each subsystem (tractor, RoboHAT, IBT-4 blade) actually did -- ``motors_stopped``
-    / ``blade_disabled`` are ``True`` only when a stop was confirmed and none failed.
+    session is only resolved for the audit trail) and never depends on the request
+    body (any content type or size; a body that is not a JSON object is ignored).
+    The response reports what each subsystem (tractor, RoboHAT, IBT-4 blade) actually
+    did -- ``motors_stopped`` / ``blade_disabled`` are ``True`` only when a stop was
+    confirmed and none failed.
     """
-    import uuid
-
     audit_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc)
 
-    payload = body or {}
-    is_legacy = isinstance(payload, dict) and payload.get("command")
-    session_context = None
-    if not is_legacy:
-        try:
-            session_context = _resolve_manual_session(payload.get("session_id"))
-        except HTTPException:
-            session_context = None  # an E-stop must not be refused for a missing session
-
-    # Set emergency state
+    # Latch FIRST: nothing below may fail or wait before the stop is armed.
     _safety_state["emergency_stop_active"] = True
     _blade_state["active"] = False
     global _legacy_motors_active
     _legacy_motors_active = False
     # Arm short-lived emergency TTL to block follow-up commands across both modes
     global _emergency_until
-    # Block control commands for a short window after emergency to ensure deterministic tests
     _emergency_until = time.time() + 0.2
-    # Mark this client as in-emergency for a short TTL
     try:
-        if request is not None:
-            _client_emergency[_client_key(request)] = time.time() + 0.3
+        _remember_client_emergency(request)
     except Exception:
         pass
 
+    payload = await _read_estop_body(request)
+    is_legacy = bool(payload.get("command"))
+
     report = await _run_emergency_stop("api:/control/emergency")
+
+    session_context = None
+    if not is_legacy:
+        try:
+            session_context = _resolve_manual_session(payload.get("session_id"))
+        except Exception:
+            session_context = None  # an E-stop must not be refused for a missing session
 
     # If legacy payload with command field was sent, return 200 with integration-expected shape
     if is_legacy:
@@ -794,7 +849,7 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
             "remediation": _emergency_remediation(report),
             "timestamp": timestamp.isoformat(),
         }
-        persistence.add_audit_log("control.emergency_stop", details={"response": legacy_payload})
+        _audit_estop_coalesced("control.emergency_stop", {"response": legacy_payload})
         return JSONResponse(status_code=200, content=legacy_payload)
 
     response = ControlResponseV2(
@@ -819,11 +874,11 @@ async def control_emergency_v2(body: Optional[dict] = None, request: Request = N
         timestamp=timestamp.isoformat(),
     )
 
-    # Audit the emergency stop
+    # Audit the emergency stop (off-loop, coalesced; a failure never changes the response)
     audit_details: dict[str, Any] = {"response": response.model_dump()}
     if session_context and session_context.get("principal"):
         audit_details["principal"] = session_context["principal"]
-    persistence.add_audit_log("control.emergency.triggered", details=audit_details)
+    _audit_estop_coalesced("control.emergency.triggered", audit_details)
 
     return response
 
@@ -848,7 +903,7 @@ async def control_emergency_stop_alias(request: Request = None):
         "faults": report["faults"],
         "remediation": _emergency_remediation(report),
     }
-    persistence.add_audit_log("control.emergency_stop", details={"response": payload})
+    _audit_estop_coalesced("control.emergency_stop", {"response": payload})
     return JSONResponse(status_code=200, content=payload)
 
 

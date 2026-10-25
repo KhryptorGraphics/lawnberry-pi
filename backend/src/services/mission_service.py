@@ -100,6 +100,23 @@ class MissionService:
             del self.mission_tasks[mission_id]
         await self.nav_service.stop_navigation()
 
+    def abort_all(self, reason: str) -> list[str]:
+        """End every running or paused mission now (audit SAF-01); never raises.
+
+        Synchronous and cooperative: the status becomes ``aborted``, which ``execute_mission``
+        and ``go_to_waypoint`` read at the top of every tick, so each loop ends at its very
+        next check and a later clear of a latch cannot resume it. No task is cancelled (one
+        cancelled in the middle of an actuator write releases the lock with the write still on
+        the bus) and no actuator is commanded: the stop that calls this owns the outputs.
+        Returns the ids of the missions that were ended; ``reason`` is for the caller's log.
+        """
+        ended: list[str] = []
+        for mission_id, status in list(self.mission_statuses.items()):
+            if status.status in ("running", "paused"):
+                status.status = "aborted"
+                ended.append(mission_id)
+        return ended
+
     async def get_mission_status(self, mission_id: str) -> MissionStatus:
         if mission_id not in self.mission_statuses:
             raise ValueError("Mission not found.")

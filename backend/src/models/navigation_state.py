@@ -84,6 +84,9 @@ class NavigationState(BaseModel):
     # Current position and movement
     current_position: Position | None = None
     heading: float | None = None  # degrees (0-360)
+    # When the IMU measured ``heading`` (the reading's own timestamp, audit SAF-14). ``None``:
+    # no IMU reading has ever supplied it, so the heading has no age and cannot be trusted.
+    heading_updated_at: datetime | None = None
     velocity: float | None = None  # m/s current speed
     target_velocity: float | None = None  # m/s desired speed
 

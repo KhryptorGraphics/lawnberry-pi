@@ -16,7 +16,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from .routers.auth import _authorize_websocket
 from .rest import websocket_hub
 from ..core.robot_state_manager import get_robot_state_manager
-from ..models.safety_interlock import InterlockState, InterlockType
+from ..core.safety_status import collect_safety_status
 
 
 router = APIRouter()
@@ -27,24 +27,10 @@ async def get_status_v2():
     """Return current robot state in a simplified schema for contract tests."""
     mgr = get_robot_state_manager()
     st = mgr.get_state()
-    # The named flags must agree with the interlock list below: an interlock is "detected"
-    # while ACTIVE (a cleared-pending-ack one is still listed, but no longer detected).
-    detected = {i.interlock_type for i in st.active_interlocks if i.state == InterlockState.ACTIVE}
     return {
         "battery_percentage": st.battery.percentage,
         "navigation_state": str(st.navigation_mode),
-        "safety_status": {
-            "emergency_stop_active": False,
-            "tilt_detected": InterlockType.TILT_DETECTED in detected,
-            "obstacle_detected": bool(
-                detected & {InterlockType.OBSTACLE_DETECTED, InterlockType.ULTRASONIC_OBSTACLE}
-            ),
-            "blade_safety_ok": True,
-            "safety_interlocks": [
-                (i.interlock_type.value if hasattr(i, "interlock_type") else str(i))
-                for i in st.active_interlocks
-            ],
-        },
+        "safety_status": collect_safety_status(),
         "motor_status": "idle",
         "last_updated": st.last_updated.isoformat(),
     }
@@ -68,6 +54,7 @@ async def ws_status(websocket: WebSocket):
                     "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
                     "battery_percentage": st.battery.percentage,
                     "navigation_state": str(st.navigation_mode),
+                    "safety_status": collect_safety_status(),
                     "position": st.position.model_dump(),
                 }
             )

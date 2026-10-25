@@ -21,6 +21,15 @@ the standard interlocks:
   confirmed. The result reports every subsystem's *actual* outcome
   (``complete``/``subsystems``/``faults``); a latched E-stop with a failed output is never
   reported as a clean stop.
+- **Authorization** (audit SAF-01): the blade, the starter and every lever or throttle command from
+  an *autonomous* source (anything but ``operator``/``teleop``: a mission, the AI, the Thor
+  follower, an unlabeled caller) are refused with ``motors not authorized`` while the
+  tractor is not authorized. An E-stop revokes the authorization and a clear never restores it:
+  after a stop nothing autonomous moves the machine until a person calls ``authorize()`` again.
+  The REST ``operator`` source keeps its documented behaviour: an authenticated person's
+  lever and throttle commands do not need ``authorize()`` (the blade and starter still do).
+  Every stop-type event also tells ``safety.stop_events`` so a running mission or AI loop ends
+  with it (a clear can never re-activate a run).
 - **Interlock latch** (tilt, ...): the blade is dropped and stays off --
   ``engage_blade(True)``, including from navigation, is refused -- until an
   explicit ``clear_emergency()`` (operator-authenticated at the API). A clear never releases
@@ -91,7 +100,8 @@ from ..models.tractor_control import (
     TractorCommand,
     TractorState,
 )
-from ..safety.obstacle_stop import limit_pair
+from ..safety import latch_store, stop_events
+from ..safety.obstacle_stop import MANUAL_SOURCES, limit_pair
 from .tractor_config import ServoSettings, TractorConfigError, validate_tractor_config
 
 if TYPE_CHECKING:
@@ -103,6 +113,15 @@ logger = logging.getLogger(__name__)
 # else (including this default) is autonomous and subject to the motion limit.
 DEFAULT_SOURCE = "unspecified"
 OBSTACLE_SOURCE = "obstacle_stop"
+
+# Machine-readable refusal codes (``{"status": "rejected", "code": ...}``). The *standing* ones
+# hold until a person acts (clear, authorize, restart): an autonomous caller that gets one has
+# lost the right to drive and must end its run instead of retrying every tick.
+CODE_ESTOP = "estop"
+CODE_NOT_AUTHORIZED = "not_authorized"
+CODE_LOCKOUT = "lockout"
+CODE_PARKED = "parked"
+STANDING_REFUSALS = frozenset({CODE_ESTOP, CODE_NOT_AUTHORIZED, CODE_LOCKOUT, CODE_PARKED})
 
 
 def _err(exc: BaseException) -> str:
@@ -415,6 +434,73 @@ class TractorControlService:
     def revoke(self) -> None:
         self.state.authorized = False
 
+    async def withdraw_authorization(self, source: str = "operator") -> dict[str, Any]:
+        """An operator's revoke: authorization goes, and so does what depended on it.
+
+        ``revoke()`` alone only flips the flag (the E-stop, the park and the lock-out call it
+        and drive the outputs themselves). A revoke from the operator must also stand the
+        machine down: the blade (which needs the authorization to run) is switched off first,
+        then any lever motion an autonomous source has in force goes neutral, and every
+        mission or AI run ends (``stop_events``): without authorization none of them could
+        command a thing anyway, and one that kept spinning would drive off the moment someone
+        authorized again. A person's own manual drive is left alone. Never raises.
+        """
+        self.revoke()
+        stop_events.record_stop("authorization revoked", source)
+        report: dict[str, Any] = {"status": "revoked", "errors": []}
+        if self._hardware_off_limits():
+            return report
+        if self.state.blade_engaged:
+            try:
+                self._set_blade_relay(False)
+                self._notify("blade", source, blade=False)
+            except Exception as exc:
+                logger.critical("Revoke: blade relay off FAILED: %s", _err(exc))
+                report["errors"].append(f"blade off: {_err(exc)}")
+        levers_out = (
+            abs(self.state.left_lever) > LEVER_NEUTRAL_EPS
+            or abs(self.state.right_lever) > LEVER_NEUTRAL_EPS
+        )
+        if levers_out and self._lever_source not in MANUAL_SOURCES:
+            try:
+                result = await self.set_levers(0.0, 0.0, source=source)
+                if result.get("status") != "ok":
+                    report["errors"].append(f"levers neutral: {result.get('reason')}")
+            except Exception as exc:
+                report["errors"].append(f"levers neutral: {_err(exc)}")
+        report["blade_engaged"] = self.state.blade_engaged
+        report["left_lever"] = self.state.left_lever
+        report["right_lever"] = self.state.right_lever
+        return report
+
+    def restore_latches(self, *, estop: bool, interlock: str | None, why: str = "") -> None:
+        """Re-latch what a previous process left latched (audit SAF-16); never authorizes.
+
+        Called once at start-up by ``safety.latch_store.restore``, before ``initialize()``
+        parks the outputs. A disabled platform has no latch to hold. Only an authenticated
+        ``clear_emergency()`` releases these.
+        """
+        if not self.enabled:
+            return
+        self.revoke()
+        self._stop_generation += 1
+        if estop:
+            self.state.emergency_stop_active = True
+            self.state.interlock_reason = "emergency_stop"
+        if interlock is not None:
+            self.state.interlock_latched = True
+            self.state.latch_reason = interlock
+            if not estop:
+                self.state.interlock_reason = self._latched_text()
+        self.state.last_updated = datetime.now(UTC)
+        logger.critical(
+            "Tractor latch RESTORED after a restart (%s): E-stop=%s, blade interlock=%s",
+            why or "persisted latch",
+            estop,
+            interlock,
+        )
+        self._sync_hardware_state()
+
     def _latched_text(self) -> str | None:
         if not self.state.interlock_latched:
             return None
@@ -429,11 +515,13 @@ class TractorControlService:
         """What stays visible on every accepted command: the park latch, else the interlock."""
         return self._parked_text() or self._latched_text()
 
-    def _reject(self, reason: str) -> dict[str, Any]:
+    def _reject(self, reason: str, code: str | None = None) -> dict[str, Any]:
         self.state.interlock_reason = reason
         self.state.last_updated = datetime.now(UTC)
         logger.info("Tractor command rejected: %s", reason)
-        return {"status": "rejected", "reason": reason}
+        if code is None:
+            return {"status": "rejected", "reason": reason}
+        return {"status": "rejected", "reason": reason, "code": code}
 
     def _ok(self, **extra: Any) -> dict[str, Any]:
         # A latched interlock (or the park latch) stays visible on every accepted command.
@@ -481,7 +569,7 @@ class TractorControlService:
     def _guard_actuation(self) -> dict[str, Any] | None:
         """A rejection if the actuator hardware cannot take commands, else ``None``."""
         if self._lockout is not None:
-            return self._reject(f"locked out: {self._lockout}")
+            return self._reject(f"locked out: {self._lockout}", CODE_LOCKOUT)
         ready, reason = self.actuators_ready()
         if not ready:
             return self._reject(f"actuator hardware not ready: {reason}")
@@ -501,6 +589,7 @@ class TractorControlService:
         self.state.interlock_reason = f"locked out: {reason}"
         self.state.last_updated = datetime.now(UTC)
         logger.critical("Tractor LOCKED OUT until restart: %s", reason)
+        stop_events.record_stop("lockout", "lock_out")
 
     # -- actuation self-check (the watchdog's heartbeat) ------------------------
 
@@ -817,19 +906,25 @@ class TractorControlService:
             return self._reject(f"non-finite lever command {bad!r} refused")
         gen = self._stop_generation  # captured before anything can wait
         if self.state.emergency_stop_active:
-            return self._reject("emergency stop active")
+            return self._reject("emergency stop active", CODE_ESTOP)
         if (rejection := self._guard_actuation()) is not None:
             return rejection
         hold_s = self._hold_s(duration_ms)
         async with self._act_lock:
             if gen != self._stop_generation or self.state.emergency_stop_active:
-                return self._reject("emergency stop active")  # a stop landed while we waited
+                # a stop landed while we waited
+                return self._reject("emergency stop active", CODE_ESTOP)
             left_v = self.state.left_lever if left is None else left
             right_v = self.state.right_lever if right is None else right
             left_v, right_v, limit = self._limit_levers(left_v, right_v, source)
             neutral = abs(left_v) <= LEVER_NEUTRAL_EPS and abs(right_v) <= LEVER_NEUTRAL_EPS
             if self._parked is not None and not neutral:
-                return self._reject(self._parked_text() or "parked")
+                return self._reject(self._parked_text() or "parked", CODE_PARKED)
+            if not neutral and source not in MANUAL_SOURCES and not self.state.authorized:
+                # A person's own lever commands do not need authorize() (a hold-to-run
+                # joystick); a mission, the AI or the Thor follower must be authorized, and an
+                # E-stop, a revoke or a restart takes that away until a person gives it back.
+                return self._reject("motors not authorized", CODE_NOT_AUTHORIZED)
             # Reverse Operation System: if this command would put both levers back
             # (reverse) while the blade is engaged, drop the blade first -- before
             # moving the levers. A single lever going negative is a pivot turn,
@@ -883,16 +978,18 @@ class TractorControlService:
             return self._reject(f"non-finite throttle command {bad!r} refused")
         gen = self._stop_generation
         if self.state.emergency_stop_active:
-            return self._reject("emergency stop active")
+            return self._reject("emergency stop active", CODE_ESTOP)
         if (rejection := self._guard_actuation()) is not None:
             return rejection
         idle = value <= 0.0
         hold_s = self._hold_s(duration_ms)
         async with self._act_lock:
             if gen != self._stop_generation or self.state.emergency_stop_active:
-                return self._reject("emergency stop active")
+                return self._reject("emergency stop active", CODE_ESTOP)
             if self._parked is not None and not idle:
-                return self._reject(self._parked_text() or "parked")
+                return self._reject(self._parked_text() or "parked", CODE_PARKED)
+            if not idle and source not in MANUAL_SOURCES and not self.state.authorized:
+                return self._reject("motors not authorized", CODE_NOT_AUTHORIZED)
             if not idle:
                 self._arm_throttle(hold_s)
             try:
@@ -1019,9 +1116,9 @@ class TractorControlService:
     async def engage_blade(self, on: bool, source: str = DEFAULT_SOURCE) -> dict[str, Any]:
         if on:
             if self.state.emergency_stop_active:
-                return self._reject("emergency stop active")
+                return self._reject("emergency stop active", CODE_ESTOP)
             if self._parked is not None:
-                return self._reject(self._parked_text() or "parked")
+                return self._reject(self._parked_text() or "parked", CODE_PARKED)
             if self.state.interlock_latched:
                 # Navigation re-sends blade_engaged=True every tick: this is the
                 # latch that stops it re-engaging after a tilt cutoff.
@@ -1032,7 +1129,9 @@ class TractorControlService:
             if (rejection := self._guard_actuation()) is not None:
                 return rejection
             if not self.state.authorized:
-                return self._reject("motors not authorized")
+                # Refuse AND drop, like a hold: no authorization means no blade, so a blade
+                # that is already turning when the authorization went away is switched off.
+                return self._refuse_blade("motors not authorized", source, CODE_NOT_AUTHORIZED)
             if self.require_engine_running_for_blade and not self.state.engine_running:
                 return self._reject("engine must be running to engage blade")
             if self.disengage_blade_in_reverse and self.state.reversing:
@@ -1045,7 +1144,7 @@ class TractorControlService:
         self._notify("blade", source, blade=self.state.blade_engaged)
         return self._ok(blade_engaged=self.state.blade_engaged)
 
-    def _refuse_blade(self, reason: str, source: str) -> dict[str, Any]:
+    def _refuse_blade(self, reason: str, source: str, code: str | None = None) -> dict[str, Any]:
         """Reject a blade-on request and make sure the blade is off (never raises)."""
         if self.state.blade_engaged:
             try:
@@ -1053,8 +1152,8 @@ class TractorControlService:
                 self._notify("blade", source, blade=False)
             except Exception as exc:
                 logger.critical("Blade refusal (%s): relay off FAILED: %s", reason, _err(exc))
-                return self._reject(f"{reason}; blade relay off FAILED: {_err(exc)}")
-        return self._reject(reason)
+                return self._reject(f"{reason}; blade relay off FAILED: {_err(exc)}", code)
+        return self._reject(reason, code)
 
     async def latch_interlock(self, reason: str, source: str = "safety") -> dict[str, Any]:
         """Drop the blade and latch it off until ``clear_emergency()``.
@@ -1081,22 +1180,30 @@ class TractorControlService:
                 error = _err(exc)
                 logger.critical("Interlock latch (%s): blade relay off FAILED: %s", reason, error)
         self._sync_hardware_state()
+        persisted: bool | None = None
+        if not was_latched:
+            # A new latch ends every autonomous run (a mission that is still sending
+            # blade-on would re-engage it the moment an operator clears the latch) and is
+            # saved so that a restart does not release it (audit SAF-01, SAF-16).
+            stop_events.record_stop(f"interlock:{reason}", source)
+            persisted = (await latch_store.persist(tractor=self)).ok
         return {
             "status": "latched" if error is None else "fault",
             "reason": reason,
             "blade_engaged": self.state.blade_engaged,
             "error": error,
+            "latch_persisted": persisted,
         }
 
     async def start_engine(self) -> dict[str, Any]:
         if self.state.emergency_stop_active:
-            return self._reject("emergency stop active")
+            return self._reject("emergency stop active", CODE_ESTOP)
         if self._parked is not None:
-            return self._reject(self._parked_text() or "parked")
+            return self._reject(self._parked_text() or "parked", CODE_PARKED)
         if (rejection := self._guard_actuation()) is not None:
             return rejection
         if not self.state.authorized:
-            return self._reject("motors not authorized")
+            return self._reject("motors not authorized", CODE_NOT_AUTHORIZED)
         if self.require_blade_off_to_start and self.state.blade_engaged:
             return self._reject("blade/PTO must be disengaged to start")
         if self.require_levers_neutral_to_start and (
@@ -1269,9 +1376,16 @@ class TractorControlService:
             self.state.last_updated = datetime.now(UTC)
             self.revoke()
             self._cancel_deadman()
+            # Every autonomous run ends with the stop (a clear must never re-activate one) and
+            # the latch is queued for the disk (SAF-01, SAF-16). Both are synchronous and
+            # cheap, and both happen before the first await, so the outputs below are not
+            # delayed: the relays open in the same event-loop turn.
+            stop_events.record_stop("emergency_stop", source)
+            persist = latch_store.request_persist(tractor=self)
             subsystems, contended = await self._drive_to_safe_state()
         finally:
             self._stops_in_flight -= 1
+        saved = await latch_store.wait(persist)
 
         faults = [f"{name}: {info['error']}" for name, info in subsystems.items() if not info["ok"]]
         complete = not faults
@@ -1296,6 +1410,9 @@ class TractorControlService:
             "inflight_write": contended,
             "subsystems": subsystems,
             "faults": faults,
+            # False: the latch could not be written to disk, so a restart would release it.
+            "latch_persisted": saved.ok,
+            "latch_error": saved.error,
         }
 
     async def park(self, source: str = "shutdown") -> dict[str, Any]:
@@ -1318,6 +1435,7 @@ class TractorControlService:
         self._stop_generation += 1
         self.revoke()
         self._cancel_deadman()
+        stop_events.record_stop("park", source)
         subsystems, contended = await self._drive_to_safe_state()
         faults = [f"{name}: {info['error']}" for name, info in subsystems.items() if not info["ok"]]
         self._notify(
@@ -1355,10 +1473,12 @@ class TractorControlService:
     async def clear_emergency(self) -> dict[str, Any]:
         """Explicit operator clear of the E-stop latch and, when it is safe, the blade latch.
 
-        Does not re-authorize and does not re-engage anything: the operator must
-        ``authorize()`` and command the blade again. Refused while the tractor is locked out
-        (``lock_out``: that needs a restart) and while a stop is still driving the outputs
-        (a clear must not undo it, audit SEC-12).
+        Never authorizes and never re-engages anything (audit SAF-01): a stop revoked the
+        authorization and the clear leaves it revoked, so after a clear nothing autonomous moves
+        the machine until a person calls ``authorize()`` and starts a new run (the runs a stop
+        ended stay ended). Refused while the tractor is locked out (``lock_out``: that needs a
+        restart) and while a stop is still driving the outputs (a clear must not undo it,
+        audit SEC-12).
 
         The blade interlock latch is released only if the attached gate (the tilt monitor)
         agrees: while the latest tilt reading is over the limit, or the tilt sensor is
@@ -1367,7 +1487,7 @@ class TractorControlService:
         closed (audit SEC-06). The park latch is not released here (only ``initialize()``).
         """
         if self._lockout is not None:
-            return self._reject(f"locked out: {self._lockout}")
+            return self._reject(f"locked out: {self._lockout}", CODE_LOCKOUT)
         if self._stops_in_flight:
             return self._reject("emergency stop in progress: clear refused until its result is out")
         cleared: list[str] = []
@@ -1387,8 +1507,11 @@ class TractorControlService:
                 still_latched.append(latch)
                 logger.warning("Blade interlock NOT released by the clear (%s): %s", latch, veto)
         self.state.interlock_reason = None
+        # What is still latched, if anything, is what a restart must restore (audit SAF-16).
+        saved = await latch_store.persist(tractor=self)
+        durability = {"latch_persisted": saved.ok, "latch_error": saved.error}
         if not still_latched:
-            return self._ok(cleared=cleared)
+            return self._ok(cleared=cleared, **durability)
         self.state.interlock_reason = self._standing_reason()
         self.state.last_updated = datetime.now(UTC)
         return {
@@ -1396,6 +1519,7 @@ class TractorControlService:
             "cleared": cleared,
             "still_latched": still_latched,
             "reason": veto,
+            **durability,
         }
 
     async def apply(self, command: TractorCommand, source: str = DEFAULT_SOURCE) -> dict[str, Any]:

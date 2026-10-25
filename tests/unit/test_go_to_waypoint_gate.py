@@ -107,7 +107,9 @@ async def test_the_gate_is_polled_even_while_the_leg_waits_for_a_position(monkey
     assert not task.done()
     gate_open["v"] = False
     await asyncio.wait_for(task, timeout=2.0)
-    assert tractor.applied == [] and tractor.levers_calls == [(0.0, 0.0)]
+    assert tractor.applied == []
+    # Held while it waits for a fix: neutral is commanded, a motion command never is.
+    assert tractor.levers_calls and set(tractor.levers_calls) == {(0.0, 0.0)}
 
 
 async def test_a_gated_leg_that_arrives_ends_the_way_every_leg_does(monkeypatch):
