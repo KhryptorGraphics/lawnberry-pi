@@ -18,6 +18,7 @@ from tests.unit._usonic_fakes import (
     load_module,
 )
 from tests.unit._usonic_fakes import P as fw
+from tests.unit._usonic_fw_fakes import Rebooted, RecordingHal
 
 OK, NO_EDGE, NO_FALL, STUCK = fw.ST_OK, fw.ST_NO_EDGE, fw.ST_NO_FALL, fw.ST_STUCK
 
@@ -56,6 +57,20 @@ def echo(cm):
     return SensorModel(distance_cm=cm)
 
 
+# A frame header whose LEN byte claims 40 payload bytes that never arrive (a corrupted length).
+_BOGUS_HEADER = bytes((0xA5, 0x5A, host.PROTO_VERSION, host.FrameType.PING, 1, 40))
+
+
+def _ping(nonce):
+    return host.encode_frame(host.FrameType.PING, nonce & 0xFF, host.build_ping(nonce))
+
+
+def _poll_until(hal, core, t_ms):
+    """One ``poll()`` per simulated millisecond until the HAL clock reaches ``t_ms``."""
+    while hal.t_ms < t_ms:
+        core.poll()
+
+
 # ---- protocol handling ------------------------------------------------------------------------
 
 
@@ -69,6 +84,51 @@ def test_boot_announces_itself_with_the_identity_the_host_needs():
     assert info.boot_id == 0xABCD1234
     assert info.enable_mask == 0b1111
     assert info.reset_reason == fw.RESET_POWER_ON
+
+
+def test_start_announces_the_boot_at_once_before_any_poll():
+    # M02: without this, the first poll() would still send an INFO, so a test through a whole rig
+    # cannot tell. The core itself must announce the boot (new boot_id, reset reason, sensor
+    # count, enable mask) the moment it is started.
+    hal = RecordingHal(n=4, start_ms=7000, boot_id=0xA1B2C3D4, reset_reason=fw.RESET_WATCHDOG)
+    core = CORE.Core(hal, 4, fw_version=(2, 7), info_period_ms=1000)
+    assert hal.tx == []  # building the core says nothing
+    core.start()
+    sent = hal.messages()
+    assert len(sent) == 1, "start() must announce the boot itself, before the first poll()"
+    ((_t, info),) = sent
+    assert isinstance(info, host.Info)
+    assert (info.boot_id, info.reset_reason) == (0xA1B2C3D4, fw.RESET_WATCHDOG)
+    assert (info.sensor_count, info.enable_mask) == (4, 0b1111)
+    assert (info.fw_major, info.fw_minor, info.proto_version) == (2, 7, host.PROTO_VERSION)
+    assert info.uptime_ms == 0
+    core.poll()  # and the heartbeat does not repeat it straight away
+    assert len(hal.messages(host.FrameType.INFO)) == 1
+
+
+@pytest.mark.parametrize("period_ms", [200, 700])
+def test_info_heartbeat_period_is_honoured_not_more_often_and_not_less(period_ms):
+    hal = RecordingHal(n=0, start_ms=5000)
+    core = CORE.Core(hal, 0, info_period_ms=period_ms)
+    core.start()
+    for _ in range(period_ms * 5 + 10):  # one pass per millisecond
+        core.poll()
+    uptimes = [m.uptime_ms for _t, m in hal.messages(host.FrameType.INFO)]
+    assert uptimes == [k * period_ms for k in range(6)]
+
+
+def test_an_info_sent_for_a_hello_restarts_the_heartbeat_period():
+    hal = RecordingHal(n=0, start_ms=5000)
+    core = CORE.Core(hal, 0, info_period_ms=200)
+    core.start()
+    for _ in range(100):
+        core.poll()
+    hal.queue_rx(host.encode_frame(host.FrameType.HELLO, 0, host.build_hello()))
+    for _ in range(500):
+        core.poll()
+    uptimes = [m.uptime_ms for _t, m in hal.messages(host.FrameType.INFO)]
+    # boot, the answer to HELLO at 100, then a full period after THAT (not after the boot INFO)
+    assert uptimes == [0, 100, 300, 500]
 
 
 def test_hello_is_answered_with_info_and_ping_with_pong():
@@ -180,6 +240,52 @@ def test_corrupt_and_truncated_host_frames_are_dropped_silently_and_the_next_one
     assert rig.port.core.naks_sent == 0
 
 
+def test_a_half_received_host_frame_is_abandoned_after_the_partial_timeout():
+    # C17: a corrupt LEN byte makes the core wait for payload that never comes. Once the line has
+    # been quiet for `partial_timeout_ms` that remnant must go, so the next good frame is served
+    # when it arrives instead of being held hostage behind it.
+    hal = RecordingHal(n=0)
+    core = CORE.Core(hal, 0, partial_timeout_ms=50)
+    core.start()
+    t0 = hal.t_ms
+    hal.queue_rx(_BOGUS_HEADER, at_ms=t0)
+    hal.queue_rx(_ping(7), at_ms=t0 + 100)
+    _poll_until(hal, core, t0 + 110)
+    pongs = hal.messages(host.FrameType.PONG)
+    assert [p.nonce for _t, p in pongs] == [7]
+    assert pongs[0][0] <= t0 + 102  # answered when it arrived
+    assert core.dec.partial_timeouts == 1
+
+
+@pytest.mark.parametrize("timeout_ms", [20, 50, 200])
+def test_a_good_frame_hidden_behind_a_bogus_length_is_released_after_the_configured_timeout(
+    timeout_ms,
+):
+    hal = RecordingHal(n=0)
+    core = CORE.Core(hal, 0, partial_timeout_ms=timeout_ms)
+    core.start()
+    t0 = hal.t_ms
+    hal.queue_rx(_BOGUS_HEADER + _ping(9), at_ms=t0)  # swallowed by the claimed 40-byte payload
+    _poll_until(hal, core, t0 + timeout_ms + 20)
+    pongs = hal.messages(host.FrameType.PONG)
+    assert [p.nonce for _t, p in pongs] == [9]
+    # released once the line has been quiet for MORE than the configured time, and not before
+    assert t0 + timeout_ms < pongs[0][0] <= t0 + timeout_ms + 3
+
+
+def test_a_frame_split_across_reads_within_the_timeout_is_still_assembled():
+    hal = RecordingHal(n=0)
+    core = CORE.Core(hal, 0, partial_timeout_ms=50)
+    core.start()
+    t0 = hal.t_ms
+    frame = _ping(5)
+    hal.queue_rx(frame[:5], at_ms=t0)
+    hal.queue_rx(frame[5:], at_ms=t0 + 40)  # the line was quiet for less than the timeout
+    _poll_until(hal, core, t0 + 60)
+    assert [p.nonce for _t, p in hal.messages(host.FrameType.PONG)] == [5]
+    assert core.dec.partial_timeouts == 0
+
+
 def test_two_host_frames_in_one_write_are_both_served():
     rig = Rig()
     rig.run(0.05)
@@ -233,6 +339,32 @@ def test_time_division_also_holds_after_the_host_widens_window_and_gap():
     start = len(rig.port.hal.triggers)
     rig.run(6.0)
     _assert_time_division(rig.port.hal.triggers[start:], window_ms=60, gap_ms=120)
+
+
+@pytest.mark.parametrize(
+    "window_ms,gap_ms,cm",
+    [(30, 5, 35.0), (60, 5, 35.0), (100, 10, 35.0), (30, 5, 400.0)],
+)
+def test_a_gap_shorter_than_the_window_never_pulls_a_trigger_inside_the_previous_window(
+    window_ms, gap_ms, cm
+):
+    # C04: the next trigger is bounded by BOTH `previous trigger + window` and `measurement end +
+    # gap`. With the gap below the window, a close target ends its measurement so early that `end +
+    # gap` falls INSIDE the window; only the window bound keeps one sensor from hearing the
+    # burst of the next. (400 cm: `end + gap` lands just 1 ms short of the window end.)
+    rig = Rig(sensors=[echo(cm)] * 4)
+    rig.run(0.05)
+    wanted = host.McuConfig(0b1111, window_ms, gap_ms, 8)
+    rig.send(host.FrameType.CONFIG, host.build_config(wanted))
+    rig.run(0.2)
+    assert rig.of(host.FrameType.CONFIG_ACK) == [wanted]
+    start = len(rig.port.hal.triggers)
+    rig.run(4.0)
+    triggers = rig.port.hal.triggers[start:]
+    assert len(triggers) >= 30
+    starts = [s for _i, s, _e in triggers]
+    assert min(b - a for a, b in zip(starts, starts[1:], strict=False)) >= window_ms
+    _assert_time_division(triggers, window_ms, gap_ms)
 
 
 def test_firing_follows_the_configured_order_every_cycle():
@@ -409,3 +541,78 @@ def test_main_build_survives_a_firing_order_that_does_not_match_the_sensor_count
 
     _hal, core = usonic_main.build(Hal)
     assert core.order == (0, 1, 2)
+
+
+# ---- the main loop must never leave a silent MCU ----------------------------------------------
+
+
+class _ReloadException(BaseException):
+    """Stand-in for CircuitPython's reload exception (``supervisor.reload()``, Ctrl-D, autoreload)."""
+
+
+def _run(hal, iterations):
+    load_module("usonic_config")
+    return load_module("usonic_main").run(lambda *a, **k: hal, iterations=iterations)
+
+
+def test_run_makes_exactly_the_requested_passes_when_nothing_fails():
+    hal = RecordingHal(n=0)
+    assert _run(hal, 25) == 25
+    assert (hal.fed, hal.calls["read"], hal.reboots) == (25, 25, 0)
+
+
+def test_an_exception_out_of_poll_forces_a_reset_instead_of_ending_code_py(capsys):
+    # US-12a: an uncaught exception ends code.py, and whether the hardware watchdog is still armed
+    # then depends on the CircuitPython release (adafruit/circuitpython#7722). The loop must reset
+    # the MCU itself rather than leave it enumerated and silent.
+    hal = RecordingHal(n=0)
+    hal.arm("read", 5, RuntimeError("poll blew up"))  # core.poll() reads the host link first
+    with pytest.raises(Rebooted):  # a real reset never returns
+        _run(hal, 1000)
+    assert hal.reboots == 1
+    assert hal.fed == 5  # fed on every pass up to and including the one that crashed
+    out = capsys.readouterr().out
+    assert "RuntimeError" in out and "poll blew up" in out  # the console says why
+
+
+def test_an_exception_out_of_feed_watchdog_also_forces_a_reset():
+    hal = RecordingHal(n=0)
+    hal.arm("feed_watchdog", 3, RuntimeError("watchdog object is gone"))
+    with pytest.raises(Rebooted):
+        _run(hal, 1000)
+    assert hal.reboots == 1
+    assert (hal.fed, hal.calls["read"]) == (2, 2)  # nothing ran after the failing feed
+
+
+def test_a_failure_while_announcing_the_boot_also_forces_a_reset():
+    hal = RecordingHal(n=0)
+    hal.arm("write", 1, OSError("usb write failed"))  # the boot INFO is the first write
+    with pytest.raises(Rebooted):
+        _run(hal, 1000)
+    assert hal.reboots == 1
+    assert hal.fed == 0
+
+
+@pytest.mark.parametrize("mode", ["returns", "raises", "absent"])
+def test_when_the_reset_itself_fails_the_loop_stops_feeding_and_keeps_spinning(mode):
+    # No reset available (it raised, returned, or the HAL has no reboot at all): the loop must not
+    # end (code.py ending is exactly what may disarm the watchdog), must not feed the watchdog
+    # again, and must not poll a core whose state is unknown: the armed watchdog resets the MCU.
+    hal = RecordingHal(n=0, reboot_mode=mode)
+    hal.arm("read", 5, RuntimeError("poll blew up"))
+    assert _run(hal, 50) == 50  # still spinning when the test's pass budget ran out
+    assert hal.fed == 5
+    assert hal.calls["read"] == 5
+    assert hal.reboots == (0 if mode == "absent" else 1)
+
+
+@pytest.mark.parametrize("exc", [KeyboardInterrupt(), SystemExit(), _ReloadException()])
+@pytest.mark.parametrize("where", ["read", "feed_watchdog"])
+def test_keyboard_interrupt_system_exit_and_reload_are_never_swallowed(exc, where):
+    # Ctrl-C into the REPL, Ctrl-D and an autoreload must still stop the program: they are not
+    # crashes, and resetting the MCU there would make the board impossible to work on.
+    hal = RecordingHal(n=0, reboot_mode="returns")
+    hal.arm(where, 3, exc)
+    with pytest.raises(type(exc)):
+        _run(hal, 1000)
+    assert hal.reboots == 0
