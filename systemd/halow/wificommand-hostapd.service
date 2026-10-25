@@ -1,0 +1,23 @@
+[Unit]
+Description=HaLow Command access point (hostapd on the HaLow radio)
+Documentation=file:/opt/wificommand/docs/ARCHITECTURE.md
+# Only runs when the command center has put the radio into AP mode.
+ConditionPathExists=/var/lib/wificommand/ap-mode
+BindsTo=sys-subsystem-net-devices-halow0.device
+After=sys-subsystem-net-devices-halow0.device halow-bringup.service network.target
+Before=wificommand-dnsmasq.service
+# Never share the radio with the legacy admin AP.
+Conflicts=wifi-halow-hostapd.service
+After=wifi-halow-hostapd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/hostapd /etc/hostapd/wificommand.conf
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=wificommand
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target

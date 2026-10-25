@@ -1,0 +1,22 @@
+[Unit]
+Description=HaLow Command DHCP/DNS (dnsmasq on the HaLow radio)
+Documentation=file:/opt/wificommand/docs/ARCHITECTURE.md
+ConditionPathExists=/var/lib/wificommand/ap-mode
+BindsTo=sys-subsystem-net-devices-halow0.device
+# dnsmasq binds to the AP address, so networkd must have configured the interface first.
+After=wificommand-hostapd.service systemd-networkd.service network-online.target sys-subsystem-net-devices-halow0.device
+Wants=network-online.target
+Requires=wificommand-hostapd.service
+Conflicts=wifi-halow-dnsmasq.service
+After=wifi-halow-dnsmasq.service
+
+[Service]
+Type=simple
+# Only this file: --conf-file replaces the default configuration entirely.
+ExecStart=/usr/sbin/dnsmasq --no-daemon --conf-file=/etc/dnsmasq.d/wificommand.conf --pid-file=/run/wificommand/dnsmasq.pid
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=wificommand
+
+[Install]
+WantedBy=multi-user.target

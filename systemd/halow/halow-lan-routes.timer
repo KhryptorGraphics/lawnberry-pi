@@ -1,0 +1,12 @@
+# Keeps the LAN-via-HaLow routes present (re-added within ~15 s after a HaLow drop flushes them).
+# See /usr/local/sbin/halow-lan-routes.sh for why.
+[Unit]
+Description=Check LAN-via-HaLow routes every 15 s
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=15s
+AccuracySec=2s
+
+[Install]
+WantedBy=timers.target

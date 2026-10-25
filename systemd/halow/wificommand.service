@@ -1,0 +1,44 @@
+[Unit]
+Description=HaLow Command Center (Wi-Fi HaLow web console on :1377)
+Documentation=file:/opt/wificommand/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/wificommand
+Environment=NODE_ENV=production
+Environment=WIFICOMMAND_PORT=1377
+Environment=WIFICOMMAND_DATA_DIR=/var/lib/wificommand
+Environment=WIFICOMMAND_STATIC_DIR=/opt/wificommand/dist/web
+EnvironmentFile=-/etc/default/wificommand
+ExecStart=/home/kp/.nvm/versions/node/v24.16.0/bin/node /opt/wificommand/dist/server/main.js
+Restart=on-failure
+RestartSec=3
+# Root is required to talk to wpa_supplicant/hostapd control sockets and nl80211.
+User=root
+StateDirectory=wificommand
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+# The live backend writes these paths. `-` marks optional ones so the unit starts
+# even when a directory is absent (systemd cannot mount-namespace a missing path).
+# /etc/systemd/system is deliberately NOT writable: it would let the app replace its
+# own unit; the supplicant drop-in lives under wpa_supplicant@<iface>.service.d, which
+# install.sh creates and this unit may write.
+ReadWritePaths=/etc/hostapd /etc/wpa_supplicant /etc/dnsmasq.d /etc/systemd/network -/etc/wireguard -/etc/systemd/timesyncd.conf.d /var/lib/wificommand -/run/wificommand /tmp /etc/systemd/system/wpa_supplicant@.service.d
+# iw/nft/tc/hostnamectl need to touch the network stack and kernel state.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_MODULE CAP_SYS_TIME CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER CAP_KILL
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+# wpa_cli creates its reply socket in /tmp; a private /tmp breaks it.
+PrivateTmp=no
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=no
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

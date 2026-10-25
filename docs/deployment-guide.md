@@ -235,11 +235,11 @@ stops `lawnberry-camera` (`PartOf=`), and on 2026-10-06 the HaLow radio failed a
 such a stop and stayed dark until a power cycle (`autonomy-toolchain-matrix.md`).
 
 HaLow units that exist only on the deployed Pi (`halow-bringup`, `halow-failover`,
-`halow-lan-routes.timer`, `wifi-halow-*`, `wificommand`, the `wpa_supplicant@halow0` drop-in and
-`lawnberry-backend.service.d/thor-upload.conf`) are not in the repository yet: the Pi was
-unreachable when this was written (audit, "Finish track: deployment"). Read them read-only
-(`systemctl cat <unit>`; check for credentials before committing) and add them under `systemd/`;
-`<unit>.d/*.conf` drop-ins next to a unit are rendered and installed by the installer.
+`halow-lan-routes.{service,timer}`, `wifi-halow-*`, `wificommand*`, the `wpa_supplicant@halow0`
+drop-in and `lawnberry-backend.service.d/thor-upload.conf`) are kept as verbatim reference copies in
+`systemd/halow/` (read from the Pi read-only on 2026-10-25; see `systemd/halow/README.md`). The
+installer does not install them: they describe one site's radio and addresses. Hostapd, dnsmasq and
+wpa_supplicant configuration and `halow-bringup.sh` were not copied.
 
 ### Operator authentication
 

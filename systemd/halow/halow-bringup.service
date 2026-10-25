@@ -1,0 +1,14 @@
+[Unit]
+Description=Seeed WM6108 Wi-Fi HaLow bring-up (preflight + driver load)
+After=basic.target systemd-udevd.service
+Wants=systemd-udevd.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 5
+ExecStart=/home/kp/halow/tools/halow-bringup.sh
+RemainAfterExit=yes
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target
