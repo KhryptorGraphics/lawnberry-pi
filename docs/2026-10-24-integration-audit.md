@@ -2195,3 +2195,9 @@ Nothing ran on an RP2040, a JSN-SR04T or the mower. Shipped policy defaults (`no
 | SUSPECTED (UsonicReview) | partly FIXED, rest bench | A `PulseIn` width of 0 us / longer than the window / 65535 is now `ST_STUCK`, never a distance; a missing `os.urandom` no longer stops the boot. ECHO already high at `resume()`, the real TRIG width (CircuitPython `monotonic_ns()` resolution is about 30.5 us on the RP2040 by source reading, not measured), `os.urandom` on the board and the `usb_cdc` short-write rate are README bench rows; the dead-zone far-echo and floating-ECHO risks need the M-40 probe. | `test_ultrasonic_mcu_cp_hal.py` |
 
 The probe (`scripts/ultrasonic_mcu_probe.py`) now says in plain words when another process (the backend or a second probe) holds the exclusively opened data port; its CSV and `link=` output are unchanged.
+
+| Check (round 2 blade, merged `fix2/blade`) | Command | Result |
+|---|---|---|
+| Full suite | `env -u PYTEST_ADDOPTS SIM_MODE=1 pytest tests -o addopts="" -p no:cacheprovider --ignore=tests/soak --ignore=tests/agent_bridge -W ignore --junitxml=/tmp/fix2blade.xml` | 2599 collected: **2573 passed, 26 skipped, 0 failed, 0 errors** (start of this round: 2386 / 2360 / 26 / 0) |
+| Lint | `uvx ruff@0.15.19 check backend tests scripts workshop firmware`; `uvx ruff@0.15.19 format --check .` | All checks passed; 467 files already formatted |
+| Blade mutants | `/tmp/blade-mut.py` (26 one-line mutants of the fixed blade, PCA9685, e-stop and REST code) | 26 killed, 0 survived |
