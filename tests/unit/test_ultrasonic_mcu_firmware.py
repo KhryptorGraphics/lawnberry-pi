@@ -18,6 +18,7 @@ from tests.unit._usonic_fakes import (
     load_module,
 )
 from tests.unit._usonic_fakes import P as fw
+from tests.unit._usonic_fw_fakes import RecordingHal
 
 OK, NO_EDGE, NO_FALL, STUCK = fw.ST_OK, fw.ST_NO_EDGE, fw.ST_NO_FALL, fw.ST_STUCK
 
@@ -69,6 +70,51 @@ def test_boot_announces_itself_with_the_identity_the_host_needs():
     assert info.boot_id == 0xABCD1234
     assert info.enable_mask == 0b1111
     assert info.reset_reason == fw.RESET_POWER_ON
+
+
+def test_start_announces_the_boot_at_once_before_any_poll():
+    # M02: without this, the first poll() would still send an INFO, so a test through a whole rig
+    # cannot tell. The core itself must announce the boot (new boot_id, reset reason, sensor
+    # count, enable mask) the moment it is started.
+    hal = RecordingHal(n=4, start_ms=7000, boot_id=0xA1B2C3D4, reset_reason=fw.RESET_WATCHDOG)
+    core = CORE.Core(hal, 4, fw_version=(2, 7), info_period_ms=1000)
+    assert hal.tx == []  # building the core says nothing
+    core.start()
+    sent = hal.messages()
+    assert len(sent) == 1, "start() must announce the boot itself, before the first poll()"
+    ((_t, info),) = sent
+    assert isinstance(info, host.Info)
+    assert (info.boot_id, info.reset_reason) == (0xA1B2C3D4, fw.RESET_WATCHDOG)
+    assert (info.sensor_count, info.enable_mask) == (4, 0b1111)
+    assert (info.fw_major, info.fw_minor, info.proto_version) == (2, 7, host.PROTO_VERSION)
+    assert info.uptime_ms == 0
+    core.poll()  # and the heartbeat does not repeat it straight away
+    assert len(hal.messages(host.FrameType.INFO)) == 1
+
+
+@pytest.mark.parametrize("period_ms", [200, 700])
+def test_info_heartbeat_period_is_honoured_not_more_often_and_not_less(period_ms):
+    hal = RecordingHal(n=0, start_ms=5000)
+    core = CORE.Core(hal, 0, info_period_ms=period_ms)
+    core.start()
+    for _ in range(period_ms * 5 + 10):  # one pass per millisecond
+        core.poll()
+    uptimes = [m.uptime_ms for _t, m in hal.messages(host.FrameType.INFO)]
+    assert uptimes == [k * period_ms for k in range(6)]
+
+
+def test_an_info_sent_for_a_hello_restarts_the_heartbeat_period():
+    hal = RecordingHal(n=0, start_ms=5000)
+    core = CORE.Core(hal, 0, info_period_ms=200)
+    core.start()
+    for _ in range(100):
+        core.poll()
+    hal.queue_rx(host.encode_frame(host.FrameType.HELLO, 0, host.build_hello()))
+    for _ in range(500):
+        core.poll()
+    uptimes = [m.uptime_ms for _t, m in hal.messages(host.FrameType.INFO)]
+    # boot, the answer to HELLO at 100, then a full period after THAT (not after the boot INFO)
+    assert uptimes == [0, 100, 300, 500]
 
 
 def test_hello_is_answered_with_info_and_ping_with_pong():
