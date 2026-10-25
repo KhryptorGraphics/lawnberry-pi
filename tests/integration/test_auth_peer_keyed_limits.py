@@ -42,9 +42,13 @@ def _client_for(target, peer=("127.0.0.1", 123)) -> httpx.AsyncClient:
     [
         ("192.0.2.7", "ip:192.0.2.7"),
         ("::ffff:192.0.2.7", "ip:192.0.2.7"),
-        ("2001:db8:1:2:aaaa:bbbb:cccc:dddd", "ip6:2001:db8:1:2::/64"),
-        ("2001:db8:1:2:1111:2222:3333:4444", "ip6:2001:db8:1:2::/64"),
-        ("fe80::1%eth0", "ip6:fe80::/64"),
+        # GLOBAL unicast IPv6 is one client per /64 ...
+        ("2606:4700:4700:0:aaaa:bbbb:cccc:dddd", "ip6:2606:4700:4700::/64"),
+        ("2606:4700:4700:0:1111:2222:3333:4444", "ip6:2606:4700:4700::/64"),
+        # ... everything else is one client per ADDRESS (a LAN's /64 is not one subscriber)
+        ("fd00:1234:5678:1::a1", "ip:fd00:1234:5678:1::a1"),
+        ("fe80::1%eth0", "ip:fe80::1"),
+        ("2001:db8:1:2::9", "ip:2001:db8:1:2::9"),
         ("TestClient", "host:testclient"),
         (None, "anon"),
         ("", "anon"),
@@ -56,7 +60,7 @@ def test_peer_key_normalises_the_address(host, expected):
 
 
 def test_peer_key_separates_prefixes_and_bounds_hostile_names():
-    assert peer_key("2001:db8:1:2::1") != peer_key("2001:db8:1:3::1")
+    assert peer_key("2606:4700:4700:1::1") != peer_key("2606:4700:4700:2::1")
     assert len(peer_key("A" * 10_000)) <= 80
 
 
@@ -295,3 +299,108 @@ async def test_the_real_estop_routes_answer_after_the_shipped_limiter_ran_dry(mo
         _blade_state["active"] = False
         rest._emergency_until = 0.0  # the stop arms a 0.2 s drive-block TTL: do not leak it
         rest._client_emergency.clear()
+
+
+# ---- SEC3-11: on an IPv6 LAN one device's typos do not lock its neighbours
+
+ULA = "fd00:1234:5678:1::{:x}"  # one SLAAC /64 of a LAN
+GLOBAL = "2606:4700:4700::{:x}"  # one ISP /64
+
+
+@pytest.fixture
+def lan(monkeypatch):
+    monkeypatch.setenv("SIM_MODE", "0")
+    monkeypatch.setenv("LAWN_BERRY_OPERATOR_CREDENTIAL", CRED)
+    monkeypatch.setenv("AUTH_LOCKOUT_FAILURES", "5")
+    monkeypatch.setenv("AUTH_LOCKOUT_SECONDS", "30")
+    monkeypatch.setenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "1000")
+    service = AuthService()
+    monkeypatch.setenv("SIM_MODE", "1")
+    return service
+
+
+async def login_as(service: AuthService, ip: str, credential: str = "wrong") -> int:
+    from backend.src.services.auth_service import AuthenticationError
+
+    try:
+        await service.authenticate(credential, client_ip=ip)
+    except AuthenticationError as exc:
+        return exc.status_code
+    return 200
+
+
+async def test_one_lan_devices_typos_do_not_lock_its_neighbour(lan):
+    """Reviewer's repro: laptop ``::a1`` and phone ``::b2`` were both ``ip6:fd00:...:1::/64``."""
+    assert [await login_as(lan, ULA.format(0xA1)) for _ in range(5)] == [401] * 5
+    assert await login_as(lan, ULA.format(0xA1), CRED) == 429, "the typist is locked out"
+    assert await login_as(lan, ULA.format(0xB2), CRED) == 200, "the neighbour must not be"
+
+
+async def test_a_host_rotating_addresses_inside_one_lan_prefix_is_still_locked_out(lan):
+    """Per-address keys alone would give it a fresh five guesses per address: the /64 group
+    counter locks the whole /64 after 25 failures, however the addresses vary."""
+    codes = [await login_as(lan, ULA.format(0x100 + n)) for n in range(100)]
+    assert codes == [401] * 25 + [429] * 75, codes
+    assert await login_as(lan, ULA.format(0x9999), CRED) == 429, "a correct guess does not pass"
+    other_prefix = "fd00:1234:5678:2::1"
+    assert await login_as(lan, other_prefix, CRED) == 200, "another /64 is another group"
+
+
+async def test_a_global_prefix_is_one_client_as_before(lan):
+    assert [await login_as(lan, GLOBAL.format(n + 1)) for n in range(5)] == [401] * 5
+    assert await login_as(lan, GLOBAL.format(0x77), CRED) == 429, "same /64, another address"
+    assert await login_as(lan, "2606:4700:4701::1", CRED) == 200, "another /64"
+
+
+async def test_the_group_lockout_ends_and_a_success_resets_the_count(lan, monkeypatch):
+    for n in range(20):
+        assert await login_as(lan, ULA.format(0x200 + n)) == 401
+    assert await login_as(lan, ULA.format(0x300), CRED) == 200  # a success from the /64: reset
+    codes = [await login_as(lan, ULA.format(0x400 + n)) for n in range(30)]
+    assert codes == [401] * 25 + [429] * 5, "25 more, not 5: the success cleared the count"
+
+
+async def test_ipv4_has_no_group_and_is_unchanged(lan):
+    assert [await login_as(lan, f"198.51.100.{n}") for n in range(40)] == [401] * 40
+    assert [await login_as(lan, "198.51.100.99") for _ in range(5)] == [401] * 5
+    assert await login_as(lan, "198.51.100.99", CRED) == 429
+
+
+async def test_the_login_limiter_counts_one_client_whatever_the_spelling_of_its_address(lan):
+    """S11: the limiter key is ``peer_key`` of the peer, not the raw string: a dual-stack socket
+    reports ``::ffff:a.b.c.d`` and the same host may also arrive as plain IPv4, and one global /64
+    has as many spellings as it has addresses."""
+    mapped, plain = "::ffff:198.51.100.7", "198.51.100.7"
+    assert [await login_as(lan, ip) for ip in (mapped, plain, mapped, plain, mapped)] == [401] * 5
+    assert await login_as(lan, plain, CRED) == 429 and await login_as(lan, mapped, CRED) == 429
+    spellings = ["2606:4700:4700::1", "2606:4700:4700:0:0:0:0:2", "2606:4700:4700::3%eth0"]
+    for ip in spellings + spellings[:2]:
+        assert await login_as(lan, ip) == 401
+    assert await login_as(lan, "2606:4700:4700::4", CRED) == 429
+
+
+async def test_the_unlock_throttle_has_the_same_group_backstop(lan, monkeypatch):
+    """``/control/manual-unlock`` is a second place to guess the credential: rotating the source
+    address inside one LAN /64 must not get a fresh guess per address there either."""
+    monkeypatch.setenv("OPERATOR_AUTH_REQUIRED", "1")
+    monkeypatch.setattr("backend.src.api.routers.auth.primary_auth_service", lan)
+    monkeypatch.setattr("backend.src.api.deps.primary_auth_service", lan)
+    token = (await lan.authenticate(CRED, client_ip="198.51.100.1")).token
+    headers = {"Authorization": f"Bearer {token}"}
+    codes = []
+    for n in range(40):
+        async with _client_for(app, (ULA.format(0x500 + n), 40000 + n)) as client:
+            response = await client.post(
+                "/api/v2/control/manual-unlock",
+                json={"method": "password", "password": "wrong"},
+                headers=headers,
+            )
+        codes.append(response.status_code)
+    assert codes == [401] * 25 + [429] * 15, codes
+    async with _client_for(app, (ULA.format(0x5FF), 41000)) as client:
+        right = await client.post(
+            "/api/v2/control/manual-unlock",
+            json={"method": "password", "password": CRED},
+            headers=headers,
+        )
+    assert right.status_code == 429

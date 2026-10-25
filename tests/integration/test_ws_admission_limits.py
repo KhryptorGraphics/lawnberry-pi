@@ -38,7 +38,6 @@ from backend.src.core import ws_policy
 from backend.src.core.peer_address import TRUSTED_PROXIES_ENV
 from backend.src.core.ws_policy import (
     ANONYMOUS_TELEMETRY_ENV,
-    MAX_MESSAGE_BYTES,
     MAX_TOPIC_LENGTH,
     MAX_TOPICS_PER_CLIENT,
     MessageBudget,
@@ -506,14 +505,43 @@ def test_a_refused_socket_leaves_no_slot_behind(strict):
 # ---- frames: size, rate, topics ------------------------------------------------------------
 
 
+def _frame(length: int) -> str:
+    """A valid ``ping`` frame of exactly ``length`` characters."""
+    prefix, suffix = '{"type":"ping","pad":"', '"}'
+    return prefix + "x" * (length - len(prefix) - len(suffix)) + suffix
+
+
+def _answers_until_closed(ws, frames: int) -> tuple[int, int | None]:
+    """``(answers seen, close code or None)`` for ``frames`` frames just sent.
+
+    NEVER waits for ever: the socket answers each frame it handles with exactly one frame, so
+    after ``frames`` answers with no close there is nothing left to wait for. The loops that used
+    to read "until the server closes" HUNG the suite for 900 s when the limit stopped working
+    (reviewer's mutants W5, rate 20 -> 20000 Hz, and W9, a budget that never refuses): now such a
+    mutant fails in a moment.
+    """
+    seen = 0
+    for _ in range(frames):
+        try:
+            ws.receive_text()
+        except WebSocketDisconnect as closed:
+            return seen, closed.code
+        seen += 1
+    return seen, None
+
+
 def test_an_oversized_frame_ends_the_connection(strict):
+    """The ceiling is 4096 characters, written as a LITERAL: a test that sends
+    ``MAX_MESSAGE_BYTES + 1`` follows a mutant that raises the constant (W4)."""
     client = _client("203.0.113.9")
     headers = _login(client)
     with client.websocket_connect(TELEMETRY, headers=headers) as ws:
         ws.receive_text()
-        ws.send_text("x" * (MAX_MESSAGE_BYTES + 1))
+        ws.send_text(_frame(4096))
+        assert json.loads(ws.receive_text())["event"] == "pong", "4096 is within the ceiling"
+        ws.send_text(_frame(4097))
         with pytest.raises(WebSocketDisconnect) as closed:
-            ws.receive_text()
+            ws.receive_text()  # a limit that does not hold answers "pong" here: no hang
         assert closed.value.code == 1009
     assert strict.snapshot()["open"] == 0
 
@@ -525,16 +553,9 @@ def test_a_frame_flood_ends_the_connection_and_creates_no_unbounded_state(strict
         ws.receive_text()
         for n in range(200):
             ws.send_json({"type": "subscribe", "topic": f"flood.{n}"})
-        code = None
-        seen = 0
-        try:
-            while True:
-                ws.receive_text()
-                seen += 1
-        except WebSocketDisconnect as closed:
-            code = closed.code
-        assert code == 1008, "the frame rate limit must end the socket"
-        assert seen <= ws_policy.MESSAGE_BURST + 5
+        seen, code = _answers_until_closed(ws, 200)
+        assert code == 1008, f"the frame rate limit never ended the socket ({seen} answers)"
+        assert 30 <= seen <= 60, "burst 40 at 20 a second, not 200 frames"
     assert websocket_hub.subscriptions == {}, "a closed socket leaves no topics behind"
     assert strict.snapshot()["open"] == 0
 
@@ -548,10 +569,9 @@ def test_the_control_socket_acks_but_not_a_flood(strict):
         assert json.loads(ws.receive_text())["event"] == "ack"
         for _ in range(200):
             ws.send_text("{}")
-        with pytest.raises(WebSocketDisconnect) as closed:
-            while True:
-                ws.receive_text()
-        assert closed.value.code == 1008
+        seen, code = _answers_until_closed(ws, 200)
+        assert code == 1008, f"the frame rate limit never ended the socket ({seen} acks)"
+        assert 30 <= seen <= 60
 
 
 def test_distinct_one_kilobyte_topics_create_nothing(strict):

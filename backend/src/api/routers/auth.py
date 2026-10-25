@@ -12,6 +12,7 @@ Authority model (see ``docs/authentication-config.md``):
   not accepted (they were decoded but never verified, so any header value unlocked control).
 """
 
+import functools
 import hmac
 import logging
 import os
@@ -32,11 +33,13 @@ from ...core.peer_address import (
     client_host,
     is_loopback_address,
     is_trusted_proxy_peer,
+    peer_key,
     request_peer_key,
 )
 from ...core.ws_policy import (
     ANON_ANY,
     ANON_LOOPBACK,
+    REFUSAL_LOG_INTERVAL_S,
     WsLimitError,
     WsSlot,
     anonymous_telemetry_mode,
@@ -242,13 +245,21 @@ async def _throttled_unlock(request: Request, check: Callable[[], Awaitable[Any]
     """Run ``check`` under the per-peer unlock throttle (same limiter, separate key, as login).
 
     The unlock is a second place to guess the operator credential, so it gets the same
-    attempt-rate limit and failure lockout as the login, keyed on the TCP peer. Only a 401
-    (a wrong secret) counts as a failure.
+    attempt-rate limit and failure lockout as the login, keyed on the TCP peer, and an IPv6
+    client the same coarse /64 lockout (``AuthService.group_limiter``, also under its own
+    ``unlock:`` key: a LAN host rotating its own addresses must not get a fresh guess per
+    address). Only a 401 (a wrong secret) counts as a failure.
     """
     limiter = primary_auth_service.rate_limiter
-    key = f"unlock:{request_peer_key(request)}"
+    host = client_host(request)
+    key = f"unlock:{peer_key(host)}"
+    group_limiter = primary_auth_service.group_limiter
+    group = primary_auth_service.group_key(host)
+    group_key = f"unlock:{group}" if group is not None else None
     try:
         limiter.assert_not_locked(key)
+        if group_key is not None:
+            group_limiter.assert_not_locked(group_key)
         retry_after = limiter.record_attempt(key)
         if retry_after is not None:
             raise AuthenticationError(
@@ -263,7 +274,10 @@ async def _throttled_unlock(request: Request, check: Callable[[], Awaitable[Any]
         result = await check()
     except HTTPException as exc:
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-            lockout = limiter.record_failure(key)
+            started = [limiter.record_failure(key)]
+            if group_key is not None:
+                started.append(group_limiter.record_failure(group_key))
+            lockout = max((seconds for seconds in started if seconds is not None), default=None)
             if lockout is not None:
                 headers = dict(exc.headers or {})
                 headers["Retry-After"] = str(lockout)
@@ -272,6 +286,8 @@ async def _throttled_unlock(request: Request, check: Callable[[], Awaitable[Any]
                 ) from exc
         raise
     limiter.reset(key)
+    if group_key is not None:
+        group_limiter.reset(group_key)
     return result
 
 
@@ -362,6 +378,31 @@ async def _session_for_ws_ticket(ticket: str) -> UserSession | None:
     return await primary_auth_service.verify_session(entry["session_id"])
 
 
+def _peek_ws_ticket_session_id(ticket: str) -> str | None:
+    """The live session a ticket was minted for, WITHOUT redeeming it (``None``: not live).
+
+    For the handshake budget key only: a ticket that belongs to a live login is counted as that
+    login, anything else as the peer. Never consumes, never logs.
+    """
+    entry = _ws_tickets.get(ticket)
+    if entry is None or entry["expires_at"] <= datetime.now(UTC):
+        return None
+    session = primary_auth_service.active_sessions.get(entry["session_id"])
+    if session is None or session.is_expired():
+        return None
+    return str(entry["session_id"])
+
+
+def _ws_ticket_of(websocket: WebSocket) -> str | None:
+    """The ``?ticket=`` of a handshake, else ``None`` (never raises)."""
+    try:
+        getter = getattr(getattr(websocket, "query_params", None), "get", None)
+        ticket = getter("ticket") if callable(getter) else None
+    except Exception:
+        return None
+    return str(ticket) if ticket else None
+
+
 def _anonymous_session(client_ip: str | None, user_agent: str | None) -> UserSession:
     """The throw-away, read-only identity of an anonymous socket (never stored anywhere)."""
     session = UserSession(client_ip=client_ip, user_agent=user_agent)
@@ -426,22 +467,21 @@ def _origin_allowed(websocket: WebSocket) -> bool:
 
 
 async def _admit(websocket: WebSocket, *, command_capable: bool) -> tuple[UserSession, bool]:
-    """The admission decision: ``(session, anonymous)``, or raise 401. See ``admit_websocket``."""
+    """The admission decision: ``(session, anonymous)``, or raise 401. See ``admit_websocket``.
+
+    A bad credential is checked QUIETLY (no WARNING per attempt, ``verify_token(quiet=True)``):
+    the refusal is one line per peer per minute, written by ``admit_websocket``.
+    """
     token = _extract_bearer_token(websocket.headers.get("Authorization"))
     if token:
-        session = await primary_auth_service.verify_token(token)
+        session = await primary_auth_service.verify_token(token, quiet=True)
         if not session:
             raise HTTPException(status_code=401, detail="Unauthorized")
         return session, False
 
-    ticket = None
-    try:
-        getter = getattr(getattr(websocket, "query_params", None), "get", None)
-        ticket = getter("ticket") if callable(getter) else None
-    except Exception:
-        ticket = None
+    ticket = _ws_ticket_of(websocket)
     if ticket:
-        session = await _session_for_ws_ticket(str(ticket))
+        session = await _session_for_ws_ticket(ticket)
         if session is None:
             raise HTTPException(status_code=401, detail="Unauthorized")
         return session, False
@@ -478,9 +518,11 @@ async def _authorize_websocket(
     Pi, nginx) reaches the backend from a loopback address, so remote visitors looked exactly like
     the local browser. The exceptions, all explicit:
 
-    * operator authentication switched off (``OPERATOR_AUTH_REQUIRED=0``; CRITICAL at start-up)
-      or the simulator opt-in (``SIM_MODE=1`` AND ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in
-      production): nothing is enforced anywhere, so the sockets are open too;
+    * the simulator opt-in (``SIM_MODE=1`` AND ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in
+      production): nothing is enforced anywhere, so the sockets follow. Switching operator
+      authentication off (``OPERATOR_AUTH_REQUIRED=0``; CRITICAL at start-up) is NOT the same
+      thing and does NOT open the sockets: it only stops the HTTP routes asking for a bearer, a
+      socket with no credential is refused exactly as before;
     * ``LAWN_BERRY_ANONYMOUS_TELEMETRY=loopback|any`` (``core/ws_policy.py``): the read-only
       streams, never ``/ws/control`` while auth is on, for loopback clients or everybody, and
       only for a page whose ``Origin`` is allowed (``_origin_allowed``).
@@ -506,23 +548,101 @@ class WsAdmission:
     anonymous: bool
 
 
+async def _end_session_sockets(session_id: str, reason: str) -> None:
+    """Termination listener: a login that ends takes its open WebSockets with it (SEC3-07)."""
+    closed = await ws_registry.close_session(session_id)
+    if closed:
+        logger.info("WebSocket: %d socket(s) closed with their session (%s)", closed, reason)
+
+
+def _handshake_key(websocket: WebSocket, peer: str) -> str:
+    """Whose handshake budget this handshake spends: the live login session of the credential
+    it presents, else its peer.
+
+    The HTTP limiter's rule exactly (``middleware/rate_limiting.py::limiter_client_key``): junk
+    from an address the operator shares (every visitor behind an undeclared forwarder is one
+    address) can empty its own bucket and never the operator's, and a client cannot choose the
+    key (a session id sits inside a signed token, a ticket is a 192-bit secret). The credential
+    is only LOOKED AT here, silently: a ticket is not redeemed, nothing is logged and an expired
+    session is not terminated (``_admit`` does all of that, after the budget).
+    """
+    token = _extract_bearer_token(websocket.headers.get("Authorization"))
+    if token:
+        session = primary_auth_service.peek_session(token)
+        return f"session:{session.session_id}" if session is not None else peer
+    ticket = _ws_ticket_of(websocket)
+    session_id = _peek_ws_ticket_session_id(ticket) if ticket else None
+    return f"session:{session_id}" if session_id else peer
+
+
+def _log_refusal(peer: str, why: str) -> None:
+    """One WARNING per peer per minute for the handshakes refused, saying how many it stands for
+    (``ws_policy.RefusalLog``: a flood of junk handshakes must not be a flood of journal lines)."""
+    stands_for = ws_registry.refusals.note(peer)
+    if stands_for is not None:
+        logger.warning(
+            "WebSocket handshake refused for %s: %s (%d refusal(s) since the last line; at most "
+            "one line per peer per %d s)",
+            peer,
+            why,
+            stands_for,
+            int(REFUSAL_LOG_INTERVAL_S),
+        )
+
+
 async def admit_websocket(websocket: WebSocket, *, command_capable: bool = False) -> WsAdmission:
     """Authorize the socket AND take a slot in the connection budget (``core/ws_policy.py``).
 
-    Raises 401 (no or a bad credential) or 503 + ``Retry-After`` (a budget is full: too many
-    sockets overall, for this login session or, for anonymous ones, for this client). The
-    handler MUST hand the slot back (``ws_registry.release(admission.slot)``) in its ``finally``.
+    In this order: (1) the handshake budget, BEFORE any credential is parsed or verified: 429 +
+    ``Retry-After`` when the bucket of this login session (or, for a credential that is not a
+    live login, this peer) is empty; (2) the policy (``_admit``): 401 for no or a bad
+    credential; (3) the connection budget: 503 + ``Retry-After`` when too many sockets are open
+    overall, for this login session or, for anonymous ones, for this client. Every refusal is
+    logged at most once per peer per minute.
+
+    A socket admitted with a stored login session is BOUND to it: the session's end (logout,
+    expiry, credential change) closes the socket with 1008, and an expiry timer re-checks the
+    session at its deadline (module docstring of ``core/ws_policy.py``). The handler MUST hand
+    the slot back (``ws_registry.release(admission.slot)``) in its ``finally``.
     """
-    session, anonymous = await _admit(websocket, command_capable=command_capable)
+    peer = request_peer_key(websocket)
+    retry_after = ws_registry.check_handshake(_handshake_key(websocket, peer))
+    if retry_after is not None:
+        _log_refusal(peer, "handshake rate limit")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many WebSocket handshakes",
+            headers={"Retry-After": str(retry_after)},
+        )
+    try:
+        session, anonymous = await _admit(websocket, command_capable=command_capable)
+    except HTTPException as exc:
+        _log_refusal(peer, f"{exc.status_code} {exc.detail}")
+        raise
+    # Bound = a stored login (the simulator opt-in's throw-away session is not in the store,
+    # and has no login to end; an anonymous socket has none either).
+    bound = (
+        not anonymous and primary_auth_service.active_sessions.get(session.session_id) is session
+    )
     try:
         slot = ws_registry.acquire(
-            session_id=session.session_id, peer=request_peer_key(websocket), anonymous=anonymous
+            session_id=session.session_id,
+            peer=peer,
+            anonymous=anonymous,
+            websocket=websocket if bound else None,
         )
     except WsLimitError as exc:
-        logger.warning("WebSocket refused: %s", exc)
+        _log_refusal(peer, str(exc))
         raise HTTPException(
             status_code=503, detail="Too many WebSocket connections", headers={"Retry-After": "5"}
         ) from exc
+    if bound:
+        # The service that admitted the socket is the one that must end it (whichever instance
+        # that is: tests swap the module's service), so the listener is added here, not at import.
+        primary_auth_service.add_termination_listener(_end_session_sockets)
+        ws_registry.watch_expiry(
+            slot, functools.partial(primary_auth_service.session_seconds_left, session.session_id)
+        )
     return WsAdmission(session=session, slot=slot, anonymous=anonymous)
 
 

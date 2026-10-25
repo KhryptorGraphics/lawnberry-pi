@@ -128,10 +128,15 @@ def _require_bearer_auth(request: Request) -> None:
 async def ws_telemetry(websocket: WebSocket):
     """Primary WebSocket endpoint for telemetry topics.
 
-    Admitted through ``admit_websocket`` (credential, then a slot in the connection budget) and
-    bounded per socket: a frame over ``MAX_MESSAGE_BYTES`` or faster than ``MESSAGE_RATE_HZ``
-    ends the connection, topic names and counts are limited by the hub, and an anonymous
-    socket (opt-in mode) cannot change the telemetry cadence every client shares.
+    Admitted through ``admit_websocket`` (handshake budget, credential, then a slot in the
+    connection budget) and bounded per socket: a frame over ``MAX_MESSAGE_BYTES`` or faster than
+    ``MESSAGE_RATE_HZ`` ends the connection, topic names and counts are limited by the hub, and
+    an anonymous socket (opt-in mode) cannot change the telemetry cadence every client shares.
+
+    A socket opened with a login is bound to it (``core/ws_policy.py``): logout, expiry and a
+    credential change close it from outside with 1008. The receive below then ends with a
+    disconnect (or the next send fails: the hub drops a client it cannot send to), and the
+    ``finally`` hands the slot back.
     """
     admission = await admit_websocket(websocket)
     session = admission.session

@@ -174,4 +174,10 @@ async def test_limiter_client_key_names_sessions_and_addresses(service):
     assert limiter_client_key(request("Bearer ")) == "ip:203.0.113.9"
     assert limiter_client_key(request("Bearer nope")) == "ip:203.0.113.9"
     assert limiter_client_key(request(None)) == "ip:203.0.113.9"
-    assert limiter_client_key(request(None, peer="2001:db8:1:2::9")) == "ip6:2001:db8:1:2::/64"
+    # a GLOBAL unicast IPv6 client is one client per /64; any other IPv6 address (a LAN's
+    # unique-local one, the documentation range) is one client per ADDRESS (SEC3-11)
+    peer = "2606:4700:4700:1::9"
+    assert limiter_client_key(request(None, peer=peer)) == "ip6:2606:4700:4700:1::/64"
+    peer = "fd00:1234:5678:1::a1"
+    assert limiter_client_key(request(None, peer=peer)) == "ip:fd00:1234:5678:1::a1"
+    assert limiter_client_key(request(None, peer="2001:db8:1:2::9")) == "ip:2001:db8:1:2::9"

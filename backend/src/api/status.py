@@ -47,12 +47,17 @@ async def ws_status(websocket: WebSocket):
     it used to run its own full sensor read per tick, so a dozen sockets multiplied the load on
     the event loop that also carries the E-stop handler (E-stop POST 4 ms -> 560 ms). A client
     that stops reading is dropped after ``SEND_TIMEOUT_S`` instead of parking a task for ever.
+
+    The socket is bound to its login (``core/ws_policy.py``): when the session ends it is closed
+    from outside with 1008, even before ``accept`` below, and the next send (or the accept)
+    fails, which ends this handler through the ``except`` and hands the slot back in ``finally``
+    (``accept`` is inside the ``try`` for that: a slot taken here is always given back).
     """
     admission = await admit_websocket(websocket)
-    await websocket.accept()
-    mgr = get_robot_state_manager()
     last_sample: dict | None = None
     try:
+        await websocket.accept()
+        mgr = get_robot_state_manager()
         while True:
             telemetry = await websocket_hub.current_telemetry(max_age_s=1.0 / STATUS_CADENCE_HZ)
             if telemetry is not last_sample:  # one state update per new sample, not per socket
