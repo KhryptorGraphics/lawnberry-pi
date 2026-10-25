@@ -113,6 +113,25 @@ def reset_shared_backend_state() -> None:
     if rest is not None:
         rest._emergency_until = 0.0
         rest._client_emergency.clear()
+    _clear_rate_limit_buckets()
+
+
+def _clear_rate_limit_buckets() -> None:
+    """Empty the global limiter's per-client buckets.
+
+    The per-prefix overrides are deliberately strict (``/control/blade`` is 8 req/s, burst 20) and
+    every test client is the same anonymous peer, so without this a route's own tests drain the
+    bucket for whichever test runs next and get a 429 that has nothing to do with what it tests.
+    """
+    main = sys.modules.get("backend.src.main")
+    layer = getattr(getattr(main, "app", None), "middleware_stack", None)
+    for _ in range(64):  # the middleware stack is a linked chain: walk it, bounded
+        if layer is None:
+            return
+        buckets = getattr(layer, "_buckets", None)
+        if type(layer).__name__ == "GlobalRateLimiter" and isinstance(buckets, dict):
+            buckets.clear()
+        layer = getattr(layer, "app", None)
 
 
 @pytest.fixture(autouse=True)

@@ -162,3 +162,27 @@ def test_every_test_starts_clean_because_the_autouse_fixture_runs(tmp_path):
 
     assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-1000:]
     assert "3 passed" in done.stdout
+
+
+@pytest.mark.asyncio
+async def test_the_reset_empties_the_limiter_buckets_a_route_s_own_tests_drained(
+    reset_shared_state,
+):
+    """``/control/blade`` is limited to 8 req/s, burst 20, and every test client is one peer.
+
+    Hammered anonymously it answers 429; after the reset the next request is counted from a full
+    bucket again. Without the reset in ``tests/conftest.py`` a route's own tests drain the bucket
+    for whichever test runs next (the blade status test failed with a 429 in the full suite).
+    """
+    import httpx
+
+    from backend.src.main import app
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        codes = [(await client.get("/api/v2/control/blade/status")).status_code for _ in range(60)]
+        assert 429 in codes, "the premise: the strict /control/blade bucket drains"
+
+        reset_shared_state()
+
+        assert (await client.get("/api/v2/control/blade/status")).status_code != 429
