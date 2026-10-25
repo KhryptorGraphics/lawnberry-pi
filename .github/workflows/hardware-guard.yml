@@ -79,12 +79,13 @@ jobs:
       # INA3221 mapping: constitution/spec say ch1=Battery, ch3=Solar, but the driver and
       # config/hardware.yaml use ch1=Solar, ch3=Battery. No shunt has been measured, so the
       # evidence is not clear enough to change either side; this step only keeps the spec's
-      # documented mapping from silently disappearing. Resolve with a bench measurement.
+      # documented mapping from silently disappearing or being swapped: the `name:` line that
+      # follows `channel_N:` must carry the documented word. Resolve with a bench measurement.
       - name: Verify INA3221 documented channel mapping is present in spec
         run: |
           f=spec/hardware.yaml
           documented() {
-            if ! grep -q "$1" "$f" || ! grep -qi "$2" "$f"; then
+            if ! grep -A1 -E "^[[:space:]]*$1:" "$f" | grep -qi "$2"; then
               echo "$f no longer documents $1 = $2" >&2
               exit 1
             fi

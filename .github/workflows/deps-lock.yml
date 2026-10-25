@@ -14,9 +14,21 @@ jobs:
         run: test -f uv.lock
       - name: Verify lock is up-to-date
         run: uv lock --locked
+      # GitHub runs a step's `run:` with `bash -e {0}`, and `-e` does NOT stop the script at a
+      # negated command (`! grep ...`): such a line gates only as the very last command. Each ban
+      # below therefore tests its pattern explicitly (`if grep ...; then exit 1; fi`).
+      # tests/unit/test_workflow_steps.py runs these two steps against crafted pyproject files.
       - name: Ban Windows/x86-only deps
         run: |
-          ! grep -Ei '(pywin32|win32|msvc)' pyproject.toml
-          ! grep -Ei '(win_amd64|x86_64)'   pyproject.toml
+          for pattern in 'pywin32|win32|msvc' 'win_amd64|x86_64'; do
+            if grep -Ei "($pattern)" pyproject.toml; then
+              echo "pyproject.toml matches the banned pattern '$pattern'" >&2
+              exit 1
+            fi
+          done
       - name: Ban Coral pkgs in main env
-        run: "! grep -Ei '\\b(pycoral|edgetpu)\\b' pyproject.toml"
+        run: |
+          if grep -Ei '\b(pycoral|edgetpu)\b' pyproject.toml; then
+            echo "pycoral/edgetpu must not be in the main environment" >&2
+            exit 1
+          fi
