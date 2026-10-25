@@ -10,6 +10,8 @@ import net from 'node:net'
 import crypto from 'node:crypto'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+// @ts-expect-error plain ES module without type declarations
+import { BACKEND_EMERGENCY_STOP_PATHS, isEmergencyStopRequest } from '../../proxy-trust.mjs'
 
 const SERVER = fileURLToPath(new URL('../../server.mjs', import.meta.url))
 const SPOOF = { 'X-Forwarded-For': '6.6.6.6', Forwarded: 'for=6.6.6.6', 'X-Real-IP': '6.6.6.6' }
@@ -43,6 +45,27 @@ function get(path: string, headers: Record<string, string> = {}): Promise<Seen> 
     })
     req.on('error', reject)
     req.end()
+  })
+}
+
+function post(path: string): Promise<Seen> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port: proxyPort,
+        path,
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': 2 },
+      },
+      (res) => {
+        let body = ''
+        res.on('data', (chunk) => (body += chunk))
+        res.on('end', () => resolve(JSON.parse(body)))
+      }
+    )
+    req.on('error', reject)
+    req.end('{}')
   })
 }
 
@@ -174,4 +197,94 @@ describe('frontend/server.mjs forwarding headers', () => {
     expect(outcome).not.toBe('upgrade 101')
     expect(upgrades).toHaveLength(0)
   })
+})
+
+// The connection guard of server.mjs keeps a slot for the E-stop, so it has to know which requests
+// are one BEFORE they are proxied (proxy-trust.mjs, isEmergencyStopRequest). This checks its answer
+// against what the real proxies send the backend. The guard recognises the exact spellings only: it
+// must never call a request an E-stop that the backend does not get as one (that would hand the
+// priority to anything an attacker can spell that way), and it must recognise every canonical
+// spelling. It does NOT recognise what the proxy normalises onto an E-stop route (doubled slashes,
+// another case in the mount prefix, a #fragment, a backslash): those stop the mower but are
+// ordinary requests to the guard, which is the safe side.
+describe('frontend/server.mjs E-stop paths', () => {
+  const canonical = [
+    '/api/v2/control/emergency',
+    '/api/control/emergency',
+    '/api/v2/control/emergency-stop',
+    '/api/control/emergency-stop',
+    '/api/v2/tractor/emergency-stop',
+    '/api/tractor/emergency-stop',
+  ]
+  const variants = [
+    ...canonical,
+    ...canonical.map((path) => `${path}/`),
+    ...canonical.map((path) => `${path}?x=1`),
+    ...canonical.map((path) => `${path}/?x=1&next=/a/b`),
+  ]
+  const others = [
+    // the neighbours of the E-stop routes, other versions and roots
+    '/api/v2/control/emergency_clear',
+    '/api/control/emergency_clear',
+    '/api/v2/tractor/clear-emergency',
+    '/api/v2/control/emergency-stop-all',
+    '/api/v2/control/emergency/stop',
+    '/api/tractor/emergency',
+    '/api/v2/v2/control/emergency',
+    '/api/v2.json/control/emergency',
+    '/api/v2/status?next=/api/v2/control/emergency',
+    // spellings the proxy normalises onto an E-stop route, or does not
+    '/api/v2//control/emergency',
+    '/api/v2/control//emergency',
+    '/api//control/emergency',
+    '/API/V2/control/emergency',
+    '/Api/control/emergency',
+    '/api/v2/CONTROL/emergency',
+    '/api/v2/control/emergency#frag',
+    '/api/v2/control\\emergency',
+    '/api/v2/control/%65mergency',
+    '/api/v2/control/emergency%2F',
+    '/api/v2/control/emergency/.',
+  ]
+  const routedPath = (seen: Seen) => (seen.url ?? '').split('?')[0].replace(/\/+$/, '')
+
+  it.each(variants)('POST %s is an E-stop for the guard and for the backend', async (path) => {
+    expect(isEmergencyStopRequest('POST', path)).toBe(true)
+    expect(BACKEND_EMERGENCY_STOP_PATHS).toContain(routedPath(await post(path)))
+  })
+
+  it.each(others)('POST %s is no E-stop for the guard unless it is one for the backend', async (path) => {
+    const backendGetsAnEmergencyStop = BACKEND_EMERGENCY_STOP_PATHS.includes(
+      routedPath(await post(path))
+    )
+    if (isEmergencyStopRequest('POST', path)) expect(backendGetsAnEmergencyStop).toBe(true)
+  })
+
+  it('sends the six canonical spellings to exactly the three routes of the backend', async () => {
+    const routed = new Set<string>()
+    for (const path of canonical) routed.add(((await post(path)).url ?? '').split('?')[0])
+
+    expect([...routed].sort()).toEqual([...BACKEND_EMERGENCY_STOP_PATHS].sort())
+  })
+
+  it('never calls a generated near-miss spelling an E-stop that the backend does not get as one', async () => {
+    const pieces = ['/', '\\', '.', '%2e', '%2f', '#', ';', '?', 'A', '..', '//']
+    const spellings = new Set<string>()
+    for (const path of canonical) {
+      for (let at = 0; at <= path.length; at += 1) {
+        for (const piece of pieces) spellings.add(path.slice(0, at) + piece + path.slice(at))
+      }
+      for (let at = 0; at < path.length; at += 1) spellings.add(path.slice(0, at) + path.slice(at + 1))
+    }
+
+    const recognised = [...spellings].filter((path) => isEmergencyStopRequest('POST', path))
+    const offenders: string[] = []
+    for (const path of recognised) {
+      if (!BACKEND_EMERGENCY_STOP_PATHS.includes(routedPath(await post(path)))) offenders.push(path)
+    }
+
+    expect(offenders).toEqual([])
+    expect(spellings.size).toBeGreaterThan(1500)
+    expect(recognised.length).toBeGreaterThanOrEqual(canonical.length) // the loop is not vacuous
+  }, 60_000)
 })
