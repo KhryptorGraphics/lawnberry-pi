@@ -14,38 +14,52 @@ room in it for the E-stop.
 
 The policy (all of it O(1) per event, nothing here imports uvicorn)
 -------------------------------------------------------------------
-A live HTTP connection is either PRODUCTIVE or not.
+A live HTTP connection is either PRODUCTIVE or evictable, and the state follows the REQUEST, not
+the connection (SEC3-02: it used to be a property of the connection for ever).
 
-* A connection becomes productive when it has delivered one COMPLETE request (headers and
-  body). A connection that has sent nothing, half a header, or a header plus a body it never
-  finishes is not productive: it is the shape of every cheap descriptor-holding attack, and
-  nothing is lost by closing it. A request that is still arriving is deliberately not
-  protected, E-stop requests included: otherwise ``POST /api/v2/control/emergency`` with a
-  ``Content-Length`` and no body, repeated, would pin every slot against the real E-stop.
+* A connection is productive from the moment one COMPLETE request (headers and body) has been
+  received until the response to it is complete. A connection that has sent nothing, half a
+  header, a header plus a body it never finishes, or that waits idle between two requests on
+  a keep-alive connection is evictable: it is the shape of every cheap descriptor-holding
+  attack, and nothing is lost by closing it. A request that is still arriving is deliberately
+  not protected, E-stop requests included: otherwise ``POST /api/v2/control/emergency`` with a
+  ``Content-Length`` and no body, repeated, would pin every slot against the real E-stop. When
+  a response is finished the connection falls back to evictable (:meth:`mark_idle`), so a client
+  that completes one request and then starts a second it never finishes does not keep the
+  protection of the first.
+* Every request has a deadline the HTTP layer enforces (``uvicorn_protocol``): its headers
+  within ``header_deadline_s`` of its first byte (the first request: of the connection being
+  accepted), its body within ``body_deadline_s`` of its headers. A connection that misses one
+  is closed whatever it holds.
 * ``max_connections`` is the hard cap on live HTTP connections, derived from the descriptor
   limit (half of ``RLIMIT_NOFILE``: the other half is for WebSockets, which leave this table
   when they upgrade and are capped elsewhere, files, the camera, subprocess pipes and the burst
   of connections one ``accept()`` pass takes before the first of them can be judged).
-* At the cap a NEW connection evicts the OLDEST unproductive one (oldest first: a legitimate
+* At the cap a NEW connection evicts the OLDEST evictable one (oldest first: a legitimate
   client sends its request within a round trip, so the junk that has been waiting longest goes
-  first and a connection that has just arrived is the last to be touched). If every connection
-  is productive the newcomer is refused.
-* ``reserve`` slots are kept for the E-stop. Productive connections other than E-stop requests
-  are admitted only while fewer than ``soft_cap = max_connections - reserve`` are productive;
-  a request on any other connection is answered ``503`` (see ``uvicorn_protocol``) before any
-  middleware runs. So at least ``reserve`` slots are always either free or held by evictable
-  junk, which a new connection can take, and the reserve is also the size of the junk pool: the
-  number of newcomers that must arrive within one round trip to evict a connection that is
-  about to speak. That is why the default reserve is a quarter of the cap, not an eighth.
-* E-stop requests are never refused by the soft cap (they bypass the quota check). They do not
-  need to be limited: an E-stop request IS an E-stop, an attacker who sends them has stopped the
-  mower, which is the safe direction.
+  first and a connection that has just arrived is the last to be touched; a connection that
+  became idle after a response counts from then). If every connection is productive the
+  newcomer is refused.
+* ``reserve`` slots are kept for the E-stop. Requests other than an E-stop are admitted as
+  productive only while fewer than ``soft_cap = max_connections - reserve`` connections are
+  productive; a request on any other connection is answered ``503`` (see ``uvicorn_protocol``)
+  before any middleware runs. So at least ``reserve`` slots are always either free or held by
+  evictable junk, which a new connection can take, and the reserve is also the size of the junk
+  pool: the number of newcomers that must arrive within one round trip to evict a connection
+  that is about to speak. That is why the default reserve is a quarter of the cap, not an eighth.
+* An E-stop is a ``POST`` to one of the three E-stop paths (``middleware/emergency_paths.py::
+  is_emergency_stop_request``): the method counts, a ``GET`` to those paths stops nothing and is
+  an ordinary request. E-stop requests are never refused by the soft cap (they bypass the quota
+  check). They do not need to be limited: an E-stop request IS an E-stop, an attacker who sends
+  them has stopped the mower, which is the safe direction, and (because productive is revoked at
+  the end of the response) they cannot pile up: each one only holds a slot while it is served.
 
 What this does NOT do (the honest residual risk)
 ------------------------------------------------
-* Productive connections are protected, so up to ``soft_cap`` clients that hold a request open
+* A productive connection is protected, so up to ``soft_cap`` clients that hold a REQUEST open
   on purpose (an unauthenticated MJPEG stream that is never read, a response nobody drains) keep
-  those slots. The reserve keeps the E-stop reachable; the UI answers 503 until they let go.
+  those slots for as long as the response lasts. The reserve keeps the E-stop reachable; the UI
+  answers 503 until they let go.
 * A connection flood that arrives faster than one event-loop iteration can judge it, a SYN
   flood, and a CPU-saturating request flood are outside what a per-connection policy can
   decide: a per-source limit in the packet filter (nftables ``ct count``) is the layer for
@@ -62,6 +76,7 @@ default is used; the server that carries the E-stop is never refused a start ove
 ``LAWN_BERRY_CONNECTION_RESERVE``  integer >= 4 and < the effective maximum
                                    (default ``clamp(max_connections // 4, 8, 256)``)
 ``LAWN_BERRY_HEADER_DEADLINE_S``   number in [1, 120] (default 10)
+``LAWN_BERRY_BODY_DEADLINE_S``     number in [1, 300] (default 15)
 
 Blank means unset. Digits are plain ASCII (no sign, no ``_``, no exponent, no ``0x``).
 
@@ -88,11 +103,14 @@ logger = logging.getLogger(__name__)
 MAX_CONNECTIONS_ENV = "LAWN_BERRY_MAX_CONNECTIONS"
 CONNECTION_RESERVE_ENV = "LAWN_BERRY_CONNECTION_RESERVE"
 HEADER_DEADLINE_ENV = "LAWN_BERRY_HEADER_DEADLINE_S"
+BODY_DEADLINE_ENV = "LAWN_BERRY_BODY_DEADLINE_S"
 
 MIN_MAX_CONNECTIONS = 16
 MIN_RESERVE = 4
 DEFAULT_HEADER_DEADLINE_S = 10.0
 HEADER_DEADLINE_RANGE_S = (1.0, 120.0)
+DEFAULT_BODY_DEADLINE_S = 15.0
+BODY_DEADLINE_RANGE_S = (1.0, 300.0)
 
 _DEFAULT_MAX_FLOOR = 32
 _DEFAULT_MAX_CEILING = 1024
@@ -183,6 +201,7 @@ class ConnectionGuard:
         reserve: int,
         header_deadline_s: float = DEFAULT_HEADER_DEADLINE_S,
         *,
+        body_deadline_s: float = DEFAULT_BODY_DEADLINE_S,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not isinstance(max_connections, int) or max_connections < 2:
@@ -194,13 +213,17 @@ class ConnectionGuard:
             )
         if not math.isfinite(header_deadline_s) or header_deadline_s <= 0:
             raise ValueError(f"header_deadline_s must be finite and > 0, got {header_deadline_s!r}")
+        if not math.isfinite(body_deadline_s) or body_deadline_s <= 0:
+            raise ValueError(f"body_deadline_s must be finite and > 0, got {body_deadline_s!r}")
         self.max_connections = max_connections
         self.reserve = reserve
         self.soft_cap = max_connections - reserve
         self.header_deadline_s = float(header_deadline_s)
+        self.body_deadline_s = float(body_deadline_s)
         self._clock = clock
-        # Oldest first. ``_evictable`` holds every connection that has not (yet) delivered a
-        # complete request; ``_productive`` holds the ones that have.
+        # Oldest first. ``_evictable`` holds every connection with no complete request in flight
+        # (silent, mid-request, idle between two requests); ``_productive`` holds the ones that
+        # have one.
         self._evictable: OrderedDict[Hashable, _Entry] = OrderedDict()
         self._productive: dict[Hashable, _Entry] = {}
         self.peak_connections = 0
@@ -238,14 +261,29 @@ class ConnectionGuard:
             self.peak_connections = live
         return True
 
+    def mark_idle(self, conn: Hashable) -> bool:
+        """The response of a productive connection is complete: it is evictable again.
+
+        It becomes the NEWEST evictable connection (its wait starts now: a keep-alive client
+        that has just been served is the last to be touched). Returns ``True`` if the
+        connection was productive; a connection that is not (or not tracked) is left alone.
+        """
+        entry = self._productive.pop(conn, None)
+        if entry is None:
+            return False
+        entry.since = self._clock()
+        self._evictable[conn] = entry
+        return True
+
     def mark_productive(self, conn: Hashable, *, estop: bool = False) -> bool:
-        """``conn`` has delivered a complete request: protect it from eviction.
+        """``conn`` has delivered a complete request: protect it from eviction while it is served.
 
         Returns ``True`` when the connection is (now) productive. A request that is not an
         E-stop is admitted only while fewer than ``soft_cap`` connections are productive;
         otherwise this returns ``False`` and the connection stays evictable (the HTTP layer
         answers its request ``503``). E-stop requests are always admitted. A connection the
         guard no longer tracks (evicted, refused, upgraded) cannot be protected: ``False``.
+        The protection ends with :meth:`mark_idle` (the response is complete) or :meth:`release`.
         """
         if conn in self._productive:
             return True
@@ -272,7 +310,7 @@ class ConnectionGuard:
             self._productive.pop(conn, None)
 
     def count_deadline_close(self) -> None:
-        """The header deadline closed a connection (the HTTP layer owns the timers)."""
+        """A request or header deadline closed a connection (the HTTP layer owns the timers)."""
         self.deadline_closed += 1
 
     def count_shed(self) -> None:
@@ -288,6 +326,7 @@ class ConnectionGuard:
             "reserve": self.reserve,
             "soft_cap": self.soft_cap,
             "header_deadline_s": self.header_deadline_s,
+            "body_deadline_s": self.body_deadline_s,
             "connections": len(self),
             "productive": len(self._productive),
             "unproductive": len(self._evictable),
@@ -307,7 +346,8 @@ class ConnectionGuard:
         """One line for the start-up log."""
         return (
             f"max_connections={self.max_connections} reserve={self.reserve} "
-            f"soft_cap={self.soft_cap} header_deadline_s={self.header_deadline_s:g}"
+            f"soft_cap={self.soft_cap} header_deadline_s={self.header_deadline_s:g} "
+            f"body_deadline_s={self.body_deadline_s:g}"
         )
 
     def _close(self, entry: _Entry) -> None:
@@ -336,17 +376,22 @@ def _read_int(
     return value
 
 
-def _read_deadline(env: Mapping[str, str]) -> float | None:
-    raw = env.get(HEADER_DEADLINE_ENV)
+def _read_deadline(
+    env: Mapping[str, str],
+    name: str = HEADER_DEADLINE_ENV,
+    bounds: tuple[float, float] | None = None,
+) -> float | None:
+    """A strictly parsed number of seconds in ``bounds``, or ``None`` (unset, blank, invalid)."""
+    raw = env.get(name)
     if raw is None or raw.strip() == "":
         return None
     text = raw.strip()
-    low, high = HEADER_DEADLINE_RANGE_S
+    low, high = HEADER_DEADLINE_RANGE_S if bounds is None else bounds
     value = float(text) if _NUMBER_RE.fullmatch(text) else None
     if value is None or not low <= value <= high:
         logger.error(
             "%s=%r is not a number of seconds between %g and %g; using the default",
-            HEADER_DEADLINE_ENV,
+            name,
             raw,
             low,
             high,
@@ -391,7 +436,12 @@ def guard_from_environment(
     deadline = _read_deadline(env)
     if deadline is None:
         deadline = DEFAULT_HEADER_DEADLINE_S
-    return ConnectionGuard(max_connections, reserve, deadline, clock=clock)
+    body_deadline = _read_deadline(env, BODY_DEADLINE_ENV, BODY_DEADLINE_RANGE_S)
+    if body_deadline is None:
+        body_deadline = DEFAULT_BODY_DEADLINE_S
+    return ConnectionGuard(
+        max_connections, reserve, deadline, body_deadline_s=body_deadline, clock=clock
+    )
 
 
 _process_guard: ConnectionGuard | None = None
