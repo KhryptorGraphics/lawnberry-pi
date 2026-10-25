@@ -161,6 +161,11 @@ class Ibt4Config(BaseModel):
         return self
 
 
+#: stale_after_ms must exceed one full measurement cycle by at least this much, or a healthy channel
+#: (refreshed once per cycle) flaps UNKNOWN between its own readings.
+STALE_MARGIN_MS = 100
+
+
 class UltrasonicConfig(BaseModel):
     """Four JSN-SR04T behind a dedicated USB microcontroller, ``ultrasonic:`` in hardware.yaml.
 
@@ -208,26 +213,41 @@ class UltrasonicConfig(BaseModel):
     inter_sensor_gap_ms: int = Field(
         default=30, ge=5, le=500, description="Quiet time between two sensors firing (crosstalk)"
     )
-    speed_of_sound_mps: float = Field(default=343.2, gt=300.0, lt=370.0)
+    speed_of_sound_mps: float = Field(default=343.2, gt=300.0, lt=370.0, allow_inf_nan=False)
     min_range_cm: float = Field(
         default=25.0,
-        gt=0.0,
+        ge=10.0,
+        allow_inf_nan=False,
         description="Blind zone: an echo closer than this is UNKNOWN (about 25 cm discussed, M-40)",
     )
     max_range_cm: float = Field(
-        default=400.0, gt=0.0, description="Longest usable echo (TBD, M-40)"
+        default=400.0, gt=0.0, allow_inf_nan=False, description="Longest usable echo (TBD, M-40)"
     )
     stale_after_ms: int = Field(
-        default=700, ge=50, description="A channel not refreshed for this long is UNKNOWN"
+        default=700,
+        ge=50,
+        le=5000,
+        description=(
+            "A channel not refreshed for this long is UNKNOWN; must exceed one full measurement "
+            "cycle ((echo_window_ms + inter_sensor_gap_ms) * channels) by 100 ms"
+        ),
     )
     link_timeout_ms: int = Field(
-        default=1500, ge=100, description="No valid frame from the MCU for this long: link down"
+        default=1500,
+        ge=100,
+        le=10000,
+        description="No valid frame from the MCU for this long: link down",
     )
-    handshake_timeout_s: float = Field(default=2.0, gt=0.0)
+    handshake_timeout_s: float = Field(default=2.0, gt=0.0, le=30.0, allow_inf_nan=False)
     alive_window_s: float = Field(
         default=10.0,
         gt=0.0,
-        description="A channel counts as alive if it produced any echo pulse within this window",
+        le=60.0,
+        allow_inf_nan=False,
+        description=(
+            "A channel counts as alive if its newest real echo pulse is not a NEAR one (see "
+            "near_hold_s) and is not older than this window"
+        ),
     )
     out_of_range_is_clear: bool = Field(
         default=False,
@@ -246,6 +266,18 @@ class UltrasonicConfig(BaseModel):
             "With no_echo_is_clear, still require a real echo pulse within alive_window_s, so a "
             "sensor that dies stops reading clear. Set false only if M-40 shows a healthy sensor "
             "emits no pulse in open air AND something else covers a dead sensor"
+        ),
+    )
+    near_hold_s: float = Field(
+        default=30.0,
+        ge=5.0,
+        le=600.0,
+        allow_inf_nan=False,
+        description=(
+            "A channel whose last real echo was NEAR (closer than twice the stop threshold) and "
+            "that then goes silent reads UNKNOWN (blind zone) for this long, or until it hears a "
+            "far echo, whatever the *_is_clear flags say: an object that enters the sensor's "
+            "dead zone is silent too"
         ),
     )
 
@@ -273,6 +305,13 @@ class UltrasonicConfig(BaseModel):
             raise ValueError(
                 f"ultrasonic.echo_window_ms={self.echo_window_ms} is shorter than the echo of "
                 f"max_range_cm={self.max_range_cm} ({longest_echo_us / 1000:.1f} ms)"
+            )
+        cycle_ms = (self.echo_window_ms + self.inter_sensor_gap_ms) * len(self.channels)
+        if self.stale_after_ms < cycle_ms + STALE_MARGIN_MS:
+            raise ValueError(
+                f"ultrasonic.stale_after_ms={self.stale_after_ms} must exceed one full measurement "
+                f"cycle ({cycle_ms} ms for {len(self.channels)} channels) by {STALE_MARGIN_MS} ms, "
+                "or every channel flaps UNKNOWN"
             )
         return self
 

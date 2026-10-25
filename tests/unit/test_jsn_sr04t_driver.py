@@ -30,11 +30,14 @@ from tests.unit._usonic_fakes import (
     FakeClock,
     FakeMcuFactory,
     SensorModel,
+    approach_then_silence,
     corrupt_length,
     drop,
     flip_crc_bit,
     flip_payload_bit,
+    scripted,
     truncate,
+    us,
     with_garbage,
 )
 from tests.unit._usonic_fakes import P as fw
@@ -247,14 +250,18 @@ async def test_a_fault_is_never_cleared_by_any_policy_flag():
     assert rig.driver.obstacle_verdict()["state"] == "unknown"
 
 
-async def test_no_fall_pulse_is_out_of_range_and_follows_the_out_of_range_policy():
+async def test_no_fall_pulse_alone_is_out_of_range_and_unknown_even_if_out_of_range_is_trusted():
+    # US-10: a pulse that never ends is what a shorted ECHO line looks like. Nothing else
+    # vouches for this sensor, so even the owner's out_of_range_is_clear flag cannot clear it
+    # (the case where it can is test_a_long_echo_from_a_channel_that_also_hears_in_range_echoes...).
     models = four_clear()
     models[3] = SensorModel(mode="no_fall")
     rig = await booted(sensors=models)
     assert rig.ch("outer_right").status is ChannelStatus.OUT_OF_RANGE
     assert rig.ch("outer_right").verdict is Verdict.UNKNOWN
     rig2 = await booted(sensors=models, cfg={"out_of_range_is_clear": True})
-    assert rig2.ch("outer_right").verdict is Verdict.CLEAR
+    assert rig2.ch("outer_right").status is ChannelStatus.OUT_OF_RANGE
+    assert rig2.ch("outer_right").verdict is Verdict.UNKNOWN
 
 
 # ---- a dead sensor among live ones ------------------------------------------------------------
@@ -306,13 +313,23 @@ async def test_disabled_channels_are_not_fitted_and_excluded_from_the_aggregate(
     assert [x["sensor_id"] for x in agg["channels"]] == NAMES  # still listed
 
 
-async def test_a_channel_the_mcu_disabled_but_the_host_expects_is_a_fault_not_excluded():
+async def test_a_channel_the_mcu_disabled_but_the_host_expects_is_a_fault_until_repaired():
     rig = await booted()
     rig.port.core.enable_mask = 0b1011  # the MCU masks a sensor the host believes is fitted
-    rig.step(1.0)
-    c = rig.ch("inner_right")
-    assert c.status is ChannelStatus.FAULT and c.verdict is Verdict.UNKNOWN
-    assert rig.driver.obstacle_verdict()["state"] == "unknown"
+    seen_fault = False
+    for _ in range(100):  # the next INFO heartbeat (at most 1 s away) reveals the drift
+        rig.step(0.02)
+        if rig.driver.stats.config_drifts:
+            break
+        c = rig.ch("inner_right")
+        if c.status is ChannelStatus.FAULT:  # the MCU reports it disabled: never "excluded"
+            seen_fault = True
+            assert c.verdict is Verdict.UNKNOWN
+            assert rig.driver.obstacle_verdict()["state"] == "unknown"
+    assert seen_fault and rig.driver.stats.config_drifts == 1
+    rig.step(1.0)  # the host re-sent CONFIG: the MCU runs the configuration that was verified
+    assert rig.port.core.enable_mask == 0b1111 and rig.driver.link_state is LinkState.ACTIVE
+    assert rig.ch("inner_right").valid
 
 
 # ---- handshake and refusal --------------------------------------------------------------------
@@ -326,9 +343,13 @@ class ScriptedPort:
         self.decoder = proto.FrameDecoder()
         self.sent: list[proto.Frame] = []
         self.closed = False
+        self.mcu_ms = 100  # the MCU clock of auto-stamped readings: every one is newer
+        self.broken: Exception | None = None  # set to make the port fail like an unplugged cable
 
     @property
     def in_waiting(self):
+        if self.broken is not None:
+            raise self.broken
         return len(self.inbox)
 
     def read(self, size=1):
@@ -359,10 +380,13 @@ class ScriptedPort:
         payload[2] = proto_version
         self.push(proto.FrameType.INFO, bytes(payload))
 
-    def reading(self, sensor=0, status=0, echo_us=5828, health=0, fails=0):
+    def reading(self, sensor=0, status=0, echo_us=5828, health=0, fails=0, t_ms=None):
+        if t_ms is None:
+            self.mcu_ms += 10
+            t_ms = self.mcu_ms
         self.push(
             proto.FrameType.READING,
-            fw.pack_reading(sensor, status, health, fails, echo_us, 1, 100),
+            fw.pack_reading(sensor, status, health, fails, echo_us, 1, t_ms),
         )
 
     def ack(self, cfg: proto.McuConfig):
@@ -387,6 +411,35 @@ def scripted_rig(**cfg):
         simulate=False,
     )  # fmt: skip
     return clock, port, driver, opens
+
+
+def scripted_active(**cfg):
+    """A scripted rig whose handshake is complete (INFO, CONFIG, CONFIG_ACK): readings count."""
+    clock, port, driver, opens = scripted_rig(**cfg)
+    driver.poll()
+    port.info()
+    driver.poll()
+    port.ack(driver.expected_mcu_config())
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE
+    return clock, port, driver, opens
+
+
+MCU_BASE_MS = 500_000  # the scripted MCU booted 500 s before the fake host clock's origin
+
+
+def mcu_ms(clock: FakeClock, behind_s: float = 0.0) -> int:
+    """The MCU clock (ms) ``behind_s`` seconds before the host's 'now', with no transport delay."""
+    return MCU_BASE_MS + round((clock.now() - 1000.0 - behind_s) * 1000)
+
+
+def steady(clock, port, driver, seconds=1.0, sensors=(0, 1, 2, 3)):
+    """A healthy stream: every 100 ms each of ``sensors`` reports, stamped with the MCU clock."""
+    for _ in range(round(seconds / 0.1)):
+        clock.advance(0.1)
+        for sensor in sensors:
+            port.reading(sensor=sensor, t_ms=mcu_ms(clock))
+        driver.poll()
 
 
 def test_handshake_order_and_readings_before_the_config_echo_are_not_trusted():
@@ -788,3 +841,555 @@ async def test_health_report_is_json_and_carries_the_diagnostics_an_operator_nee
     assert report["stats"]["crc_errors"] == 2
     assert set(report["channels"]) == set(NAMES)
     assert report["channels"]["outer_left"]["status"] == "ok"
+
+
+# ---- US-01: an approached obstacle that goes silent is the dead zone, not open air ------------
+
+OK, NO_EDGE, NO_FALL = fw.ST_OK, fw.ST_NO_EDGE, fw.ST_NO_FALL
+WINDOW_US = 30_000  # echo window of the default configuration
+
+
+def trace(rig: Rig, seconds: float, name: str = "outer_left"):
+    """``(seconds since the call, channel reading, aggregate state)`` after every 20 ms poll."""
+    t0, rows = rig.clock.now(), []
+    rig.step(
+        seconds,
+        each=lambda: rows.append(
+            (rig.clock.now() - t0, rig.ch(name), rig.driver.obstacle_verdict()["state"])
+        ),
+    )
+    return rows
+
+
+POLICIES = {
+    "shipped": {},
+    "silent_is_clear_if_alive": {"no_echo_is_clear": True},
+    "silent_is_clear_always": {"no_echo_is_clear": True, "no_echo_requires_alive": False},
+    "everything_trusted": {
+        "no_echo_is_clear": True,
+        "no_echo_requires_alive": False,
+        "out_of_range_is_clear": True,
+    },
+}
+
+
+@pytest.mark.parametrize("policy", list(POLICIES.values()), ids=list(POLICIES))
+async def test_silence_right_after_a_near_echo_is_the_dead_zone_never_clear_whatever_the_policy(
+    policy,
+):
+    cfg = {**policy, "near_hold_s": 6.0}
+    sensors = [approach_then_silence(), echo(200), echo(200), echo(200)]
+    rig = await Rig(sensors=sensors, cfg=cfg).boot()
+    rig.step(2.2)  # the wall is approached; the last real echo is at 28 cm, then the line is silent
+    assert rig.ch("outer_left").echo_us == 0, "scenario broken: the MCU should report silence now"
+    for t, c, aggregate in trace(rig, 5.0):  # still inside the 6 s hold
+        got = (c.status, c.verdict, c.valid, c.clear_to_cm)
+        want = (ChannelStatus.BLIND_ZONE, Verdict.UNKNOWN, False, None)
+        assert got == want, f"t={t:.2f}s: silence after a 28 cm echo read {got}"
+        assert aggregate != "clear"
+
+
+async def test_after_the_hold_silence_reads_clear_only_if_the_owner_trusts_silence():
+    base = {"no_echo_is_clear": True, "near_hold_s": 6.0}
+
+    def sensors():
+        return [approach_then_silence(), echo(200), echo(200), echo(200)]
+
+    trusting = await Rig(sensors=sensors(), cfg={**base, "no_echo_requires_alive": False}).boot()
+    gated = await Rig(sensors=sensors(), cfg=base).boot()
+    for rig in (trusting, gated):
+        rig.step(2.2 + 6.0 + 0.5)  # the hold (6 s after the last echo) is over
+    c = trusting.ch("outer_left")
+    # the owner's explicit risk, but no_echo_is_clear is not useless once the hold has passed
+    assert (c.status, c.verdict) == (ChannelStatus.NO_ECHO, Verdict.CLEAR)
+    c = gated.ch("outer_left")
+    # pulses of a NEAR echo are no proof that the sensor looks at open air: not alive, not clear
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.NO_ECHO, False, Verdict.UNKNOWN)
+    assert c.health is Health.SILENT
+
+
+async def test_a_real_far_echo_ends_the_hold_at_once_and_open_air_can_read_clear_again():
+    script = scripted(
+        *[(OK, us(100))] * 2, *[(OK, us(28))] * 2, *[(NO_EDGE, 0)] * 3, (OK, us(150)), (NO_EDGE, 0)
+    )
+    sensors = [script, echo(200), echo(200), echo(200)]
+    rig = await Rig(sensors=sensors, cfg={"no_echo_is_clear": True}).boot()
+    rows = trace(rig, 4.0)
+    silent = next(i for i, (_, c, _) in enumerate(rows) if c.echo_us == 0)
+    far = next(i for i, (_, c, _) in enumerate(rows) if abs(c.distance_cm - 150.0) < 0.2)
+    assert silent < far
+    for t, c, aggregate in rows[silent:far]:  # latched until the far echo itself arrives
+        assert (c.status, c.verdict) == (ChannelStatus.BLIND_ZONE, Verdict.UNKNOWN), f"t={t:.2f}"
+        assert aggregate != "clear"
+    c = rows[far][1]
+    assert (c.status, c.valid, c.verdict) == (ChannelStatus.OK, True, Verdict.CLEAR)
+    c = rows[-1][1]  # silent again, but the far echo was proof of life: the owner's policy applies
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.NO_ECHO, True, Verdict.CLEAR)
+
+
+# ---- US-10: only a real echo is proof of life --------------------------------------------------
+
+
+async def test_a_line_stuck_high_is_neither_proof_of_life_nor_clear_if_out_of_range_is_trusted():
+    models = four_clear()
+    models[3] = SensorModel(mode="no_fall")  # ECHO shorted high == "pulse longer than the window"
+    rig = await booted(sensors=models, cfg={"out_of_range_is_clear": True})
+    rig.step(2.0)
+    c = rig.ch("outer_right")
+    assert (c.status, c.alive, c.health) == (ChannelStatus.OUT_OF_RANGE, False, Health.SILENT)
+    assert c.verdict is Verdict.UNKNOWN and c.clear_to_cm is None
+    assert rig.driver.obstacle_verdict()["state"] == "unknown"
+
+
+async def test_no_fall_pulses_never_make_a_silent_channel_alive():
+    models = four_clear()
+    models[2] = scripted(*[(NO_FALL, WINDOW_US)] * 4, (NO_EDGE, 0))
+    rig = await booted(sensors=models, cfg={"no_echo_is_clear": True})
+    rig.step(2.0)
+    c = rig.ch("inner_right")
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.NO_ECHO, False, Verdict.UNKNOWN)
+
+
+async def test_a_long_echo_from_a_channel_that_also_hears_in_range_echoes_follows_the_policy():
+    models = four_clear()
+    models[1] = scripted(*[(OK, us(200))] * 3, (NO_FALL, WINDOW_US))
+    rig = await booted(sensors=models, cfg={"out_of_range_is_clear": True})
+    rig.step(1.0)  # the three in-range echoes are played first, then the line never falls
+    c = rig.ch("inner_left")
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.OUT_OF_RANGE, True, Verdict.CLEAR)
+    assert c.clear_to_cm == 400.0
+
+
+async def test_a_zero_width_ok_pulse_is_a_fault_and_never_proof_of_life():
+    models = four_clear()
+    models[0] = scripted(*[(OK, 0)] * 4, (NO_EDGE, 0))
+    rig = await Rig(sensors=models, cfg={"no_echo_is_clear": True}).boot()
+    rows = trace(rig, 2.5)
+    assert any(c.status is ChannelStatus.FAULT for _, c, _ in rows), "the 0 us pulses never arrived"
+    assert not any(c.alive for _, c, _ in rows), "a 0 us pulse is not an echo"
+    c = rows[-1][1]
+    assert (c.status, c.alive, c.verdict) == (ChannelStatus.NO_ECHO, False, Verdict.UNKNOWN)
+
+
+async def test_the_max_range_boundary_is_inclusive_and_a_hair_beyond_is_out_of_range():
+    models = [scripted((OK, us(400.0))), scripted((OK, us(400.1))), echo(200), echo(200)]
+    rig = await booted(sensors=models)
+    at, beyond = rig.ch("outer_left"), rig.ch("inner_left")
+    assert (at.status, at.valid, at.distance_cm, at.verdict) == (
+        ChannelStatus.OK, True, 400.0, Verdict.CLEAR,
+    )  # fmt: skip
+    assert at.clear_to_cm == 400.0
+    assert (beyond.status, beyond.valid, beyond.distance_cm, beyond.verdict) == (
+        ChannelStatus.OUT_OF_RANGE, False, 0.0, Verdict.UNKNOWN,
+    )  # fmt: skip
+
+
+# ---- D25: nothing fitted is never a clear path -------------------------------------------------
+
+
+async def test_with_no_channel_fitted_the_aggregate_is_unknown_never_clear():
+    rig = await booted(cfg={"disabled_channels": NAMES})
+    agg = rig.driver.obstacle_verdict()
+    assert rig.driver.link_state is LinkState.ACTIVE
+    assert agg["state"] == "unknown" and agg["reasons"] == ["no fitted channels"]
+    assert agg["min_cm"] is None
+    assert all(c["verdict"] == "disabled" for c in agg["channels"])
+
+
+# ---- US-11: a stopped or closed driver never reopens the port by itself ------------------------
+
+
+async def test_a_stopped_driver_never_reopens_the_port_until_it_is_initialised_again():
+    rig = await booted()
+    await rig.driver.stop()
+    assert rig.port.closed
+    rig.step(2.0)  # a late caller keeps polling; this used to reopen a port nobody closes
+    assert len(rig.factory.opens) == 1 and rig.driver.link_state is LinkState.DISCONNECTED
+    await rig.driver.initialize()
+    assert len(rig.factory.opens) == 2 and rig.driver.link_state is LinkState.ACTIVE
+
+
+async def test_a_closed_driver_does_not_reopen_the_port_either():
+    rig = await booted()
+    rig.driver.close()  # the script path: poll-only users have no async lifecycle
+    rig.step(2.0)
+    assert len(rig.factory.opens) == 1 and rig.driver.link_state is LinkState.DISCONNECTED
+    assert all(c.status is ChannelStatus.LINK_DOWN for c in rig.driver.snapshot())
+
+
+# ---- US-05: a reading is as old as the MCU's own clock says, not "just received" ---------------
+
+
+def stall(rig: Rig, seconds: float, *, target_at: float | None = None, target=None) -> None:
+    """The host's loop does not run for ``seconds``; the MCU keeps measuring and talking."""
+    for i in range(round(seconds / 0.02)):
+        rig.clock.advance(0.02)
+        if target_at is not None and i == round(target_at / 0.02):
+            rig.port.set_sensor(0, target)  # the wall closes in on outer_left at +target_at
+        rig.port.sync()
+
+
+async def test_a_backlog_is_drained_in_one_poll_and_the_newest_frame_decides():
+    # reviewer exp e4: 40 s loop stall, a tty that hands out 4096 bytes per read(), the target
+    # steps from 200 to 28 cm at +20 s. Two polls used to report 200 cm "clear" with age 0.
+    rig = await Rig(sensors=[echo(200)] * 4, factory_kwargs={"max_read": 4096}).boot()
+    rig.step(0.6)
+    stall(rig, 40.0, target_at=20.0, target=echo(28))
+    assert len(rig.port._deliverable()) > 20_000  # ~22 kB queued, five reads' worth
+    rig.driver.poll()
+    c = rig.ch("outer_left")
+    assert (c.status, c.distance_cm, c.verdict) == (ChannelStatus.OK, 28.0, Verdict.OBSTACLE)
+    assert all(x.age_ms < 400 for x in rig.driver.snapshot())
+    assert rig.driver.stats.readings > 500 and rig.driver.stats.readings_stale_mcu == 0
+    assert rig.driver.obstacle_verdict()["state"] == "obstacle"
+
+
+async def test_a_backlog_that_one_poll_cannot_drain_is_still_aged_by_the_mcu_clock():
+    # 64-byte reads and at most MAX_DRAIN_READS reads per poll: ~4 kB per poll, ~6 polls to drain
+    rig = await Rig(sensors=[echo(200)] * 4, factory_kwargs={"max_read": 64}).boot()
+    rig.step(0.6)
+    stall(rig, 40.0, target_at=20.0, target=echo(28))
+    seen = []
+    for _ in range(12):
+        rig.driver.poll()
+        seen.append(rig.ch("outer_left"))
+    assert seen[0].status is ChannelStatus.STALE and not seen[0].valid
+    assert seen[0].age_ms > 20_000, "the first poll holds data from ~29 s ago"
+    # a valid reading is only ever the CURRENT state, never the old 200 cm
+    assert all(c.distance_cm == 28.0 for c in seen if c.valid)
+    assert seen[-1].valid and seen[-1].verdict is Verdict.OBSTACLE and seen[-1].age_ms < 400
+
+
+def test_frames_drained_in_one_poll_are_dated_by_their_own_mcu_timestamps():
+    clock, port, driver, _ = scripted_active()
+    steady(clock, port, driver, 1.0)
+    assert driver.snapshot()[0].valid
+    clock.advance(40.0)  # the event loop stalls; the MCU's next three frames queue up
+    for behind in (39.9, 39.8, 39.7):
+        port.reading(sensor=0, t_ms=mcu_ms(clock, behind_s=behind))
+    driver.poll()
+    c = driver.snapshot()[0]
+    assert c.status is ChannelStatus.STALE and not c.valid and c.verdict is Verdict.UNKNOWN
+    assert 39_500 < c.age_ms < 39_900
+    assert 39.0 < (clock.wall() - c.timestamp).total_seconds() < 40.0
+    assert c.as_dict()["measured_mono"] == pytest.approx(clock.now() - c.age_ms / 1000, abs=0.01)
+    port.reading(sensor=0, t_ms=mcu_ms(clock))  # the newest frame of the backlog is fresh
+    driver.poll()
+    c = driver.snapshot()[0]
+    assert c.valid and c.age_ms < 20
+    assert c.as_dict()["measured_mono"] == pytest.approx(clock.now(), abs=0.01)
+
+
+def test_a_reading_older_than_the_newest_by_more_than_a_cycle_is_rejected_and_counted():
+    clock, port, driver, _ = scripted_active()  # default cycle: 4 * (30 + 30) = 240 ms
+    steady(clock, port, driver, 1.0, sensors=(0,))  # only outer_left has reported
+    n = driver.stats.readings
+    port.reading(sensor=1, t_ms=mcu_ms(clock, behind_s=0.3))  # 60 ms beyond a cycle
+    port.reading(sensor=1, t_ms=mcu_ms(clock, behind_s=5.0))
+    driver.poll()
+    assert driver.stats.readings_stale_mcu == 2 and driver.stats.readings == n
+    assert driver.snapshot()[1].status is ChannelStatus.NO_DATA  # neither was applied
+    port.reading(sensor=1, t_ms=mcu_ms(clock, behind_s=0.2))  # inside a cycle: slightly late
+    driver.poll()
+    c = driver.snapshot()[1]
+    assert c.valid and 190 <= c.age_ms <= 215  # accepted, and dated by its own timestamp
+    assert driver.stats.readings_stale_mcu == 2 and driver.stats.readings == n + 1
+
+
+def test_a_duplicated_or_replayed_frame_on_a_channel_is_rejected_and_counted():
+    clock, port, driver, _ = scripted_active()
+    steady(clock, port, driver, 1.0)
+    n, rejected = driver.stats.readings, driver.stats.readings_stale_mcu
+    port.reading(sensor=2, t_ms=mcu_ms(clock))  # the very same measurement again
+    driver.poll()
+    assert (driver.stats.readings, driver.stats.readings_stale_mcu) == (n, rejected + 1)
+    port.reading(sensor=2, t_ms=mcu_ms(clock, behind_s=0.05))  # older than its last, within a cycle
+    driver.poll()
+    assert (driver.stats.readings, driver.stats.readings_stale_mcu) == (n, rejected + 2)
+    seen = []
+    driver.reading_hook = lambda r, wall: seen.append(r)
+    port.reading(sensor=2, t_ms=mcu_ms(clock))
+    driver.poll()
+    assert seen == [], "a rejected frame never reaches the reading hook"
+
+
+def test_the_uint32_mcu_clock_wraps_without_breaking_freshness_or_ordering():
+    clock, port, driver, _ = scripted_active()
+    base = 2**32 - 3000  # the MCU is 3 s away from wrapping to 0
+
+    def mcu(behind_s: float = 0.0) -> int:
+        return (base + round((clock.now() - 1000.0 - behind_s) * 1000)) & 0xFFFFFFFF
+
+    for _ in range(80):  # 3 s before the wrap and 5 s after it
+        clock.advance(0.1)
+        port.reading(sensor=0, t_ms=mcu())
+        driver.poll()
+        c = driver.snapshot()[0]
+        assert c.valid and c.age_ms < 50, f"t={clock.now() - 1000:.1f}s"
+    assert driver.stats.readings == 80 and driver.stats.readings_stale_mcu == 0
+    port.reading(sensor=1, t_ms=mcu(behind_s=9.0))  # from before the wrap: old, not "future"
+    driver.poll()
+    assert driver.stats.readings_stale_mcu == 1
+    assert driver.snapshot()[1].status is ChannelStatus.NO_DATA
+
+
+def test_a_new_boot_id_resets_the_mcu_clock_baseline():
+    clock, port, driver, _ = scripted_active()
+    steady(clock, port, driver, 1.0)  # the MCU clock reads ~501 s
+    port.info(boot_id=8)  # the MCU rebooted: its clock restarts near zero
+    clock.advance(0.1)
+    driver.poll()
+    assert driver.link_state is LinkState.HANDSHAKE and driver.stats.mcu_resets == 1
+    port.ack(driver.expected_mcu_config())
+    clock.advance(0.1)
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE
+    for k in range(5):
+        clock.advance(0.1)
+        port.reading(sensor=0, t_ms=200 + 100 * k)
+        driver.poll()
+    c = driver.snapshot()[0]
+    assert c.valid and c.age_ms < 50 and driver.stats.readings_stale_mcu == 0
+
+
+def test_a_reconnect_resets_the_mcu_clock_baseline():
+    clock, port, driver, opens = scripted_active()
+    steady(clock, port, driver, 1.0)
+    port.broken = OSError("device reports readiness to read but returned no data")
+    clock.advance(0.1)
+    driver.poll()  # unplugged
+    assert driver.link_state is LinkState.DISCONNECTED
+    port.broken = None
+    port.inbox.clear()
+    clock.advance(0.3)
+    driver.poll()  # reconnects to a freshly booted MCU
+    assert len(opens) == 2 and driver.link_state is LinkState.HANDSHAKE
+    port.info(boot_id=9)
+    driver.poll()
+    port.ack(driver.expected_mcu_config())
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE
+    clock.advance(0.1)
+    port.reading(sensor=0, t_ms=150)  # a restarted clock
+    driver.poll()
+    assert driver.snapshot()[0].valid and driver.stats.readings_stale_mcu == 0
+
+
+async def test_initialising_again_after_a_stop_accepts_a_restarted_mcu_clock():
+    clock, port, driver, opens = scripted_active()
+    steady(clock, port, driver, 1.0)  # the MCU clock reads ~501 s
+    await driver.stop()
+    port.inbox.clear()
+    port.info(boot_id=9)  # a freshly booted MCU answers the new handshake at once
+    port.ack(driver.expected_mcu_config())
+    await driver.initialize()
+    assert len(opens) == 2 and driver.link_state is LinkState.ACTIVE
+    for k in range(3):
+        clock.advance(0.1)
+        for sensor in range(4):
+            port.reading(sensor=sensor, t_ms=200 + 100 * k)  # its clock started over
+        driver.poll()
+    assert all(c.valid and c.age_ms < 50 for c in driver.snapshot())
+    assert driver.stats.readings_stale_mcu == 0
+
+
+def test_a_frame_split_across_two_polls_is_reassembled():
+    clock, port, driver, _ = scripted_active()
+    payload = fw.pack_reading(0, 0, 0, 0, 5828, 1, 5000)
+    frame = proto.encode_frame(proto.FrameType.READING, 9, payload)
+    port.inbox += frame[:9]
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.readings == 0
+    port.inbox += frame[9:]
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.readings == 1 and driver.snapshot()[0].valid
+
+
+@pytest.mark.parametrize("ppm", [-400, 400], ids=["mcu_clock_slow", "mcu_clock_fast"])
+def test_clock_drift_within_the_allowance_never_makes_fresh_data_look_old(ppm):
+    clock, port, driver, _ = scripted_active()
+    mcu, worst = float(MCU_BASE_MS), 0
+    for _ in range(3000):  # ten minutes of 200 ms polls; the two clocks disagree by 400 ppm
+        clock.advance(0.2)
+        mcu += 200.0 * (1 + ppm * 1e-6)
+        port.reading(sensor=0, t_ms=round(mcu))
+        driver.poll()
+        c = driver.snapshot()[0]
+        assert c.valid
+        worst = max(worst, c.age_ms)
+    assert worst < 50
+
+
+# ---- US-06: the running MCU configuration is verified continuously -----------------------------
+
+
+def test_an_ordinary_heartbeat_is_not_drift_but_another_enable_mask_drops_to_the_handshake():
+    clock, port, driver, opens = scripted_active()
+    steady(clock, port, driver, 0.5)
+    port.info(mask=15)  # an ordinary heartbeat
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.config_drifts == 0 and port.types().count(proto.FrameType.CONFIG) == 1
+    assert driver.link_state is LinkState.ACTIVE
+    port.info(mask=0b0111)  # someone masked outer_right off
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.config_drifts == 1 and driver.link_state is LinkState.HANDSHAKE
+    assert port.types().count(proto.FrameType.CONFIG) == 2  # CONFIG re-sent on the same port
+    assert driver.link_fault.startswith("config_drift")
+    assert all(c.status is ChannelStatus.LINK_DOWN for c in driver.snapshot())
+    port.reading(sensor=0, t_ms=mcu_ms(clock))
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.readings_ignored == 1  # not trusted until re-verified
+    port.ack(driver.expected_mcu_config())
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE and driver.link_fault is None
+    assert all(c.status is ChannelStatus.NO_DATA for c in driver.snapshot())  # nothing survived
+    assert driver.stats.link_losses == 0 and len(opens) == 1  # and no reconnect storm
+
+
+def test_a_config_ack_nobody_asked_for_is_drift_and_one_that_matches_is_ignored():
+    clock, port, driver, opens = scripted_active()
+    wanted = driver.expected_mcu_config()
+    port.ack(wanted)  # a duplicate of our own acknowledgement
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE and driver.stats.config_drifts == 0
+    port.ack(proto.McuConfig(wanted.enable_mask, 10, 5, wanted.quiet_after))  # another writer
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.stats.config_drifts == 1 and driver.link_state is LinkState.HANDSHAKE
+    assert port.types().count(proto.FrameType.CONFIG) == 2
+    resent = proto.McuConfig(*struct.unpack("<BHHB", port.sent[-1].payload))
+    assert resent == wanted  # the host asks for ITS configuration again
+    assert driver.stats.link_losses == 0 and len(opens) == 1
+
+
+async def test_a_second_writer_that_reconfigures_the_mcu_is_noticed_and_undone():
+    # reviewer exp e9: a probe / second SensorManager writes CONFIG(10 ms window, 5 ms gap)
+    rig = await booted()
+    other = proto.McuConfig(enable_mask=0b1111, echo_window_ms=10, gap_ms=5, quiet_after=8)
+    rig.port.write(proto.encode_frame(proto.FrameType.CONFIG, 9, proto.build_config(other)))
+    rig.step(1.5)
+    assert rig.driver.stats.config_drifts == 1 and rig.driver.stats.link_losses == 0
+    assert len(rig.factory.opens) == 1
+    assert (rig.port.core.window_ms, rig.port.core.gap_ms) == (30, 30)  # restored
+    assert rig.driver.link_state is LinkState.ACTIVE and all(c.valid for c in rig.driver.snapshot())
+
+
+def test_the_default_transport_is_opened_exclusively(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from backend.src.drivers.sensors.jsn_sr04t_driver import open_pyserial
+
+    seen: list[dict] = []
+
+    class FakeSerial:
+        def __init__(self, **kwargs):
+            seen.append(kwargs)
+
+    monkeypatch.setitem(sys.modules, "serial", SimpleNamespace(Serial=FakeSerial))
+    open_pyserial("/dev/ttyACM9", 115200)
+    assert seen == [
+        dict(port="/dev/ttyACM9", baudrate=115200, timeout=0, write_timeout=0.2, exclusive=True)
+    ]
+
+
+def test_a_second_opener_is_refused_and_reported_not_allowed_to_split_the_stream(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    class SerialException(OSError):
+        pass
+
+    class Locked:
+        def __init__(self, **kwargs):
+            assert kwargs.get("exclusive") is True
+            raise SerialException(11, "Could not exclusively lock port /dev/ttyACM9: [Errno 11]")
+
+    monkeypatch.setitem(sys.modules, "serial", SimpleNamespace(Serial=Locked))
+    clock = FakeClock()
+    driver = JsnSr04tMcuDriver(  # no serial_factory: the real default transport
+        UltrasonicConfig(port="/dev/ttyACM9"),
+        clock=clock.now, wall_clock=clock.wall, sleep=clock.sleep, simulate=False,
+    )  # fmt: skip
+    driver.poll()
+    assert driver.link_state is LinkState.DISCONNECTED and driver.stats.connect_failures == 1
+    assert driver.last_error.startswith("open_failed:") and "exclusively lock" in driver.last_error
+    assert driver.link_fault == driver.last_error
+    assert all(c.status is ChannelStatus.LINK_DOWN for c in driver.snapshot())
+
+
+def test_a_real_tty_cannot_be_opened_twice_by_the_default_transport():
+    import os
+    import pty
+
+    serial = pytest.importorskip("serial")
+    from backend.src.drivers.sensors.jsn_sr04t_driver import open_pyserial
+
+    master, slave = pty.openpty()
+    try:
+        path = os.ttyname(slave)
+        first = open_pyserial(path, 115200)
+        with pytest.raises(serial.SerialException):
+            open_pyserial(path, 115200)
+        first.close()
+        open_pyserial(path, 115200).close()  # released: the next owner can open it
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
+# ---- D17 / D26 / D37: blanking on reboot and link loss, and the handshake deadline -------------
+
+
+def test_an_mcu_reboot_blanks_every_channel_until_fresh_readings_arrive():
+    clock, port, driver, _ = scripted_active()
+    steady(clock, port, driver, 0.5)
+    assert all(c.valid for c in driver.snapshot())
+    port.info(boot_id=8)  # the MCU rebooted
+    clock.advance(0.02)
+    driver.poll()
+    port.ack(driver.expected_mcu_config())
+    clock.advance(0.02)
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE
+    assert all(c.status is ChannelStatus.NO_DATA and c.timestamp is None for c in driver.snapshot())
+
+
+def test_a_lost_link_blanks_every_channel_until_fresh_readings_arrive():
+    clock, port, driver, opens = scripted_active()
+    steady(clock, port, driver, 0.5)
+    port.broken = OSError("device reports readiness to read but returned no data")
+    clock.advance(0.1)
+    driver.poll()
+    port.broken = None
+    port.inbox.clear()
+    clock.advance(0.3)
+    driver.poll()  # reconnect after the 0.25 s backoff, well inside the 700 ms stale limit
+    port.info(boot_id=7)
+    driver.poll()
+    port.ack(driver.expected_mcu_config())
+    driver.poll()
+    assert driver.link_state is LinkState.ACTIVE and len(opens) == 2
+    assert all(c.status is ChannelStatus.NO_DATA for c in driver.snapshot())
+
+
+def test_info_heartbeats_do_not_extend_the_handshake_deadline():
+    clock, port, driver, _ = scripted_rig(handshake_timeout_s=1.0)
+    driver.poll()  # port open, HELLO sent
+    lost_at = None
+    for i in range(1, 150):  # the MCU heartbeats every 0.4 s but never acknowledges CONFIG
+        clock.advance(0.02)
+        if i % 20 == 0:
+            port.info()
+        driver.poll()
+        if lost_at is None and driver.stats.link_losses:
+            lost_at = i * 0.02
+    assert lost_at is not None and lost_at <= 1.1
+    assert driver.last_error == "handshake_timeout"

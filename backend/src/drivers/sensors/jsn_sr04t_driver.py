@@ -18,6 +18,10 @@ Fail-closed rules (all tested with a fake serial port and the real firmware core
 * An echo closer than ``min_range_cm`` is the blind zone: UNKNOWN, never a distance and never clear.
 * Disabled channels (not fitted) are excluded from the aggregate; a channel the host expects but
   the MCU reports disabled is a FAULT, not "excluded".
+* Silence right after a NEAR echo (closer than ``NEAR_ECHO_FACTOR`` times the stop threshold) is
+  the dead zone, not open air: BLIND_ZONE / UNKNOWN for ``near_hold_s`` or until a far echo is
+  heard, whatever the ``*_is_clear`` policy flags say. Only a complete, non-near echo pulse is
+  proof of life (never NO_FALL, never a 0 us width).
 
 Every number in :class:`~backend.src.models.hardware_config.UltrasonicConfig` is an unvalidated
 placeholder until audit measurement M-40.
@@ -28,12 +32,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 import random
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -56,6 +59,15 @@ HELLO_RETRY_S = 1.0
 PARTIAL_FRAME_TIMEOUT_S = 0.1
 #: An echo longer than this cannot be physical (1 s of flight is about 170 m).
 MAX_SANE_ECHO_US = 1_000_000
+#: An echo closer than this many stop thresholds (or blind-zone lines, whichever is larger) is
+#: NEAR: if the channel then goes silent, the object may have entered the sensor's dead zone.
+NEAR_ECHO_FACTOR = 2.0
+#: Most read() calls one poll() makes: it drains what the port holds so no backlog is left behind,
+#: but a babbling port can never keep it spinning.
+MAX_DRAIN_READS = 64
+#: Relative drift between the host's and the MCU's clock that the age estimate tolerates (NTP
+#: slew plus two crystals); a backlog that grows slower than this is not detectable, nor harmful.
+MCU_CLOCK_DRIFT = 5e-4
 #: Seconds between simulated measurement cycles.
 SIM_CYCLE_S = 0.12
 _SIM_BASE_CM = (150.0, 200.0, 200.0, 180.0)
@@ -78,10 +90,16 @@ SerialFactory = Callable[[str, int], SerialTransport]
 
 
 def open_pyserial(port: str, baudrate: int) -> SerialTransport:
-    """Default transport. ``pyserial`` is imported here, never at module import."""
+    """Default transport. ``pyserial`` is imported here, never at module import.
+
+    Opened exclusively (advisory ``flock``, pyserial >= 3.3): a second opener that asks for
+    exclusivity too (the bench probe, another ``SensorManager``) fails with a reported
+    ``open_failed`` instead of splitting the byte stream. A process that ignores the lock is not
+    stopped by it.
+    """
     import serial  # type: ignore
 
-    return serial.Serial(port=port, baudrate=baudrate, timeout=0, write_timeout=0.2)
+    return serial.Serial(port=port, baudrate=baudrate, timeout=0, write_timeout=0.2, exclusive=True)
 
 
 class LinkState(StrEnum):
@@ -94,7 +112,9 @@ class LinkState(StrEnum):
 class ChannelStatus(StrEnum):
     OK = "ok"  # fresh echo inside [min_range, max_range]
     STALE = "stale"
-    BLIND_ZONE = "blind_zone"  # echo closer than min_range: something may be right in front
+    #: an echo closer than min_range, or silence right after a NEAR echo (the dead zone): either
+    #: way something may be right in front
+    BLIND_ZONE = "blind_zone"
     NO_ECHO = "no_echo"  # silent line
     OUT_OF_RANGE = "out_of_range"  # pulse beyond max range (or longer than the echo window)
     FAULT = "fault"
@@ -111,7 +131,7 @@ class Verdict(StrEnum):
 
 
 class Health(StrEnum):
-    OK = "ok"  # produced an echo pulse recently
+    OK = "ok"  # newest real echo pulse is a far one, not older than alive_window_s: proof of life
     SILENT = "silent"  # no pulse inside alive_window_s: open air or dead, indistinguishable
     STALE = "stale"
     FAULT = "fault"
@@ -130,13 +150,16 @@ class ChannelReading:
     valid: bool  # True only for a fresh in-range echo
     distance_cm: float  # 0.0 unless valid
     echo_us: int | None
-    timestamp: datetime | None  # host receive time of the measurement
+    timestamp: datetime | None  # when the MEASUREMENT was taken, on the host's wall clock
     age_ms: int | None
     health: Health
     alive: bool
     verdict: Verdict
     clear_to_cm: float | None
     fails: int
+    #: the same instant on the driver's monotonic clock (None if the channel never reported); a
+    #: consumer that must not trust the wall clock ages an entry as ``clock() - measured_mono``
+    measured_mono: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -153,6 +176,7 @@ class ChannelReading:
             "clear_to_cm": self.clear_to_cm,
             "echo_us": self.echo_us,
             "fails": self.fails,
+            "measured_mono": self.measured_mono,
         }
 
 
@@ -167,9 +191,15 @@ class _Channel:
     fails: int = 0
     cycle: int = 0
     t_ms: int = 0
-    measured_at: float | None = None  # host monotonic time the last real measurement arrived
+    #: host monotonic time of the last real measurement, dated by the MCU's own clock
+    measured_at: float | None = None
     measured_wall: datetime | None = None
     pulse_at: float | None = None  # host monotonic time of the last real echo pulse
+    mcu_ms: int | None = None  # unwrapped MCU t_ms of the last accepted reading (replay guard)
+    #: Host monotonic time of the last real echo that was NEAR (closer than twice the stop
+    #: threshold), None once a far echo has been heard. Deliberately NOT cleared by ``clear()``:
+    #: an object that was right in front before a link blip is still right in front after it.
+    near_at: float | None = None
 
     def clear(self) -> None:
         self.status = None
@@ -179,6 +209,7 @@ class _Channel:
         self.measured_at = None
         self.measured_wall = None
         self.pulse_at = None
+        self.mcu_ms = None
 
 
 @dataclass(slots=True)
@@ -199,6 +230,8 @@ class LinkStats:
     bad_length: int = 0
     garbage_bytes: int = 0
     partial_timeouts: int = 0
+    readings_stale_mcu: int = 0  # readings refused: older than the MCU's newest, or a replay
+    config_drifts: int = 0  # the MCU ran a configuration other than the verified one (US-06)
 
 
 def echo_to_cm(echo_us: float, speed_of_sound_mps: float) -> float:
@@ -208,6 +241,12 @@ def echo_to_cm(echo_us: float, speed_of_sound_mps: float) -> float:
 
 def cm_to_echo_us(distance_cm: float, speed_of_sound_mps: float) -> int:
     return round(distance_cm * 20000.0 / speed_of_sound_mps)
+
+
+def mcu_delta(new: int, ref: int) -> int:
+    """Signed milliseconds from ``ref`` to ``new`` on the MCU's wrapping uint32 clock."""
+    d = (new - ref) & 0xFFFFFFFF
+    return d - (1 << 32) if d >= 1 << 31 else d
 
 
 def evaluate_channel(
@@ -220,7 +259,15 @@ def evaluate_channel(
     """Turn what the MCU last said about one channel into status, validity and verdict."""
     age_s = None if ch.measured_at is None else max(0.0, now - ch.measured_at)
     age_ms = None if age_s is None else int(age_s * 1000)
-    alive = ch.pulse_at is not None and (now - ch.pulse_at) <= cfg.alive_window_s
+    # Proof of life: the newest real echo pulse is recent and was NOT a near one (a pulse from
+    # something right in front says nothing about open air). NO_FALL and 0 us are no echo at all.
+    alive = (
+        ch.pulse_at is not None
+        and ch.near_at is None
+        and (now - ch.pulse_at) <= cfg.alive_window_s
+    )
+    # Silence right after a NEAR echo is the dead zone talking, not open air (US-01).
+    near_hold = ch.near_at is not None and (now - ch.near_at) <= cfg.near_hold_s
 
     def make(status, health, verdict, *, valid=False, dist=0.0, clear_to=None):
         return ChannelReading(
@@ -237,6 +284,7 @@ def evaluate_channel(
             verdict=verdict,
             clear_to_cm=clear_to,
             fails=ch.fails,
+            measured_mono=ch.measured_at,
         )
 
     if not ch.enabled:
@@ -256,15 +304,17 @@ def evaluate_channel(
         if dist < cfg.min_range_cm:
             return make(ChannelStatus.BLIND_ZONE, Health.OK, Verdict.UNKNOWN)
         if dist > cfg.max_range_cm:
-            return _out_of_range(cfg, make, alive)
+            return _out_of_range(cfg, make, alive, near_hold)
         if dist <= threshold_cm:
             return make(ChannelStatus.OK, Health.OK, Verdict.OBSTACLE, valid=True, dist=dist)
         return make(
             ChannelStatus.OK, Health.OK, Verdict.CLEAR, valid=True, dist=dist, clear_to=dist
         )
     if s is proto.EchoStatus.NO_FALL:
-        return _out_of_range(cfg, make, alive)
+        return _out_of_range(cfg, make, alive, near_hold)
     if s is proto.EchoStatus.NO_EDGE:
+        if near_hold:
+            return make(ChannelStatus.BLIND_ZONE, Health.SILENT, Verdict.UNKNOWN)
         health = Health.OK if alive else Health.SILENT
         if cfg.no_echo_is_clear and (alive or not cfg.no_echo_requires_alive):
             return make(ChannelStatus.NO_ECHO, health, Verdict.CLEAR, clear_to=cfg.max_range_cm)
@@ -273,7 +323,11 @@ def evaluate_channel(
     return make(ChannelStatus.FAULT, Health.FAULT, Verdict.UNKNOWN)
 
 
-def _out_of_range(cfg: UltrasonicConfig, make: Callable[..., ChannelReading], alive: bool):
+def _out_of_range(
+    cfg: UltrasonicConfig, make: Callable[..., ChannelReading], alive: bool, near_hold: bool
+):
+    if near_hold:
+        return make(ChannelStatus.BLIND_ZONE, Health.SILENT, Verdict.UNKNOWN)
     if cfg.out_of_range_is_clear and alive:
         return make(ChannelStatus.OUT_OF_RANGE, Health.OK, Verdict.CLEAR, clear_to=cfg.max_range_cm)
     return make(ChannelStatus.OUT_OF_RANGE, Health.OK if alive else Health.SILENT, Verdict.UNKNOWN)
@@ -283,38 +337,39 @@ def sector_distances(readings: list[dict[str, Any]]) -> dict[str, Any]:
     """Map per-channel entries onto the three sectors the AI model input and datasets use.
 
     Four JSN-SR04T (MCU order ``outer_left, inner_left, inner_right, outer_right``): left is
-    ``outer_left``, right is ``outer_right`` and centre is the nearer valid one of the two inner
-    sensors. The legacy HC-SR04 ids ``front_left/front_center/front_right`` map one to one. A
-    sector without a fresh valid echo is 0.0: the AI path reads 0.0 as an obstacle at 0 cm, which
-    keeps it fail-closed (audit N-25). ``min_distance_cm`` is the nearest valid echo, 0.0 if none.
+    ``outer_left``, right is ``outer_right`` and centre is the nearer of the two inner sensors. The
+    legacy HC-SR04 ids ``front_left/front_center/front_right`` map one to one. Fail closed (audit
+    N-25: the AI path reads 0.0 as an obstacle at 0 cm): a sector reads 0.0 unless EVERY fitted
+    channel feeding it has a fresh valid echo, so the centre needs BOTH inner sensors and a dead
+    or blind channel is never hidden by its healthy neighbour; a sector with no fitted channel
+    reads 0.0. ``min_distance_cm`` is the nearest valid echo, but 0.0 as soon as any fitted
+    channel is invalid (and when none is fitted). Disabled (not fitted) channels do not count.
     The 3-sector input contract is the existing model's; it is not validated for four sensors.
     """
-    valid = {
-        r["sensor_id"]: float(r["distance_cm"])
-        for r in readings
-        if r.get("valid") and r.get("sensor_id")
-    }
+    rows = {r["sensor_id"]: r for r in readings if r.get("sensor_id")}
+    disabled = {s for s, r in rows.items() if "disabled" in (r.get("verdict"), r.get("status"))}
+    fitted = [s for s in rows if s not in disabled]
+    valid = {s: float(rows[s]["distance_cm"]) for s in fitted if rows[s].get("valid")}
 
-    def pick(*ids: str) -> float:
-        found = [valid[i] for i in ids if i in valid]
-        return min(found) if found else 0.0
+    def sector(*ids: str) -> float:
+        feeding = [i for i in ids if i not in disabled]
+        if not feeding or any(i not in valid for i in feeding):
+            return 0.0
+        return min(valid[i] for i in feeding)
 
-    if any(
-        r.get("sensor_id") in ("outer_left", "inner_left", "inner_right", "outer_right")
-        for r in readings
-    ):
+    if any(s in ("outer_left", "inner_left", "inner_right", "outer_right") for s in rows):
         left, centre, right = (
-            pick("outer_left"),
-            pick("inner_left", "inner_right"),
-            pick("outer_right"),
+            sector("outer_left"),
+            sector("inner_left", "inner_right"),
+            sector("outer_right"),
         )
     else:
-        left, centre, right = pick("front_left"), pick("front_center"), pick("front_right")
+        left, centre, right = sector("front_left"), sector("front_center"), sector("front_right")
     return {
         "front_left_cm": left,
         "front_center_cm": centre,
         "front_right_cm": right,
-        "min_distance_cm": min(valid.values()) if valid else 0.0,
+        "min_distance_cm": min(valid.values()) if fitted and len(valid) == len(fitted) else 0.0,
         "channels_cm": [float(r["distance_cm"]) if r.get("valid") else 0.0 for r in readings],
     }
 
@@ -370,6 +425,16 @@ class JsnSr04tMcuDriver(HardwareDriver):
         self._sim_last = -1e9
         self._sim_cycle = 0
         self._last_ping_nonce: int | None = None
+        # MCU clock bookkeeping (US-05). READING.t_ms is uint32 ms on the MCU's clock and wraps.
+        # ``_mcu_top`` is the newest unwrapped t_ms accepted on this link, ``_clock_off`` the host
+        # monotonic time of MCU time zero (the lowest ``receive time - t_ms`` seen, see _place).
+        self._cycle_ms = (cfg.echo_window_ms + cfg.inter_sensor_gap_ms) * len(cfg.channels)
+        self._mcu_top: int | None = None
+        self._clock_off: float | None = None
+        self._clock_off_at = 0.0
+        #: True after ``stop()`` / ``close()``: ``poll()`` then never (re)opens the port, so a late
+        #: caller cannot leave a port open that nobody will close. ``initialize()`` clears it.
+        self._closed = False
         #: Optional observer called with ``(proto.Reading, wall datetime)`` for every accepted
         #: reading frame (used by ``scripts/ultrasonic_mcu_probe.py`` to log raw echo widths for
         #: audit M-40). A raising hook is logged and ignored: it must never disturb ingestion.
@@ -378,10 +443,9 @@ class JsnSr04tMcuDriver(HardwareDriver):
     # ---- lifecycle -------------------------------------------------------------------------
 
     async def initialize(self) -> None:
+        self._closed = False
         self.simulated = (
-            self._simulate_arg
-            if self._simulate_arg is not None
-            else (is_simulation_mode() or os.environ.get("SIM_MODE") == "1")
+            self._simulate_arg if self._simulate_arg is not None else is_simulation_mode()
         )
         if self.simulated:
             self.link_state = LinkState.ACTIVE
@@ -403,6 +467,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
 
     async def stop(self) -> None:
         self.running = False
+        self._closed = True
         task, self._task = self._task, None
         if task is not None and not task.done():
             task.cancel()
@@ -425,6 +490,8 @@ class JsnSr04tMcuDriver(HardwareDriver):
 
     def poll(self) -> None:
         """One non-blocking service step: connect if needed, read, dispatch, supervise."""
+        if self._closed:
+            return
         if self.simulated:
             self._poll_sim()
             return
@@ -456,6 +523,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
             return
         self._decoder.reset()
         self._rx_seq = None
+        self._reset_mcu_clock()
         self._boot_id = None
         self._last_rx = None
         self.info = None
@@ -468,8 +536,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
         transport = self._transport
         assert transport is not None
         try:
-            waiting = transport.in_waiting
-            data = transport.read(waiting) if waiting else b""
+            data = self._drain(transport)
         except Exception as exc:  # SerialException / OSError: the device went away
             self._link_lost(now, f"read_error: {exc}")
             return
@@ -480,6 +547,20 @@ class JsnSr04tMcuDriver(HardwareDriver):
             if self._transport is None:
                 break
             self._on_frame(frame, now, wall)
+
+    @staticmethod
+    def _drain(transport: SerialTransport) -> bytes:
+        """Everything the port holds right now, so no backlog is left to be read (stale) later."""
+        chunks: list[bytes] = []
+        for _ in range(MAX_DRAIN_READS):
+            waiting = transport.in_waiting
+            if not waiting:
+                break
+            chunk = transport.read(waiting)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     def _sync_decoder_stats(self) -> None:
         d = self._decoder
@@ -549,8 +630,12 @@ class JsnSr04tMcuDriver(HardwareDriver):
             logger.warning("ultrasonic MCU rebooted (reset reason %d)", info.reset_reason)
             for ch in self._channels:
                 ch.clear()
+            self._reset_mcu_clock()
         if self.link_state is LinkState.ACTIVE and not rebooted:
-            return  # heartbeat
+            wanted = self.expected_mcu_config().enable_mask
+            if info.enable_mask == wanted:
+                return  # heartbeat
+            self._config_drift(f"INFO enable_mask 0x{info.enable_mask:02x}, want 0x{wanted:02x}")
         self._send_config(now)
 
     def _send_config(self, now: float) -> None:
@@ -574,8 +659,28 @@ class JsnSr04tMcuDriver(HardwareDriver):
             quiet_after=DEFAULT_QUIET_AFTER,
         )
 
+    def _config_drift(self, why: str) -> None:
+        """The MCU is not running the configuration the host verified (a second opener wrote it).
+
+        The caller drops back to the handshake (CONFIG is re-sent on the same port, no reconnect);
+        readings are ignored until it is acknowledged again, and nothing from before survives.
+        """
+        self.stats.config_drifts += 1
+        self.last_error = self.link_fault = f"config_drift: {why}"
+        logger.warning("ultrasonic MCU configuration drifted (%s): re-sending CONFIG", why)
+        for ch in self._channels:
+            ch.clear()
+
     def _on_config_ack(self, ack: proto.McuConfig, now: float) -> None:
-        if self.link_state is not LinkState.HANDSHAKE or self._requested is None:
+        if self._requested is None:
+            return
+        if self.link_state is LinkState.ACTIVE:
+            # A CONFIG_ACK nobody here asked for: someone else wrote the MCU's configuration.
+            if ack != self._requested:
+                self._config_drift(f"CONFIG_ACK {ack}, requested {self._requested}")
+                self._send_config(now)
+            return
+        if self.link_state is not LinkState.HANDSHAKE:
             return
         if ack != self._requested:
             self._set_fault(f"config_mismatch: asked {self._requested}, mcu applied {ack}")
@@ -602,12 +707,54 @@ class JsnSr04tMcuDriver(HardwareDriver):
             return
         self._ingest(r, now, wall)
 
+    def _reset_mcu_clock(self) -> None:
+        """Forget the MCU clock baseline (new connection or MCU boot: its clock starts over)."""
+        self._mcu_top = None
+        self._clock_off = None
+        for ch in self._channels:
+            ch.mcu_ms = None  # the same coordinate system: the last timestamps mean nothing now
+
+    def _place(self, t_ms: int, ch: _Channel, now: float) -> float | None:
+        """Date a reading on the host's monotonic timeline using the MCU's own clock (US-05).
+
+        ``t_ms`` is the MCU clock at the end of the measurement. The host keeps the lowest
+        ``receive time - t_ms`` it has seen (its best-case latency; it creeps up by the worst
+        clock drift so a slow MCU clock cannot make fresh data look old) and dates every reading
+        ``t_ms`` after that: a backlog of old frames drained in one poll is as old as the MCU says,
+        not "just received". Returns None for a frame that is out of order by more than one
+        measurement cycle, or not newer than its own channel's last one (replayed, duplicated).
+
+        Known limit: a CRC-valid but corrupted frame with a wild ``t_ms`` poisons the baseline until
+        the next reconnect or MCU boot; readings then age out (fail closed, counted in
+        ``stats.readings_stale_mcu``). The odds are about one in 65536 per corrupted READING.
+        """
+        top = self._mcu_top
+        u = t_ms if top is None else top + mcu_delta(t_ms, top)
+        if top is not None and u < top - self._cycle_ms:
+            return None
+        if ch.mcu_ms is not None and u <= ch.mcu_ms:
+            return None
+        self._mcu_top = u if top is None else max(top, u)
+        sample = now - u / 1000.0
+        if self._clock_off is None:
+            off = sample
+        else:
+            creep = MCU_CLOCK_DRIFT * max(0.0, now - self._clock_off_at)
+            off = min(self._clock_off + creep, sample)
+        self._clock_off, self._clock_off_at = off, now
+        ch.mcu_ms = u
+        return min(now, off + u / 1000.0)
+
     def _ingest(self, r: proto.Reading, now: float, wall: datetime) -> None:
         if r.sensor >= len(self._channels):
             self.stats.bad_readings += 1
             return
-        self.stats.readings += 1
         ch = self._channels[r.sensor]
+        measured_at = self._place(r.t_ms, ch, now)
+        if measured_at is None:
+            self.stats.readings_stale_mcu += 1
+            return
+        self.stats.readings += 1
         try:
             status = proto.EchoStatus(r.status)
         except ValueError:
@@ -619,12 +766,15 @@ class JsnSr04tMcuDriver(HardwareDriver):
         ch.fails = r.fails
         ch.cycle = r.cycle
         ch.t_ms = r.t_ms
-        ch.measured_at = now
-        ch.measured_wall = wall
-        if status is proto.EchoStatus.NO_FALL or (
-            status is proto.EchoStatus.OK and 0 < r.echo_us <= MAX_SANE_ECHO_US
-        ):
-            ch.pulse_at = now
+        ch.measured_at = measured_at
+        ch.measured_wall = wall - timedelta(seconds=now - measured_at)
+        if status is proto.EchoStatus.OK and 0 < r.echo_us <= MAX_SANE_ECHO_US:
+            # A complete echo pulse is the only proof of life (NO_FALL is no echo: a line stuck
+            # high looks the same). Remember whether it came from something right in front.
+            ch.pulse_at = measured_at
+            near_line_cm = NEAR_ECHO_FACTOR * max(self.cfg.min_range_cm, self.obstacle_threshold_cm)
+            near = echo_to_cm(r.echo_us, self.cfg.speed_of_sound_mps) < near_line_cm
+            ch.near_at = measured_at if near else None
         if self.reading_hook is not None:
             try:
                 self.reading_hook(r, wall)
@@ -679,6 +829,7 @@ class JsnSr04tMcuDriver(HardwareDriver):
 
     def close(self) -> None:
         """Release the port without the async lifecycle (scripts that only ``poll()``)."""
+        self._closed = True
         self._close_transport()
         if not self.simulated:
             self.link_state = LinkState.DISCONNECTED
@@ -711,7 +862,15 @@ class JsnSr04tMcuDriver(HardwareDriver):
             else:
                 status, echo = proto.EchoStatus.OK, cm_to_echo_us(dist, self.cfg.speed_of_sound_mps)
             self._ingest(
-                proto.Reading(ch.index, status, 0, 0, echo, self._sim_cycle & 0xFFFF, 0),
+                proto.Reading(
+                    ch.index,
+                    status,
+                    0,
+                    0,
+                    echo,
+                    self._sim_cycle & 0xFFFF,
+                    round(now * 1000) & 0xFFFFFFFF,
+                ),
                 now,
                 wall,
             )

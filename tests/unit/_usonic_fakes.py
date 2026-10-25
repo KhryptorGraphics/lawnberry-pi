@@ -349,3 +349,52 @@ def drop(frame: bytes) -> None:
 
 def with_garbage(frame: bytes) -> bytes:
     return b"\x00\xa5\x13\x7f\xa5" + frame
+
+
+# ---- scripted sensors and the guard's wall clock ----------------------------------------------
+
+ST_OK, ST_NO_EDGE, ST_NO_FALL = P.ST_OK, P.ST_NO_EDGE, P.ST_NO_FALL
+
+
+def us(cm: float) -> int:
+    """Echo pulse width in microseconds of a target at ``cm`` (the host driver's arithmetic)."""
+    return round(cm * 20000.0 / SPEED_OF_SOUND)
+
+
+def scripted(*steps: tuple[int, int]) -> SensorModel:
+    """A sensor that plays ``(status, echo_us)`` steps, one per measurement; the last repeats."""
+    return SensorModel(mode="script", script=list(steps))
+
+
+def approach_then_silence() -> SensorModel:
+    """A wall approached 100 -> 60 -> 35 -> 28 cm, then no echo for good (reviewer exp e1/e1b)."""
+    return scripted(
+        *[(ST_OK, us(100))] * 3, *[(ST_OK, us(60))] * 3, *[(ST_OK, us(35))] * 3,
+        *[(ST_OK, us(28))] * 2, (ST_NO_EDGE, 0),
+    )  # fmt: skip
+
+
+class _DatetimeMeta(type):
+    def __instancecheck__(cls, obj) -> bool:
+        return isinstance(obj, datetime)
+
+
+def patch_guard_wall_clock(monkeypatch, clock: FakeClock) -> None:
+    """Make ``obstacle_stop``'s wall clock follow ``clock``.
+
+    The guard ages an ultrasonic entry from its ISO timestamp against ``datetime.now(UTC)``; the
+    entries of a driver on a ``FakeClock`` carry that clock's wall time, so the guard has to read
+    the same one. ``raising=False``: the guard module may stop using ``datetime`` altogether.
+    """
+    from backend.src.safety import obstacle_stop
+
+    class FakeDatetime(metaclass=_DatetimeMeta):
+        @staticmethod
+        def now(tz=None) -> datetime:
+            return clock.wall()
+
+        @staticmethod
+        def fromisoformat(text: str) -> datetime:
+            return datetime.fromisoformat(text)
+
+    monkeypatch.setattr(obstacle_stop, "datetime", FakeDatetime, raising=False)

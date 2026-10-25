@@ -147,3 +147,84 @@ def test_a_broken_block_fails_the_load_instead_of_being_half_applied(tmp_path):
 def test_absent_blocks_leave_the_typed_config_unset_so_runtime_defaults_apply(tmp_path):
     hardware = load(tmp_path, {"motor_controller": "robohat-rp2040"})
     assert hardware.ultrasonic_config is None and hardware.ibt4_config is None
+
+
+# ---- US-07: no limit may switch a protection off ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"min_range_cm": 0.001},  # a blind zone of 0 is no blind zone
+        {"min_range_cm": 9.9},
+        {"min_range_cm": float("nan")},
+        {"min_range_cm": float("inf")},
+        {"max_range_cm": float("nan")},
+        {"max_range_cm": float("inf")},
+        {"speed_of_sound_mps": float("nan")},
+        {"stale_after_ms": 10**9},  # staleness that never fires
+        {"stale_after_ms": 5001},
+        {"link_timeout_ms": 10**9},  # link supervision that never fires
+        {"link_timeout_ms": 10001},
+        {"alive_window_s": 1e9},  # a sensor that is "alive" for ever
+        {"alive_window_s": 60.1},
+        {"alive_window_s": float("inf")},
+        {"alive_window_s": float("nan")},
+        {"handshake_timeout_s": 1e9},
+        {"handshake_timeout_s": float("inf")},
+        {"near_hold_s": 4.9},
+        {"near_hold_s": 601.0},
+        {"near_hold_s": float("nan")},
+        {"near_hold_s": float("inf")},
+        {"echo_window_ms": 100, "inter_sensor_gap_ms": 500},  # 2400 ms cycle vs stale 700 ms
+    ],
+)
+def test_ultrasonic_limits_that_would_disable_a_protection_are_refused(bad):
+    with pytest.raises(ValidationError):
+        UltrasonicConfig(**bad)
+
+
+def test_stale_after_must_exceed_one_full_cycle_by_a_margin():
+    # 4 channels * (30 + 30) ms = 240 ms per cycle; the margin is 100 ms
+    UltrasonicConfig(stale_after_ms=340)
+    with pytest.raises(ValidationError, match="measurement cycle"):
+        UltrasonicConfig(stale_after_ms=339)
+    slow = {"echo_window_ms": 100, "inter_sensor_gap_ms": 500}  # legal, but a 2400 ms cycle
+    UltrasonicConfig(stale_after_ms=2500, **slow)
+    with pytest.raises(ValidationError, match="measurement cycle"):
+        UltrasonicConfig(stale_after_ms=2499, **slow)
+
+
+def test_the_edges_of_the_new_bounds_are_accepted():
+    UltrasonicConfig(
+        min_range_cm=10.0, stale_after_ms=5000, link_timeout_ms=10000, alive_window_s=60.0,
+        handshake_timeout_s=30.0, near_hold_s=5.0,
+    )  # fmt: skip
+    UltrasonicConfig(near_hold_s=600.0)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -5.0, 0.0, 9.99])
+def test_the_ultrasonic_stop_distance_must_be_finite_and_sensible(bad):
+    from backend.src.models.safety_limits import SafetyLimits
+
+    with pytest.raises(ValidationError):
+        SafetyLimits(ultrasonic_obstacle_distance_cm=bad)
+
+
+@pytest.mark.parametrize("good", [10.0, 30.0, 45.0])
+def test_sensible_ultrasonic_stop_distances_are_accepted(good):
+    from backend.src.models.safety_limits import SafetyLimits
+
+    limits = SafetyLimits(ultrasonic_obstacle_distance_cm=good)
+    assert limits.ultrasonic_obstacle_distance_cm == good
+
+
+def test_both_shipped_config_files_still_load_and_keep_their_policy():
+    hardware, limits = ConfigLoader(config_dir=str(REPO_CONFIG)).load()
+    cfg = hardware.ultrasonic_config
+    assert cfg is not None and UltrasonicConfig(**cfg.model_dump()) == cfg  # valid under the bounds
+    assert (cfg.stale_after_ms, cfg.link_timeout_ms, cfg.handshake_timeout_s) == (700, 1500, 2.0)
+    assert (cfg.alive_window_s, cfg.min_range_cm, cfg.near_hold_s) == (10.0, 25.0, 30.0)
+    assert (cfg.out_of_range_is_clear, cfg.no_echo_is_clear) == (False, False)
+    assert cfg.no_echo_requires_alive is True
+    assert limits.ultrasonic_obstacle_distance_cm == 30.0 and limits.ultrasonic_enabled is False
