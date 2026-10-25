@@ -40,6 +40,22 @@ class HangingSocket(FakeSocket):
         await asyncio.Event().wait()
 
 
+class GatedSocket(FakeSocket):
+    """A socket whose close parks until the test lets it go (Starlette's TestClient queues the
+    frame after an anyio checkpoint, a real transport after a write: both are a point where the
+    task that is closing the socket can be cancelled)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = asyncio.Event()
+        self.gate = asyncio.Event()
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        self.entered.set()
+        await self.gate.wait()
+        self.closed.append((code, reason))
+
+
 class BrokenSocket(FakeSocket):
     async def close(self, code: int = 1000, reason: str | None = None) -> None:
         raise RuntimeError('Cannot call "send" once a close message has been sent.')
@@ -221,6 +237,27 @@ async def test_release_stops_the_timer():
     await asyncio.sleep(0.2)
     assert watcher.cancelled() or watcher.done()
     assert socket.closed == [], "a socket that was already given back must not be closed"
+    assert slot.watcher is None
+
+
+async def test_a_close_the_timer_has_started_survives_the_handlers_release():
+    """The review-3 race, found by the full suite hanging: Starlette marks a socket closed BEFORE
+    it queues the close frame, so the handler's next send fails at once, its ``finally`` hands the
+    slot back and ``release`` cancels the timer that is in the middle of the close. The close must
+    still complete, or the peer is never told 1008 (the TestClient then waits for ever; a real
+    client sees an abnormal closure instead of the policy code)."""
+    registry = WsRegistry()
+    socket, slot = _bind(registry, "s", GatedSocket())
+    registry.watch_expiry(
+        slot, Session(None).seconds_left
+    )  # the session is gone at the first check
+    await asyncio.wait_for(socket.entered.wait(), timeout=2)  # the timer is inside the close
+    assert socket.closed == [] and slot.closing
+
+    registry.release(slot)  # what the handler's ``finally`` does
+    socket.gate.set()  # the transport now takes the frame
+    assert await _eventually(lambda: socket.closed)
+    assert socket.closed == [(1008, "session ended")]
     assert slot.watcher is None
 
 

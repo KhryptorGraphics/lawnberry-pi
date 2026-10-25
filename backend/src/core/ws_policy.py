@@ -430,7 +430,10 @@ class WsRegistry:
         return None
 
     def release(self, slot: WsSlot) -> None:
-        """Give a slot back (idempotent) and stop its expiry timer."""
+        """Give a slot back (idempotent) and stop its expiry timer.
+
+        A close the timer has already started still finishes (see :meth:`_watch_expiry`).
+        """
         with self._lock:
             if slot.released:
                 return
@@ -543,7 +546,12 @@ class WsRegistry:
                 logger.exception("WebSocket session check failed: closing the socket")
                 left = None
             if left is None or left <= 0:
-                await self.close_slot(slot)
+                # The close is shielded: Starlette marks the socket closed BEFORE it queues the
+                # frame, so the handler's next send fails at once, its ``finally`` gives the slot
+                # back and :meth:`release` cancels THIS task in the middle of the close. A close
+                # that was started must still finish, or the peer never hears the 1008 (the
+                # TestClient then waits for ever; a real client sees an abnormal closure).
+                await asyncio.shield(self.close_slot(slot))
                 return
             await asyncio.sleep(min(max(left, _EXPIRY_RECHECK_MIN_S), EXPIRY_RECHECK_MAX_S))
 

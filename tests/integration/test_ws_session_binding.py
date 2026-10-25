@@ -24,6 +24,7 @@ import asyncio
 import json
 import logging
 import secrets
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -133,9 +134,45 @@ def refused(client, url: str, **kwargs) -> WebSocketDenialResponse:
     return denied.value
 
 
+def _within(read, timeout: float, what: str):
+    """Run one blocking TestClient read with a deadline.
+
+    The TestClient waits for ever for a frame that never comes (a close frame that was lost made
+    the whole suite hang once), so every read runs in a helper thread that is given up on after
+    ``timeout``: the test fails with ``what`` instead. The abandoned thread ends when the fixture's
+    portal is closed.
+    """
+    outcome: list[tuple[bool, object]] = []
+
+    def run() -> None:
+        try:
+            outcome.append((True, read()))
+        except BaseException as exc:  # WebSocketDisconnect, or the portal going away
+            outcome.append((False, exc))
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if not outcome:
+        pytest.fail(f"{what}: nothing arrived within {timeout:g} s")
+    ok, value = outcome[0]
+    if not ok:
+        raise value  # type: ignore[misc]
+    return value
+
+
+def recv_json(ws, timeout: float = 10.0):
+    return _within(ws.receive_json, timeout, "receive_json")
+
+
+def recv_text(ws, timeout: float = 10.0) -> str:
+    return _within(ws.receive_text, timeout, "receive_text")  # type: ignore[return-value]
+
+
 def close_code(ws, route: str, *, deadline_s: float = 6.0) -> int:
     """The close code the server sends, polling with a frame the route answers (or, for the status
-    stream, just reading its frames). Never blocks past ``deadline_s``: an open socket fails."""
+    stream, just reading its frames). Never blocks past ``deadline_s``: an open socket, or a close
+    frame that never arrives, fails."""
     ping = (
         {"type": "ping"}
         if route in (TELEMETRY, CONTROL, LEGACY_TELEMETRY, LEGACY_CONTROL)
@@ -147,7 +184,11 @@ def close_code(ws, route: str, *, deadline_s: float = 6.0) -> int:
             if ping is not None:
                 ws.send_json(ping)
                 time.sleep(0.1)
-            ws.receive_json()
+            _within(
+                ws.receive_json,
+                max(0.5, end - time.monotonic()),
+                f"{route}: no frame and no close frame",
+            )
         except WebSocketDisconnect as closed:
             return closed.code
     pytest.fail(f"{route}: the socket is still open {deadline_s} s after its session ended")
@@ -190,7 +231,7 @@ def test_a_logout_closes_every_socket_of_the_session_and_only_those(world):
         assert world.registry.bound_count(session_id_of(world, mine)) == 3
         assert world.client.post(LOGOUT, headers=mine, json={}).status_code == 200
         assert [close_code(ws, route) for route, _ctx, ws in sockets] == [1008, 1008, 1008]
-        assert "battery_percentage" in bystander.receive_json(), "another login's socket stays"
+        assert "battery_percentage" in recv_json(bystander), "another login's socket stays"
         bystander_ctx.__exit__(None, None, None)
     finally:
         for _route, ctx, _ws in reversed(sockets):
@@ -224,7 +265,7 @@ def test_a_refresh_extends_the_session_and_the_socket_stays(world):
         end = time.monotonic() + 3.2  # well past the old expiry
         frames = 0
         while time.monotonic() < end:
-            assert "battery_percentage" in ws.receive_json()
+            assert "battery_percentage" in recv_json(ws)
             frames += 1
         assert frames >= 5, "the socket was cut at the OLD expiry although the session was extended"
         assert world.client.post(LOGOUT, headers=headers, json={}).status_code == 200
@@ -261,10 +302,10 @@ def test_the_simulator_opt_ins_throw_away_session_is_not_bound(world, monkeypatc
     monkeypatch.setenv("LAWN_BERRY_SIM_OPEN_AUTH", "1")
     headers = login(world)
     with world.client.websocket_connect(STATUS) as ws:  # no credential: the opt-in admits it
-        assert "battery_percentage" in ws.receive_json()
+        assert "battery_percentage" in recv_json(ws)
         assert world.registry._bound == {} and world.registry.snapshot()["open"] == 1
         assert world.client.post(LOGOUT, headers=headers, json={}).status_code == 200
-        assert "battery_percentage" in ws.receive_json(), "a logout must not close this socket"
+        assert "battery_percentage" in recv_json(ws), "a logout must not close this socket"
 
 
 def test_an_anonymous_socket_is_not_bound(world, monkeypatch):
@@ -273,7 +314,7 @@ def test_an_anonymous_socket_is_not_bound(world, monkeypatch):
     with world.client.websocket_connect(STATUS) as ws:
         assert world.registry._bound == {}
         assert world.client.post(LOGOUT, headers=headers, json={}).status_code == 200
-        assert "battery_percentage" in ws.receive_json()
+        assert "battery_percentage" in recv_json(ws)
 
 
 def test_a_socket_closed_before_it_is_accepted_gives_its_slot_back(world, monkeypatch):
@@ -412,9 +453,9 @@ def test_junk_from_the_operators_address_does_not_starve_the_operators_handshake
     assert refused(world.client, STATUS, headers=junk(41)).status_code == 429
     for _ in range(3):
         with world.client.websocket_connect(f"{STATUS}?ticket={ticket(world, headers)}") as ws:
-            assert "battery_percentage" in ws.receive_json()
+            assert "battery_percentage" in recv_json(ws)
     with world.client.websocket_connect(STATUS, headers=headers) as ws:  # a bearer, too
-        assert "battery_percentage" in ws.receive_json()
+        assert "battery_percentage" in recv_json(ws)
 
 
 def test_another_peer_is_not_limited_by_this_peers_junk(world):
@@ -446,7 +487,7 @@ def test_a_refused_handshake_does_not_burn_the_ticket(world):
     assert spare in auth_router._ws_tickets, "a 429 must not redeem the ticket"
     world.clock.now += 1.0
     with world.client.websocket_connect(f"{STATUS}?ticket={spare}") as ws:
-        assert "battery_percentage" in ws.receive_json()
+        assert "battery_percentage" in recv_json(ws)
 
 
 def test_a_flood_of_refusals_is_one_line_per_peer_per_minute_with_the_count(world, caplog):
@@ -490,7 +531,7 @@ def test_operator_auth_off_alone_does_not_open_any_socket(world, monkeypatch, ro
     monkeypatch.setenv(ANONYMOUS_TELEMETRY_ENV, "any")  # only the explicit opt-in opens one
     if route not in (CONTROL, LEGACY_CONTROL):
         with world.client.websocket_connect(route) as ws:
-            assert json.loads(ws.receive_text())
+            assert json.loads(recv_text(ws))
     else:
         with world.client.websocket_connect(route) as ws:  # auth is off: nothing to enforce
-            assert json.loads(ws.receive_text())["event"] == "connection.established"
+            assert json.loads(recv_text(ws))["event"] == "connection.established"
