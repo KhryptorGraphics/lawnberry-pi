@@ -178,3 +178,22 @@ async def test_a_full_flag_with_intact_counts_is_not_the_commanded_pulse(chip, o
 
     chip.regs[base + 1], chip.regs[base + 3] = counts_on_h, counts_off_h
     await driver.verify_pwm_us(0, 1500)
+
+
+# ------------------------------------------------------------------------ P06: MODE2 output drive
+
+
+@pytest.mark.parametrize("left", [0x00, 0x10, 0x14], ids=["open-drain", "inverted", "both"])
+async def test_initialize_puts_the_outputs_back_to_totem_pole_whatever_the_chip_was_left_in(
+    chip, left
+):
+    """P06: the MODE2 write was never asserted. A chip that kept its registers across a backend
+    restart (or came from another program) may be open-drain or inverted: every servo pulse would
+    then be wrong although MODE1, PRESCALE and the LED registers all read back as expected."""
+    chip.regs[0x01] = left  # MODE2: OUTDRV (0x04) clear = open-drain, INVRT (0x10) = inverted
+
+    driver = PCA9685Driver({"address": 0x41})
+    await driver.initialize()
+
+    assert driver.is_ready()
+    assert chip.regs[0x01] == 0x04, "totem-pole, not inverted"
