@@ -2738,3 +2738,7 @@ Merged `fix4/blade`, `fix4/usonic`, `fix4/tool`, `fix4/nav`, `fix4/gnss`, `fix4/
 
 Verification (merged tip, official command with `pytest-timeout` on `PYTHONPATH` because the shared venv does not have it, counts read from the junit XML): **6182 collected, 6155 passed, 27 skipped, 0 failed, 0 errors**. Without the plugin the 3 tests of `test_suite_hang_bounds.py` that need it fail with a message saying so (owner item: install `pytest-timeout` in the shared venv). `ruff check backend tests scripts workshop firmware` and `ruff format --check .` clean (571 files); `scripts/sync_code_structure.py --check --base origin/main` current; frontend `npm test`: 37 files, 665 tests passed.
 
+
+#### Update 2026-10-25 10:23 CDT (integrator): compile progress is not a usable ETA
+
+Block 45 of 116 finished at 11:56:07 elapsed, 2 h 17 min after block 44 (9:38:49); blocks 39-44 had taken 5 to 10 min each. The V100 is used only by this compile (`nvidia-smi --query-compute-apps`: PID 1454206, 12.9 GB); the box CPU is shared with other users' jobs (load average 10 to 16); the training rate at the time of the check was a normal 140 batches/s. The cause of the slow block was not determined. Earlier figures in this section and in the PR comments ("about 6 h left") were the progress bar's instantaneous estimate and are withdrawn: no end time can be given. At block 45 the compile has produced no HEF.
