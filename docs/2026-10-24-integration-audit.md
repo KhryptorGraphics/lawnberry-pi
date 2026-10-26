@@ -2754,3 +2754,18 @@ The Pi answered on `kp@10.8.0.2` (hostname `pi5`, `lawnberry-backend` active) at
 #### Update 2026-10-25 18:26 CDT (integrator): workshop box back, compile survived
 
 `192.168.1.53` answered again at 18:26 CDT (uptime 1 day 11:36, so it was a network outage, not a reboot; unreachable from 15:36 CDT, about 2 h 50 min). The compile process (pid 1454206) is alive at 20 h 11 min elapsed, at block 83 of 116 (`Adaround 72%`, `19:59:11` elapsed; the progress bar's ETA of 4 h 32 min is the last block's rate and is not reliable, see the 10:23 note). The 16:26 note that the compile state was unknown is superseded. No `sdgv1v2` HEF exists yet in `data/hailo/compiled/`.
+
+#### Update 2026-10-26 01:45 CDT (integrator): T5 compile finished, HEF exists (gate not decided)
+
+The DALI compile (`hailomz compile yolo26s`, opt level 4 + adaround, V100, `--tag sdgv1v2`) ended with rc=0 at 01:41 CDT after about 27 h; Adaround reached block 116 of 116 at 26 h 29 min.
+
+| Artifact | Value |
+|---|---|
+| HEF | `data/hailo/compiled/yolo26s_sdgv1v2.hef`, 26 787 974 bytes, sha256 `c478ff45b6a0c2edeaa982db058f57c33d0f56d800fa4f4cfa89b52b56b8dc4f` |
+| Sidecar | `yolo26s_sdgv1v2.json` (24 classes, input 640, conf 0.25, max_det 100, DFC 3.34.0, model zoo 2.19.1), sha256 `3df467fd20eb2bfd8d8c4b48b0640a3be3e6ce08dcfcf61f90af40ef3a460953` |
+| Source model | `models/yolo26s_sdgv1v2/weights/best.onnx`, sha256 `0def74af0e8627c83d22eeb7d264532fb3bd13b69284cc679a81bb3ac27d8ba5` |
+| Pi bundle | `data/hailo/pi-bundle-sdgv1v2.tar`, 120 268 800 bytes, sha256 `1b973328eb52e8170557e442647a4ab9fb6570d9ab606b0100025d724f4b885f` (on the workshop box only; not copied to the Pi) |
+
+**Gate: not decided.** The post-train script's HAR emulation eval returned rc=3 at 01:41 (the gate cannot decide: the SDG val split has too few tier-1 ground-truth boxes, person 63, pet 70, wildlife 30 against a floor of 150, the same reason the ONNX baseline run was rc=3). That eval is DFC emulation, not a device measurement. A whole-val HAR emulation eval (measure plus `--baseline`, no `--gate`, about 100 s per image) was started by the chain at 01:43 and had not finished at the time of this note. There is no per-class ONNX-vs-HEF table yet.
+
+**On-Pi HEF gate: not run.** `scripts/eval_detector.py --backend hef --gate` on the Pi is under the T4 rules (after the owner merges #19), and the Pi's Hailo is used by the live camera service. Nothing was copied to or run on the Pi. The live `detector.hef` (zoo COCO) is untouched; replacing it needs a passing gate and the owner's approval.
