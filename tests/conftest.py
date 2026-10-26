@@ -26,6 +26,62 @@ def pytest_ignore_collect(collection_path, config):  # pragma: no cover - hook s
         return False
 
 
+# Tests that open an anonymous WebSocket. With the simulation opt-in off the server refuses them
+# (WebSocketDenialResponse), which is the behaviour, not a defect of the test: they stay in the
+# default run and are skipped in a strict one. tests/unit/test_conftest_isolation.py checks that
+# every entry is a real test, so the list cannot go stale unnoticed.
+NEEDS_SIM_OPEN_AUTH = frozenset(
+    {
+        "tests/contract/test_websocket_api.py::test_websocket_telemetry_hub_connection",
+        "tests/contract/test_websocket_api.py::test_websocket_telemetry_data_structure",
+        "tests/contract/test_websocket_api.py::test_websocket_cadence_control",
+        "tests/contract/test_websocket_api.py::test_websocket_ping_pong",
+        "tests/integration/test_ws_tickets_and_proxy_peer.py::test_with_operator_auth_off_the_control_socket_keeps_its_old_behaviour",
+        "tests/unit/test_status_reports_real_safety_state.py::test_the_status_websocket_frame_carries_the_real_safety_block",
+        "tests/unit/test_websocket_auth.py::test_websocket_accepts_requested_subprotocol",
+        "tests/unit/test_websocket_auth.py::test_legacy_websocket_accepts_requested_subprotocol",
+    }
+)
+
+# Fail in a FULL strict run only, after earlier tests, and pass alone (reviewer's run and this
+# branch's: a navigation singleton keeps a hold or a monitor some earlier strict-mode test left;
+# which test is not found). Marked xfail (not strict) in a strict run so the run says so and a
+# fix shows up as XPASS; they are real tests in the default run.
+ORDER_DEPENDENT_IN_STRICT = frozenset(
+    {
+        "tests/unit/test_gps_degradation.py::test_lifespan_wires_the_real_gnss_monitor_into_navigation_and_its_hold",
+        "tests/unit/test_jobs_execution.py::test_scheduled_mow_job_runs_via_mission_pipeline",
+    }
+)
+
+
+def _sim_open_auth_is_on() -> bool:
+    return os.environ.get("LAWN_BERRY_SIM_OPEN_AUTH", "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip the tests that need the anonymous simulation admission when it is switched off."""
+    if _sim_open_auth_is_on():
+        return
+    skip = pytest.mark.skip(
+        reason="opens an anonymous WebSocket, which only LAWN_BERRY_SIM_OPEN_AUTH=1 admits"
+    )
+    leaked = pytest.mark.xfail(
+        reason="order-dependent in a full strict run (state left by an earlier test, audit S-B)",
+        strict=False,
+    )
+    for item in items:
+        if item.nodeid in NEEDS_SIM_OPEN_AUTH:
+            item.add_marker(skip)
+        elif item.nodeid in ORDER_DEPENDENT_IN_STRICT:
+            item.add_marker(leaked)
+
+
 # Ensure repository root on sys.path for 'backend' imports and compat stubs
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -61,12 +117,90 @@ os.environ.setdefault("SIM_MODE", "1")
 # Operator auth on write endpoints is secure-by-default in production; disable it
 # for the suite so existing contract tests can call writes without a token.
 os.environ.setdefault("OPERATOR_AUTH_REQUIRED", "0")
+# SIM_MODE alone no longer makes the login accept any non-empty credential or admits any
+# WebSocket client as an operator (SEC-10, backend/src/core/auth_posture.py): that needs this
+# explicit opt-in as well. Tests that log in use the `operator_credential` fixture, never a
+# made-up value, so the strict path is exercised for real (`LAWN_BERRY_SIM_OPEN_AUTH=0 pytest ...`).
+# The tests in NEEDS_SIM_OPEN_AUTH below connect as an ANONYMOUS WebSocket client, which only the
+# opt-in admits (a peer needs a ticket since SEC20-02), so they are skipped, with that reason,
+# when it is off. Two more, ORDER_DEPENDENT_IN_STRICT, fail in a full strict run after earlier
+# tests and pass alone; that leak is not found (audit TOOL3-08, S-B), so they are marked xfail
+# there, not hidden. Everything else passes strict. setdefault, so a run can override it.
+os.environ.setdefault("LAWN_BERRY_SIM_OPEN_AUTH", "1")
+# There is no built-in operator credential (backend/src/core/credential_policy.py). The suite
+# configures an explicit one before the backend is imported; tests that log in take it from
+# the `operator_credential` fixture instead of hard-coding a value. Forced, not setdefault:
+# a developer's real credential must never leak into a test run.
+TEST_OPERATOR_CREDENTIAL = "test-operator-credential"
+os.environ["LAWN_BERRY_OPERATOR_CREDENTIAL"] = TEST_OPERATOR_CREDENTIAL
 os.environ.setdefault("GLOBAL_RATE_LIMIT_RATE", "1000")
 os.environ.setdefault("GLOBAL_RATE_LIMIT_BURST", "10000")
 os.environ.setdefault("AUTH_RATE_LIMIT_WINDOW", "60")
 os.environ.setdefault("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "1000")
 os.environ.setdefault("AUTH_LOCKOUT_FAILURES", "1000")
 os.environ.setdefault("AUTH_LOCKOUT_SECONDS", "0")
+
+
+# ---- process-wide state that one test must not leave for the next ----------------------------
+# Two singletons keep state that decides a later test's outcome, so the suite passed only in
+# its default order (audit review of PR #20, "order-dependent tests"; found with
+# scripts/run_tests_shuffled.py, which is how to check this block still holds):
+#
+# * `auth_service` (backend/src/services/auth_service.py, the facade the auth-level unit tests
+#   use) counts failed logins per user in `_failed_attempts`; five failures lock the user out
+#   ("Too many attempts"), so test_password_authentication_* failed whenever the tests that fail
+#   logins ran before them.
+# * `/control/emergency` arms a 0.2 s drive-block window (`rest._emergency_until`) and a 0.3 s
+#   per-client one (`_client_emergency`); a legacy `/control/drive` test that started inside it
+#   got "403 Emergency stop active" after any E-stop test.
+#
+# Only modules the test run has already imported are touched: a reset must not import the
+# backend for a test that never uses it. tests/unit/test_conftest_isolation.py proves the reset
+# and fails when the facade grows state this does not reset.
+def reset_shared_backend_state() -> None:
+    """Put the auth facade's counters and the E-stop drive-block window back to their start."""
+    auth = sys.modules.get("backend.src.services.auth_service")
+    if auth is not None:
+        facade = auth.auth_service
+        facade._failed_attempts.clear()
+        facade.active_sessions.clear()
+        facade._invalidated_session_ids.clear()
+        facade._initialized = False
+        facade.config = auth.AuthSecurityConfig()
+    rest = sys.modules.get("backend.src.api.rest")
+    if rest is not None:
+        rest._emergency_until = 0.0
+        rest._client_emergency.clear()
+    _clear_rate_limit_buckets()
+
+
+def _clear_rate_limit_buckets() -> None:
+    """Empty the global limiter's per-client buckets.
+
+    The per-prefix overrides are deliberately strict (``/control/blade`` is 8 req/s, burst 20) and
+    every test client is the same anonymous peer, so without this a route's own tests drain the
+    bucket for whichever test runs next and get a 429 that has nothing to do with what it tests.
+    """
+    main = sys.modules.get("backend.src.main")
+    layer = getattr(getattr(main, "app", None), "middleware_stack", None)
+    for _ in range(64):  # the middleware stack is a linked chain: walk it, bounded
+        if layer is None:
+            return
+        buckets = getattr(layer, "_buckets", None)
+        if type(layer).__name__ == "GlobalRateLimiter" and isinstance(buckets, dict):
+            buckets.clear()
+        layer = getattr(layer, "app", None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_backend_state():
+    reset_shared_backend_state()
+
+
+@pytest.fixture
+def reset_shared_state():
+    """The reset the autouse fixture above runs, for a test that wants to call it itself."""
+    return reset_shared_backend_state
 
 
 @pytest.fixture(scope="session")
@@ -113,3 +247,56 @@ async def test_client():
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+
+
+@pytest.fixture
+def operator_credential() -> str:
+    """The explicit operator credential the suite configures (there is no built-in one)."""
+    return TEST_OPERATOR_CREDENTIAL
+
+
+@pytest.fixture(autouse=True)
+def _isolated_latch_file(tmp_path, monkeypatch):
+    """Every test gets its own durable-latch file (audit SAF-16).
+
+    An E-stop persists its latch to disk and the next start-up restores it: without this a
+    stop in one test would be restored by the next test's lifespan (or the next session's).
+    """
+    monkeypatch.setenv("LAWNBERRY_LATCH_FILE", str(tmp_path / "emergency_latch.json"))
+
+
+@pytest.fixture(autouse=True)
+def _stale_heading_does_not_leak_between_tests():
+    """The process-wide NavigationService must not carry one test's IMU stamp into the next.
+
+    The heading gate (audit SAF-14) holds autonomous motion once the heading is older than a
+    couple of seconds, which is the point of it. A test that fed one IMU reading must not leave
+    the singleton to age into a hold for every test that follows.
+    """
+    # Lazy on purpose: a test that never touches the backend must not get it imported by a
+    # fixture (see tests/unit/test_conftest_isolation.py), so reset only what is already loaded.
+    module = sys.modules.get("backend.src.services.navigation_service")
+    nav = getattr(getattr(module, "NavigationService", None), "_instance", None)
+    if nav is not None:
+        nav.navigation_state.heading_updated_at = None
+        nav._last_imu_stamp = None
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _process_latches_do_not_leak_between_tests():
+    """A latch one test set in the process-wide state must not be in force for the next.
+
+    The status routes report the real safety state (audit SAF-13), so an E-stop or an IBT-4
+    blade latch an earlier test left set (the E-stop routes) would now show up in every later
+    status read; the safety state and the blade service are rebuilt for each test instead.
+    """
+    # Lazy for the same reason as above: only modules a test has already imported can hold state.
+    core_globals = sys.modules.get("backend.src.core.globals")
+    if core_globals is not None:
+        core_globals._safety_state["emergency_stop_active"] = False
+        core_globals._client_emergency.clear()
+    blade = sys.modules.get("backend.src.services.blade_service")
+    if blade is not None:
+        blade._blade_service = None
+    yield

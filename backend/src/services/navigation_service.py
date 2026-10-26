@@ -6,11 +6,14 @@ Path planning, navigation, and sensor fusion with safety constraints
 import asyncio
 import logging
 import math
-import os
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any, Optional
 
+from ..core.simulation import is_simulation_mode
 from ..models import (
     NavigationMode,
     NavigationState,
@@ -22,6 +25,8 @@ from ..models import (
 )
 from ..nav.location_features import CoverageMap
 from ..nav.path_planner import PathPlanner
+from ..safety import stop_events
+from ..safety.obstacle_stop import ObstacleStatus, limit_pair
 from .robohat_service import get_robohat_service
 
 logger = logging.getLogger(__name__)
@@ -128,6 +133,103 @@ class DeadReckoningSystem:
         return self.estimated_position
 
 
+NAV_SOURCE = "navigation"  # command-source label for the tractor service (autonomous)
+AI_SOURCE = "ai"
+#: The name under which ``NavigationService.blade_permit`` is attached to the ``BladeService``.
+BLADE_PERMIT_NAME = "navigation_gate"
+AUTONOMOUS_MODES = frozenset(
+    {
+        NavigationMode.AUTO,
+        NavigationMode.AI,
+        NavigationMode.AI_ASSISTED,
+        NavigationMode.RETURN_HOME,
+    }
+)
+
+#: A heading older than this (seconds) is not steered by (audit SAF-14): the loops hold.
+#: UNVALIDATED placeholder: the IMU yaw arrives at several Hz, so two seconds is many missed
+#: readings. Tune on the bench.
+DEFAULT_MAX_HEADING_AGE_S = 2.0
+#: A mission whose drive commands fail this many legs in a row is ended (blade off, neutral)
+#: instead of retrying for ever.
+MAX_CONSECUTIVE_FAILED_LEGS = 25
+#: How long a run's task, told to stop, may take to END BY ITSELF before the platform is stopped
+#: anyway and the task is left to finish (see ``NavigationService.await_unwind``). Such a task is
+#: never cancelled: a cancel releases the actuation lock while its write is still on the bus, and
+#: that write lands after the stop's neutral (audit NAV-02). It is about two control ticks.
+ABORT_UNWIND_TIMEOUT_S = 1.0
+#: A blade-on that failed is not retried more often than this (the RC to USB handshake behind
+#: it can take seconds, and the control loop must keep its period).
+BLADE_RETRY_S = 2.0
+#: An AI run whose model produces output that is not a finite number this many ticks in a row is
+#: ended (blade off, neutral), not held for ever (audit NAV-07). UNVALIDATED: at the 5 Hz AI loop
+#: it is one second of a broken model; tune on the bench.
+MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS = 5
+
+
+def _usable_coordinates(latitude: Any, longitude: Any) -> bool:
+    """Is this a latitude/longitude a leg may steer by: finite numbers on the globe?
+
+    ``min(1.0, nan)`` is ``1.0``: a NaN position turns the proportional controller's heading error
+    into a full-lever pivot (audit NAV-06), so a position that is not a finite coordinate is "no
+    position" to the legs and to the position fusion, whatever produced it.
+    """
+    try:
+        return (
+            math.isfinite(latitude)
+            and math.isfinite(longitude)
+            and abs(latitude) <= 90.0
+            and abs(longitude) <= 180.0
+        )
+    except TypeError:
+        return False
+
+
+class LegResult(StrEnum):
+    """How ``go_to_waypoint`` ended."""
+
+    ARRIVED = "arrived"  # reached the waypoint; the path goes on
+    FINAL = "final"  # reached the last waypoint of the path: the run is complete
+    HALTED = "halted"  # the caller's gate said stop (a plan leg that belongs to no mission)
+    INTERRUPTED = "interrupted"  # the mission was paused or aborted
+    STOPPED = "stopped"  # a safety function stopped the machine while the leg ran
+    REFUSED = "refused"  # the actuators refuse autonomous commands (not authorized, ...)
+    FAILED = "failed"  # a drive command failed
+
+
+@dataclass(frozen=True, slots=True)
+class MotionGate:
+    """The combined safety verdict autonomous motion must obey this tick."""
+
+    hold: bool  # levers neutral, blade off
+    speed_cap_mps: float | None  # forward ground-speed cap; None = no guard attached
+    reasons: tuple[str, ...]
+
+
+class ScriptedOutcome(StrEnum):
+    """How ``NavigationService.drive_scripted`` ended (audit SAF-11)."""
+
+    DONE = "done"  # ran for its whole duration (the last command stays in force briefly)
+    REFUSED = "refused"  # never started: a hold, a stop latch or an autonomous run was in force
+    HELD = "held"  # the safety gate held it: stood down, the step is over
+    STOPPED = "stopped"  # a safety stop happened (E-stop, watchdog, revoke, ...): stood down
+    FAILED = "failed"  # the drive controller refused or failed a command: stood down
+
+
+@dataclass(frozen=True, slots=True)
+class ScriptedDrive:
+    """The result of one scripted drive step."""
+
+    outcome: ScriptedOutcome
+    reasons: tuple[str, ...] = ()
+    ran_s: float = 0.0
+    commands_accepted: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.outcome is ScriptedOutcome.DONE
+
+
 class NavigationService:
     """Main navigation service with sensor fusion and path planning"""
 
@@ -155,8 +257,37 @@ class NavigationService:
         # Autonomous AI inference loop state
         self._ai_task: asyncio.Task | None = None
         self._coverage: CoverageMap | None = None
+        self._ai_epoch: int | None = None  # stop_events epoch when the AI run started
         self._ai_datum: tuple[float, float] | None = None
         self._ai_loop_hz = 5.0  # inference cadence (Hz)
+        self._unusable_predictions = 0  # consecutive AI ticks whose model output was not finite
+
+        # Safety inputs, attached by the lifespan (see attach_safety). None = not gated:
+        # unit/bench configuration only; main.py never serves a mission without them.
+        self.obstacle_guard: Any | None = None  # safety.obstacle_stop.ObstacleGuard
+        self.gps_monitor: Any | None = None  # nav.gps_degradation.GPSDegradationMonitor
+        # Control-loop period of go_to_waypoint (5 Hz); a knob so tests can run the loop fast.
+        self.control_period_s = 0.2
+        self._hold_reasons: tuple[str, ...] | None = None  # set while motion is held
+        # Differential platform blade: what this service last commanded on the RoboHAT blade
+        # output (None = unknown: the next wanted state is sent), and when a blade command
+        # that failed may be tried again.
+        self._robohat_blade_on: bool | None = None
+        self._robohat_blade_retry_at = 0.0
+        # True while execute_mission's loop owns the run (see _update_path_execution).
+        self._mission_loop_active = False
+        # Heading age (audit SAF-14): the limit, and the IMU reading last taken as a new one.
+        self.max_heading_age_s = DEFAULT_MAX_HEADING_AGE_S
+        self._last_imu_stamp: datetime | None = None
+        self._last_gps_stamp: datetime | None = None
+        # Every safety stop ends the autonomous runs of this service (audit SAF-01). Held
+        # weakly: a service that is dropped is not kept alive, or called, by the registry.
+        stop_events.add_listener(self._on_stop_event)
+        self._hold_error_logged = False
+        self._last_hold_assert = 0.0
+        # True while ``drive_scripted`` owns the drive (the IMU calibration manoeuvre): the
+        # obstacle monitor's hold handler stops it exactly like an autonomous run (SAF-11).
+        self._scripted_drive_active = False
 
     _instance: Optional["NavigationService"] = None
 
@@ -172,12 +303,475 @@ class NavigationService:
         self.navigation_state.navigation_mode = NavigationMode.IDLE
         return True
 
+    # ------------------------------ safety gate ------------------------------
+
+    def attach_safety(
+        self, *, obstacle_guard: Any | None = None, gps_monitor: Any | None = None
+    ) -> None:
+        """Attach the safety inputs every autonomous motion path consults.
+
+        ``obstacle_guard`` is a ``safety.obstacle_stop.ObstacleGuard``; ``gps_monitor`` a
+        ``nav.gps_degradation.GPSDegradationMonitor`` (fed from ``update_navigation_state``).
+        Both replace what was attached before, so passing neither detaches both. Without them
+        nothing is gated: that is the unit/bench configuration only, the lifespan always
+        attaches them.
+        """
+        self.obstacle_guard = obstacle_guard
+        self.gps_monitor = gps_monitor
+
+    def autonomy_active(self) -> bool:
+        """True while a loop of this service (a mission, the AI run) is what moves the machine.
+
+        It keys on the loops, never on the mode field (audit NAV-03): the field can say
+        ``return_home`` or ``auto`` with nothing driving (a planned path, a run that ended without
+        resetting it), and every consumer of this answer ACTS on the machine: the GNSS and obstacle
+        hold handlers stand the platform down, the blade permit refuses a blade ON. That is right
+        while a run owns the machine and a seizure of a person's own manual drive and blade when
+        none does.
+        """
+        ai = self._ai_task
+        return self._mission_loop_active or (ai is not None and not ai.done())
+
+    def heading_age_s(self) -> float | None:
+        """Seconds since the IMU measured the current heading, ``None`` when it never did.
+
+        The age comes from the reading's own timestamp (audit SAF-14): a reading the sensor
+        interface replays after the IMU died keeps its old stamp, so a frozen heading ages
+        instead of looking fresh on every call. A stamp in the future counts as that many
+        seconds old: a clock that stepped back must not make a frozen heading look fresh.
+        """
+        stamp = self.navigation_state.heading_updated_at
+        if stamp is None:
+            return None
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=UTC)
+        return abs((datetime.now(UTC) - stamp).total_seconds())
+
+    def _motion_gate(self, *, gnss: bool = True, heading: bool = True) -> "MotionGate":
+        """One verdict from every safety input; a check that cannot run is a hold.
+
+        ``gnss=False`` leaves the GNSS monitor out and ``heading=False`` the heading age: a
+        scripted open-loop drive (the IMU calibration manoeuvre) neither navigates nor steers
+        by the heading, and it exists to make a dead IMU usable. The obstacle guard always
+        counts, whatever moves the machine.
+        """
+        hold = False
+        cap: float | None = None
+        reasons: list[str] = []
+        guard = self.obstacle_guard
+        if guard is not None:
+            try:
+                assessment = guard.assess()
+            except Exception as exc:
+                logger.exception("Obstacle guard failed: holding autonomous motion")
+                hold, cap = True, 0.0
+                reasons.append(f"obstacle guard failed: {exc!r}")
+            else:
+                cap = assessment.speed_cap_mps
+                hold = assessment.hold
+                if assessment.status is not ObstacleStatus.CLEAR:
+                    reasons.extend(assessment.reasons)
+        monitor = self.gps_monitor if gnss else None
+        if monitor is not None:
+            try:
+                fix = monitor.assess()
+            except Exception as exc:
+                logger.exception("GNSS monitor failed: holding autonomous motion")
+                hold, cap = True, 0.0
+                reasons.append(f"gnss monitor failed: {exc!r}")
+            else:
+                if not fix.healthy:
+                    hold, cap = True, 0.0
+                    reasons.extend(f"gnss: {reason}" for reason in fix.reasons)
+        age = self.heading_age_s() if heading else None
+        if age is not None and age > self.max_heading_age_s:
+            # A frozen heading is steered by for ever by a proportional controller: hold.
+            hold, cap = True, 0.0
+            reasons.append(f"heading: stale ({age:.1f}s old, limit {self.max_heading_age_s:.1f}s)")
+        return MotionGate(hold, cap, tuple(reasons))
+
+    def motion_gate(self, *, gnss: bool = True) -> "MotionGate":
+        """The current combined safety verdict (the public face of ``_motion_gate``).
+
+        Read-only status routes use it to report holds as interlocks; calling it has the same
+        side effects as the loops' own gate (the guards advance their dwell clocks), which are
+        meant to be evaluated often.
+        """
+        return self._motion_gate(gnss=gnss)
+
+    def blade_permit(self) -> str | None:
+        """Why the IBT-4 blade must be off right now, else ``None`` (a ``BladeService`` permit).
+
+        While an autonomous run or a scripted drive is what moves the machine, the safety gate's
+        hold (obstacle, GNSS, heading) is a STANDING reason for the blade, read before every ON
+        and on every supervision tick: a client that keeps repeating ON cannot undo the stand-down
+        the hold handlers made (audit round-3 owner decision, SAF-03). In every other state,
+        manual driving included, the blade is the operator's own call, as it is for the motion
+        limiter: that exemption is a policy, kept on purpose.
+        """
+        autonomous = self.autonomy_active()
+        if not (autonomous or self._scripted_drive_active):
+            return None
+        # A scripted open-loop drive leaves the GNSS monitor and the heading age out of its gate
+        # (it neither navigates nor steers by them): the permit judges it by the same inputs.
+        gate = self._motion_gate(gnss=autonomous, heading=autonomous)
+        if not gate.hold:
+            return None
+        return "navigation safety gate holds: " + "; ".join(gate.reasons or ("no reason given",))
+
+    # ---------------------------- stops end autonomous runs ----------------------------
+
+    def _on_stop_event(self, reason: str, source: str) -> None:
+        """``safety.stop_events`` listener: every safety stop ends this service's runs."""
+        self.abort_autonomy(f"{reason} ({source})" if source else reason)
+
+    async def await_unwind(
+        self, *tasks: "asyncio.Future[Any] | None", timeout_s: float | None = None
+    ) -> bool:
+        """Wait, bounded, for run tasks that were told to stop to END; they are never cancelled.
+
+        A run is ended cooperatively (a mission status, the AI mode, ``abort_autonomy``): its loop
+        reads that at the top of its next tick, stands the platform down itself and returns.
+        Cancelling the task instead is what abandoned an actuator write in flight (audit NAV-02):
+        the cancel releases the actuation lock (or the serial lock) while the I2C / serial
+        transfer, which runs in a worker thread, is still on the bus, and that transfer can land
+        AFTER the stop's neutral and leave the machine driving under a state that says neutral.
+        ``timeout_s`` defaults to ``ABORT_UNWIND_TIMEOUT_S``. Returns ``True`` when every task has
+        ended; ``False`` when one is still running at the bound: it is left running (it ends at
+        its next check; every command it still makes is ordered behind the caller's own stop on
+        the actuation lock) and the caller stops the platform regardless. Never raises.
+        """
+        pending = {
+            task
+            for task in tasks
+            if task is not None and not task.done() and task is not asyncio.current_task()
+        }
+        if not pending:
+            return True
+        bound = ABORT_UNWIND_TIMEOUT_S if timeout_s is None else timeout_s
+        _done, still_running = await asyncio.wait(pending, timeout=bound)
+        if still_running:
+            logger.critical(
+                "%d run task(s) did not end within %.1fs of being told to stop: the platform was "
+                "stopped, they are left to end at their next check",
+                len(still_running),
+                bound,
+            )
+            return False
+        return True
+
+    def stragglers(self) -> list["asyncio.Future[Any]"]:
+        """Run tasks of this service that were told to stop and are still alive.
+
+        Only the shutdown path (``main._stop_autonomy``) uses it, for its last resort: a task that
+        ignored the cooperative stop for ``ABORT_UNWIND_TIMEOUT_S`` is cancelled there, because
+        nothing may be left able to command the actuators when they are parked.
+        """
+        task = self._ai_task
+        return [task] if task is not None and not task.done() else []
+
+    def abort_autonomy(self, reason: str) -> list[str]:
+        """End every autonomous run this service owns, now (audit SAF-01); never raises.
+
+        Called by ``safety.stop_events`` in the same event-loop turn as an E-stop, a
+        watchdog trip, a deadman escalation, a tilt latch, a lock-out or a revoke, and by the
+        loops themselves when the actuators refuse them for good. Synchronous and cooperative:
+        it marks the running and paused missions ``aborted``, leaves the navigation mode
+        ``idle`` and zeroes the target speed, and the mission and AI loops end at their next
+        check (their very next one: the status and mode are read at the top of every tick, and
+        the stop epoch before every command). It cancels no task: a task cancelled in the
+        middle of an I2C write releases the actuation lock while the write is still on the bus,
+        which is exactly what the stop's re-assert-after-the-lock logic exists to prevent, and
+        the loop that triggered the stop may be the one being aborted. It commands no actuator:
+        the stop that called it owns the outputs.
+
+        The mode becomes ``idle``, not ``emergency_stop``: the latches, not the mode, carry the
+        stop, and a Thor plan follower needs ``idle``/``manual`` to resume after a human
+        cleared the latch and authorized again.
+        """
+        ended: list[str] = []
+        try:
+            from .mission_service import current_mission_service
+
+            service = current_mission_service()
+            if service is not None and service.nav_service is self:
+                ended += [f"mission:{mission_id}" for mission_id in service.abort_all(reason)]
+        except Exception:
+            logger.exception("Aborting the missions failed")
+        task = self._ai_task
+        if task is not None and not task.done():
+            ended.append("ai")
+        state = self.navigation_state
+        mode = state.navigation_mode
+        if mode in AUTONOMOUS_MODES or mode == NavigationMode.PAUSED:
+            if not ended:
+                ended.append(f"mode:{getattr(mode, 'value', mode)}")
+            state.navigation_mode = NavigationMode.IDLE
+        if ended:
+            state.target_velocity = 0.0
+            if state.path_status == PathStatus.EXECUTING:
+                state.path_status = PathStatus.INTERRUPTED
+            logger.warning("Autonomous run ended (%s): %s", reason, ", ".join(ended))
+        return ended
+
+    def _stop_latched(self) -> str | None:
+        """Why no autonomous run may start now: a stop is latched somewhere, else ``None``.
+
+        A run started under a latch would sit refused until the latch is cleared and then drive
+        off by itself: the clear must be followed by a person starting the run.
+        """
+        from ..core.globals import _safety_state
+        from .tractor_service import get_tractor_service
+
+        reasons: list[str] = []
+        if _safety_state.get("emergency_stop_active", False):
+            reasons.append("the emergency stop is latched")
+        tractor = get_tractor_service()
+        state = getattr(tractor, "state", None)
+        if getattr(tractor, "enabled", False) is True:
+            if getattr(state, "emergency_stop_active", False) is True:
+                reasons.append("the tractor emergency stop is latched")
+            if getattr(state, "interlock_latched", False) is True:
+                reasons.append(
+                    f"the tractor blade interlock is latched ({getattr(state, 'latch_reason', '')})"
+                )
+        lockout = getattr(tractor, "lockout_reason", None)
+        if isinstance(lockout, str):
+            reasons.append(f"the tractor is locked out ({lockout})")
+        robohat = get_robohat_service()
+        if robohat is not None and getattr(robohat, "emergency_latched", False) is True:
+            reasons.append("the RoboHAT stop hold is latched")
+        return "; ".join(reasons) or None
+
+    def _start_refusal(self) -> str | None:
+        """Why no autonomous run may start now: a stop is latched, or a scripted drive runs.
+
+        A scripted drive (the IMU calibration manoeuvre) and a mission would be two writers on
+        the one drive, so neither may start while the other owns it (audit SAF-11).
+        """
+        if (latched := self._stop_latched()) is not None:
+            return latched
+        if self._scripted_drive_active:
+            return "a scripted drive (the IMU calibration) is running"
+        return None
+
+    @staticmethod
+    def _standing_refusal(result: Any) -> str | None:
+        """The standing refusal in a tractor ``apply`` result, else ``None``.
+
+        A standing refusal (E-stop active, not authorized, locked out, parked) lasts until a
+        person acts: an autonomous run that gets one has lost the right to drive and ends
+        instead of retrying every tick and driving off when the refusal is lifted.
+        """
+        from .tractor_service import STANDING_REFUSALS
+
+        parts = result.get("results") if isinstance(result, dict) else None
+        if not isinstance(parts, dict):
+            return None
+        for name in ("levers", "throttle", "blade"):
+            part = parts.get(name)
+            if (
+                isinstance(part, dict)
+                and part.get("status") == "rejected"
+                and part.get("code") in STANDING_REFUSALS
+            ):
+                return f"{name}: {part.get('reason')}"
+        return None
+
+    # ------------------------------ blade handling ------------------------------
+
+    async def hold_for_gnss(self, assessment: Any | None = None) -> None:
+        """GNSS monitor hold handler: stop autonomy at the actuators while the fix is degraded.
+
+        Level-triggered like the loops' own gate (blade off first, then levers neutral, both
+        always attempted, platform-specific); the loops keep holding on their next tick and
+        resume by themselves once the fix has been healthy for the resume dwell.
+        """
+        reasons = tuple(f"gnss: {r}" for r in getattr(assessment, "reasons", ())) or (
+            "gnss: degraded",
+        )
+        await self._hold_motion(MotionGate(True, 0.0, reasons))
+
+    async def _robohat_blade(self, on: bool) -> bool:
+        """Command the differential platform's blade.
+
+        ``False`` when there is no controller (or SIM_MODE) or the command did not go through.
+        """
+        if is_simulation_mode():
+            return False
+        robohat = get_robohat_service()
+        if robohat is not None and robohat.running and robohat.status.serial_connected:
+            return bool(await robohat.send_blade_command(bool(on)))
+        return False
+
+    async def _sync_robohat_blade(self, desired: bool) -> None:
+        """Differential platform: bring the RoboHAT blade to ``desired`` (never raises).
+
+        Called every control tick but only AFTER the safety gate has said clear (audit SAF-03:
+        the leg's blade state used to be sent before the gate was consulted, so every mission
+        started with a blade-on that the gate switched off a tick later). It sends only on a
+        change, so a leg that goes on mowing does not re-send blade-on every tick, and a blade
+        that a hold dropped is restored here for the current leg once the hold is released.
+        """
+        if self._robohat_blade_on == desired:
+            return
+        now = time.monotonic()
+        if now < self._robohat_blade_retry_at:
+            return
+        try:
+            sent = await self._robohat_blade(desired)
+        except Exception:
+            logger.warning(
+                "Blade command failed or unavailable; continuing movement", exc_info=True
+            )
+            sent = False
+        if sent:
+            self._robohat_blade_on = desired
+        else:
+            self._robohat_blade_retry_at = now + BLADE_RETRY_S
+
+    def _request_blade_off(self, why: str) -> None:
+        """Ask the IBT-4 blade service to switch off and stay confirmed off (best effort).
+
+        The IBT-4 is the blade driver the docs name, and no tractor or RoboHAT stop reaches
+        it: every blade-off site here asks it too. A no-op for a service that is not armed.
+        """
+        try:
+            from .blade_service import get_blade_service
+
+            get_blade_service().request_blade_off(why)
+        except Exception:
+            logger.warning("Could not ask the IBT-4 blade service to switch off", exc_info=True)
+
+    async def _drop_blade(self, tractor: Any, why: str) -> list[str]:
+        """Blade off on every blade path this process has; returns what failed. Never raises."""
+        failures: list[str] = []
+        try:
+            if tractor.enabled:
+                await tractor.engage_blade(False, source=NAV_SOURCE)
+            elif await self._robohat_blade(False):
+                self._robohat_blade_on = False
+        except Exception as exc:
+            failures.append(f"blade off: {exc!r}")
+        self._request_blade_off(why)
+        return failures
+
+    async def drop_blade(self, why: str) -> list[str]:
+        """Switch the blade off first (the stop of a mission is blade, then drive)."""
+        from .tractor_service import get_tractor_service
+
+        return await self._drop_blade(get_tractor_service(), why)
+
+    async def _neutral_drive(self) -> None:
+        """``set_speed(0, 0)`` that leaves ``target_velocity`` (the AI loop's scale) alone."""
+        target = self.navigation_state.target_velocity
+        try:
+            await self.set_speed(0.0, 0.0)
+        finally:
+            self.navigation_state.target_velocity = target
+
+    async def _stand_down_platform(self, why: str, *, drop_blade: bool = True) -> list[str]:
+        """Blade off FIRST, then the drive to neutral, on whichever platform is active.
+
+        Both are always attempted and neither raises; returns what failed. ``drop_blade=False``
+        leaves the blade alone (an intermediate waypoint, a plan leg whose follower owns it).
+        """
+        from .tractor_service import get_tractor_service
+
+        tractor = get_tractor_service()
+        failures = await self._drop_blade(tractor, why) if drop_blade else []
+        try:
+            if tractor.enabled:
+                await tractor.set_levers(0.0, 0.0, source=NAV_SOURCE)
+            else:
+                await self._neutral_drive()
+        except Exception as exc:
+            failures.append(f"drive neutral: {exc!r}")
+        return failures
+
+    async def halt_platform(self, why: str) -> list[str]:
+        """Stop the machine without ending a run's bookkeeping: blade off, then neutral."""
+        return await self._stand_down_platform(why)
+
+    async def _hold_motion(self, gate: "MotionGate") -> None:
+        """Stop autonomous motion and keep it stopped: blade off first, then levers neutral.
+
+        Level-triggered: called every control tick while the gate holds, so a failed stop
+        is retried, never assumed. Both stops are always attempted. Errors are logged (once
+        per hold) and never raised: the speed cap in the actuation chokepoints and the
+        obstacle monitor still apply.
+        """
+        if self._hold_reasons is None:  # entering a hold (the reason text changes every tick)
+            logger.warning("Autonomous motion HELD: %s", "; ".join(gate.reasons) or "hold")
+            self._hold_error_logged = False
+        self._hold_reasons = gate.reasons
+        failures = await self._stand_down_platform("motion hold: " + "; ".join(gate.reasons))
+        if failures and not self._hold_error_logged:
+            self._hold_error_logged = True
+            logger.error("Could not confirm the motion hold (retrying every tick): %s", failures)
+
+    async def _release_hold(self, waypoint: Any | None = None) -> None:
+        """End a hold. The differential platform's blade is restored for the current leg by
+        ``_sync_robohat_blade`` on the same tick, once the gate is clear."""
+        if self._hold_reasons is not None:
+            logger.info("Autonomous motion released")
+            self._hold_reasons = None
+
+    async def enforce_motion_hold(self, assessment: Any | None = None) -> None:
+        """Obstacle monitor hold handler: stop what autonomy (or a scripted drive) has moving.
+
+        Acts the moment a hold begins, without waiting for the planner's next tick, and only
+        while an autonomous run or a scripted drive owns the machine (a person's manual drive
+        is left alone). Differential platform: blade off first, then the drive to neutral.
+        Tractor platform: the tractor service has its own handler for its levers and PTO relay,
+        so only the IBT-4 blade service, which nothing else asks, is asked to switch off here.
+        """
+        from .tractor_service import get_tractor_service
+
+        if not (self.autonomy_active() or self._scripted_drive_active):
+            return
+        now = time.monotonic()
+        if now - self._last_hold_assert < 0.25:
+            return
+        self._last_hold_assert = now
+        if get_tractor_service().enabled:
+            self._request_blade_off("obstacle hold")
+            return
+        failures = await self._stand_down_platform("obstacle hold")
+        if failures:
+            logger.error("Could not confirm the obstacle hold (retried next cycle): %s", failures)
+
     async def execute_mission(self, mission: "Mission"):  # noqa: F821
-        """Execute a mission by navigating to each waypoint."""
+        """Execute a mission by navigating to each waypoint.
+
+        The mission ends (``completed``, mode ``idle``) when its last waypoint is reached, with
+        the blade off and the drive neutral (audit SAF-02: the loop used to run on the last
+        waypoint for ever, re-commanding blade-on). It ends early, blade off first, when it is
+        paused or aborted, and for good when a safety function stops the machine
+        (``safety.stop_events``: E-stop, watchdog, deadman escalation, tilt latch, revoke): a
+        clear of that stop never re-activates it (audit SAF-01). It will not start while a stop
+        is latched.
+        """
         from .mission_service import get_mission_service
         from .tractor_service import get_tractor_service
 
         mission_service = get_mission_service()
+
+        # A run that started under a latch would sit refused and drive off by itself at the
+        # clear: after a stop, a person clears the latch AND starts the run again.
+        if (latched := self._start_refusal()) is not None:
+            raise RuntimeError(f"Cannot start mission: {latched}")
+
+        # GNSS precondition (audit D.9): no mission starts on a missing, stale or inaccurate
+        # fix, or on one that has not yet stayed healthy for the resume dwell. Checked before
+        # the engine is cranked, so a refused mission has touched nothing.
+        gnss = self.gps_monitor
+        if gnss is not None:
+            fix = gnss.assess()
+            if not fix.healthy:
+                raise RuntimeError(
+                    "Cannot start mission: GNSS fix is not healthy (" + "; ".join(fix.reasons) + ")"
+                )
 
         # Tractor: auto-start the engine before any state mutation, so a failed
         # crank aborts the mission cleanly instead of driving an unpowered
@@ -194,9 +788,12 @@ class NavigationService:
                     f"Cannot start mission: tractor engine failed to start ({reason})"
                 )
 
+        # Every command of this run is checked against the stop epoch captured here.
+        run_epoch = stop_events.epoch()
         logger.info(f"Starting mission execution: {mission.id} - {mission.name}")
         self.navigation_state.navigation_mode = NavigationMode.AUTO
         self.navigation_state.path_status = PathStatus.EXECUTING
+        self._robohat_blade_on = None  # unknown: the first clear tick sends the leg's state
 
         # Convert MissionWaypoints to Navigation Waypoints
         self.navigation_state.planned_path = [
@@ -210,68 +807,118 @@ class NavigationService:
         self.navigation_state.current_waypoint_index = 0
         self.navigation_state.operation_start_time = datetime.now(UTC)
 
-        while self.navigation_state.current_waypoint_index < len(
-            self.navigation_state.planned_path
-        ):
-            status = mission_service.mission_statuses.get(mission.id)
-            if not status or status.status != "running":
-                logger.warning(
-                    f"Mission {mission.id} interrupted. Status: {status.status if status else 'N/A'}"  # noqa: E501
-                )
-                self.navigation_state.path_status = PathStatus.INTERRUPTED
-                self.navigation_state.navigation_mode = NavigationMode.IDLE
-                return
+        failed_legs = 0
+        self._mission_loop_active = True
+        try:
+            while self.navigation_state.current_waypoint_index < len(
+                self.navigation_state.planned_path
+            ):
+                if stop_events.epoch() != run_epoch:
+                    self.abort_autonomy("a safety stop happened during the mission")
+                    return
+                status = mission_service.mission_statuses.get(mission.id)
+                if not status or status.status != "running":
+                    logger.warning(
+                        f"Mission {mission.id} interrupted. Status: {status.status if status else 'N/A'}"  # noqa: E501
+                    )
+                    self.navigation_state.path_status = PathStatus.INTERRUPTED
+                    self.navigation_state.navigation_mode = NavigationMode.IDLE
+                    # Idempotent: a pause or abort already did this, a task that lost its
+                    # status some other way did not (blade off first, then neutral).
+                    await self._stop_platform()
+                    return
 
-            current_mission_waypoint = mission.waypoints[
-                self.navigation_state.current_waypoint_index
-            ]
-            await self.go_to_waypoint(current_mission_waypoint)
+                current_mission_waypoint = mission.waypoints[
+                    self.navigation_state.current_waypoint_index
+                ]
+                leg = await self.go_to_waypoint(current_mission_waypoint, run_epoch=run_epoch)
+                if leg is LegResult.FINAL:
+                    break
+                if leg in (LegResult.STOPPED, LegResult.REFUSED):
+                    self.abort_autonomy(f"the mission leg ended: {leg.value}")
+                    return
+                failed_legs = failed_legs + 1 if leg is LegResult.FAILED else 0
+                if failed_legs >= MAX_CONSECUTIVE_FAILED_LEGS:
+                    raise RuntimeError(
+                        f"Mission {mission.id} failed: the drive controller failed "
+                        f"{failed_legs} legs in a row"
+                    )
 
-            # The go_to_waypoint method is blocking until the waypoint is reached or interrupted.
-            # The loop will then proceed to the next waypoint.
-            # We add a small sleep to prevent a tight loop if go_to_waypoint returns immediately.
-            await asyncio.sleep(0.1)
+                # The go_to_waypoint method is blocking until the waypoint is reached or
+                # interrupted. The loop will then proceed to the next waypoint. We add a small
+                # sleep to prevent a tight loop if go_to_waypoint returns immediately.
+                await asyncio.sleep(0.1)
+        except Exception:
+            self.navigation_state.path_status = PathStatus.FAILED
+            self.navigation_state.navigation_mode = NavigationMode.IDLE
+            await self._stop_platform()
+            raise
+        finally:
+            self._mission_loop_active = False
 
         if self.navigation_state.navigation_mode == NavigationMode.AUTO:
             self.navigation_state.path_status = PathStatus.COMPLETED
             self.navigation_state.navigation_mode = NavigationMode.IDLE
             logger.info(f"Mission {mission.id} completed.")
 
-    async def go_to_waypoint(self, waypoint: "MissionWaypoint"):  # noqa: F821
-        """Navigate to a single waypoint and block until arrival."""
+    async def go_to_waypoint(
+        self,
+        waypoint: "MissionWaypoint",  # noqa: F821
+        *,
+        should_continue: Callable[[], bool] | None = None,
+        run_epoch: int | None = None,
+    ) -> LegResult:
+        """Navigate to a single waypoint and block until arrival; returns how the leg ended.
+
+        ``should_continue`` is an external gate for legs that belong to no mission (the Thor
+        plan follower): it is polled at the top of every control tick, and the first time it
+        returns False the platform is soft-stopped and the call returns without arriving.
+        A gated leg ignores mission status, so a plan can never be steered by (or paused
+        through) a mission it is not part of.
+
+        ``run_epoch`` is the ``safety.stop_events`` epoch of the run the leg belongs to (a
+        mission passes the one it captured at its start; a plan leg captures its own on
+        entry). The first tick that sees it moved ends the leg with ``STOPPED`` without
+        commanding anything, so a stop that landed while the leg waited on a slow command is
+        never followed by one more motion command, and a clear of the stop cannot revive it.
+
+        A missing position, a missing, non-finite or stale heading, or a held safety gate is a
+        hold: blade off first, then levers neutral, every tick. The blade follows the
+        waypoint's ``blade_on`` only while the gate is clear (differential platform: sent on a
+        change after the first clear verdict, never before; tractor: every tick through
+        ``apply``). The leg ends with the blade off when the last waypoint is reached or the
+        mission is paused or aborted; an intermediate waypoint keeps the blade for the next
+        leg (audit SAF-02, SAF-03).
+        """
         from ..models.tractor_control import TractorCommand
         from .mission_service import get_mission_service
         from .tractor_service import get_tractor_service
 
-        mission_service = get_mission_service()
+        mission_service = get_mission_service() if should_continue is None else None
         tractor = get_tractor_service()
+        epoch = stop_events.epoch() if run_epoch is None else run_epoch
 
         target_pos = Position(latitude=waypoint.lat, longitude=waypoint.lon)
         logger.info(f"Navigating to waypoint: {target_pos.latitude}, {target_pos.longitude}")
-
-        # Engage/disengage blade for this leg when hardware is available.
-        # Gated off for the tractor platform: its blade/PTO is driven per-tick
-        # below through tractor.apply()'s blade_engaged field, so running both
-        # paths at once would have them fighting over the same blade state.
-        try:
-            if os.getenv("SIM_MODE", "0") == "0" and not tractor.enabled:
-                robohat = get_robohat_service()
-                if robohat is not None and robohat.running and robohat.status.serial_connected:
-                    await robohat.send_blade_command(bool(waypoint.blade_on))
-        except Exception:
-            # Blade command failures should not abort navigation
-            logger.warning("Blade command failed or unavailable; continuing movement")
+        desired_blade = bool(waypoint.blade_on)
 
         while True:
-            if not self.navigation_state.current_position:
-                await asyncio.sleep(0.5)
-                continue
+            if stop_events.epoch() != epoch:
+                logger.warning("Waypoint navigation ended: a safety function stopped the machine.")
+                return LegResult.STOPPED
+
+            if should_continue is not None and not should_continue():
+                logger.info("Waypoint navigation halted by the caller's gate.")
+                await self._stop_platform(drop_blade=False)  # the plan follower owns the blade
+                return LegResult.HALTED
 
             # Check for interruptions (pause/abort)
             mission_id = next(
                 (
                     mid
-                    for mid, m in mission_service.missions.items()
+                    for mid, m in (
+                        mission_service.missions.items() if mission_service is not None else ()
+                    )
                     if waypoint.id in [w.id for w in m.waypoints]
                 ),
                 None,
@@ -280,35 +927,57 @@ class NavigationService:
                 status = mission_service.mission_statuses.get(mission_id)
                 if not status or status.status != "running":
                     logger.info("Waypoint navigation interrupted.")
-                    await self._stop_platform()
-                    return
+                    await self._stop_platform()  # blade off first, then neutral
+                    return LegResult.INTERRUPTED
 
-            distance_to_target = self.path_planner.calculate_distance(
-                self.navigation_state.current_position, target_pos
-            )
+            position = self.navigation_state.current_position
+            if not position or not _usable_coordinates(position.latitude, position.longitude):
+                # Nothing to navigate by (no fix, or one that is not a finite coordinate): hold
+                # (blade off, neutral), do not leave the last command, and the blade, in force
+                # while waiting for a fix.
+                reason = "no position fix" if not position else "no usable position"
+                await self._hold_motion(MotionGate(True, 0.0, (reason,)))
+                await asyncio.sleep(self.control_period_s)
+                continue
+
+            distance_to_target = self.path_planner.calculate_distance(position, target_pos)
 
             if distance_to_target <= self.waypoint_tolerance:
                 logger.info(f"Waypoint reached: {waypoint.lat}, {waypoint.lon}")
-                await self._stop_platform()  # Stop at waypoint
-                if self.navigation_state.advance_waypoint():
-                    logger.info(
-                        f"Advanced to next waypoint index: {self.navigation_state.current_waypoint_index}"  # noqa: E501
-                    )
-                else:
+                if should_continue is not None:
+                    # A plan leg belongs to no path: neutral only, the follower owns the blade.
+                    await self._stop_platform(drop_blade=False)
+                    return LegResult.ARRIVED
+                state = self.navigation_state
+                last = state.current_waypoint_index >= len(state.planned_path) - 1
+                # The last waypoint ends the run: blade off first, then neutral. An
+                # intermediate one only stops the drive; the next leg sets its own blade.
+                await self._stop_platform(drop_blade=last)
+                if last:
                     logger.info("Final waypoint in path reached.")
-                break
+                    return LegResult.FINAL
+                state.advance_waypoint()
+                logger.info(
+                    f"Advanced to next waypoint index: {state.current_waypoint_index}"  # noqa: E501
+                )
+                return LegResult.ARRIVED
+
+            # Safety gate (obstacle guard, GNSS, heading age): hold or cap before anything is
+            # commanded. A hold keeps the mission alive -- the loop keeps polling the mission
+            # status above, so pause/abort still work -- and resumes by itself once the path
+            # has stayed clear.
+            gate = self._motion_gate()
+            current_heading = self.navigation_state.heading
+            if current_heading is None or not math.isfinite(current_heading):
+                gate = MotionGate(True, 0.0, (*gate.reasons, "no usable heading"))
+            if gate.hold:
+                await self._hold_motion(gate)
+                await asyncio.sleep(self.control_period_s)
+                continue
+            await self._release_hold(waypoint)
 
             # Calculate heading and apply motor commands
-            heading_to_target = self.path_planner.calculate_bearing(
-                self.navigation_state.current_position, target_pos
-            )
-
-            current_heading = self.navigation_state.heading
-            if current_heading is None:
-                logger.warning("No heading data, cannot navigate.")
-                await asyncio.sleep(1)
-                continue
-
+            heading_to_target = self.path_planner.calculate_bearing(position, target_pos)
             heading_error = (heading_to_target - current_heading + 180) % 360 - 180
 
             # Proportional controller for turning
@@ -345,6 +1014,11 @@ class NavigationService:
             left_speed = max(-self.max_speed, min(self.max_speed, left_speed))
             right_speed = max(-self.max_speed, min(self.max_speed, right_speed))
 
+            # Obstacle guard: never faster than the stopping-distance model allows for the
+            # range the sensors prove free (the actuation chokepoints enforce it again).
+            if gate.speed_cap_mps is not None:
+                left_speed, right_speed = limit_pair(left_speed, right_speed, gate.speed_cap_mps)
+
             if tractor.enabled:
                 # TractorCommand's ge=/le= fields reject out-of-range values
                 # instead of clamping, so normalize onto the lever range and
@@ -355,44 +1029,192 @@ class NavigationService:
                     left_lever=left_lever,
                     right_lever=right_lever,
                     throttle=self.tractor_engine_throttle,
-                    blade_engaged=bool(waypoint.blade_on),
+                    blade_engaged=desired_blade,
                 )
                 try:
-                    await tractor.apply(cmd)
+                    result = await tractor.apply(cmd, source=NAV_SOURCE)
                 except Exception as e:
                     logger.error(f"Failed to apply tractor command: {e}")
                     try:
                         await tractor.emergency_stop()
                     except Exception:
                         pass
-                    return
+                    return LegResult.FAILED
+
+                refusal = self._standing_refusal(result)
+                if refusal is not None:
+                    # E-stop, no authorization, lock-out or park: nothing autonomous may move
+                    # the machine until a person acts. End the run (a lifted refusal must not
+                    # let it drive off), and put the blade and the drive in the safe state.
+                    logger.warning("Autonomous run ended: the tractor refuses it (%s)", refusal)
+                    self.abort_autonomy(f"the tractor refuses autonomous commands: {refusal}")
+                    await self._stop_platform()
+                    return LegResult.REFUSED
 
                 # Simulation of movement
-                await asyncio.sleep(0.2)  # Control loop at 5Hz
+                await asyncio.sleep(self.control_period_s)  # Control loop at 5Hz
                 continue
 
             try:
+                # Only now, with the gate clear (audit SAF-03), and only on a change.
+                await self._sync_robohat_blade(desired_blade)
                 await self.set_speed(left_speed, right_speed)
             except Exception as e:
                 logger.error(f"Failed to set motor speed: {e}")
+                if stop_events.epoch() != epoch:
+                    return LegResult.STOPPED
                 try:
                     await self.set_speed(0.0, 0.0)
                 except Exception:
                     pass
-                return
+                return LegResult.FAILED
 
             # Simulation of movement
-            await asyncio.sleep(0.2)  # Control loop at 5Hz
+            await asyncio.sleep(self.control_period_s)  # Control loop at 5Hz
+
+    # ------------------------------ scripted drives ------------------------------
+
+    def scripted_drive_refusal(self) -> str | None:
+        """Why a scripted drive may not start now, else ``None`` (audit SAF-11).
+
+        A scripted drive is open-loop motion that belongs to no mission (the IMU calibration
+        manoeuvre). It is held to the same rules as an autonomous leg: every stop latch that
+        ends an autonomous run forbids it (the process E-stop, the tractor's latches and
+        lock-out, the RoboHAT stop hold), so does the obstacle guard's hold, and so does an
+        autonomous run (two writers would fight over the drive) or another scripted drive.
+        GNSS quality and the heading age are not inputs: the drive neither navigates nor steers
+        by the heading (``_motion_gate``).
+        """
+        from .tractor_service import get_tractor_service
+
+        if self._scripted_drive_active:
+            return "another scripted drive is running"
+        if get_tractor_service().enabled:
+            return "the tractor platform is enabled: the RoboHAT drive is not this machine's drive"
+        if (latched := self._stop_latched()) is not None:
+            return f"a stop is latched: {latched}"
+        mode = self.navigation_state.navigation_mode
+        if mode in AUTONOMOUS_MODES:
+            return f"an autonomous run owns the drive (mode {getattr(mode, 'value', mode)})"
+        gate = self._motion_gate(gnss=False, heading=False)
+        if gate.hold:
+            return "motion is held: " + ("; ".join(gate.reasons) or "hold")
+        return None
+
+    async def drive_scripted(
+        self, left: float, right: float, duration_s: float, *, run_epoch: int | None = None
+    ) -> ScriptedDrive:
+        """Drive the differential platform open-loop for ``duration_s``, behind the safety path.
+
+        ``left``/``right`` are normalized wheel speeds in [-1, 1] (full scale, as
+        ``RoboHATService.send_motor_command`` takes them). Audit SAF-11: the IMU calibration
+        drive used to send one command with a validity window of the whole step and then sleep,
+        with no obstacle guard, no stop latch and no abort. Now the command is re-sent every
+        control tick (so a dead caller lets the drive lapse to neutral within the drive's
+        validity window), and every tick, before the command:
+
+        * a safety stop since ``run_epoch`` (``safety.stop_events``: E-stop, watchdog, revoke,
+          lock-out, tilt latch; default: the epoch when the call began) ends the drive with
+          no further motion command (blade off and neutral are re-asserted; the RoboHAT's own
+          stop hold refuses that neutral, which it is already holding);
+        * the obstacle guard's verdict holds the drive (blade off, neutral, the step is over)
+          or caps its forward speed to the stopping-distance model (reverse is not limited,
+          as for every autonomous path).
+
+        The call returns at the first tick that sees either, so a hold ends the drive at most
+        one control period after it appears (the obstacle monitor's hold handler,
+        ``enforce_motion_hold``, acts sooner). It never resumes by itself: the caller ends its
+        whole manoeuvre on any outcome but ``DONE``. On ``DONE`` the last command is left in
+        force for its short validity window (the next step follows at once); the caller sends
+        the final neutral. The blade is switched off before the first command, whatever else
+        happens. Never raises (a cancelled call stands the platform down first).
+        """
+        if not (math.isfinite(left) and math.isfinite(right) and math.isfinite(duration_s)):
+            return ScriptedDrive(ScriptedOutcome.REFUSED, ("non-finite scripted drive",))
+        refusal = self.scripted_drive_refusal()
+        if refusal is not None:
+            return ScriptedDrive(ScriptedOutcome.REFUSED, (refusal,))
+        epoch = stop_events.epoch() if run_epoch is None else run_epoch
+        from .tractor_service import get_tractor_service
+
+        self._scripted_drive_active = True
+        outcome, reasons = ScriptedOutcome.DONE, ()
+        accepted = 0
+        finished = False  # the loop ran to its end (by the clock or by a verdict)
+        started = time.monotonic()
+        try:
+            # Scripted motion never runs with the blade on: off first (idempotent), every path.
+            failures = await self._drop_blade(get_tractor_service(), "scripted drive")
+            if failures:
+                logger.error("Scripted drive: the blade could not be confirmed off: %s", failures)
+            while (remaining := duration_s - (time.monotonic() - started)) > 0:
+                if stop_events.epoch() != epoch:
+                    outcome = ScriptedOutcome.STOPPED
+                    reasons = ("a safety stop happened during the scripted drive",)
+                    break
+                gate = self._motion_gate(gnss=False, heading=False)
+                if gate.hold:
+                    outcome, reasons = ScriptedOutcome.HELD, gate.reasons or ("hold",)
+                    break
+                try:
+                    await self._command_drive(left * self.max_speed, right * self.max_speed, gate)
+                except Exception as exc:
+                    if stop_events.epoch() != epoch:  # the stop refused it: that is not a failure
+                        outcome = ScriptedOutcome.STOPPED
+                        reasons = ("a safety stop happened during the scripted drive",)
+                    else:
+                        outcome, reasons = ScriptedOutcome.FAILED, (f"drive command: {exc}",)
+                    break
+                accepted += 1
+                await asyncio.sleep(min(self.control_period_s, remaining))
+            finished = True
+        finally:
+            self._scripted_drive_active = False
+            # Anything but a complete step (a hold, a stop, a failure, a cancelled caller)
+            # stands the platform down: blade off, then neutral. A stop that does not reach the
+            # RoboHAT itself (a revoke, a lock-out, a tilt latch) must still end the drive at
+            # once, and under the RoboHAT's own stop hold the neutral is refused, harmlessly.
+            if outcome is not ScriptedOutcome.DONE or not finished:
+                standing = await self._stand_down_platform(
+                    "scripted drive ended: " + ("; ".join(reasons) or "interrupted")
+                )
+                if standing:
+                    (logger.warning if outcome is ScriptedOutcome.STOPPED else logger.error)(
+                        "Scripted drive stand-down not confirmed: %s", standing
+                    )
+        return ScriptedDrive(outcome, tuple(reasons), time.monotonic() - started, accepted)
 
     async def set_speed(self, left_speed: float, right_speed: float) -> None:
         """Drive command helper integrating with the RoboHAT controller.
 
         - Accepts normalized wheel speeds in m/s-like units scaled to [-1, 1].
         - In SIM_MODE, updates state without touching hardware.
+        - The full safety gate (obstacle guard, GNSS, heading age) applies: a hold is neutral.
         """
+        await self._command_drive(left_speed, right_speed, self._motion_gate())
+
+    async def _command_drive(
+        self, left_speed: float, right_speed: float, gate: "MotionGate"
+    ) -> None:
+        """Clamp the wheel speeds, apply ``gate`` and write them to the differential drive.
+
+        NaN and infinity are refused (``ValueError``): ``min``/``max`` would clamp a NaN to full
+        speed. A hold zeroes both wheels (reverse included, nothing senses behind the machine
+        but a hold is neutral); a cap scales the forward component.
+        """
+        if not (math.isfinite(left_speed) and math.isfinite(right_speed)):
+            raise ValueError(f"non-finite wheel speeds ({left_speed!r}, {right_speed!r}) refused")
         # Clamp inputs for safety
         ls = max(-self.max_speed, min(self.max_speed, float(left_speed)))
         rs = max(-self.max_speed, min(self.max_speed, float(right_speed)))
+
+        # Differential platform's chokepoint (the tractor has its own, in
+        # TractorControlService.set_levers): never faster than the obstacle guard allows,
+        # and neutral while it holds. Stops (0, 0) pass through untouched.
+        if gate.hold:
+            ls = rs = 0.0
+        elif gate.speed_cap_mps is not None:
+            ls, rs = limit_pair(ls, rs, gate.speed_cap_mps)
 
         # Update desired velocity estimate (magnitude)
         try:
@@ -401,7 +1223,7 @@ class NavigationService:
             self.navigation_state.target_velocity = None
 
         # SIM_MODE: don't touch hardware
-        if os.getenv("SIM_MODE", "0") == "1":
+        if is_simulation_mode():
             # Roughly reflect commanded speed in reported velocity for UI
             try:
                 self.navigation_state.velocity = float((abs(ls) + abs(rs)) / 2.0)
@@ -423,40 +1245,75 @@ class NavigationService:
         if not accepted:
             raise RuntimeError("Motor command not accepted by controller")
 
-    async def _stop_platform(self) -> None:
-        """Soft stop: zero ground speed without revoking tractor authorization.
+    async def _stop_platform(self, *, drop_blade: bool = True) -> None:
+        """Soft stop: blade off first (unless ``drop_blade`` is False), then zero ground speed.
 
-        Use at *expected* stop points (waypoint reached, mission interrupted/
-        paused). Unlike ``emergency_stop()``, this never revokes authorization
-        or blade state and needs no operator ``clear_emergency()`` afterward —
-        reserve the hard stop for an actual command failure.
+        Use at *expected* stop points (the last waypoint, a mission paused or aborted, a plan
+        leg halted). Unlike ``emergency_stop()``, this never revokes authorization and needs no
+        operator ``clear_emergency()`` afterward -- reserve the hard stop for an actual command
+        failure. Both steps are always attempted and nothing is raised (audit SAF-02): the
+        callers are control loops that must go on to end their run. The platform is the active
+        one (tractor levers, or the differential drive and its RoboHAT blade); the IBT-4 blade
+        service is asked to switch off too.
         """
-        from .tractor_service import get_tractor_service
-
-        tractor = get_tractor_service()
-        if tractor.enabled:
-            await tractor.set_levers(0.0, 0.0)
-        else:
-            await self.set_speed(0.0, 0.0)
+        failures = await self._stand_down_platform("platform stop", drop_blade=drop_blade)
+        if failures:
+            logger.error("Platform stop not fully confirmed: %s", failures)
 
     async def update_navigation_state(self, sensor_data: SensorData) -> NavigationState:
         """Update navigation state with sensor fusion"""
 
-        # Update position from GPS or dead reckoning
+        # Feed the GNSS monitor the real reading (None this tick = nothing new to observe).
+        if self.gps_monitor is not None:
+            try:
+                self.gps_monitor.observe(sensor_data.gps)
+            except Exception:
+                logger.exception("GNSS monitor could not take the reading (it will go stale)")
+
+        # Update position from GPS or dead reckoning. A fix is NEW only when its own timestamp
+        # changed: a reading the sensor interface replays after the receiver went quiet keeps
+        # its stamp.
+        gps = sensor_data.gps
+        gps_stamp = getattr(gps, "timestamp", None)  # a reading without a stamp is always new
+        new_fix = bool(
+            gps is not None
+            and gps.latitude
+            and gps.longitude
+            and _usable_coordinates(gps.latitude, gps.longitude)
+            and (gps_stamp is None or gps_stamp != self._last_gps_stamp)
+        )
+        if new_fix:
+            self._last_gps_stamp = gps_stamp
         current_position = await self._update_position(sensor_data)
         if current_position:
             self.navigation_state.current_position = current_position
 
-        # Update heading from IMU
-        if sensor_data.imu and sensor_data.imu.yaw is not None:
-            self.navigation_state.heading = sensor_data.imu.yaw
+        # Update heading from IMU, with the age of the measurement (audit SAF-14): only an IMU
+        # reading that is new (its own timestamp changed) is a measurement. The dead IMU's
+        # replayed ``last_reading`` keeps its stamp, so the heading ages and the loops hold
+        # (``_motion_gate``) instead of steering by it for ever.
+        imu = sensor_data.imu
+        imu_stamp = getattr(imu, "timestamp", None)
+        new_heading = False
+        if (
+            imu is not None
+            and imu.yaw is not None
+            and (imu_stamp is None or imu_stamp != self._last_imu_stamp)
+        ):
+            self._last_imu_stamp = imu_stamp
+            self.navigation_state.heading = imu.yaw
+            self.navigation_state.heading_updated_at = (
+                imu_stamp if isinstance(imu_stamp, datetime) else datetime.now(UTC)
+            )
+            new_heading = True
 
         # Update obstacles
         obstacles = self.obstacle_detector.update_obstacles_from_sensors(sensor_data)
         self.navigation_state.obstacle_map = obstacles
 
         # Check if obstacle avoidance is needed
-        self.navigation_state.obstacle_avoidance_active = len(obstacles) > 0
+        gate = self._motion_gate()
+        self.navigation_state.obstacle_avoidance_active = len(obstacles) > 0 or bool(gate.reasons)
 
         # Update path execution if in auto mode
         if self.navigation_state.navigation_mode == NavigationMode.AUTO:
@@ -471,15 +1328,24 @@ class NavigationService:
             self.total_distance += distance_increment
 
         self.last_position = current_position
-        self.navigation_state.timestamp = datetime.now(UTC)
+        if new_fix or new_heading:
+            # The navigation feed's stamp moves only when something new arrived: it used to
+            # be refreshed on every call, whatever (or nothing) the call carried (SAF-14).
+            self.navigation_state.timestamp = datetime.now(UTC)
 
         return self.navigation_state
 
     async def _update_position(self, sensor_data: SensorData) -> Position | None:
         """Update position using sensor fusion"""
 
-        # Primary: GPS position
-        if sensor_data.gps and sensor_data.gps.latitude and sensor_data.gps.longitude:
+        # Primary: GPS position (a NaN, an infinity or a coordinate off the globe is no position:
+        # it must not become ``current_position`` or the dead-reckoning reference, audit NAV-06)
+        if (
+            sensor_data.gps
+            and sensor_data.gps.latitude
+            and sensor_data.gps.longitude
+            and _usable_coordinates(sensor_data.gps.latitude, sensor_data.gps.longitude)
+        ):
             gps_position = Position(
                 latitude=sensor_data.gps.latitude,
                 longitude=sensor_data.gps.longitude,
@@ -490,7 +1356,12 @@ class NavigationService:
             # Update dead reckoning reference
             self.dead_reckoning.update_gps_reference(gps_position)
             self.navigation_state.dead_reckoning_active = False
-            self.navigation_state.last_gps_fix = datetime.now(UTC)
+            # The fix's own timestamp, not "now": a reading the sensor interface replayed
+            # after the receiver went quiet must not look like a fresh fix.
+            fix_stamp = getattr(sensor_data.gps, "timestamp", None)
+            self.navigation_state.last_gps_fix = (
+                fix_stamp if isinstance(fix_stamp, datetime) else datetime.now(UTC)
+            )
 
             return gps_position
 
@@ -511,7 +1382,14 @@ class NavigationService:
         return None
 
     async def _update_path_execution(self):
-        """Update path execution for autonomous navigation"""
+        """Update path execution for autonomous navigation.
+
+        While a mission loop owns the run (``execute_mission``), ``go_to_waypoint`` is the
+        only thing that advances the path and ends it: this telemetry-driven bookkeeping used
+        to advance the same index at the same time (a waypoint skipped when both saw the
+        arrival) and, at the last waypoint, flip the mode to ``idle`` while the mission loop
+        went on commanding the machine (audit SAF-02). It then only keeps the target speed.
+        """
         if not self.navigation_state.planned_path:
             return
 
@@ -524,7 +1402,7 @@ class NavigationService:
             self.navigation_state.current_position, current_waypoint.position
         )
 
-        if distance_to_waypoint <= self.waypoint_tolerance:
+        if distance_to_waypoint <= self.waypoint_tolerance and not self._mission_loop_active:
             # Advance to next waypoint
             if self.navigation_state.advance_waypoint():
                 logger.info(f"Advanced to waypoint {self.navigation_state.current_waypoint_index}")
@@ -590,6 +1468,9 @@ class NavigationService:
 
     async def start_autonomous_navigation(self) -> bool:
         """Start autonomous navigation"""
+        if (latched := self._start_refusal()) is not None:
+            logger.error("Cannot start navigation: %s", latched)
+            return False
         if (
             self.navigation_state.path_status != PathStatus.PLANNED
             or not self.navigation_state.planned_path
@@ -640,18 +1521,18 @@ class NavigationService:
         return True
 
     async def stop_navigation(self) -> bool:
-        """Stop navigation and return to idle"""
+        """Stop navigation and return to idle: blade off first, then the drive to neutral."""
         self.navigation_state.navigation_mode = NavigationMode.IDLE
         self.navigation_state.target_velocity = 0.0
 
         if self.navigation_state.path_status == PathStatus.EXECUTING:
             self.navigation_state.path_status = PathStatus.INTERRUPTED
 
-        # Actively command a stop to the controller for safety
-        try:
-            await self.set_speed(0.0, 0.0)
-        except Exception:
-            pass
+        # Actively command a stop for safety, on the platform that is active: the tractor's
+        # levers or the differential drive, and the blade on every blade path (audit SAF-02:
+        # this used to send set_speed(0, 0) only, which on the tractor platform commands
+        # nothing at all and on neither touched the blade).
+        await self._stop_platform()
 
         logger.info("Navigation stopped")
         return True
@@ -669,6 +1550,17 @@ class NavigationService:
 
         ai_service = get_ai_inference_service()
 
+        if (latched := self._start_refusal()) is not None:
+            logger.error("Refusing AI navigation: %s", latched)
+            return False
+        if self._ai_task is not None and not self._ai_task.done():
+            # A second loop would fight the first one over the drive (and the first one is not
+            # cancelled, see stop_ai_navigation).
+            logger.error("Refusing AI navigation: the previous AI run has not ended")
+            return False
+        # A stop that lands while the AI service starts up must end this run before it begins.
+        run_epoch = stop_events.epoch()
+
         # Initialize AI service if needed
         if not ai_service.initialized:
             await ai_service.initialize()
@@ -676,7 +1568,7 @@ class NavigationService:
 
         # Safety: never drive real motors from placeholder/simulated inference.
         # On hardware, require a real VLA model to be loaded before autonomy.
-        sim_mode = os.getenv("SIM_MODE", "0") != "0"
+        sim_mode = is_simulation_mode()
         if not sim_mode and not getattr(ai_service, "_model_loaded", False):
             logger.error(
                 "Refusing AI navigation: no VLA model loaded (would drive motors "
@@ -698,6 +1590,8 @@ class NavigationService:
         # this run, then start the inference loop.
         self._ai_datum = self._select_ai_datum()
         self._coverage = CoverageMap(self._ai_datum)
+        self._ai_epoch = run_epoch
+        self._unusable_predictions = 0
         self._ai_task = asyncio.create_task(self._ai_inference_loop())
 
         logger.info("Started AI-controlled navigation (datum=%s)", self._ai_datum)
@@ -737,6 +1631,10 @@ class NavigationService:
 
         try:
             while self.navigation_state.navigation_mode == NavigationMode.AI:
+                if self._ai_epoch is not None and stop_events.epoch() != self._ai_epoch:
+                    # A safety stop ended this run; a clear of it must not revive it.
+                    self.abort_autonomy("a safety stop happened during the AI run")
+                    break
                 loop_start = time.perf_counter()
                 try:
                     frame = await recorder.capture_frame()
@@ -768,49 +1666,47 @@ class NavigationService:
             logger.info("AI inference loop cancelled")
             raise
         finally:
-            # Make sure motors are stopped if the loop exits for any reason.
+            # Make sure the machine is stopped if the loop exits for any reason: blade off
+            # first, then neutral, on the platform that is active.
             try:
-                await self.set_speed(0.0, 0.0)
+                await self._stop_platform()
             except Exception:
                 pass
 
     async def stop_ai_navigation(self) -> bool:
         """Stop AI-controlled navigation and return to manual.
 
+        The loop is never cancelled (audit NAV-02): a task cancelled in the middle of a lever write
+        releases the actuation lock while the write is still on the bus, and that write could land
+        after the stop's neutral. The mode flips first (the loop's while-condition ends at its next
+        check and ``apply_ai_prediction`` applies nothing any more), the platform is stood down at
+        once, the loop is given ``ABORT_UNWIND_TIMEOUT_S`` to END (it stands the platform down
+        itself on the way out), and the stand-down is repeated after it as the last word.
+
         Returns:
             True if AI mode stopped successfully.
         """
         from .ai_inference_service import get_ai_inference_service
 
-        # Flip mode first so the loop's while-condition exits, then cancel it.
         self.navigation_state.navigation_mode = NavigationMode.MANUAL
         self.navigation_state.target_velocity = 0.0
 
-        if self._ai_task is not None:
-            self._ai_task.cancel()
-            try:
-                await self._ai_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._ai_task = None
+        task = self._ai_task
+        if task is not None:
+            await self._stop_platform()  # the loop's last command may still be in force
+            if await self.await_unwind(task):
+                self._ai_task = None
+            # else: it is still ending and stays registered (autonomy_active, no second AI run)
         self._coverage = None
         self._ai_datum = None
+        self._ai_epoch = None
+        self._unusable_predictions = 0
 
         ai_service = get_ai_inference_service()
         await ai_service.disable()
 
-        # Stop motion: tractor (pedal off + blade off) or differential motors.
-        try:
-            from .tractor_service import get_tractor_service
-
-            tractor = get_tractor_service()
-            if tractor.enabled:
-                await tractor.set_levers(0.0, 0.0)
-                await tractor.engage_blade(False)
-            else:
-                await self.set_speed(0.0, 0.0)
-        except Exception:
-            pass
+        # Stop motion: blade off first, then the drive neutral, on the active platform.
+        await self._stop_platform()
 
         logger.info("Stopped AI navigation, returning to manual mode")
         return True
@@ -833,24 +1729,45 @@ class NavigationService:
         ):
             return False
 
-        # Check confidence threshold
-        if prediction.confidence < 0.5:
-            logger.warning(f"AI prediction confidence too low: {prediction.confidence:.2f}")
+        if self._ai_epoch is not None and stop_events.epoch() != self._ai_epoch:
+            # A safety stop ended this AI run: nothing it predicts may be applied any more.
+            self.abort_autonomy("a safety stop happened during the AI run")
             return False
 
         from .tractor_service import get_tractor_service
 
         tractor = get_tractor_service()
 
-        # Check for safety override
+        # A model run whose output is not a finite number is not a prediction: the confidence
+        # gate below would drop it as "low confidence" and leave whatever the last tick commanded
+        # in force, the blade included (audit NAV-07). Stand the platform down now, and end the
+        # run when the model keeps producing it.
+        if getattr(prediction, "unusable", False) is True:
+            return await self._stand_down_for_unusable_prediction()
+        self._unusable_predictions = 0
+
+        # A safety override is a stop, not a suggestion: it is honoured whatever the model's
+        # confidence is (a low-confidence tick used to drop it with the rest).
         if prediction.safety_override:
             logger.warning("AI prediction has safety override - stopping")
             if tractor.enabled:
                 await tractor.emergency_stop()
             else:
-                await self.set_speed(0.0, 0.0)
+                await self._stop_platform()  # blade off first, then the drive to neutral
             return True
 
+        # Check confidence threshold
+        if prediction.confidence < 0.5:
+            logger.warning(f"AI prediction confidence too low: {prediction.confidence:.2f}")
+            return False
+
+        # Obstacle guard: a hold stops the machine whatever the model predicts; a cap is
+        # enforced again in the actuation chokepoints (tractor.set_levers / set_speed).
+        gate = self._motion_gate()
+        if gate.hold:
+            await self._hold_motion(gate)
+            return False
+        await self._release_hold()
         if tractor.enabled:
             # Zero-turn mower: twin drive levers + blade PTO. Interlocks (engine
             # running, authorized) in the service gate actual motion.
@@ -860,7 +1777,13 @@ class NavigationService:
             # of clamping, and assignment isn't re-validated, so clamp by hand.
             cmd.left_lever = max(-1.0, min(1.0, cmd.left_lever * scale))
             cmd.right_lever = max(-1.0, min(1.0, cmd.right_lever * scale))
-            await tractor.apply(cmd)
+            result = await tractor.apply(cmd, source=AI_SOURCE)
+            refusal = self._standing_refusal(result)
+            if refusal is not None:
+                logger.warning("AI run ended: the tractor refuses it (%s)", refusal)
+                self.abort_autonomy(f"the tractor refuses autonomous commands: {refusal}")
+                await self._stop_platform()
+                return False
             return True
 
         # Differential-drive path: convert prediction to left/right motor speeds.
@@ -873,15 +1796,40 @@ class NavigationService:
 
         return True
 
+    async def _stand_down_for_unusable_prediction(self) -> bool:
+        """A NaN or infinite model output: blade off, levers neutral; the run ends if it goes on.
+
+        The same stand-down as a held safety gate (``_hold_motion``: blade first, then neutral,
+        retried by every further tick), because a prediction that could not be read says nothing
+        about what the last command should have been: its blade and its levers must not stay in
+        force. A single bad tick is a hold; ``MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS`` of them in a
+        row end the run (the operator starts it again once the model is fixed). It is not an
+        E-stop: nothing latches and no clear is needed. Returns ``False``: nothing was applied.
+        """
+        self._unusable_predictions += 1
+        count = self._unusable_predictions
+        logger.error(
+            "AI model output is not a finite number (%d in a row): standing the platform down",
+            count,
+        )
+        await self._hold_motion(MotionGate(True, 0.0, ("AI model output is not a finite number",)))
+        if count >= MAX_CONSECUTIVE_UNUSABLE_PREDICTIONS:
+            self._unusable_predictions = 0
+            self.abort_autonomy(f"the AI model produced no usable output {count} times in a row")
+            await self._stop_platform()
+        return False
+
     async def emergency_stop(self) -> bool:
         """Emergency stop navigation"""
+        # Every autonomous run ends first, so a clear of the stops below cannot revive one.
+        self.abort_autonomy("navigation emergency stop")
         self.navigation_state.navigation_mode = NavigationMode.EMERGENCY_STOP
         self.navigation_state.target_velocity = 0.0
         self.navigation_state.path_status = PathStatus.INTERRUPTED
 
         # Try to invoke controller-level emergency stop when available
         try:
-            if os.getenv("SIM_MODE", "0") == "0":
+            if not is_simulation_mode():
                 robohat = get_robohat_service()
                 if robohat is not None:
                     await robohat.emergency_stop()
@@ -902,37 +1850,57 @@ class NavigationService:
         return True
 
     async def return_home(self) -> bool:
-        """Navigate back to home position"""
+        """Plan the way back to the home position and publish it as the planned path.
+
+        Nothing drives that path: there is no return-to-base executor (a run with a task, a stop
+        epoch and a place in the mission service), so this sets NO autonomous mode (audit NAV-03).
+        It used to set ``return_home`` and ``executing`` and leave them for ever, a phantom run
+        that no loop owned and nothing ended: the GNSS and obstacle hold handlers and the blade
+        permit read it as autonomy and then acted on the operator's manual drive and blade. It is
+        refused while a stop is latched, while a scripted drive runs and while a mission or an AI
+        run owns the machine (their path and waypoint index are not this call's to overwrite).
+        Returns ``True`` when a path was planned.
+        """
+        if (latched := self._start_refusal()) is not None:
+            logger.error("Cannot return home: %s", latched)
+            return False
+        if self.autonomy_active():
+            logger.error("Cannot return home: an autonomous run owns the machine (end it first)")
+            return False
         if not self.navigation_state.home_position:
             logger.error("No home position set")
             return False
+        if not self.navigation_state.current_position:
+            logger.error("Cannot return home: no current position")
+            return False
 
         # Plan path (with avoidance and boundary constraints if available)
-        if self.navigation_state.current_position:
-            boundaries = None
-            if self.navigation_state.safety_boundaries:
-                # Use the outer boundary (first polygon) if provided
-                boundaries = self.navigation_state.safety_boundaries[0]
-            obstacles = (
-                self.navigation_state.no_go_zones if self.navigation_state.no_go_zones else None
-            )
+        boundaries = None
+        if self.navigation_state.safety_boundaries:
+            # Use the outer boundary (first polygon) if provided
+            boundaries = self.navigation_state.safety_boundaries[0]
+        obstacles = self.navigation_state.no_go_zones if self.navigation_state.no_go_zones else None
 
-            waypoints = self.path_planner.return_to_base(
-                current=self.navigation_state.current_position,
-                home=self.navigation_state.home_position,
-                boundary=boundaries,
-                obstacles=obstacles,
-            )
+        waypoints = self.path_planner.return_to_base(
+            current=self.navigation_state.current_position,
+            home=self.navigation_state.home_position,
+            boundary=boundaries,
+            obstacles=obstacles,
+        )
+        if not waypoints:
+            logger.error("Cannot return home: the planner found no path")
+            return False
 
-            self.navigation_state.planned_path = waypoints
-            self.navigation_state.current_waypoint_index = 0
-            self.navigation_state.navigation_mode = NavigationMode.RETURN_HOME
-            self.navigation_state.path_status = PathStatus.EXECUTING
+        self.navigation_state.planned_path = waypoints
+        self.navigation_state.current_waypoint_index = 0
+        self.navigation_state.path_status = PathStatus.PLANNED
 
-            logger.info("Returning to home position")
-            return True
-
-        return False
+        logger.warning(
+            "Return to base: a path of %d waypoints is planned; nothing drives it (no "
+            "return-to-base executor exists), drive the machine or start a mission",
+            len(waypoints),
+        )
+        return True
 
     def set_home_position(self, position: Position):
         """Set the home/docking position"""
@@ -964,4 +1932,6 @@ class NavigationService:
             "obstacles_detected": len(self.navigation_state.obstacle_map),
             "dead_reckoning_active": self.navigation_state.dead_reckoning_active,
             "path_confidence": self.navigation_state.path_confidence,
+            "motion_hold": self._hold_reasons is not None,
+            "motion_gate_reasons": list(self._motion_gate().reasons),
         }

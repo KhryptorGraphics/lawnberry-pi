@@ -1,5 +1,5 @@
 [Unit]
-Description=LawnBerry Pi v2 Database Service
+Description=LawnBerry Pi Database Service
 Documentation=https://github.com/acredsfan/lawnberry_pi
 After=local-fs.target
 Before=lawnberry-backend.service
@@ -7,28 +7,33 @@ Before=lawnberry-backend.service
 [Service]
 Type=oneshot
 RemainAfterExit=true
-User=pi
-Group=pi
+User=@LB_USER@
+Group=@LB_GROUP@
 
 # Database initialization and migration
-WorkingDirectory=/apps/lawnberry-pi
-Environment=PYTHONPATH=/apps/lawnberry-pi
+WorkingDirectory=@LB_ROOT@
+Environment=PYTHONPATH=@LB_ROOT@
 ExecStart=/bin/bash -lc 'mkdir -p ./data ./logs ./config && \
     ./.venv/bin/python ./scripts/init_database.py'
 
-# Permissions and directory setup
-ExecStartPre=/bin/mkdir -p /apps/lawnberry-pi/data
-ExecStartPre=/bin/mkdir -p /apps/lawnberry-pi/logs
-ExecStartPre=/bin/mkdir -p /apps/lawnberry-pi/config
-PermissionsStartOnly=true
-ExecStartPre=/bin/chown -R pi:pi /apps/lawnberry-pi
+# Directory setup. EVERY line of this unit runs as @LB_USER@: there is no root pre-start step
+# (no "+" prefix, no switch that exempts the pre-start commands from User=). In particular
+# there is no recursive chown of @LB_ROOT@ at boot: it ran as root on every boot over a tree
+# the service account controls and followed whatever was in it (and, with a wrong --root, it
+# rewrote ownership of a system directory). The service account only creates what is missing
+# inside its own checkout. Ownership of data/, logs/ and config/ is fixed once, bounded and
+# without following links, by systemd/install_services.sh; if files in them end up root-owned
+# after a manual sudo, run the installer again.
+ExecStartPre=/bin/mkdir -p @LB_ROOT@/data
+ExecStartPre=/bin/mkdir -p @LB_ROOT@/logs
+ExecStartPre=/bin/mkdir -p @LB_ROOT@/config
 
 # Security
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=false
 ProtectSystem=strict
-ReadWritePaths=/apps/lawnberry-pi
+ReadWritePaths=@LB_ROOT@
 
 # Logging
 StandardOutput=journal

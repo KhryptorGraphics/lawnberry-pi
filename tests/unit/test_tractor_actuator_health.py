@@ -264,6 +264,7 @@ async def test_sim_mode_succeeds_and_says_it_is_simulated():
     svc = TractorControlService(config={})  # SIM_MODE=1 under the test runner
     state = svc.get_state()
     assert state.actuator_ok is True and state.simulated is True
+    svc.authorize()  # a lever command from an unlabeled caller needs authorization (SAF-01)
     assert (await svc.set_levers(0.5, 0.5))["status"] == "ok"
     assert svc.state.left_lever == pytest.approx(0.5)
     await svc.shutdown()

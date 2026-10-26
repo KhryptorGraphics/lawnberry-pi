@@ -12,6 +12,9 @@ from typing import Any
 from fastapi import WebSocket
 from fastapi.encoders import jsonable_encoder
 
+from ..core.simulation import is_simulation_mode
+from ..core.ws_policy import MAX_TOPICS_PER_CLIENT, SEND_TIMEOUT_S, valid_topic
+from ..drivers.sensors.gps_driver import preferred_gps_device, reading_age_s
 from ..models.hardware_config import GPSType
 from ..models.sensor_data import GpsMode
 from ..services.ntrip_client import NtripForwarder
@@ -39,8 +42,6 @@ class WebSocketHub:
         # Hardware integration
         self._sensor_manager = None  # lazy init to avoid hardware deps on CI
         self._gps_warm_done = False
-        # Cache last known position to smooth fields missing on alternating NMEA sentences
-        self._last_position: dict[str, Any] = {}
         # Optional link back to FastAPI app state so other endpoints can reuse services
         self._app_state: Any | None = None
         # Prevent concurrent calibration runs
@@ -49,6 +50,14 @@ class WebSocketHub:
         self._ntrip_forwarder: NtripForwarder | None = None
         # Simulation helpers for deterministic synthetic telemetry
         self._sim_cycle: int = 0
+        # Per-client subscription bookkeeping (topic caps, pruning of empty topics)
+        self._client_topics: dict[str, set[str]] = {}
+        # One shared, single-flight telemetry sample for every reader that needs "the latest"
+        # (``/ws/status`` used to run a full sensor read per socket per tick)
+        self._telemetry_cache: tuple[float, dict] | None = None
+        self._telemetry_lock = asyncio.Lock()
+        # Background closes of dropped slow clients (kept so the tasks are not garbage collected)
+        self._closing: set[asyncio.Task] = set()
 
     def bind_app_state(self, state: Any) -> None:
         """Expose app.state to the hub so lazily-created services can be shared."""
@@ -99,19 +108,14 @@ class WebSocketHub:
             gps_mode = GpsMode.LC29H_UART
             ntrip_enabled = bool(getattr(hw_cfg, "gps_ntrip_enabled", False))
 
-        # Hint GPS device if a common device node is present
+        # Hint the GPS device: the hardware UART for a UART-wired receiver, the u-blox USB port
+        # for an F9P on USB (found by USB identity, never by guessing an ACM number: the RoboHAT
+        # and the ultrasonic MCU are ACM ports too, audit SAF-S1). No sign of one: no hint.
         try:
             if not os.environ.get("GPS_DEVICE"):
-                candidates = [
-                    "/dev/ttyACM1",
-                    "/dev/ttyACM0",
-                    "/dev/ttyAMA0",
-                    "/dev/ttyUSB0",
-                ]
-                for candidate in candidates:
-                    if os.path.exists(candidate):
-                        os.environ["GPS_DEVICE"] = candidate
-                        break
+                hint = preferred_gps_device(gps_mode)
+                if hint:
+                    os.environ["GPS_DEVICE"] = hint
         except Exception:
             pass
 
@@ -125,6 +129,8 @@ class WebSocketHub:
         tof_cfg: dict | None = None
         power_cfg: dict | None = None
         ultrasonic_enabled: bool | None = None
+        ultrasonic_cfg: dict | None = None
+        ultrasonic_obstacle_cm: float | None = None
         if self._app_state and getattr(self._app_state, "hardware_config", None):
             try:
                 hwc = self._app_state.hardware_config
@@ -141,19 +147,29 @@ class WebSocketHub:
                     power_cfg["victron"] = victron.model_dump(exclude_none=True)
                 if not power_cfg:
                     power_cfg = None
+                uc = getattr(hwc, "ultrasonic_config", None)
+                if uc is not None:
+                    ultrasonic_cfg = uc.model_dump()
                 limits = getattr(self._app_state, "safety_limits", None)
                 if limits is not None:
                     ultrasonic_enabled = bool(getattr(limits, "ultrasonic_enabled", True))
+                    ultrasonic_obstacle_cm = float(
+                        getattr(limits, "ultrasonic_obstacle_distance_cm", 30.0)
+                    )
             except Exception:
                 tof_cfg = None
                 power_cfg = None
                 ultrasonic_enabled = None
+                ultrasonic_cfg = None
+                ultrasonic_obstacle_cm = None
 
         self._sensor_manager = SensorManager(
             gps_mode=gps_mode,
             tof_config=tof_cfg,
             power_config=power_cfg,
             ultrasonic_enabled=ultrasonic_enabled,
+            ultrasonic_config=ultrasonic_cfg,
+            ultrasonic_obstacle_cm=ultrasonic_obstacle_cm,
         )
         await self._sensor_manager.initialize()
         if ntrip_enabled:
@@ -169,7 +185,7 @@ class WebSocketHub:
         """Start the NTRIP client when hardware requests RTK corrections."""
         if self._ntrip_forwarder is not None:
             return
-        if os.getenv("SIM_MODE", "0") == "1":
+        if is_simulation_mode():
             return
         forwarder = NtripForwarder.from_environment(gps_mode=gps_mode)
         if forwarder is None:
@@ -218,64 +234,140 @@ class WebSocketHub:
         )
 
     def disconnect(self, client_id: str):
-        if client_id in self.clients:
-            del self.clients[client_id]
-        # Remove from all subscriptions
-        for _topic, subscribers in self.subscriptions.items():
+        self.clients.pop(client_id, None)
+        self._client_topics.pop(client_id, None)
+        # Remove from all subscriptions and forget topics nobody listens to any more (an empty
+        # topic used to stay for ever: 330 000 distinct names grew the backend by 370 MiB)
+        for topic in list(self.subscriptions):
+            subscribers = self.subscriptions[topic]
             subscribers.discard(client_id)
+            if not subscribers:
+                del self.subscriptions[topic]
+
+    async def _refuse_subscription(self, client_id: str, topic: object, reason: str) -> None:
+        await self._notify(
+            client_id,
+            {
+                "event": "subscription.refused",
+                "topic": str(topic)[:64],
+                "reason": reason,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        )
+
+    async def _notify(self, client_id: str, payload: dict) -> None:
+        websocket = self.clients.get(client_id)
+        if websocket is not None and not await self._send(
+            client_id, websocket, json.dumps(payload)
+        ):
+            self.disconnect(client_id)
 
     async def subscribe(self, client_id: str, topic: str):
-        if topic not in self.subscriptions:
-            self.subscriptions[topic] = set()
-        self.subscriptions[topic].add(client_id)
+        """Subscribe ``client_id`` to ``topic``: at most ``MAX_TOPICS_PER_CLIENT`` valid names.
+
+        A name must be short and plain (``core/ws_policy.valid_topic``); anything else, or a
+        client already holding the maximum, is answered with ``subscription.refused`` and
+        creates nothing (a socket used to be able to mint unlimited topics, 1 kB names included).
+        """
+        if not valid_topic(topic):
+            await self._refuse_subscription(client_id, topic, "invalid topic name")
+            return
+        topics = self._client_topics.setdefault(client_id, set())
+        if topic not in topics and len(topics) >= MAX_TOPICS_PER_CLIENT:
+            await self._refuse_subscription(client_id, topic, "too many subscriptions")
+            return
+        topics.add(topic)
+        self.subscriptions.setdefault(topic, set()).add(client_id)
 
         # Send confirmation
-        if client_id in self.clients:
-            await self.clients[client_id].send_text(
-                json.dumps(
-                    {
-                        "event": "subscription.confirmed",
-                        "topic": topic,
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
-            )
+        await self._notify(
+            client_id,
+            {
+                "event": "subscription.confirmed",
+                "topic": topic,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        )
 
     async def unsubscribe(self, client_id: str, topic: str):
-        if topic in self.subscriptions:
-            self.subscriptions[topic].discard(client_id)
+        subscribers = self.subscriptions.get(topic)
+        if subscribers is not None:
+            subscribers.discard(client_id)
+            if not subscribers:
+                del self.subscriptions[topic]
+        held = self._client_topics.get(client_id)
+        if held is not None:
+            held.discard(topic)
 
         # Send confirmation
-        if client_id in self.clients:
-            await self.clients[client_id].send_text(
-                json.dumps(
-                    {
-                        "event": "unsubscription.confirmed",
-                        "topic": topic,
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
-            )
+        await self._notify(
+            client_id,
+            {
+                "event": "unsubscription.confirmed",
+                "topic": str(topic)[:64],
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        )
 
     async def set_cadence(self, client_id: str, cadence_hz: float):
-        # Clamp cadence between 1-10 Hz
-        cadence_hz = max(1.0, min(10.0, cadence_hz))
+        # Clamp cadence between 1-10 Hz (NaN is not a cadence either)
+        cadence_hz = 5.0 if cadence_hz != cadence_hz else max(1.0, min(10.0, cadence_hz))
         self.telemetry_cadence_hz = cadence_hz
 
         # Send confirmation
-        if client_id in self.clients:
-            await self.clients[client_id].send_text(
-                json.dumps(
-                    {
-                        "event": "cadence.updated",
-                        "cadence_hz": cadence_hz,
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
+        await self._notify(
+            client_id,
+            {
+                "event": "cadence.updated",
+                "cadence_hz": cadence_hz,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        )
+
+    def _close_in_background(self, websocket: WebSocket) -> None:
+        async def close() -> None:
+            try:
+                async with asyncio.timeout(1.0):
+                    await websocket.close(code=1013)  # try again later
+            except Exception:
+                pass
+
+        task = asyncio.get_running_loop().create_task(close())
+        self._closing.add(task)
+        task.add_done_callback(self._closing.discard)
+
+    async def _send(self, client_id: str, websocket: WebSocket, message: str) -> bool:
+        """Send one frame; ``False`` (and the socket is closed) when the client is not taking it.
+
+        Bounded by ``SEND_TIMEOUT_S``: the fan-out below awaits every client, so one client that
+        stops reading (a full TCP window) would otherwise stall the telemetry of all the others.
+        """
+        try:
+            async with asyncio.timeout(SEND_TIMEOUT_S):
+                await websocket.send_text(message)
+            return True
+        except TimeoutError:
+            logger.warning(
+                "WebSocket client %s dropped: a frame was not accepted within %.1f s",
+                client_id,
+                SEND_TIMEOUT_S,
             )
+            self._close_in_background(websocket)
+        except Exception:
+            pass
+        return False
+
+    async def _fan_out(self, client_ids: list[str], message: str) -> None:
+        """Send ``message`` to every listed connected client concurrently; drop those that fail."""
+        targets = [(cid, self.clients[cid]) for cid in client_ids if cid in self.clients]
+        results = await asyncio.gather(*(self._send(cid, ws, message) for cid, ws in targets))
+        for (client_id, _ws), delivered in zip(targets, results, strict=True):
+            if not delivered:
+                self.disconnect(client_id)
 
     async def broadcast_to_topic(self, topic: str, data: dict):
-        if topic not in self.subscriptions:
+        subscribers = list(self.subscriptions.get(topic, ()))
+        if not subscribers:
             return
 
         # Use FastAPI's encoder to safely handle datetimes and Pydantic models
@@ -285,19 +377,7 @@ class WebSocketHub:
             "timestamp": datetime.now(UTC).isoformat(),
             "data": data,
         }
-        message = json.dumps(jsonable_encoder(payload), default=str)
-
-        disconnected_clients = []
-        for client_id in self.subscriptions[topic]:
-            if client_id in self.clients:
-                try:
-                    await self.clients[client_id].send_text(message)
-                except Exception:
-                    disconnected_clients.append(client_id)
-
-        # Clean up disconnected clients
-        for client_id in disconnected_clients:
-            self.disconnect(client_id)
+        await self._fan_out(subscribers, json.dumps(jsonable_encoder(payload), default=str))
 
     async def broadcast(self, message: Any) -> None:
         """Send a message to every connected client, regardless of topic.
@@ -307,15 +387,7 @@ class WebSocketHub:
         if not isinstance(message, str):
             message = json.dumps(jsonable_encoder(message), default=str)
 
-        disconnected_clients = []
-        for client_id, client in list(self.clients.items()):
-            try:
-                await client.send_text(message)
-            except Exception:
-                disconnected_clients.append(client_id)
-
-        for client_id in disconnected_clients:
-            self.disconnect(client_id)
+        await self._fan_out(list(self.clients), message)
 
     async def start_telemetry_loop(self):
         if self._telemetry_task is not None:
@@ -331,10 +403,35 @@ class WebSocketHub:
                 pass
             self._telemetry_task = None
 
+    async def current_telemetry(self, max_age_s: float = 0.5) -> dict:
+        """The latest telemetry sample, at most ``max_age_s`` old; one sensor read for all readers.
+
+        ``/api/v2/ws/status`` used to call ``_generate_telemetry`` itself per socket at 5 Hz: a
+        full sensor read each, so a dozen sockets multiplied the load and pushed the E-stop
+        handler from 4 ms to 560 ms. Readers now share one sample per ``max_age_s``: concurrent
+        callers wait for the single read in flight (single flight) instead of starting their own,
+        and the telemetry loop's own samples count too.
+        """
+        cached = self._telemetry_cache
+        if cached is not None and time.monotonic() - cached[0] <= max_age_s:
+            return cached[1]
+        async with self._telemetry_lock:
+            cached = self._telemetry_cache
+            if cached is not None and time.monotonic() - cached[0] <= max_age_s:
+                return cached[1]
+            sample = await self._generate_telemetry()
+            self._telemetry_cache = (time.monotonic(), sample)
+            return sample
+
     async def _telemetry_loop(self):
         while True:
             try:
-                telemetry_data = await self._generate_telemetry()
+                # The reader lock of ``current_telemetry`` too: one sensor read at a time, whoever
+                # asks (the I2C and serial drivers are not built for overlapping callers). A reader
+                # that arrives mid-read waits here and then takes this very sample from the cache.
+                async with self._telemetry_lock:
+                    telemetry_data = await self._generate_telemetry()
+                    self._telemetry_cache = (time.monotonic(), telemetry_data)
                 # Broadcast to topic-specific channels immediately
                 await self._broadcast_telemetry_topics(telemetry_data)
 
@@ -453,30 +550,26 @@ class WebSocketHub:
             await self.broadcast_to_topic("telemetry.power", message)
 
         if "position" in telemetry_data:
-            # Ensure shallow copy to avoid mutation races
             pos = telemetry_data.get("position") or {}
-            # Merge with last known values to avoid transient None for fields (e.g., altitude/accuracy)  # noqa: E501
-            cached = self._last_position
-
-            def _merge_field(key: str):
-                v = pos.get(key) if isinstance(pos, dict) else None
-                return v if v is not None else cached.get(key)
-
+            # One GNSS reading is one unit: its position, fix status, accuracy and HDOP describe
+            # the same fix, so nothing is carried over from an earlier reading (audit GPS-05). A
+            # receiver that now says "plain fix, accuracy unknown" must not show the last RTK 3 cm,
+            # and a driver that has nothing to report must not show the old coordinates as live.
             merged = {
-                "latitude": _merge_field("latitude"),
-                "longitude": _merge_field("longitude"),
-                "altitude": _merge_field("altitude"),
-                "accuracy": _merge_field("accuracy"),
-                "gps_mode": _merge_field("gps_mode"),
-                "hdop": _merge_field("hdop"),
-                "speed": _merge_field("speed"),
-                "rtk_status": _merge_field("rtk_status"),
-                "satellites": _merge_field("satellites"),
+                key: (pos.get(key) if isinstance(pos, dict) else None)
+                for key in (
+                    "latitude",
+                    "longitude",
+                    "altitude",
+                    "accuracy",
+                    "gps_mode",
+                    "hdop",
+                    "speed",
+                    "rtk_status",
+                    "satellites",
+                    "fix_age_s",
+                )
             }
-            # Update cache with any newly provided non-None values
-            for k, v in merged.items():
-                if v is not None:
-                    self._last_position[k] = v
             nav_payload = {
                 "position": merged,
                 "source": telemetry_data.get("source", "unknown"),
@@ -490,6 +583,9 @@ class WebSocketHub:
             hdop_val = merged.get("hdop")
             if isinstance(hdop_val, (int, float)):
                 nav_payload["hdop"] = hdop_val
+            fix_age_val = merged.get("fix_age_s")
+            if isinstance(fix_age_val, (int, float)):
+                nav_payload["fix_age_s"] = fix_age_val
             await self.broadcast_to_topic("telemetry.navigation", nav_payload)
 
         if "imu" in telemetry_data:
@@ -725,7 +821,7 @@ class WebSocketHub:
 
         Safe on CI: imports and hardware init are lazy and wrapped in try/except.
         """
-        sim_mode = os.getenv("SIM_MODE", "0") != "0"
+        sim_mode = is_simulation_mode()
 
         manager: Any | None = None
         try:
@@ -791,11 +887,10 @@ class WebSocketHub:
                 speed_mps = getattr(pos, "speed", None) if pos else None
                 accuracy_m = getattr(pos, "accuracy", None) if pos else None
                 hdop = getattr(pos, "hdop", None) if pos else None
-                if accuracy_m is None and hdop is not None:
-                    try:
-                        accuracy_m = float(hdop)
-                    except Exception:
-                        accuracy_m = None
+                # HDOP is a geometry factor, not metres: unknown accuracy stays unknown (SAF-04).
+                # The age of the fix's own stamp: a reading the sensor interface replays after the
+                # receiver went quiet keeps its stamp, so the operator sees it ageing (GPS-05).
+                fix_age_s = reading_age_s(pos) if pos else None
 
                 cal_status = getattr(imu, "calibration_status", None)
                 _cal_map = {
@@ -822,6 +917,7 @@ class WebSocketHub:
                         "speed": speed_mps,
                         "rtk_status": getattr(pos, "rtk_status", None) if pos else None,
                         "hdop": hdop,
+                        "fix_age_s": fix_age_s,
                     },
                     "imu": {
                         "roll": getattr(imu, "roll", None),

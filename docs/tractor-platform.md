@@ -179,13 +179,27 @@ single differential-style steering axis (see `docs/ai-architecture.md`); owning
 the steering-to-twin-lever mixing inside `to_tractor_command()` is an open item
 for the actuation/navigation workstream, not yet resolved here.
 
+The Pi ↔ Thor link has its own file, `config/thor_link.yaml`, **off by default**; see
+[Enabling the Thor link](#enabling-the-thor-link).
+
 ## API & UI
 
 - REST: `/api/v2/tractor/*` — state, per-actuator setpoints (left lever, right
   lever, throttle), blade, starter, authorize/revoke, emergency-stop/clear.
   Exact route names are owned by the actuation workstream's implementation,
   not fixed by this document.
-- UI: the **Tractor** dashboard view (`/tractor`).
+- UI: the **Tractor** dashboard view (`/tractor`). It is **hold-to-run** (review finding SF-08): the
+  backend holds a lever/throttle command for `command_deadman.default_hold_ms` (500 ms by default, echoed
+  as `hold_ms` in every accepted reply) and then returns the lever to neutral and the throttle to idle, so
+  the page re-sends a held slider every third of that hold (150 ms until the first echo), one request at
+  a time, levers left then right. Releasing a slider sends neutral; so do the page being hidden or
+  closed, the browser going offline, leaving the page, a request that fails or takes longer than the
+  hold, and a rejected command (the page then stays at neutral until the operator moves a slider again).
+  A latched E-stop ends every hold without further writes, and the E-stop button is never disabled.
+  The sliders show what *this page* commands; the "Backend is holding" lines show the backend state.
+  The **Latch** checkbox keeps a slider where it was left (two sliders cannot both be dragged with one
+  mouse) with the same stop conditions. Every write needs the operator sign-in (`Authorization: Bearer`)
+  while `OPERATOR_AUTH_REQUIRED=1`; the E-stop does not.
 
 ## Pi ↔ Thor link (autonomy W7)
 
@@ -193,10 +207,23 @@ The Thor runs strategy (coverage plan, waypoints); the Pi keeps every safety
 decision. `backend/src/models/thor_link.py` defines protocol **v2**, the
 authenticated one (the unauthenticated v1 was never wired into `main.py`, so v2
 replaces it with no compatibility path): one UDP datagram per message, at most 1,200 B
-including a 32-byte authentication tag. `backend/src/services/thor_link_service.py`
-is the Pi's slow loop (binds `0.0.0.0:47101` by default). It is separate from
-`TractorSafetyMonitor` and the watchdog, and never feeds them. Its only actuation
-authority is **safe hold**, below; it never moves the mower.
+including a 32-byte authentication tag. Three pieces cooperate on the Pi:
+
+- `backend/src/services/thor_link_service.py` is the slow loop: socket, authentication,
+  freshness, and **safe hold** (below). Its only actuation authority is the hold; it never
+  moves the mower. It is separate from `TractorSafetyMonitor` and the watchdog and never
+  feeds them.
+- `backend/src/services/thor_plan_follower.py` is the **only consumer of the plan**. It turns
+  each accepted window into legs and drives them through the local navigation loop, behind a
+  local gate ([How a plan becomes motion](#how-a-plan-becomes-motion)).
+- `backend/src/services/thor_link_wiring.py` reads `config/thor_link.yaml`, checks the
+  preconditions and starts both from `main.py`. It is **off by default**
+  ([Enabling the Thor link](#enabling-the-thor-link)).
+
+On the Thor, `scripts/thor_link_client.py` is the minimal counterpart
+([Thor side](#thor-side)). Both ends were exercised together over real UDP on loopback in
+`SIM_MODE` (`tests/integration/test_thor_link_e2e.py`); nothing has run on HaLow or on the
+mower.
 
 ### Message set
 
@@ -212,7 +239,8 @@ Uplink, Pi → Thor, 10 Hz (doubles as the Pi's heartbeat):
 | `sid`, `seq` | Pi session id (random 48-bit, new per service run) and uplink counter (0, 1, 2, …) |
 | `t_ms` | Pi monotonic clock, ms |
 | `lat`, `lon`, `heading_deg`, `fix` | position, heading, RTK quality (`none`/`gps`/`dgps`/`rtk_float`/`rtk_fixed`) |
-| `detections` | at most 16 × `{c, b, r, p}`: class, bearing °, range m, confidence |
+| `detections` | at most 16 × `{c, b, r, p}`: class (at most 24 characters), bearing °, range m, confidence |
+| `detections_dropped` | only when detections had to be left out to fit one datagram: how many |
 | `estop`, `safe_hold`, `hold_fault`, `blade` | Pi state; `hold_fault` = the hold could not confirm neutral |
 | `waypoint_index` | the Pi's progress along the plan |
 
@@ -225,10 +253,21 @@ Downlink, Thor → Pi (one per uplink):
 | `start_index`, `waypoints` | window of at most 16 `{lat, lon, blade}` starting at plan index `start_index`; lat/lon are quantised to 1e-7° (≈1.1 cm) on the wire |
 | `pause` | hold; any waypoints are ignored |
 
-Worst-case datagrams, from `tests/unit/test_thor_link.py`: uplink 1,177 B (16 detections,
-full-precision doubles), downlink window 1,009 B; the uplink bound at 10 Hz is
-12 kB/s. The budget rests on HaLow measured at one site so far
-(`docs/autonomy-toolchain-matrix.md`).
+Worst-case datagrams, from `tests/unit/test_thor_link.py` and `test_thor_link_uplink_fit.py`:
+uplink 1,150 B (16 detections of the longest shipped class name, `unknown_obstacle`, 16
+characters, full-precision doubles; lat/lon are quantised to 1e-7° and heading to 0.1° on the
+wire), downlink window 1,009 B; the uplink bound at 10 Hz is 12 kB/s. The budget rests on HaLow
+measured at one site so far (`docs/autonomy-toolchain-matrix.md`).
+
+An uplink is the heartbeat, so it is never refused for its size. One that would exceed 1,200 B
+(16 detections with 24-character class names come to 1,278 B) is thinned by `fit_uplink`: class
+names are clipped to the longest length that fits (never below 8 characters), then the least
+confident detections are dropped (farthest first among equals) and the count goes out as
+`detections_dropped` (absent when the list is complete). If the state builder itself raises, or
+its payload cannot be made to fit, a bare uplink (session, counter, clock, e-stop/hold/blade
+flags) is sent instead and counted in `builder_errors`; `uplinks_degraded` and
+`detections_dropped` count the thinning. The Thor must read a non-zero `detections_dropped` as
+"obstacles exist that were not listed".
 
 ### Authentication
 
@@ -246,14 +285,38 @@ never refresh the heartbeat.
   It is never logged. There is no key id or rotation protocol: to rotate, replace the
   key on both hosts and restart both ends.
 - **No key, no start**: `ThorLinkService(...)` raises `LinkKeyError` if no key is
-  configured, if it is malformed or under 32 bytes, or if it is the published
-  `SIM_LINK_KEY` while `SIM_MODE` is off. With `SIM_MODE=1` and nothing configured it
-  uses `SIM_LINK_KEY` and logs a warning. That key is in the repository and
+  configured, if it is malformed or under 32 bytes, if it does not look random, or if it is
+  the published `SIM_LINK_KEY` while `SIM_MODE` is off. With `SIM_MODE=1` and nothing configured
+  it uses `SIM_LINK_KEY` and logs a warning. That key is in the repository and
   authenticates nothing; tests and simulation may also pass any explicit key.
+- **Key quality**: the tag is the only real control, so `validate_key` refuses, with an explicit
+  reason that never echoes the key: all zero bytes, one byte repeated (`aa`×32), a repeating unit
+  shorter than 16 bytes (`password`×4, so only 8 bytes of secret) and fewer than 16 distinct byte
+  values. A key from `openssl rand -hex 32` is never refused (odds below 1 in 10¹³). The published
+  sim key is refused from a file, the environment or the secrets store unless `SIM_MODE=1`, on the
+  Pi and in `thor_link_client.py` alike.
 - **Source allowlist** (optional): `allowed_sources=["10.0.0.0/24", "192.168.1.5"]`
   drops datagrams from other addresses before any decoding. It sheds noise; it is
-  not a control, because UDP source addresses can be spoofed. Off by default, as the
-  Thor may answer from a different interface address than the one the Pi sends to.
+  not a control, because UDP source addresses can be spoofed. Off by default in the service
+  (`config/thor_link.yaml` defaults it to the Thor's address), as the Thor may answer from a
+  different interface address than the one the Pi sends to. Entries are parsed strictly:
+  `192.168.1.64/24` (host bits) is an error rather than a quiet `192.168.1.0/24`, `0.0.0.0/0` is
+  an error (write `allowed_sources: any`), and a network wider than one LAN (`10.0.0.0/8`) is an
+  error unless `allow_wide_sources: true` acknowledges it.
+- **Flood bound**: a token bucket per source address (20 datagrams/s or twice the uplink rate,
+  burst = the uplink memory, 18 at the defaults) and one for the whole port (four times that)
+  sit in front of the HMAC, with at most 64 sources remembered. The legitimate Thor sends one
+  datagram per uplink, so it never sees the limit; the peer that last delivered an accepted
+  downlink skips the port bucket, so strangers cannot starve it. Measured on a development box
+  with a loopback flood of 1,200 B datagrams against the real socket (3 s, one sender process):
+  before the bound 357,034 datagrams were received and every one cost an HMAC; after it 519,121
+  were received and 78 reached the HMAC (the burst plus 20/s), the rest being dropped as `rate`.
+  The cost per received datagram fell from about 8.3 µs to 5.7 µs, but a saturating flood still
+  kept about 90 % of one core busy in both runs, because asyncio's own receive path dominates;
+  the event loop stayed responsive (maximum timer lag 0.5 ms before, 2 to 5 ms after, with a test
+  suite running alongside). So the bound limits the HMAC, parsing and logging work, not the cost
+  of receiving: an upstream firewall rule (nftables rate limit on the HaLow interface) is still
+  the real defence against a flooded radio link, and nothing here has been measured on the Pi.
 - The tag authenticates, it does not encrypt: position, detections and waypoints are
   visible to anyone on the link.
 
@@ -275,7 +338,10 @@ in order; the reason a datagram was dropped is counted in `rejects` (total in
 | 6 | `ack` is below the next uplink `seq`, i.e. an uplink this run really sent | `future_ack` |
 | 7 | `ack` is above the newest accepted `ack` | `replay` |
 | 8 | the answered uplink is still remembered and was sent ≤ `plan_max_age_s` ago | `stale` |
-| 9 | plans only: every waypoint is inside the geofence | `geofence` |
+| 9 | plans only: every waypoint is inside the geofence (margin applied) and every leg between consecutive waypoints stays inside it and clear of the no-go zones | `geofence` |
+
+A datagram that passes check 1 must also fit the **datagram budget** (below) before check 2; one
+that does not is dropped unread and counted as `rate`.
 
 Only a downlink that passes everything moves state (heartbeat, replay baseline, plan);
 a rejected one changes nothing. Rejections are logged at most once per 5 s per cause,
@@ -352,45 +418,236 @@ is handled the same way (plan dropped, held, fault reported). Whether a persiste
 should escalate to an e-stop is a policy decision left to the integrator; that path
 writes through the same bus.
 
+### Enabling the Thor link
+
+The link is **off** unless `config/thor_link.yaml` says `enabled: true`; with no file, or the
+shipped one, `main.py` builds nothing and binds nothing. Switching it on is an owner
+decision: it turns the mower's motion over to authenticated plans from the Thor. Do not
+enable it, or `tractor.enabled`, to try it out on the real mower; use `SIM_MODE=1`, or the
+bench with the blade disabled and the machine unable to drive away.
+
+**Preconditions, all checked at start-up.** If any fails, the backend logs a CRITICAL line
+with the reason, keeps `app.state.thor_link` empty and `app.state.thor_link_error` set, and
+carries on with local control only. It never starts a weaker link.
+
+| Needs | Why |
+|---|---|
+| `tractor.enabled: true` in `config/tractor.yaml` | The link drives the tractor platform only; it never drives the differential path. |
+| The tractor safety monitor running (tilt cutoff and watchdog heartbeat) | It starts in the same start-up after `tractor.initialize()`. If that failed there is no monitor and so no link. |
+| `THOR_LINK_KEY` (hex, at least 32 bytes) in the environment or `config/secrets.json` | Outside `SIM_MODE` a missing, malformed or short key, or the public `SIM_LINK_KEY`, means no link. In `SIM_MODE` with no key the public key is used and a warning says so. |
+| `thor_host` (the Thor's IPv4 address) | Uplinks go there; by default only datagrams from that address are accepted. |
+| Outside `SIM_MODE`: a `geofence` | A plan is never accepted unbounded. The boundary must include where the mower starts. |
+
+**Steps.**
+
+1. Generate one key, `openssl rand -hex 32`, and install it on both hosts: on the Pi in a
+   systemd `EnvironmentFile` (mode 0600) or `config/secrets.json` (git-ignored, 0600; see
+   `config/secrets.example.json`); on the Thor in a key file (mode 0600) or the
+   environment. There is no rotation protocol: replace it on both and restart both.
+2. Edit `config/thor_link.yaml`: `enabled: true`, `thor_host`, `bind_host` (the Pi's HaLow
+   address; the default `127.0.0.1` hears nobody), and the `geofence` (boundary and no-go
+   zones copied from the map). Leave `allow_blade: false` for the first runs.
+3. Start the Thor side: `python3 scripts/thor_link_client.py --key-file KEY --plan plan.json`
+   (or `--boundary yard.json` for a coverage plan), listening where `thor_port` points.
+4. Restart the backend. Expect `Thor link on: blade forbidden, speed 50%, fix rtk_fixed, fence
+   on`, then `Thor link: fresh plan received, leaving safe hold` once the Thor answers. The
+   client's status line (every 5 s) shows the Pi's fix, hold and progress. The running
+   service's counters are on `app.state.thor_link.status()` (there is no REST route yet).
+5. A person authorizes the tractor and starts the engine locally, as for any other run
+   (`POST /api/v2/tractor/authorize`, the starter). The link never arms, starts the engine or
+   clears a latch, and the follower drives only while the tractor is authorized with its
+   engine running.
+
+**While it is on, the link owns the mower's motion.** With no usable plan (Thor silent,
+paused, stale or out of sync) it holds, and it re-neutralises anything that moves the mower,
+manual driving included. A mission or AI run is not blocked, but the follower stands down
+while one is active (`nav_mode_*`). **Off:** `enabled: false` (or remove the file) and
+restart the backend.
+
+The settings that matter for safety, and their shipped values (all in `config/thor_link.yaml`,
+unknown keys are an error, numbers marked unvalidated are placeholders to size on the bench):
+
+| Key | Shipped | Meaning |
+|---|---|---|
+| `enabled` | `false` | the flag |
+| `allow_blade` | `false` | the Thor can request the blade; the Pi grants it only if `true` (and then the tractor's own interlocks still apply). With `false` a plan's mowing legs are driven with the blade forced off. |
+| `require_fix` | `[rtk_fixed]` | fixes the mower may drive on |
+| `max_position_age_s` | `1.0` (unvalidated) | age limit for the GNSS reading and the navigation feed |
+| `speed_percent` | `50` (unvalidated) | share of `NavigationService.max_speed`; the protocol has no speed field |
+| `geofence.margin_m` | `0.5` (unvalidated) | pulled in from the boundary for every check, never outwards; size it from the stopping distance and GNSS error (audit M-43, M-51) |
+| `timeout_s`, `plan_max_age_s` | `0.5`, `1.0` | heartbeat timeout and plan age cap, as in the state machine above; every timing must be finite and above 0, `uplink_hz` at most 50 |
+| `bind_host` | `127.0.0.1` | closed unless set |
+| `allowed_sources`, `allow_wide_sources` | thor_host only, `false` | strict list of IPs/CIDRs (see Authentication); a network wider than one LAN (IPv4 shorter than /16) is refused unless `allow_wide_sources: true` |
+
+### How a plan becomes motion
+
+```mermaid
+flowchart LR
+  T["Thor<br/>scripts/thor_link_client.py"] -->|"UDP, HMAC, sid/ack"| L["ThorLinkService<br/>auth, freshness, fence, hold"]
+  L -->|"current_plan()"| F["ThorPlanFollower<br/>local gate, plan indices"]
+  F -->|"go_to_waypoint(leg, should_continue=gate)"| N["NavigationService loop, 5 Hz"]
+  N -->|"apply()"| A["TractorControlService<br/>E-stop, latch, deadman, authorization"]
+  F -.->|"stand-down only: blade off, levers neutral"| A
+  L -.->|"hold only: blade off, levers neutral"| A
+```
+
+A plan reaches the actuators only through the solid path. The two dotted lines are the only
+commands the link and the follower issue themselves, and both are stops. `go_to_waypoint`
+takes a `should_continue` gate for legs that belong to no mission; a gated leg ignores
+mission status.
+
+**The local gate**, re-checked on every control tick before a command is sent. The first
+failure soft-stops the mower (levers neutral, then blade off if the follower had been
+driving) and is recorded as the follower's `reason`; counts are in `status()["stand_downs"]`.
+
+| `reason` | The follower stands down because |
+|---|---|
+| `link_hold`, `empty_window` | the link has no usable plan (held, paused, timed out, aged out) or the window is empty |
+| `out_of_sync` | the window does not contain this Pi's next waypoint (see below) |
+| `plan_changed`, `target_changed` | the plan moved under a running leg (new `plan_id`, shifted window, other coordinates or blade request); the leg ends and the next step re-selects |
+| `tractor_disabled`, `estop`, `interlock_latched` | the tractor platform is off, the E-stop is latched, or the blade interlock (tilt) is latched |
+| `not_authorized`, `engine_not_running`, `actuator_fault` | no operator authorization, no running engine (the tractor does not check either for lever commands), or the actuators report a fault |
+| `nav_mode_<mode>` | the navigation mode is not `idle` or `manual`: a mission, AI or return-home run owns the mower |
+| `no_position`, `no_heading`, `nav_feed_stale`, `gnss_stale`, `fix_<label>` | position or heading is missing, the navigation feed or the GNSS reading is older than `max_position_age_s`, or the fix is not in `require_fix` |
+| `outside_fence`, `leg_blocked`, `fence_check_failed` | the mower is outside the fence, the straight leg to the target leaves it or crosses a no-go zone, or the fence could not be evaluated |
+| `gate_error`, `follower_error` | a bug in the follower: it stands down, logs and backs off |
+
+**Plan indices.** The Pi reports the first waypoint it has not reached as `waypoint_index` in
+every uplink (absent until it has adopted a plan). The first plan of a run, and any new
+`plan_id`, is adopted at its `start_index`. After that every window must still contain the Pi's
+own index; a window that starts beyond it, or ends before it, is `out_of_sync` and the mower
+stands still until the two agree, which is the Thor's job (it follows the reported index). A
+window that starts behind the Pi but still contains its index is fine. Arrival (within
+`NavigationService.waypoint_tolerance` of the target) advances the index by one. The window
+runs out every 16 waypoints: the mower waits for the next window, normally one or two uplinks.
+
+**Policy that is the Pi's alone.** Speed is `speed_percent`, never the Thor's. The blade is
+requested only if the waypoint asks for it *and* `allow_blade` is true, and then
+`TractorControlService.engage_blade` still refuses it with the E-stop or tilt latch set, an
+unauthorized or stopped engine, or in reverse. The link checks every waypoint of a window
+against the fence and every straight leg between consecutive waypoints (inside the fence pulled
+in by the margin, clear of the no-go zones; the whole window is rejected otherwise); the follower
+checks the one leg the link cannot see, from the mower's own position to the next waypoint.
+
+**What wins over a valid plan** (each is a test in `tests/integration/test_thor_link_e2e.py`,
+run against a Thor that never pauses):
+
+| Interlock | Behaviour |
+|---|---|
+| E-stop | Levers neutral, authorization revoked, every command refused. The plan stays valid on the wire and nothing moves. After a human clears the latch the mower does **not** restart until a human authorizes it again. |
+| Tilt latch | Blade off and latched, drive stopped. Level again does not clear it; an authenticated `clear-emergency` does, and with a plan still live the mower then resumes at once. |
+| Stale position, degraded fix, outside the fence, a mission running | Stands down; resumes by itself when the condition clears. |
+| A limiter at `TractorControlService.set_levers` | Plan commands pass through `apply()` and so through it: a leg is held back there exactly like a mission leg, and the follower does not know or care. |
+| No authorization, engine not running | Never drives. The tractor service itself does not gate lever commands on either. |
+| Thor silent or paused | Hold: blade off, levers neutral, authorization kept; the follower's leg ends at its next tick. |
+
+**Obstacles.** The follower has no obstacle logic of its own. An obstacle stop belongs to the
+navigation loop and the tractor service (audit WP-P4-01/02: a stopping-distance guard read by
+`go_to_waypoint` and a limiter inside `TractorControlService.set_levers`), and a plan leg
+gets exactly what a mission leg gets, because both run in `go_to_waypoint` and command
+through `apply()`. On a tree without that work nothing stops a plan leg for an obstacle, as
+nothing stops a mission leg (`go_to_waypoint` never read obstacle state: audit A.6); check
+that the guard is in place before a powered Thor run.
+
+If the follower dies, the command deadman returns the levers to neutral within
+`default_hold_ms` (500 ms) but does not touch the blade; a hung process is covered by nothing
+in software (audit D.4: a hardware watchdog is still required).
+
+**Latency.** The leg ends within one navigation tick (0.2 s) of the plan expiring and the
+link neutralises on its own tick (`1/uplink_hz`); a command already in flight when the hold
+begins can land once more, and the link then re-asserts neutral each tick. These bounds
+come from the code and from SIM tests on a real clock; no latency has been measured, and
+the time from timeout to physical lever neutral is unknown.
+
 ### Thor side
 
-On the Thor, `backend/src/nav/thor_strategist.py` answers each uplink with the next
-waypoint window and echoes the uplink's `sid`/`seq`, on pauses too (without the echo
-the Pi would ignore even a pause). It pauses unless the fix is `rtk_fixed`, adds
-confident detections as keep-out circles and replans the uncovered remainder, never
-regresses progress on stale reports, and saves/loads coverage state for resume. In-sim
-tests (`tests/unit/test_thor_strategist.py`) show >97% coverage with zero boundary/no-go
-leg violations on a 60 × 40 m yard with a flower bed. They do not include learned
-policy or Isaac Sim runs (W3/W4 blocked).
+`scripts/thor_link_client.py` is the smallest Thor that satisfies the Pi: run from the repo
+root, `THOR_LINK_KEY=<hex> python3 scripts/thor_link_client.py --plan plan.json`, or
+`--key-file FILE` (mode 0600 enforced), or `--sim` with `SIM_MODE=1` for the public key.
+`--plan` serves a waypoint list in windows; `--boundary` hands a boundary and no-go zones to
+the coverage strategist (`backend/src/nav/thor_strategist.py`), which answers each uplink
+with the next window, pauses unless the fix is `rtk_fixed`, adds confident detections as
+keep-out circles and replans, never regresses progress on stale reports, and can save and
+load coverage state. The client plans the first transit from the mower's reported position
+once per session. `SIGUSR1` pauses, `SIGUSR2` resumes, `--pi IP` restricts uplink sources.
 
-The strategist does no I/O. The Thor's network layer, which is not in this repository,
-must verify each uplink with `decode_uplink(data, key)` and drop failures, send each
-answer through `encode(downlink, key)`, and drop uplinks whose `seq` is not newer than
-the last seen for that `sid` (a new `sid` means the Pi restarted). The Pi's replay rule
-protects the Pi only.
+**What the Thor must do** (the client does all of it; any other Thor must too, because the
+Pi's replay rule protects the Pi only):
 
-### Not wired, and what wiring owes
+- verify every uplink with `decode_uplink(data, key)` and drop failures without answering;
+- drop uplinks whose `seq` is not newer than the last seen for that `sid` (a new `sid` means
+  the Pi restarted and its counters start over), keeping a bounded table of sessions;
+- answer each accepted uplink once, to its source address, echoing `sid` and `seq` (as `ack`),
+  pauses included, since the Pi ignores anything unechoed;
+- pause, never plan, while the Pi reports no `rtk_fixed` fix, an e-stop or a hold fault;
+- answer a planner failure with a pause rather than silence (`thor_link_client.py` also turns a
+  planner answer that does not echo `sid`/`seq` into a pause that does);
+- refuse to start without a key, refuse a weak key and never fall back to, or accept, the public
+  key outside `SIM_MODE`, and never log the key;
+- shed floods before doing any HMAC work (the client keeps a token bucket per source and one for
+  the port), and rate-limit its own logging.
 
-**Not yet wired into `main.py`.** It stays unwired until rung 1 (bench) of the
-test ladder, so two unproven subsystems never go live together. Toolchain status
-per host is in `docs/autonomy-toolchain-matrix.md`. Whoever wires it must:
+**What remains on the Thor side** (not in this repository, or not done):
 
-- construct it with `allowed_sources` set to the Thor's HaLow address and a `geofence`
-  (a `GeofenceShape` of the mowing boundary), and treat `LinkKeyError` as "link
-  disabled", never as "run without auth". Outside `SIM_MODE` it warns at start when no
-  geofence is set;
-- start it only in autonomy mode: while it runs, anything that moves the mower without
-  a usable plan, teleop included, is neutralised;
-- add the consumer: nothing reads `current_plan()` yet. The consumer must check
-  `start_index` against its own progress (the link layer does not) and keep the mower
-  inside the fence between waypoints (the geofence check covers waypoints only).
+- a supervised service around the client (unit, restart policy, logs); today it is a script;
+- key provisioning and rotation; one key serves both directions, and the link authenticates
+  but does not encrypt;
+- one source of truth for the boundary: the Thor's `--boundary` and the Pi's `geofence` are
+  two copies, nothing compares them;
+- persisting and resuming coverage state (`ThorStrategist.save/load`) across Thor restarts
+  is not wired into the client;
+- obstacle detections: the Pi's uplink carries none yet (the detector has no feed into the
+  link), so the strategist never replans around obstacles; the Pi's own stop is independent;
+- HaLow addressing and firewalling (UDP 47101 between the two hosts only) and the measured
+  far-yard round trip and loss (audit M-52).
 
-Known gaps: timing is proven only on a fake clock and loopback sockets, not on HaLow
-or the bench (time from timeout to physical lever neutral, far-yard RTT and loss are
-unmeasured); one key serves both directions; `Uplink` position and heading are not
-range- or NaN-checked.
+### Remaining work and known gaps
+
+- **Resume after a hold is automatic** on a fresh, valid plan. Whether a person must
+  acknowledge first (audit SD-3) is undecided; with `allow_blade: true` the blade can come on
+  by itself when a Thor returns. Keep `allow_blade: false` until that is decided.
+- `/tractor/*` and the control routes do not consult the hold (audit WP-P3-02): while held,
+  the link re-neutralises instead of rejecting.
+- **Steering sign and heading convention are unverified.** `go_to_waypoint` mixes
+  `left = v(1 - e/45)`, `right = v(1 + e/45)` from a bearing-minus-yaw error. In a
+  pure-kinematics check (ideal differential drive, compass heading), the law as coded never
+  reaches a target 14 m away, while the mirrored law does; with a counter-clockwise yaw it
+  fails as well. The BNO085 driver is a stub, so the convention is unknown. This predates the
+  link and also affects missions; check it on the bench with the drive wheels off the ground
+  before any powered Thor run.
+- Timing is proven only on a real clock over loopback in `SIM_MODE` and on a fake clock; time
+  from timeout to physical lever neutral, HaLow round trip and loss are unmeasured.
+- The uplink carries position, heading, fix, progress and the state flags, but no detections,
+  battery or link counters (audit WP-P3-04), and the `Uplink` model does not range-check
+  position or heading itself; the Pi's builder emits only finite, in-range values.
 
 ## Code
 
 - `models/tractor_control.py`, `drivers/actuators/tractor_actuators.py`,
   `services/tractor_service.py`, `api/routers/tractor.py`.
+
+### E-stop durability, park latch, disabled platform and clear gate (review fixes, 2026-10-24)
+
+Software behaviour added by the PR #19 / #20 review fixes. None of it changes a pin, a calibration or `tractor.enabled`, and none of it
+replaces the hardwired E-stop, the PCA9685 OE line or the servo-power cut (owner action O-7).
+
+- **A stop wins durably.** Every lever/throttle write captures a stop generation and refuses to land if a stop, park or lock-out happened
+  since. The stop writes neutral after at most `ESTOP_LOCK_WAIT_S` (0.05 s); when a write was still in flight it then waits (bounded) for
+  the lock and re-asserts neutral, so a slow I2C transfer can no longer land after the stop. `complete` is true only after that
+  re-assert is confirmed.
+- **Relays first.** The PTO and starter relays open before anything waits for the PCA9685 lock. Measured with a bus stalled for 0.6 s
+  (fake bus, `tests/unit/test_tractor_estop_durability.py`), old code to new code: PTO and starter relays open at 251 ms to 0 ms, first
+  neutral write at 251 ms to 51 ms, final left channel 1950 us to 1500 us (the old stop said `complete: true` and the stalled write then
+  drove the lever forward). This is software ordering only; the physical 100 ms requirement still needs the bench measurement in
+  `tractor-acceptance-criteria.md` section 4.
+- **Disabled platform.** With `enabled: false` (the shipped default) outside SIM_MODE the service claims and drives no GPIO or PWM
+  channel: E-stop and park answer `not_enabled`, the relays are built unarmed and the `/tractor` write routes answer `rejected`. This is
+  the conservative default pending owner decision O-5 (starter off GPIO5, blade IN2 off GPIO25).
+- **Park latches.** `park()` (shutdown) refuses everything except neutral/idle/blade-off until `initialize()`. The lifespan stops the
+  Thor follower, then the mission/AI/navigation loops, then parks. The RoboHAT `park()` latches the same way.
+- **Strict config.** `config/tractor.yaml` is validated by `services/tractor_config.py`: wrong types (`enabled: "false"`), an empty
+  `default_hold_ms:`, NaN/inf, out-of-range values and a hold above 10 s are explicit errors that list every problem. An invalid file
+  yields a disabled, locked-out service, so the E-stop route still answers.
+- **Clear gate.** `clear_emergency()` keeps the blade latch (answering `partial`) while the latest tilt reading is over the threshold,
+  missing, or older than 1 s. The general `/control/emergency_clear` reports `EMERGENCY_PARTIALLY_CLEARED` / `EMERGENCY_STILL_LATCHED`,
+  fails closed when the tractor state cannot be read, answers 409 while a stop is in flight and audits every clear with its reason.

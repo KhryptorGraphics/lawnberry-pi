@@ -6,17 +6,17 @@ PartOf=lawnberry-backend.service
 
 [Service]
 Type=simple
-User=pi
-Group=pi
-WorkingDirectory=/apps/lawnberry-pi
+User=@LB_USER@
+Group=@LB_GROUP@
+WorkingDirectory=@LB_ROOT@
 Environment=SIM_MODE=0
-Environment=REMOTE_ACCESS_CONFIG_PATH=/apps/lawnberry-pi/config/remote_access.json
-Environment=REMOTE_ACCESS_STATUS_PATH=/apps/lawnberry-pi/data/remote_access_status.json
+Environment=REMOTE_ACCESS_CONFIG_PATH=@LB_ROOT@/config/remote_access.json
+Environment=REMOTE_ACCESS_STATUS_PATH=@LB_ROOT@/data/remote_access_status.json
 Environment=REMOTE_ACCESS_POLL_SECONDS=10
 Environment=CLOUDFLARE_METRICS_PORT=53123
 Environment=NGROK_API_PORT=4040
 # Use project virtualenv if present, otherwise rely on system python
-ExecStart=/bin/bash -lc "PY='./.venv/bin/python'; if [ ! -x \"$PY\" ]; then PY='python3'; fi; cd /apps/lawnberry-pi && \"$PY\" -m backend.src.cli.remote_access_daemon"
+ExecStart=/bin/bash -lc "PY='./.venv/bin/python'; if [ ! -x \"$PY\" ]; then PY='python3'; fi; cd @LB_ROOT@ && \"$PY\" -m backend.src.cli.remote_access_daemon"
 
 Restart=always
 RestartSec=10
@@ -28,7 +28,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=false
 ProtectSystem=strict
-ReadWritePaths=/apps/lawnberry-pi /var/lib/lawnberry /tmp
+ReadWritePaths=@LB_ROOT@ /var/lib/lawnberry /tmp
 
 # Logging
 StandardOutput=journal

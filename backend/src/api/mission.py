@@ -1,12 +1,22 @@
+"""Mission routes: create, start, pause, resume, abort, status and list.
+
+The mutating routes need the operator bearer token; they drive ``MissionService``.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..models.mission import Mission, MissionCreationRequest, MissionStatus
 from ..services.mission_service import MissionService, get_mission_service
+from .deps import require_operator_auth
 
 router = APIRouter()
 
 
-@router.post("/api/v2/missions/create", response_model=Mission)
+@router.post(
+    "/api/v2/missions/create",
+    response_model=Mission,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def create_mission(
     request: MissionCreationRequest,
     mission_service: MissionService = Depends(get_mission_service),  # noqa: B008
@@ -19,7 +29,7 @@ async def create_mission(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@router.post("/api/v2/missions/{mission_id}/start")
+@router.post("/api/v2/missions/{mission_id}/start", dependencies=[Depends(require_operator_auth)])
 async def start_mission(
     mission_id: str,
     mission_service: MissionService = Depends(get_mission_service),  # noqa: B008
@@ -32,7 +42,7 @@ async def start_mission(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post("/api/v2/missions/{mission_id}/pause")
+@router.post("/api/v2/missions/{mission_id}/pause", dependencies=[Depends(require_operator_auth)])
 async def pause_mission(
     mission_id: str,
     mission_service: MissionService = Depends(get_mission_service),  # noqa: B008
@@ -45,7 +55,7 @@ async def pause_mission(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post("/api/v2/missions/{mission_id}/resume")
+@router.post("/api/v2/missions/{mission_id}/resume", dependencies=[Depends(require_operator_auth)])
 async def resume_mission(
     mission_id: str,
     mission_service: MissionService = Depends(get_mission_service),  # noqa: B008
@@ -58,7 +68,7 @@ async def resume_mission(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post("/api/v2/missions/{mission_id}/abort")
+@router.post("/api/v2/missions/{mission_id}/abort", dependencies=[Depends(require_operator_auth)])
 async def abort_mission(
     mission_id: str,
     mission_service: MissionService = Depends(get_mission_service),  # noqa: B008

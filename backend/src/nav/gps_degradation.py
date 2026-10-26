@@ -1,43 +1,240 @@
-"""GPS Degradation Handler (T063)
+"""GNSS quality monitor and hold (T063; audit N-31, WP-P4-03, D.9).
 
-Monitors GPS quality and triggers graceful degradation to MANUAL mode when:
-- Reported accuracy exceeds 5 meters, or
-- GPS signal appears lost for more than 10 seconds
+What it watches. :meth:`GPSDegradationMonitor.observe` is fed the **real** ``GpsReading`` the
+sensor manager produced (``NavigationService.update_navigation_state`` on every telemetry
+tick), not a debug-route copy in ``RobotState``. Fix age is the age of the *fix itself*
+(``reading.timestamp``), read from the wall clock ONCE, when the fix is first seen, and from then
+on aged on the monotonic clock (``core.freshness.ReceiptAges``). So a reading the interface
+replays after the receiver went quiet keeps getting older instead of looking fresh on every
+poll, and a wall-clock step (NTP, chrony, a manual ``date``) can neither revive it nor age it:
+a fix whose stamp is missing, unreadable or from the future is *unusable*, never fresh (audit
+SAF-05). A fix is unusable when it is missing, has no usable position (missing, NaN, infinite,
+outside +-90 / +-180 degrees, or exactly 0, 0; audit NAV-06: a NaN position steered a leg at full
+lever), reports a status that is not a position fix (anything but ``GPS_FIX``, ``DGPS``,
+``RTK_FLOAT``, ``RTK_FIXED``: ``NO_FIX``, ``DEAD_RECKONING``, ``MANUAL``, ``SIMULATION`` and any
+status this monitor does not know; a source that reports no status at all, the simulator and the
+interface placeholder, passes this test, the real driver always reports one), is older than
+``max_fix_age_s``, or is less accurate than ``max_accuracy_m``. The accuracy is the receiver's
+own error estimate in metres (the driver reads it from GST, or an RTK-status figure; HDOP is
+not an accuracy and is never used as one, audit SAF-04); an unknown accuracy is not a good
+accuracy, and neither is one that is NaN, infinite, zero, negative or not a number (``-1`` and
+``0`` are the usual "no estimate" sentinels).
 
-This module is SIM_MODE-safe and only manipulates the in-memory RobotState.
-It does not own any hardware resources. It should be started during app
-startup and stopped during shutdown.
+What it does about it. :meth:`assess` is the verdict the navigation loops read every tick
+(``NavigationService._motion_gate``): while unhealthy, autonomous motion is **held at the
+actuators** (levers neutral, blade off), exactly like an obstacle hold, and mission start is
+refused. While degraded and autonomy is running, the monitor task also calls its
+``hold_handlers`` every cycle so the machine is stopped without waiting for the planner's next
+tick. Leaving the degraded state needs a fix that has stayed healthy for ``resume_dwell_s``
+(hysteresis); the monitor starts degraded, so a mission never starts on the first lucky fix.
+
+The thresholds are UNVALIDATED defaults (``limits.yaml`` ``gps_degradation``). The accuracy
+bound is the owner's and the reviewer's decision (SD-4), to be derived from the geofence
+margin and the measured position error (M-50/M-51).
+
+Legacy behaviour kept: while ``RobotState.navigation_mode`` is ``AUTONOMOUS`` (set only by
+the debug route ``POST /api/v2/nav/mode``) a poor ``RobotState`` position still drops it to
+``MANUAL``. That mode flag never controlled an actuator and is not how real missions run.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as _dt
+import logging
+import math
+import time
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
+from ..core.freshness import ReceiptAges
 from ..core.robot_state_manager import get_robot_state_manager
 from ..models.robot_state import NavigationMode
+
+logger = logging.getLogger(__name__)
+
+#: ``GpsReading.rtk_status`` values that are a GNSS position fix. Every other status string
+#: (``NO_FIX``, ``DEAD_RECKONING``, ``MANUAL``, ``SIMULATION`` and anything unknown) is unusable;
+#: ``None`` means the source reports no status.
+USABLE_FIX_STATUS = frozenset({"GPS_FIX", "DGPS", "RTK_FLOAT", "RTK_FIXED"})
 
 
 @dataclass
 class GPSDegradationConfig:
-    max_accuracy_m: float = 5.0
-    max_fix_age_s: float = 10.0
-    check_interval_s: float = 1.0
+    # Defaults mirror ``models.safety_limits.GpsDegradationLimits`` (a test pins that).
+    max_accuracy_m: float = 1.0
+    max_fix_age_s: float = 2.0
+    check_interval_s: float = 0.2
+    resume_dwell_s: float = 3.0
+
+    @classmethod
+    def from_limits(cls, limits: Any) -> GPSDegradationConfig:
+        """Build from ``SafetyLimits.gps_degradation``."""
+        return cls(
+            max_accuracy_m=limits.max_accuracy_m,
+            max_fix_age_s=limits.max_fix_age_s,
+            check_interval_s=limits.check_interval_s,
+            resume_dwell_s=limits.resume_dwell_s,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GnssAssessment:
+    """The monitor's verdict at one instant."""
+
+    healthy: bool  # a usable fix that has stayed usable for ``resume_dwell_s``
+    reasons: tuple[str, ...]
+    fix_age_s: float | None
+    accuracy_m: float | None
+    rtk_status: str | None
+    assessed_at: float
+
+    @property
+    def degraded(self) -> bool:
+        return not self.healthy
+
+
+HoldHandler = Callable[[GnssAssessment], Awaitable[Any]]
+
+
+def _usable_accuracy(acc: Any) -> float | None:
+    """``acc`` as metres if it is a real accuracy: a finite number above 0 (not a bool)."""
+    if isinstance(acc, bool) or not isinstance(acc, (int, float)):
+        return None
+    value = float(acc)
+    return value if math.isfinite(value) and value > 0.0 else None
+
+
+def _usable_position(lat: Any, lon: Any) -> bool:
+    """Are ``lat`` and ``lon`` real coordinates: numbers (not bool), within +-90 / +-180?
+
+    NaN fails both comparisons and infinity is out of range, so no separate finite test is
+    needed.
+    """
+    for value in (lat, lon):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+    return -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0
 
 
 class GPSDegradationMonitor:
-    """Periodic monitor for GPS quality with mode fallback.
+    """GNSS-quality verdict + actuator-level hold (see the module docstring).
 
-    If the robot is in AUTONOMOUS mode and GPS quality degrades beyond
-    acceptable thresholds, switch to MANUAL mode. EMERGENCY_STOP transitions
-    are handled elsewhere (e.g., geofence enforcer).
+    Args:
+        config: thresholds (``GPSDegradationConfig.from_limits(limits.gps_degradation)``).
+        autonomy_active: ``() -> bool``; true while a mission/AI run is moving the machine.
+            Without it the monitor only reports; it never calls its handlers.
+        hold_handlers: awaited every cycle while degraded and autonomy is active
+            (idempotent, cheap when nothing moves).
+        clock / wall_clock: injectable for tests (monotonic seconds / aware ``datetime``).
     """
 
-    def __init__(self, config: GPSDegradationConfig | None = None):
+    HANDLER_TIMEOUT_S = 1.0
+
+    def __init__(
+        self,
+        config: GPSDegradationConfig | None = None,
+        *,
+        autonomy_active: Callable[[], bool] | None = None,
+        hold_handlers: Sequence[HoldHandler] = (),
+        clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], _dt.datetime] | None = None,
+    ):
         self.cfg = config or GPSDegradationConfig()
+        self._clock = clock
+        self._wall = wall_clock or (lambda: _dt.datetime.now(_dt.UTC))
+        self._ages = ReceiptAges(clock)
+        self._autonomy_active = autonomy_active
+        self._handlers = tuple(hold_handlers)
         self._task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
+        self._reading: Any | None = None
+        self._fix_at: float | None = None  # clock time the newest fix was *produced*
+        self._degraded = True  # no fix yet == degraded
+        self._good_since: float | None = None
+        self._reasons: tuple[str, ...] = ("no GNSS reading yet",)
+        self._last_logged: bool | None = None
+        self.cycles = 0
+        self.errors = 0
+
+    # ----------------------------------------------------------------- feed / verdict
+
+    def observe(self, reading: Any | None, now: float | None = None) -> None:
+        """Record the newest ``GpsReading`` (None = nothing new this tick) and judge it."""
+        if reading is None:
+            return
+        t = self._clock() if now is None else now
+        self._reading = reading
+        # Fix time on the monotonic clock: arrival minus the fix's own age, read from the wall
+        # clock once per fix. A replayed reading keeps its first-seen time (it does not get
+        # younger); a stamp that cannot be aged leaves ``None`` (unusable, not fresh).
+        self._fix_at = self._ages.taken_at(
+            "gnss", getattr(reading, "timestamp", None), self._wall(), now=t
+        )
+        self._refresh(t)
+
+    def _unusable_reasons(self, t: float) -> list[str]:
+        r = self._reading
+        if r is None:
+            return ["no GNSS reading yet"]
+        reasons: list[str] = []
+        lat, lon = getattr(r, "latitude", None), getattr(r, "longitude", None)
+        if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
+            # nothing, or a receiver's "no position" sentinel (a point on one axis alone is a place)
+            reasons.append("no position")
+        elif not _usable_position(lat, lon):
+            reasons.append(f"no usable position (latitude {lat!r}, longitude {lon!r})")
+        status = getattr(r, "rtk_status", None)
+        if status is not None and status not in USABLE_FIX_STATUS:
+            reasons.append(f"fix status {status}")
+        if self._fix_at is None:
+            reasons.append("fix timestamp missing, unreadable or from the future")
+        else:
+            age = t - self._fix_at
+            if age > self.cfg.max_fix_age_s:
+                reasons.append(f"fix is {age:.1f}s old (limit {self.cfg.max_fix_age_s:g}s)")
+        raw = getattr(r, "accuracy", None)
+        acc = _usable_accuracy(raw)
+        if acc is None:
+            reasons.append(f"accuracy unknown (reported {raw!r})")
+        elif acc > self.cfg.max_accuracy_m:
+            reasons.append(f"accuracy {acc:.2f}m exceeds {self.cfg.max_accuracy_m:g}m")
+        return reasons
+
+    def _refresh(self, t: float) -> None:
+        """Advance the hysteresis state machine to time ``t`` (every observation and poll)."""
+        reasons = self._unusable_reasons(t)
+        if reasons:
+            self._degraded = True
+            self._good_since = None  # the dwell counts from the last bad moment
+            self._reasons = tuple(reasons)
+        elif self._degraded:
+            if self._good_since is None:
+                self._good_since = t
+            remaining = self.cfg.resume_dwell_s - (t - self._good_since)
+            if remaining <= 1e-9:  # float tolerance: 15 x 0.2 s is not exactly 3.0 s
+                self._degraded = False
+                self._reasons = ()
+            else:
+                self._reasons = (f"recovering: {remaining:.1f}s of healthy fix still required",)
+        # else: healthy and nothing wrong: ``_reasons`` is already ``()``
+
+    def assess(self, now: float | None = None) -> GnssAssessment:
+        """The verdict now. Recomputed from the clock on every call (never cached)."""
+        t = self._clock() if now is None else now
+        self._refresh(t)
+        r = self._reading
+        return GnssAssessment(
+            healthy=not self._degraded,
+            reasons=self._reasons,
+            fix_age_s=None if self._fix_at is None else t - self._fix_at,
+            accuracy_m=_usable_accuracy(getattr(r, "accuracy", None)),
+            rtk_status=getattr(r, "rtk_status", None),
+            assessed_at=t,
+        )
+
+    # ------------------------------------------------------------------- task
 
     async def start(self) -> None:
         if self._task is None or self._task.done():
@@ -48,7 +245,7 @@ class GPSDegradationMonitor:
         self._stopping.set()
         if self._task is not None:
             try:
-                await asyncio.wait_for(self._task, timeout=self.cfg.check_interval_s * 2)
+                await asyncio.wait_for(self._task, timeout=self.cfg.check_interval_s * 2 + 1.0)
             except Exception:
                 # Best-effort shutdown
                 pass
@@ -62,11 +259,36 @@ class GPSDegradationMonitor:
                 # Do not crash on monitoring exceptions
                 pass
             try:
+                await self._check()
+            except Exception:
+                self.errors += 1
+                logger.exception("GNSS monitor cycle failed")
+            try:
                 await asyncio.wait_for(self._stopping.wait(), timeout=self.cfg.check_interval_s)
             except TimeoutError:
                 continue
 
+    async def _check(self) -> None:
+        """One cycle: judge the fix and, if degraded while autonomy runs, stop the machine."""
+        a = self.assess()
+        self.cycles += 1
+        if a.healthy is not self._last_logged:
+            if a.healthy:
+                logger.info("GNSS fix healthy again (accuracy %s m)", a.accuracy_m)
+            else:
+                logger.warning("GNSS degraded: %s", "; ".join(a.reasons))
+            self._last_logged = a.healthy
+        if a.healthy or self._autonomy_active is None or not self._autonomy_active():
+            return
+        for handler in self._handlers:
+            try:
+                await asyncio.wait_for(handler(a), timeout=self.HANDLER_TIMEOUT_S)
+            except Exception:
+                self.errors += 1
+                logger.exception("GNSS hold handler failed (the navigation gate still holds)")
+
     def _tick(self) -> None:
+        """Legacy ``RobotState`` fallback (debug-route AUTONOMOUS mode only; see the docstring)."""
         mgr = get_robot_state_manager()
         st = mgr.get_state()
 
@@ -90,4 +312,9 @@ class GPSDegradationMonitor:
             st.touch()
 
 
-__all__ = ["GPSDegradationMonitor", "GPSDegradationConfig"]
+__all__ = [
+    "GPSDegradationConfig",
+    "GPSDegradationMonitor",
+    "GnssAssessment",
+    "USABLE_FIX_STATUS",
+]

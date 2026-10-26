@@ -180,10 +180,10 @@ function recenterToMower() {
   }
 }
 
-const createMission = () => {
-  if (missionName.value) {
-    missionStore.createMission(missionName.value);
-  }
+const createMission = async () => {
+  if (!missionName.value) return;
+  const ok = await missionStore.createMission(missionName.value);
+  toast.show(ok ? 'Mission created' : missionStore.lastError, ok ? 'success' : 'error');
 };
 
 async function clearAllWaypoints() {
@@ -201,7 +201,7 @@ const startMission = async () => {
   missionActionBusy.value = true;
   try {
     const ok = await missionStore.startCurrentMission();
-    toast.show(ok ? 'Mission started' : 'Failed to start mission', ok ? 'success' : 'error');
+    toast.show(ok ? 'Mission started' : missionStore.lastError, ok ? 'success' : 'error');
   } finally {
     missionActionBusy.value = false;
   }
@@ -211,7 +211,7 @@ const pauseMission = async () => {
   missionActionBusy.value = true;
   try {
     const ok = await missionStore.pauseCurrentMission();
-    toast.show(ok ? 'Mission paused' : 'Failed to pause mission', ok ? 'success' : 'error');
+    toast.show(ok ? 'Mission paused' : missionStore.lastError, ok ? 'success' : 'error');
   } finally {
     missionActionBusy.value = false;
   }
@@ -221,7 +221,7 @@ const resumeMission = async () => {
   missionActionBusy.value = true;
   try {
     const ok = await missionStore.resumeCurrentMission();
-    toast.show(ok ? 'Mission resumed' : 'Failed to resume mission', ok ? 'success' : 'error');
+    toast.show(ok ? 'Mission resumed' : missionStore.lastError, ok ? 'success' : 'error');
   } finally {
     missionActionBusy.value = false;
   }
@@ -231,7 +231,7 @@ const abortMission = async () => {
   missionActionBusy.value = true;
   try {
     const ok = await missionStore.abortCurrentMission();
-    toast.show(ok ? 'Mission aborted' : 'Failed to abort mission', ok ? 'success' : 'error');
+    toast.show(ok ? 'Mission aborted' : missionStore.lastError, ok ? 'success' : 'error');
   } finally {
     missionActionBusy.value = false;
   }

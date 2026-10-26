@@ -47,6 +47,7 @@ const apiClient = {
 
 const sendControlCommand = vi.fn()
 const getRoboHATStatus = vi.fn()
+const getBladeStatus = vi.fn()
 const getMapConfiguration = vi.fn()
 const saveMapConfiguration = vi.fn()
 
@@ -70,6 +71,7 @@ vi.mock('@/services/api', () => ({
   useApiService: () => apiClient,
   sendControlCommand,
   getRoboHATStatus,
+  getBladeStatus,
   getMapConfiguration,
   saveMapConfiguration,
   getTractorState,
@@ -179,6 +181,7 @@ beforeEach(() => {
   apiClient.patch.mockReset()
   sendControlCommand.mockReset()
   getRoboHATStatus.mockReset()
+  getBladeStatus.mockReset()
   getMapConfiguration.mockReset()
   saveMapConfiguration.mockReset()
   getTractorState.mockReset()

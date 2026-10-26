@@ -9,7 +9,11 @@ never claims a stop that was not observed.
 
 Output status vocabulary:
 
-- ``stopped``      a real hardware path confirmed the stop
+- ``stopped``      a real hardware path confirmed the stop: the firmware echoed
+                   the command, the actuator command was applied, or, for the
+                   IBT-4, both GPIO inputs were driven low and read back low.
+                   None of these observe the machine itself (IBT-4 power stage,
+                   blade motor, PTO); the output ``detail`` says what was seen
 - ``simulated``    SIM_MODE: no hardware by design; counts as confirmed so SIM
                    stays testable
 - ``unconfirmed``  the command was issued but its effect could not be confirmed
@@ -38,12 +42,35 @@ from typing import Any
 
 from ..core.globals import _blade_state, _safety_state
 from ..core.simulation import is_simulation_mode
+from ..safety import latch_store, stop_events
 
 logger = logging.getLogger(__name__)
 
 #: Ceiling per stop path. A path that exceeds it is reported as failed but is
 #: *not* cancelled: a half-run safing sequence is worse than a slow one.
 PATH_TIMEOUT_S = 5.0
+
+# Stops still driving the outputs (audit SEC-12). ``_stops_in_flight`` counts orchestrator calls
+# between the latch and the report; ``_stop_paths`` holds every stop path task that has not
+# finished, which includes a path that overran ``PATH_TIMEOUT_S`` and keeps running in the
+# background. ``_stop_epoch`` counts stops started. The general clear (``api/safety.py``) is
+# refused while ``stop_in_flight()`` is true and abandons itself if the epoch moves under it:
+# a clear racing a stop used to release the RoboHAT hold the stop had just set, while the
+# stop's own report still said latched and complete.
+_stops_in_flight = 0
+_stop_epoch = 0
+_stop_paths: set[asyncio.Future[Any]] = set()
+
+
+def stop_in_flight() -> bool:
+    """Is an emergency stop still driving any output?"""
+    return _stops_in_flight > 0 or bool(_stop_paths)
+
+
+def stop_epoch() -> int:
+    """How many emergency stops have started in this process (a clear compares before/after)."""
+    return _stop_epoch
+
 
 STOPPED = "stopped"
 SIMULATED = "simulated"
@@ -124,14 +151,40 @@ def _robohat_path(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _blade_service_path(result: dict[str, Any]) -> dict[str, Any]:
-    if result.get("error") or (result["initialized"] and not result["off"]):
+    """Map a ``BladeService`` stop/park report to an output status.
+
+    ``stopped`` needs a hardware-backed driver whose off write was CONFIRMED: ``off`` is True
+    only after every write succeeded and both inputs read back low. A driver that was
+    initialised but did not confirm it, or whose setup failed (``gpio_error``, e.g. GPIO25
+    busy), is ``failed`` (attempted and failed), not absent. ``not_present`` therefore only
+    describes an UNARMED service that was never initialised: an armed one (``ibt4.gpio_enabled``)
+    is initialised by the stop itself (``BladeService``), so it ends up ``stopped`` or ``failed``.
+    """
+    error = result.get("error")
+    gpio_error = result.get("gpio_error")
+    if error or (result["initialized"] and not result["off"]):
         output = _output(
-            FAILED, error=result.get("error") or "blade driver refused the off command"
+            FAILED, error=error or gpio_error or "blade driver refused the off command"
+        )
+    elif not result["initialized"] and gpio_error:
+        output = _output(
+            FAILED,
+            error=f"IBT-4 GPIO setup failed, the blade output was NOT driven: {gpio_error}",
         )
     elif not result["initialized"]:
         return _absent(NOT_PRESENT, "IBT-4 blade service never initialised (nothing to switch off)")
     elif result["hardware_backed"]:
-        output = _output(STOPPED)
+        pins = result.get("pins") or {}
+        gpio = (
+            f"GPIO{pins['in1']}/{pins['in2']}"
+            if "in1" in pins and "in2" in pins
+            else "the IBT-4 inputs"
+        )
+        output = _output(
+            STOPPED,
+            detail=f"{gpio} driven low and read back low; "
+            "the IBT-4 power stage and the blade motor are not observed",
+        )
     elif is_simulation_mode():
         output = _output(SIMULATED)
     else:
@@ -144,15 +197,30 @@ def _blade_service_path(result: dict[str, Any]) -> dict[str, Any]:
     return {"status": _path_status(outputs), "outputs": outputs}
 
 
-async def _run_path(
-    name: str, factory: Callable[[], Awaitable[dict[str, Any]]], timeout_s: float
-) -> tuple[str, dict[str, Any]]:
-    """Run one stop path; never raises, never cancels a half-run safing sequence.
+def _start_path(
+    factory: Callable[[], Awaitable[dict[str, Any]]], *, track: bool = False
+) -> asyncio.Future[dict[str, Any]]:
+    """Schedule one stop path as its own task; ``track`` registers it as a stop still in flight.
 
-    ``asyncio.wait`` does not cancel its futures, so even if the caller itself
-    is cancelled the path keeps running to completion in the background.
+    A path is a task of its own, not a part of the caller: cancelling the caller cannot cancel
+    it. ``track`` keeps ``stop_in_flight()`` true until the path finishes, even past its
+    timeout. Synchronous on purpose (no ``await``): see ``_run_all``.
     """
     task = asyncio.ensure_future(factory())
+    if track:
+        _stop_paths.add(task)
+        task.add_done_callback(_stop_paths.discard)
+    return task
+
+
+async def _await_path(
+    name: str, task: asyncio.Future[dict[str, Any]], timeout_s: float
+) -> tuple[str, dict[str, Any]]:
+    """Wait for one stop path; never raises, never cancels a half-run safing sequence.
+
+    ``asyncio.wait`` does not cancel its futures (unlike ``wait_for``), so a path that overruns
+    ``timeout_s`` keeps running to completion in the background and is reported as failed.
+    """
     done, _ = await asyncio.wait({task}, timeout=timeout_s)
     if not done:
         task.add_done_callback(
@@ -171,12 +239,12 @@ async def _run_path(
         return name, _failed_path(f"{type(exc).__name__}: {exc}")
 
 
-async def _tractor(kind: str, source: str) -> dict[str, Any]:
+async def _tractor(kind: str, source: str, tractor: Any | None = None) -> dict[str, Any]:
     from . import tractor_service
 
-    tractor = tractor_service.get_tractor_service()
+    tractor = tractor if tractor is not None else tractor_service.get_tractor_service()
     if not tractor.enabled:
-        return _absent(NOT_ENABLED, "tractor platform not enabled in config/tractor.yaml")
+        return _absent(NOT_ENABLED, tractor.not_enabled_text())
     result = await (tractor.emergency_stop(source) if kind == "stop" else tractor.park(source))
     return _tractor_path(result)
 
@@ -243,29 +311,65 @@ def _summarize(paths: dict[str, dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-async def _run_all(kind: str, source: str, path_timeout_s: float) -> dict[str, Any]:
+async def _run_all(
+    kind: str, source: str, path_timeout_s: float, tractor: Any | None = None
+) -> dict[str, Any]:
+    track = kind == "stop"
+    # Every path is scheduled in THIS loop turn, before the first await. Handing the coroutines to
+    # ``gather`` instead wrapped them in tasks that only start on the next turn, so a caller
+    # cancelled right there (a dropped request, a lifespan teardown) cancelled them before they
+    # ran: no stop path executed although the latch was already set (audit BL-08).
+    started = (
+        (
+            "tractor",
+            _start_path(
+                lambda: (
+                    _tractor(kind, source) if tractor is None else _tractor(kind, source, tractor)
+                ),
+                track=track,
+            ),
+        ),
+        ("robohat", _start_path(lambda: _robohat(kind, source), track=track)),
+        ("blade_service", _start_path(lambda: _blade_service(kind, source), track=track)),
+    )
     results = await asyncio.gather(
-        _run_path("tractor", lambda: _tractor(kind, source), path_timeout_s),
-        _run_path("robohat", lambda: _robohat(kind, source), path_timeout_s),
-        _run_path("blade_service", lambda: _blade_service(kind, source), path_timeout_s),
+        *(_await_path(name, task, path_timeout_s) for name, task in started)
     )
     return _summarize(dict(results))
 
 
 async def execute_emergency_stop(
-    source: str = "api", *, path_timeout_s: float = PATH_TIMEOUT_S
+    source: str = "api", *, path_timeout_s: float = PATH_TIMEOUT_S, tractor: Any | None = None
 ) -> dict[str, Any]:
     """Latch the general E-stop and drive every stop path that exists to safe.
 
     Sets the process-wide latch first (``emergency_stop_active``), then returns
     ``{"emergency_stop_active": True, "motors_stopped": bool, "blade_disabled":
     bool, "complete": bool, "subsystems": {...}, "faults": [...]}``. The latch is
-    always set; the booleans say what was actually confirmed. Never raises.
+    always set; the booleans say what was actually confirmed. Never raises. ``tractor`` is the
+    tractor instance to stop (default: the process singleton); the lifespan's watchdog passes
+    the one it supervises.
     """
+    global _stops_in_flight, _stop_epoch
     _safety_state["emergency_stop_active"] = True
     _blade_state["active"] = False
-    report = await _run_all("stop", source, path_timeout_s)
+    _stop_epoch += 1
+    _stops_in_flight += 1
+    try:
+        # Every autonomous run ends with the stop, in this same event-loop turn (audit SAF-01):
+        # a clear of the latch below must never re-activate a mission or an AI loop. The latch
+        # is queued for the disk before the slow fan-out so a restart cannot release it
+        # (audit SAF-16).
+        stop_events.record_stop("emergency_stop", source)
+        latch_store.request_persist()
+        report = await _run_all("stop", source, path_timeout_s, tractor)
+    finally:
+        _stops_in_flight -= 1
+    # The final state (the RoboHAT hold the stop has just set) is what a restart must restore.
+    saved = await latch_store.persist()
     report["emergency_stop_active"] = True
+    report["latch_persisted"] = saved.ok
+    report["latch_error"] = saved.error
     if report["complete"]:
         logger.warning("Emergency stop (%s): all outputs confirmed", source)
     else:
@@ -289,4 +393,10 @@ async def park_actuators(
     return report
 
 
-__all__ = ["execute_emergency_stop", "park_actuators", "PATH_TIMEOUT_S"]
+__all__ = [
+    "execute_emergency_stop",
+    "park_actuators",
+    "stop_epoch",
+    "stop_in_flight",
+    "PATH_TIMEOUT_S",
+]

@@ -1,15 +1,22 @@
+"""Navigation routes: waypoints, navigation mode and status, and the debug GPS/geofence injectors.
+
+Everything that changes state needs the operator bearer token; the injectors answer 404 unless the
+debug routes are enabled (SIM_MODE or the debug flag).
+"""
+
 from __future__ import annotations
 # ruff: noqa: I001
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from ..core.robot_state_manager import get_robot_state_manager
 from ..models.geofence import Geofence, LatLng
 from ..models.robot_state import NavigationMode
 from ..nav.geoutils import haversine_m, point_in_polygon
+from .deps import require_debug_routes, require_operator_auth
 
 
 router = APIRouter()
@@ -29,7 +36,10 @@ class GPSInject(BaseModel):
     accuracy_m: float | None = None
 
 
-@router.post("/api/v2/debug/gps/inject")
+@router.post(
+    "/api/v2/debug/gps/inject",
+    dependencies=[Depends(require_debug_routes), Depends(require_operator_auth)],
+)
 async def debug_gps_inject(pos: GPSInject):
     global _debug_position
     _debug_position = {
@@ -54,7 +64,10 @@ class GeofenceIn(BaseModel):
     buffer_distance_m: float = 0.0
 
 
-@router.post("/api/v2/debug/geofence")
+@router.post(
+    "/api/v2/debug/geofence",
+    dependencies=[Depends(require_debug_routes), Depends(require_operator_auth)],
+)
 async def debug_geofence_set(f: GeofenceIn):
     global _active_geofence
     _active_geofence = Geofence(
@@ -77,7 +90,7 @@ class WaypointList(BaseModel):
     waypoints: list[WaypointIn]
 
 
-@router.post("/api/v2/nav/waypoints")
+@router.post("/api/v2/nav/waypoints", dependencies=[Depends(require_operator_auth)])
 async def set_waypoints(wps: WaypointList):
     global _waypoints, _waypoint_reached, _current_waypoint_id
     _waypoints = [w.model_dump() for w in wps.waypoints]
@@ -91,7 +104,7 @@ class ModeIn(BaseModel):
     mode: NavigationMode
 
 
-@router.post("/api/v2/nav/mode")
+@router.post("/api/v2/nav/mode", dependencies=[Depends(require_operator_auth)])
 async def set_mode(m: ModeIn):
     mgr = get_robot_state_manager()
     st = mgr.get_state()

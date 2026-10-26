@@ -60,6 +60,10 @@ class PCA9685UnavailableError(PCA9685Error):
     """
 
 
+class PCA9685ReadbackError(PCA9685Error):
+    """A channel's registers do not hold the pulse that was commanded (see ``verify_pwm_us``)."""
+
+
 @dataclass(slots=True)
 class _Pca9685Config:
     address: int = 0x40  # datasheet default; override in config (0x40 collides with INA3221)
@@ -75,6 +79,8 @@ class PCA9685Driver(HardwareDriver):
     _PRESCALE = 0xFE
     _LED0_ON_L = 0x06  # LED0_ON_L/ON_H/OFF_L/OFF_H, then +4 registers per channel
 
+    _MODE1_RESTART = 0x80  # reads 1 while channels are halted by a sleep; write 1 to restart
+    _MODE1_EXTCLK = 0x40
     _MODE1_AUTOINCREMENT = 0x20
     _MODE1_SLEEP = 0x10
     _MODE2_OUTDRV = 0x04  # totem-pole output (vs. open-drain)
@@ -157,6 +163,16 @@ class PCA9685Driver(HardwareDriver):
                     bus.write_byte_data(self._cfg.address, self._MODE2, self._MODE2_OUTDRV)
                     bus.write_byte_data(self._cfg.address, self._MODE1, self._MODE1_AUTOINCREMENT)
                     time.sleep(0.0005)  # datasheet: >=500us after waking before further writes
+                    # Datasheet restart sequence (7.3.1.1), last step: write 1 to RESTART. On a
+                    # chip that kept running through a backend restart, the sleep above latched
+                    # RESTART and halted every channel until this write; on a fresh chip it is
+                    # harmless (the usual PCA9685 libraries write it unconditionally). The bit
+                    # clears itself, so MODE1 then reads AUTOINCREMENT only.
+                    bus.write_byte_data(
+                        self._cfg.address,
+                        self._MODE1,
+                        self._MODE1_AUTOINCREMENT | self._MODE1_RESTART,
+                    )
 
             await asyncio.to_thread(_setup)
             self._hw_ok = True
@@ -228,5 +244,90 @@ class PCA9685Driver(HardwareDriver):
             raise
         self._last_error = None
 
+    async def verify_pwm_us(self, channel: int, us: int) -> None:
+        """Read ``channel`` back and require its registers to hold the pulse for ``us``.
 
-__all__ = ["PCA9685Driver", "PCA9685Error", "PCA9685UnavailableError"]
+        This is the evidence a write-only keepalive cannot give: a chip that reset after a
+        brown-out (every output drops to FULL OFF), a bus that still ACKs writes but whose
+        read path is dead, or a register that was overwritten behind our back. It also reads
+        MODE1 and PRESCALE: the LED registers can hold the right pulse while NO pulse is
+        emitted (SLEEP set, a restart still pending, auto-increment lost after a reset) or at
+        the wrong rate (PRESCALE changed). It reads only; it never changes an output and it
+        does not touch ``last_error`` (that is the write path's record).
+
+        SIM_MODE has no chip: a simulated success, like ``set_pwm_us``. Anywhere else it
+        returns only when the registers match, and raises :class:`PCA9685UnavailableError`
+        (never initialised), the transport error (the bus failed), or
+        :class:`PCA9685ReadbackError` (MODE1 / PRESCALE wrong, a different pulse, or a FULL ON /
+        FULL OFF flag).
+
+        The output-enable pin (OE) is not observable over I2C: a held-high OE still reads as a
+        healthy chip (it is the hardwired E-stop's job, audit O-7). UNVERIFIED on hardware: the
+        register decoding follows the PCA9685 datasheet and is exercised only against a fake
+        ``smbus2``; bench-confirm on the real breakout (M-28).
+        """
+        if not 0 <= channel <= 15:
+            raise ValueError(f"PCA9685 channel out of range 0-15: {channel}")
+        if not self._hw_ok:
+            if is_simulation_mode():
+                return  # simulated by design: there is no chip to read
+            raise PCA9685UnavailableError(
+                self._last_error or "PCA9685 not initialised: nothing to read back"
+            )
+
+        on, off = self._ticks_for_us(us)
+        # Bits 4 (FULL ON / FULL OFF) and 3:0 (count[11:8]) of the high bytes; bits 7:5 are
+        # reserved. A set FULL flag therefore never equals the expected high byte.
+        expected = (on & 0xFF, (on >> 8) & 0x1F, off & 0xFF, (off >> 8) & 0x1F)
+        from smbus2 import SMBus  # type: ignore
+
+        def _read() -> tuple[list[int], int, int]:
+            with SMBus(self._cfg.bus) as bus:
+                base = self._LED0_ON_L + 4 * channel
+                leds = list(bus.read_i2c_block_data(self._cfg.address, base, 4))
+                mode1 = bus.read_i2c_block_data(self._cfg.address, self._MODE1, 1)
+                prescale = bus.read_i2c_block_data(self._cfg.address, self._PRESCALE, 1)
+                return leds, int(mode1[0]) & 0xFF, int(prescale[0]) & 0xFF
+
+        raw, mode1, prescale = await asyncio.to_thread(_read)
+        # MODE1 bits 7:4 = RESTART, EXTCLK, AI, SLEEP: only auto-increment may be set (bits 3:0
+        # are SUB1-3 / ALLCALL, which do not stop an output).
+        want_mode1 = self._MODE1_AUTOINCREMENT
+        if mode1 & 0xF0 != want_mode1:
+            raise PCA9685ReadbackError(self._mode1_fault(mode1))
+        want_prescale = self._prescale()
+        if prescale != want_prescale:
+            raise PCA9685ReadbackError(
+                f"PCA9685 PRESCALE is {prescale:#04x} but {want_prescale:#04x} "
+                f"({self._cfg.frequency_hz:g} Hz) was configured: the PWM rate changed"
+            )
+        if len(raw) != 4:
+            raise PCA9685ReadbackError(
+                f"PCA9685 channel {channel}: read {len(raw)} bytes, expected 4"
+            )
+        got = (raw[0] & 0xFF, raw[1] & 0x1F, raw[2] & 0xFF, raw[3] & 0x1F)
+        if got != expected:
+            raise PCA9685ReadbackError(
+                f"PCA9685 channel {channel} holds {got} but {us} us ({expected}) was commanded"
+            )
+
+    def _mode1_fault(self, mode1: int) -> str:
+        """Why a MODE1 value that is not exactly 'running, auto-increment' stops the outputs."""
+        problems = []
+        if mode1 & self._MODE1_SLEEP:
+            problems.append("SLEEP set: the oscillator is off, no pulse is emitted")
+        if mode1 & self._MODE1_RESTART:
+            problems.append("RESTART pending: the channels are halted until RESTART is written")
+        if mode1 & self._MODE1_EXTCLK:
+            problems.append("EXTCLK set: the chip waits for an external clock")
+        if not mode1 & self._MODE1_AUTOINCREMENT:
+            problems.append("auto-increment lost: the 4-byte pulse writes no longer land")
+        return f"PCA9685 MODE1 is {mode1:#04x}: " + "; ".join(problems)
+
+
+__all__ = [
+    "PCA9685Driver",
+    "PCA9685Error",
+    "PCA9685ReadbackError",
+    "PCA9685UnavailableError",
+]

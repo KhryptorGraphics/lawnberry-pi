@@ -98,7 +98,7 @@ class VL53L0XDriver(HardwareDriver):
         higher layers can proceed while we gracefully no-op on reads.
         """
         self.initialized = True
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             return
 
         # Try Adafruit CircuitPython backend first (most common on Pi via Blinka)
@@ -114,9 +114,7 @@ class VL53L0XDriver(HardwareDriver):
 
     async def stop(self) -> None:  # noqa: D401
         self.running = False
-        if self._driver is not None and not (
-            is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
-        ):
+        if self._driver is not None and not is_simulation_mode():
             try:
                 stop_fn = getattr(self._driver, "stop_ranging", None)
                 if callable(stop_fn):
@@ -130,7 +128,9 @@ class VL53L0XDriver(HardwareDriver):
             "initialized": self.initialized,
             "running": self.running,
             "last_distance_mm": self._last_distance_mm,
-            "last_read_age_s": (time.time() - self._last_read_ts) if self._last_read_ts else None,
+            "last_read_age_s": (
+                (time.monotonic() - self._last_read_ts) if self._last_read_ts is not None else None
+            ),
             "simulation": is_simulation_mode(),
             "i2c_bus": self._i2c_bus,
             "i2c_address": hex(self._i2c_address),
@@ -138,6 +138,12 @@ class VL53L0XDriver(HardwareDriver):
             "fail_count": self._fail_count,
             "timing_budget_us": self._timing_budget_us,
         }
+
+    @property
+    def last_read_ok(self) -> bool:
+        """False when the most recent read failed and ``read_distance_mm`` replayed the
+        previous value: that value is old, whatever timestamp the caller puts on it."""
+        return self._fail_count == 0
 
     async def read_distance_mm(self) -> int | None:
         """Return latest distance in millimeters.
@@ -149,7 +155,7 @@ class VL53L0XDriver(HardwareDriver):
         if not self.initialized:
             return None
 
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             # Deterministic pattern to keep tests stable
             base = 1500
             if self._sim_distance_cycle % 20 == 5:
@@ -158,7 +164,7 @@ class VL53L0XDriver(HardwareDriver):
                 simulated = base + (self._sim_distance_cycle % 40) * 10
             self._sim_distance_cycle += 1
             self._last_distance_mm = simulated
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             return simulated
 
         # Real hardware path
@@ -193,12 +199,12 @@ class VL53L0XDriver(HardwareDriver):
         # Update state if we obtained a measurement
         if isinstance(distance, int) and distance >= 0:
             self._last_distance_mm = distance
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             self._fail_count = 0
             return distance
 
         # No driver or read failed; keep previous value to avoid churn
-        self._last_read_ts = time.time()
+        self._last_read_ts = time.monotonic()
         self._fail_count += 1
         # If repeated failures and not in SIM, try to reinitialize backend in the background
         await _reinit_if_needed(self)
@@ -454,9 +460,9 @@ async def _reinit_if_needed(self: VL53L0XDriver) -> None:
 
     Avoids tight loops by spacing attempts at least 2 seconds apart.
     """
-    if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+    if is_simulation_mode():
         return
-    now = time.time()
+    now = time.monotonic()
     # Only try after a few consecutive failures
     if self._fail_count < 3:
         return

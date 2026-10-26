@@ -152,11 +152,46 @@ async def test_estop_holds_neutral_and_refuses_commands_until_cleared(monkeypatc
     svc._last_pwm_at = time.monotonic() - 5.0
     sent.clear()
     await svc._maintain_usb_control()
-    assert sent == ["pwm,1500,1500"]
+    assert sent == ["blade=off", "pwm,1500,1500"], "the hold re-asserts the whole stop"
 
     assert await svc.clear_emergency() is True
     assert svc.emergency_latched is False
     assert await svc.send_motor_command(0.5, 0.5) is True
+    await svc.shutdown()
+
+
+async def test_a_process_that_restarts_into_a_hold_switches_the_blade_off_before_neutral(
+    monkeypatch,
+):
+    """Audit SAF-16: the stop the last process sent is not known to have reached the firmware.
+
+    ``restore_emergency_hold`` (the latch file) used to hold NEUTRAL only. With an RC receiver
+    alive or a reset firmware the blade could still be running, and nothing told it to stop.
+    """
+    svc, sent = _svc(monkeypatch)
+    svc.restore_emergency_hold()  # a fresh process: no ``emergency_stop`` was ever sent by it
+    assert sent == []
+
+    svc._last_status_at = 0.0
+    svc._last_pwm_at = time.monotonic() - 5.0
+    await svc._maintain_usb_control()
+    assert sent == ["blade=off", "pwm,1500,1500"], "blade first, then the neutral drive"
+
+    sent.clear()
+    svc._last_status_at = 0.0  # (the firmware's echo of the lines above refreshed it)
+    svc._last_pwm_at = time.monotonic() - 5.0  # the next refresh interval: asserted again
+    await svc._maintain_usb_control()
+    assert sent == ["blade=off", "pwm,1500,1500"]
+
+    assert await svc.clear_emergency() is True
+    sent.clear()
+    svc._usb_control_requested = True
+    svc._cmd_valid_until = time.monotonic() + 5.0
+    svc._last_pwm = (1500, 1950)
+    svc._last_status_at = 0.0
+    svc._last_pwm_at = time.monotonic() - 5.0
+    await svc._maintain_usb_control()
+    assert sent == ["pwm,1500,1950"], "after the authenticated clear nothing sends blade=off"
     await svc.shutdown()
 
 

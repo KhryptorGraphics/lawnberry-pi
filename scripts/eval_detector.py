@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate a YOLO26 detector (compiled HEF on the Hailo, or the end2end ONNX on CPU).
+"""Evaluate a YOLO26 detector: HEF on the Hailo, ONNX on CPU, or DFC emulation of the HAR.
 
 Run with the repo on PYTHONPATH:
 
@@ -8,14 +8,48 @@ Run with the repo on PYTHONPATH:
         [--expect ref.json --min-iou 0.8]
 
     # per-class recall/precision over a YOLO-format split
-    eval_detector.py --backend hef|onnx --model P [--spec J] --images DIR --labels DIR \
-        [--conf 0.25] [--iou 0.5] [--gate] \
-        [--baseline REPORT.json --max-recall-drop 0.10 --min-gt 20] --out REPORT.json
+    eval_detector.py --backend hef|onnx|har --model P [--spec J] --images DIR --labels DIR \
+        [--conf 0.25] [--iou 0.5] [--gate [--gate-min-gt 150]] \
+        [--baseline REPORT.json --max-recall-drop 0.10 --min-gt 20] [--min-images 100] \
+        --out REPORT.json
 
 ``hef`` needs /dev/hailo0 free (``pi_detector_ctl.py release`` first); its spec
-defaults to the HEF sidecar. ``onnx`` needs ``--spec`` for class names. Both use
-the same letterbox, so their boxes are directly comparable. Exit codes: 0 ok,
-1 gate/baseline/expect failure, 2 setup error.
+defaults to the HEF sidecar. ``onnx`` and ``har`` need ``--spec`` for class names. All use
+the same letterbox, so their boxes are directly comparable. ``har`` runs the Dataflow Compiler's
+emulation of the quantized model in the DFC env (``hailo_sdk_client``; pick the GPU with
+``CUDA_VISIBLE_DEVICES``). ``--har-context quantized`` (the default) is the DFC's fast emulation
+of the quantized network; only ``bit-exact`` reproduces the device's integer arithmetic. Neither
+is a device measurement (the report says ``"kind": "dfc-emulation"`` and records the context in
+``har_context``): a HAR report is evidence, not the HEF gate.
+
+``--gate`` and ``--baseline`` decide whether a compiled model may replace the live detector, so
+they refuse to decide on thin evidence instead of passing it. Exit codes:
+
+    0  every requested check passed (a run without --gate/--baseline only measures)
+    1  the model failed: a tier gate, the baseline recall drop, or an --expect box
+    2  setup or usage error: model, spec, backend or a backend crash, and an argument out of range
+       (``--iou`` not in (0, 1], NaN/inf, ``--gate`` with ``--predict``, ``--gate`` with a
+       ``--conf`` below the spec's and no ``--allow-conf-below-deployed``)
+    3  the images, labels or ``--expect`` boxes cannot support a verdict: a missing images or labels
+       directory, an image without a label file or a label without an image, a malformed label
+       row, a class id the spec does not have, fewer than ``--min-images`` images, a tier-1 class
+       with fewer than ``--gate-min-gt`` ground-truth boxes, or a spec whose classes are not
+       workshop.classes.NAMES
+    4  the ``--baseline`` report cannot be compared: unreadable or unparsable, not a detector-eval
+       report, other classes, other ground truth, IoU or confidence, or no class with ``--min-gt``
+       boxes to compare
+
+The report (``detector-eval/2``) has a ``verdict`` (passed, failed, invalid, or not_applied when
+neither check was requested) and, for each check, its status, what it compared and what it could
+not evaluate; an evaluation that exits 3 or 4 still writes a report with ``verdict: invalid`` and
+the reasons, so a stale passing report is never left in its place.
+
+The live detector runs at the confidence of its spec (the HEF sidecar). The report records the
+confidence it was measured at (``conf``), the spec's (``spec_conf``) and whether ``--conf`` moved
+it (``conf_overridden``); ``--gate`` refuses a ``--conf`` below the spec's, because a gate counts
+boxes the live detector would never report, unless ``--allow-conf-below-deployed`` says the lower
+operating point is deliberate, and then ``gate.conf_below_deployed`` is true and a warning is
+printed. A ``--conf`` above the spec's only makes the check stricter and is allowed.
 """
 
 from __future__ import annotations
@@ -25,8 +59,10 @@ import asyncio
 import dataclasses
 import hashlib
 import json
+import math
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import numpy as np
@@ -39,13 +75,37 @@ from backend.src.drivers.ai.yolo26 import (
     load_detector_spec,
     load_spec_file,
 )
-from workshop.detector_eval import iou, load_yolo_labels, match, merge, summarize
+from workshop.classes import HARD_STOP
+from workshop.detector_eval import (
+    GATE_MIN_GT,
+    MIN_IMAGES,
+    REPORT_SCHEMA,
+    BaselineError,
+    DatasetError,
+    EvidenceError,
+    baseline_status,
+    count_ground_truth,
+    evidence_problems,
+    finite_number,
+    gate_status,
+    iou,
+    load_baseline,
+    match,
+    merge,
+    pair_labels,
+    parse_label_file,
+    read_json,
+    summarize,
+    to_pixels,
+    validate_baseline,
+)
 
 IMG_EXTS = (".jpg", ".jpeg", ".png")
+EXIT_FAILED, EXIT_SETUP, EXIT_DATASET, EXIT_BASELINE = 1, 2, 3, 4
 
 
 class SetupError(Exception):
-    """Backend/model problem: exit 2."""
+    """Backend/model/usage problem: exit 2."""
 
 
 def _sha256(path: Path) -> str:
@@ -93,6 +153,43 @@ class HefBackend:
         return decode_yolo26(result.outputs, self.spec, lb), ms
 
 
+class HarBackend:
+    """DFC emulation of the quantized (or compiled) HAR; not the device."""
+
+    CONTEXTS = {"quantized": "SDK_QUANTIZED", "bit-exact": "SDK_BIT_EXACT"}
+
+    def __init__(self, model: Path, spec: DetectorSpec, context: str = "quantized"):
+        self.model = model
+        self.spec = spec
+        self.context = context
+        self.runner = None
+        self._cm = None
+        self._ctx = None
+
+    async def __aenter__(self):
+        try:
+            from hailo_sdk_client import ClientRunner, InferenceContext
+        except ImportError as exc:
+            raise SetupError(f"--backend har needs the DFC env (hailo_sdk_client): {exc}") from exc
+        self.runner = ClientRunner(har=str(self.model))
+        self._cm = self.runner.infer_context(getattr(InferenceContext, self.CONTEXTS[self.context]))
+        self._ctx = self._cm.__enter__()
+        return self
+
+    async def __aexit__(self, *exc):
+        if self._cm is not None:
+            self._cm.__exit__(*exc)
+
+    async def predict(self, rgb: np.ndarray) -> tuple[list[dict], float]:
+        tensor, lb = letterbox(rgb, self.spec.input_size)
+        t0 = time.perf_counter()
+        raw = self.runner.infer(self._ctx, tensor.astype(np.float32))
+        ms = (time.perf_counter() - t0) * 1000
+        items = raw.items() if isinstance(raw, dict) else enumerate(raw)
+        outputs = {f"out{k}": np.asarray(v) for k, v in items}
+        return decode_yolo26(outputs, self.spec, lb), ms
+
+
 class OnnxBackend:
     def __init__(self, model: Path, spec: DetectorSpec):
         import onnxruntime as ort
@@ -131,6 +228,11 @@ class OnnxBackend:
             if box[2] <= box[0] or box[3] <= box[1]:
                 continue
             c = int(cls)
+            if not 0 <= c < len(self.spec.class_names):
+                raise SetupError(
+                    f"the model predicts class id {c} but the spec has "
+                    f"{len(self.spec.class_names)} classes: wrong spec for this model"
+                )
             dets.append(
                 {
                     "class": self.spec.class_names[c],
@@ -144,114 +246,290 @@ class OnnxBackend:
 
 
 def _load_spec(a) -> DetectorSpec:
-    if a.backend == "onnx" and not a.spec:
-        raise SetupError("--backend onnx needs --spec (class names come from it)")
+    """The spec as the DEPLOYED detector loads it: the ``--spec`` file or the HEF sidecar."""
+    if a.backend in ("onnx", "har") and not a.spec:
+        raise SetupError(f"--backend {a.backend} needs --spec (class names come from it)")
     try:
-        spec = load_spec_file(a.spec) if a.spec else load_detector_spec(a.model)
+        return load_spec_file(a.spec) if a.spec else load_detector_spec(a.model)
     except (FileNotFoundError, ValueError) as exc:
         raise SetupError(str(exc)) from exc
-    if a.conf is not None:
-        spec = dataclasses.replace(spec, conf_threshold=a.conf)
-    return spec
+
+
+def _apply_conf(a, spec: DetectorSpec) -> DetectorSpec:
+    """Apply ``--conf`` to the spec, remembering the deployed threshold for the report.
+
+    The live detector runs at the spec's confidence. A gate measured at a LOWER one counts boxes
+    the live detector would never report (a person found at 0.30 passes at ``--conf 0.05`` and is
+    lost at the deployed 0.50), so ``--gate`` refuses it unless the operator says so explicitly.
+    A HIGHER ``--conf`` only makes the gate stricter and is allowed (and recorded).
+    """
+    deployed = spec.conf_threshold
+    a.deployed_conf = deployed
+    if a.conf is None or a.conf == deployed:
+        return spec
+    if a.conf < deployed and a.gate and not a.allow_conf_below_deployed:
+        raise SetupError(
+            f"--conf {a.conf} is below the deployed confidence {deployed} of the spec: a gate "
+            "measured there decides on boxes the live detector never reports. Gate at the "
+            "deployed value, or add --allow-conf-below-deployed to record the lower operating "
+            "point on purpose"
+        )
+    return dataclasses.replace(spec, conf_threshold=a.conf)
 
 
 def _backend(a, spec: DetectorSpec):
     model = Path(a.model)
     if not model.exists():
         raise SetupError(f"model not found: {model}")
-    return HefBackend(model, spec) if a.backend == "hef" else OnnxBackend(model, spec)
+    if a.backend == "hef":
+        return HefBackend(model, spec)
+    if a.backend == "har":
+        return HarBackend(model, spec, a.har_context)
+    return OnnxBackend(model, spec)
+
+
+def _write_report(path: Path, report: dict) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise SetupError(f"cannot write the report {path}: {exc}") from exc
+
+
+def _load_reference(path: str) -> list[dict]:
+    """The ``--expect`` boxes. An empty or malformed file would pass the check vacuously."""
+    ref = read_json(path, DatasetError)
+    if not isinstance(ref, list) or not ref:
+        raise DatasetError(f"{path} lists no reference boxes: nothing to compare the model with")
+    for i, r in enumerate(ref):
+        box = r.get("bbox") if isinstance(r, dict) else None
+        ok = isinstance(box, list) and len(box) == 4 and all(finite_number(v) for v in box)
+        if not ok or not isinstance(r.get("class"), str):
+            raise DatasetError(f"{path}: entry {i} needs a 'class' and four finite 'bbox' numbers")
+    return ref
 
 
 async def run_predict(a, spec: DetectorSpec) -> int:
+    ref = _load_reference(a.expect) if a.expect else None  # before the model is opened
     rgb = _read_rgb(Path(a.predict))
     async with _backend(a, spec) as be:
         dets, ms = await be.predict(rgb)
     print(json.dumps(dets, indent=2))
     print(f"[eval] {len(dets)} detections in {ms:.1f} ms", file=sys.stderr)
-    if not a.expect:
+    if ref is None:
         return 0
-    ref = json.loads(Path(a.expect).read_text(encoding="utf-8"))
     failures = []
     for r in ref:
         best = max(
             (iou(r["bbox"], d["bbox"]) for d in dets if d["class"] == r["class"]), default=0.0
         )
         status = "ok" if best >= a.min_iou else "MISSING"
+        conf = r.get("confidence")
         print(
-            f"[eval] ref {r['class']:<12} conf {r['confidence']:.2f} best IoU {best:.3f} {status}",
+            f"[eval] ref {r['class']:<12} conf {f'{conf:.2f}' if finite_number(conf) else '-'} "
+            f"best IoU {best:.3f} {status}",
             file=sys.stderr,
         )
         if best < a.min_iou:
             failures.append(r)
     matched = len(ref) - len(failures)
     print(f"[eval] expect: {matched}/{len(ref)} reference boxes matched", file=sys.stderr)
-    return 1 if failures else 0
+    return EXIT_FAILED if failures else 0
 
 
-def _gate_failures(per_class: dict) -> list[dict]:
-    from workshop.classes import CLASSES, RECALL_GATE
+def _check_args(a) -> None:
+    """Refuse arguments that would make a check pass without measuring anything."""
 
-    tiers = {c.name: c.tier for c in CLASSES}
-    failures = []
-    for name, m in per_class.items():
-        if name not in tiers or m["gt"] == 0:
-            continue
-        need = RECALL_GATE[tiers[name]]
-        if m["recall"] < need:
-            failures.append({"class": name, "recall": m["recall"], "gate": need})
-    return failures
+    def need(ok: bool, message: str) -> None:
+        if not ok:
+            raise SetupError(message)
+
+    fin = math.isfinite
+    need(fin(a.iou) and 0 < a.iou <= 1, f"--iou must be in (0, 1], got {a.iou}")
+    need(fin(a.min_iou) and 0 < a.min_iou <= 1, f"--min-iou must be in (0, 1], got {a.min_iou}")
+    need(
+        a.conf is None or (fin(a.conf) and 0 < a.conf < 1),
+        f"--conf must be in (0, 1), got {a.conf}",
+    )
+    need(
+        fin(a.max_recall_drop) and 0 <= a.max_recall_drop < 1,
+        f"--max-recall-drop must be in [0, 1), got {a.max_recall_drop}",
+    )
+    for flag, value in (
+        ("--min-gt", a.min_gt),
+        ("--gate-min-gt", a.gate_min_gt),
+        ("--min-images", a.min_images),
+    ):
+        need(value >= 1, f"{flag} must be at least 1, got {value}")
+    if a.predict:
+        need(
+            not (a.gate or a.baseline or a.labels or a.out),
+            "--gate, --baseline, --labels and --out apply to --images; --predict only has --expect",
+        )
+    else:
+        need(not a.expect, "--expect applies to --predict; --images has --gate and --baseline")
 
 
-def _baseline_failures(per_class: dict, baseline: dict, max_drop: float, min_gt: int) -> list:
-    failures = []
-    for name, m in per_class.items():
-        b = baseline.get("per_class", {}).get(name)
-        if m["gt"] < min_gt or b is None or b.get("recall") is None:
-            continue
-        drop = b["recall"] - m["recall"]
-        if drop > max_drop:
-            failures.append(
-                {"class": name, "recall": m["recall"], "baseline": b["recall"], "drop": drop}
-            )
-    return failures
+def _list_images(directory: str) -> list[Path]:
+    d = Path(directory)
+    if not d.is_dir():
+        raise DatasetError(f"images directory not found: {d}")
+    images = sorted(p for p in d.iterdir() if p.suffix.lower() in IMG_EXTS)
+    if not images:
+        raise DatasetError(f"no images in {d}")
+    return images
+
+
+def _gather_evidence(a, spec: DetectorSpec):
+    """Everything the verdict rests on that does not need the model: images, labels, baseline.
+
+    Raises ``DatasetError`` / ``BaselineError`` before any inference when it cannot support the
+    requested verdict. Returns ``(images, rows_by_image, gt_by_class, baseline_table)``.
+    """
+    images = _list_images(a.images)
+    pairs = pair_labels(images, a.labels)
+    n = len(spec.class_names)
+    rows = {img: parse_label_file(lab, n) for img, lab in pairs.items()}
+    gt = count_ground_truth(rows, spec.class_names)
+    if a.gate or a.baseline:
+        problems = evidence_problems(
+            spec.class_names,
+            gt,
+            len(images),
+            gate=bool(a.gate),
+            min_gt=a.gate_min_gt,
+            min_images=a.min_images,
+        )
+        if problems:
+            raise DatasetError(problems)
+    table = None
+    if a.baseline:
+        table = validate_baseline(
+            load_baseline(a.baseline),
+            class_names=spec.class_names,
+            gt=gt,
+            images=len(images),
+            iou=a.iou,
+            conf=spec.conf_threshold,
+            min_gt=a.min_gt,
+        )
+    return images, rows, gt, table
+
+
+def _kind(backend: str) -> str:
+    return {"hef": "device", "har": "dfc-emulation", "onnx": "float-cpu"}[backend]
+
+
+def _deployed_conf(a, spec: DetectorSpec) -> float:
+    """The confidence the deployed detector runs at (``_apply_conf`` recorded it before --conf)."""
+    return getattr(a, "deployed_conf", spec.conf_threshold)
+
+
+def _context(a, spec: DetectorSpec) -> dict:
+    """The report fields that say what was evaluated, shared by valid and invalid reports."""
+    model = Path(a.model)
+    deployed = _deployed_conf(a, spec)
+    return {
+        "schema": REPORT_SCHEMA,
+        "backend": a.backend,
+        "kind": _kind(a.backend),
+        # the DFC's emulation context decides what the numbers mean; None for other backends
+        "har_context": a.har_context if a.backend == "har" else None,
+        "model": str(a.model),
+        "model_sha256": _sha256(model) if model.is_file() else None,
+        "images_dir": str(a.images),
+        "labels_dir": str(a.labels),
+        # the operating point measured, the one the deployed detector runs at, and whether
+        # --conf moved it: a number measured at a lower confidence says nothing about the live one
+        "conf": spec.conf_threshold,
+        "spec_conf": deployed,
+        "conf_overridden": spec.conf_threshold != deployed,
+        "iou": a.iou,
+        "min_images": a.min_images,
+    }
+
+
+def _invalid_report(a, spec: DetectorSpec, exc: EvidenceError) -> dict:
+    return {
+        **_context(a, spec),
+        "status": "invalid",
+        "verdict": "invalid",
+        "error": "baseline" if isinstance(exc, BaselineError) else "dataset",
+        "problems": exc.problems,
+        "gate": {"applied": bool(a.gate), "status": "invalid" if a.gate else "not_applied"},
+        "baseline": {
+            "applied": bool(a.baseline),
+            "path": a.baseline,
+            "status": "invalid" if a.baseline else "not_applied",
+        },
+    }
 
 
 async def run_eval(a, spec: DetectorSpec) -> int:
-    images = sorted(p for p in Path(a.images).iterdir() if p.suffix.lower() in IMG_EXTS)
-    if not images:
-        raise SetupError(f"no images in {a.images}")
-    labels = Path(a.labels)
+    out = Path(a.out)
+    report_deployed = _deployed_conf(a, spec)
+    try:
+        images, rows, gt, table = _gather_evidence(a, spec)
+    except EvidenceError as exc:
+        _write_report(out, _invalid_report(a, spec, exc))
+        raise
     total: dict = {}
     times = []
     async with _backend(a, spec) as be:
         for img in images:
             rgb = _read_rgb(img)
             h, w = rgb.shape[:2]
-            dets, ms = await be.predict(rgb)
+            try:
+                dets, ms = await be.predict(rgb)
+            except ValueError as exc:  # decode_yolo26: the head tensors do not fit the spec
+                raise SetupError(
+                    f"{img.name}: the model output does not fit the spec: {exc}"
+                ) from exc
             times.append(ms)
-            merge(total, match(dets, load_yolo_labels(labels / f"{img.stem}.txt", w, h), a.iou))
+            merge(total, match(dets, to_pixels(rows[img], w, h), a.iou))
     per_class = summarize(total, spec.class_names)
-    gate = _gate_failures(per_class) if a.gate else []
-    base = []
+
+    gate = {"applied": False, "status": "not_applied", "failures": []}
+    if a.gate:
+        verdict = gate_status(per_class)
+        gate = {
+            "applied": True,
+            "status": "failed" if verdict["failures"] else "passed",
+            "failures": verdict["failures"],
+            "min_gt": a.gate_min_gt,
+            "tier1_gt": {n: gt[n] for n in HARD_STOP},
+            "not_evaluated": verdict["not_evaluated"],
+            # True only with --allow-conf-below-deployed: the gate rests on boxes the deployed
+            # detector (confidence spec_conf) would not report
+            "conf_below_deployed": spec.conf_threshold < report_deployed,
+        }
+    base = {"applied": False, "status": "not_applied", "failures": []}
     if a.baseline:
-        baseline = json.loads(Path(a.baseline).read_text(encoding="utf-8"))
-        base = _baseline_failures(per_class, baseline, a.max_recall_drop, a.min_gt)
+        verdict = baseline_status(per_class, table, max_drop=a.max_recall_drop, min_gt=a.min_gt)
+        base = {
+            "applied": True,
+            "status": "failed" if verdict["failures"] else "passed",
+            "path": str(a.baseline),
+            "failures": verdict["failures"],
+            "compared": verdict["compared"],
+            "skipped": verdict["skipped"],
+            "min_gt": a.min_gt,
+            "max_recall_drop": a.max_recall_drop,
+        }
+    checks = [c["status"] for c in (gate, base) if c["applied"]]
+    result = "not_applied" if not checks else "failed" if "failed" in checks else "passed"
     report = {
-        "schema": "detector-eval/1",
-        "backend": a.backend,
-        "model": str(a.model),
-        "model_sha256": _sha256(Path(a.model)),
+        **_context(a, spec),
+        "status": "ok",
+        "verdict": result,
         "images": len(images),
-        "conf": spec.conf_threshold,
-        "iou": a.iou,
+        "label_files": len(images),
         "per_class": per_class,
-        "gate": {"applied": bool(a.gate), "failures": gate},
-        "baseline": {"failures": base},
+        "gate": gate,
+        "baseline": base,
         "mean_infer_ms": round(sum(times) / len(times), 2),
     }
-    out = Path(a.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    _write_report(out, report)
 
     def fmt(v):
         return "-" if v is None else f"{v:.3f}"
@@ -263,22 +541,51 @@ async def run_eval(a, spec: DetectorSpec) -> int:
             f"{fmt(m['recall']):>7} {fmt(m['precision']):>7}"
         )
     print(f"[eval] {len(images)} images, mean infer {report['mean_infer_ms']} ms -> {out}")
-    for f in gate:
-        print(f"[eval] GATE FAIL {f['class']}: recall {f['recall']:.3f} < {f['gate']}")
-    for f in base:
+    if a.gate:
+        tier1 = ", ".join(f"{n} {c}" for n, c in gate["tier1_gt"].items())
+        print(f"[eval] gate evidence: tier-1 ground truth {tier1} (>= {a.gate_min_gt} each)")
+        if gate["conf_below_deployed"]:
+            print(
+                f"[eval] WARNING gate measured at conf {spec.conf_threshold}, below the deployed "
+                f"{report_deployed}: it says nothing about what the live detector reports"
+            )
+        for f in gate["failures"]:
+            print(f"[eval] GATE FAIL {f['class']}: recall {f['recall']:.3f} < {f['gate']}")
+        if gate["not_evaluated"]:
+            names = ", ".join(f"{c['class']} (tier {c['tier']})" for c in gate["not_evaluated"])
+            print(f"[eval] gate NOT evaluated, no ground truth: {names}")
+        print(f"[eval] gate {gate['status'].upper()}")
+    if a.baseline:
         print(
-            f"[eval] BASELINE FAIL {f['class']}: recall {f['recall']:.3f} "
-            f"vs {f['baseline']:.3f} (drop {f['drop']:.3f})"
+            f"[eval] baseline compared {len(base['compared'])} classes, "
+            f"skipped {len(base['skipped'])} with fewer than {a.min_gt} boxes"
         )
-    return 1 if gate or base else 0
+        for f in base["failures"]:
+            print(
+                f"[eval] BASELINE FAIL {f['class']}: recall {f['recall']:.3f} "
+                f"vs {f['baseline']:.3f} (drop {f['drop']:.3f})"
+            )
+        print(f"[eval] baseline {base['status'].upper()}")
+    return EXIT_FAILED if result == "failed" else 0
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--backend", choices=("hef", "onnx"), required=True)
+    ap.add_argument("--backend", choices=("hef", "onnx", "har"), required=True)
+    ap.add_argument("--har-context", choices=("quantized", "bit-exact"), default="quantized")
     ap.add_argument("--model", required=True)
     ap.add_argument("--spec")
-    ap.add_argument("--conf", type=float, help="override the spec confidence threshold")
+    ap.add_argument(
+        "--conf",
+        type=float,
+        help="override the spec confidence threshold (the report records both; --gate refuses a "
+        "value below the spec's unless --allow-conf-below-deployed)",
+    )
+    ap.add_argument(
+        "--allow-conf-below-deployed",
+        action="store_true",
+        help="let --gate run at a --conf below the deployed one (recorded in the report)",
+    )
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--predict", metavar="IMG")
     mode.add_argument("--images", metavar="DIR")
@@ -287,19 +594,54 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--labels", metavar="DIR")
     ap.add_argument("--iou", type=float, default=0.5)
     ap.add_argument("--gate", action="store_true")
+    ap.add_argument(
+        "--gate-min-gt",
+        type=int,
+        default=GATE_MIN_GT,
+        help="ground-truth boxes every tier-1 class needs for --gate (default %(default)s: zero "
+        "misses in that many shows recall >= 0.98 at 95 %% confidence)",
+    )
     ap.add_argument("--baseline", metavar="REPORT.json")
     ap.add_argument("--max-recall-drop", type=float, default=0.10)
-    ap.add_argument("--min-gt", type=int, default=20)
+    ap.add_argument(
+        "--min-gt",
+        type=int,
+        default=20,
+        help="ground-truth boxes a class needs to take part in the --baseline check",
+    )
+    ap.add_argument(
+        "--min-images",
+        type=int,
+        default=MIN_IMAGES,
+        help="images --gate / --baseline need to decide (default %(default)s)",
+    )
     ap.add_argument("--out", metavar="REPORT.json")
     a = ap.parse_args(argv)
     if a.images and not (a.labels and a.out):
         ap.error("--images needs --labels and --out")
     try:
-        spec = _load_spec(a)
+        _check_args(a)
+        spec = _apply_conf(a, _load_spec(a))
         return asyncio.run(run_predict(a, spec) if a.predict else run_eval(a, spec))
     except SetupError as exc:
         print(f"[eval] error: {exc}", file=sys.stderr)
-        return 2
+        return EXIT_SETUP
+    except DatasetError as exc:
+        _print_invalid("the images, labels or reference boxes cannot support a verdict", exc)
+        return EXIT_DATASET
+    except BaselineError as exc:
+        _print_invalid("the baseline cannot be compared with this run", exc)
+        return EXIT_BASELINE
+    except Exception as exc:  # a crash is not a verdict: exit 1 must only mean "the model failed"
+        traceback.print_exc()
+        print(f"[eval] error: unexpected {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_SETUP
+
+
+def _print_invalid(headline: str, exc: EvidenceError) -> None:
+    print(f"[eval] INVALID, no verdict: {headline}", file=sys.stderr)
+    for problem in exc.problems:
+        print(f"[eval]   - {problem}", file=sys.stderr)
 
 
 if __name__ == "__main__":

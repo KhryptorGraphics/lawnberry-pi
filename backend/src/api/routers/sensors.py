@@ -1,14 +1,23 @@
+"""Sensor routes: the dashboard status and the ToF, GPS (with RTK diagnostics), IMU, environmental
+and power status, plus the debug injectors.
+
+The status routes are open reads; the injectors answer 404 unless the debug routes are enabled
+(SIM_MODE or the debug flag) and then need the operator bearer token.
+"""
+
 import logging
-import os
 import time
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...core.globals import _debug_overrides
+from ...core.safety_status import collect_blade_active, collect_safety_status
+from ...core.simulation import is_simulation_mode
 from ...services.websocket_hub import websocket_hub
+from ..deps import require_debug_routes, require_operator_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -106,8 +115,13 @@ class PowerSummary(BaseModel):
 
 @router.get("/dashboard/status", response_model=MowerStatus)
 def dashboard_status():
-    # Placeholder data; will be wired to services later
-    return MowerStatus()
+    # Position/battery/navigation stay placeholder defaults (no data is invented here); the
+    # safety block and blade state are real.
+    return MowerStatus(
+        safety_status=SafetyStatus(**collect_safety_status()),
+        blade_active=collect_blade_active(),
+        last_updated=datetime.now(UTC),
+    )
 
 
 @router.get("/sensors/health")
@@ -184,7 +198,7 @@ async def get_tof_status() -> ToFStatusResponse:
     Returns per-sensor backend info (binding name), bus/address, and last reading.
     Safe on systems without the VL53L0X binding: fields will be None.
     """
-    sim_mode = _ = os.getenv("SIM_MODE", "0") != "0"
+    sim_mode = is_simulation_mode()
     left_probe: ToFProbe | None = None
     right_probe: ToFProbe | None = None
     try:
@@ -208,8 +222,8 @@ async def get_tof_status() -> ToFStatusResponse:
                 initialized=getattr(left, "initialized", None),
                 running=getattr(left, "running", None),
                 last_distance_mm=getattr(left, "_last_distance_mm", None),
-                last_read_age_s=(time.time() - getattr(left, "_last_read_ts", time.time()))
-                if getattr(left, "_last_read_ts", None)
+                last_read_age_s=(time.monotonic() - getattr(left, "_last_read_ts", 0.0))
+                if getattr(left, "_last_read_ts", None) is not None
                 else None,
             )
         if right is not None:
@@ -223,8 +237,8 @@ async def get_tof_status() -> ToFStatusResponse:
                 initialized=getattr(right, "initialized", None),
                 running=getattr(right, "running", None),
                 last_distance_mm=getattr(right, "_last_distance_mm", None),
-                last_read_age_s=(time.time() - getattr(right, "_last_read_ts", time.time()))
-                if getattr(right, "_last_read_ts", None)
+                last_read_age_s=(time.monotonic() - getattr(right, "_last_read_ts", 0.0))
+                if getattr(right, "_last_read_ts", None) is not None
                 else None,
             )
     except Exception:
@@ -240,7 +254,6 @@ async def get_tof_status() -> ToFStatusResponse:
 
 @router.get("/sensors/gps/status", response_model=GPSSummary)
 async def get_gps_status() -> GPSSummary:
-    _ = os.getenv("SIM_MODE", "0") != "0"
     try:
         if websocket_hub._sensor_manager is None:
             from ...services.sensor_manager import SensorManager  # type: ignore
@@ -270,13 +283,21 @@ async def get_gps_status() -> GPSSummary:
         return GPSSummary()
 
 
-@router.get("/sensors/gps/rtk/diagnostics", response_model=RtkDiagnosticsResponse)
+@router.get(
+    "/sensors/gps/rtk/diagnostics",
+    response_model=RtkDiagnosticsResponse,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def get_rtk_diagnostics() -> RtkDiagnosticsResponse:
-    """Return combined RTK/NTRIP diagnostics without stealing the serial port.
+    """Return combined RTK/NTRIP diagnostics without stealing the serial port (operator only).
 
     - Exposes current GPS reading and mode
     - Reports NTRIP forwarder runtime stats when configured
     - Includes minimal hardware GPS flags from app state
+
+    Not an open read: it lazily creates the sensor manager and so can START the NTRIP
+    forwarder (an outbound connection to the caster with the stored credentials), and it shows
+    the caster host, mountpoint, serial device and the raw NMEA sentences.
     """
     # Prepare GPS details
     gps_block: dict[str, Any] = {
@@ -451,7 +472,10 @@ class InjectToFRequest(BaseModel):
     distance_m: float
 
 
-@router.post("/debug/sensors/inject-tof")
+@router.post(
+    "/debug/sensors/inject-tof",
+    dependencies=[Depends(require_debug_routes), Depends(require_operator_auth)],
+)
 async def inject_tof(req: InjectToFRequest):
     """Debug-only: inject a ToF distance reading (simulation/testing only).
 
@@ -491,7 +515,10 @@ class InjectTiltRequest(BaseModel):
     pitch_deg: float | None = None
 
 
-@router.post("/debug/sensors/inject-tilt")
+@router.post(
+    "/debug/sensors/inject-tilt",
+    dependencies=[Depends(require_debug_routes), Depends(require_operator_auth)],
+)
 async def inject_tilt(req: InjectTiltRequest):
     """Debug-only: inject tilt (roll/pitch) to simulate IMU tilt event."""
     if req.roll_deg is not None:

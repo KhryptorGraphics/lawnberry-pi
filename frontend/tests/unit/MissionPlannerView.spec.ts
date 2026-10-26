@@ -1,10 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils';
+import type { VueWrapper } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import MissionPlannerView from '@/views/MissionPlannerView.vue';
 import { useMissionStore } from '@/stores/mission';
 import { useMapStore } from '@/stores/map';
 import apiService from '@/services/api';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useToastStore } from '@/stores/toast';
+import { SIGN_IN_REQUIRED_MESSAGE } from '@/utils/apiErrors';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 const mapPaneStub = { _leaflet_pos: { x: 0, y: 0 } }
 
@@ -70,6 +74,31 @@ vi.mock('leaflet', () => ({
   },
 }));
 
+// @vue-leaflet imports the REAL leaflet (vitest.config.ts aliases leaflet/dist/leaflet-src.esm), so the vi.mock('leaflet')
+// above never reached the map itself: a real L.map ran in a detached jsdom node, its layers were added on later
+// ticks, and tearing the tree down threw from inside leaflet ("Cannot read properties of undefined (reading
+// '_removePath')", "Cannot use 'in' operator to search for '_leaflet_id' in null") or, with the wrapper left mounted,
+// fired into a closing jsdom as an unhandled rejection. These tests are about the planner's mission/auth flows, not
+// about leaflet (the real map is exercised by tests/e2e/mission-planner-map.spec.ts), so the map components are inert
+// stubs that render their slots.
+vi.mock('@vue-leaflet/vue-leaflet', async () => {
+  const { defineComponent, h } = await import('vue')
+  const inert = (name: string) =>
+    defineComponent({
+      name,
+      setup: (_props, { slots }) => () => h('div', { class: `stub-${name}` }, slots.default?.()),
+    })
+  return {
+    LMap: inert('LMap'),
+    LTileLayer: inert('LTileLayer'),
+    LLayerGroup: inert('LLayerGroup'),
+    LPolyline: inert('LPolyline'),
+    LMarker: inert('LMarker'),
+    LCircleMarker: inert('LCircleMarker'),
+    LCircle: inert('LCircle'),
+  }
+})
+
 vi.mock('@/components/MissionWaypointList.vue', () => ({
   default: {
     name: 'MissionWaypointList',
@@ -103,7 +132,30 @@ function primeMapStore() {
   mapStore.loadConfiguration = vi.fn().mockResolvedValue(undefined)
 }
 
+// Every wrapper is unmounted before its test ends. @vue-leaflet loads leaflet through a dynamic import and adds
+// the map's layers on later ticks; a wrapper left mounted lets that work run into a map that is being torn down
+// (or a jsdom that is closing), which surfaced as the unhandled rejection "Cannot use 'in' operator to search
+// for '_leaflet_id' in null", attributed to whichever test happened to be last.
+const mounted: VueWrapper[] = []
+
+function mountView() {
+  const wrapper = mount(MissionPlannerView)
+  mounted.push(wrapper)
+  return wrapper
+}
+
+async function unmountAll() {
+  await vi.dynamicImportSettled() // leaflet's import, if it is still loading
+  await flushPromises() // layer adds queued by the map becoming ready
+  for (const wrapper of mounted.splice(0)) wrapper.unmount()
+  await flushPromises() // whatever the teardown itself queued
+}
+
 describe('MissionPlannerView.vue', () => {
+  afterEach(async () => {
+    await unmountAll()
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
@@ -123,16 +175,17 @@ describe('MissionPlannerView.vue', () => {
   })
 
   it('renders the mission planner view', async () => {
-    const wrapper = mount(MissionPlannerView)
+    const wrapper = mountView()
     await flushPromises()
     expect(wrapper.find('h1').text()).toBe('Mission Planner')
   })
 
   it('allows creating a mission', async () => {
-    const wrapper = mount(MissionPlannerView)
+    const wrapper = mountView()
     const missionStore = useMissionStore()
     missionStore.addWaypoint(51.5, -0.09)
-    const createMissionSpy = vi.spyOn(missionStore, 'createMission').mockResolvedValue(undefined as any)
+    // createMission now resolves to a boolean (true = created); the view toasts on the result
+    const createMissionSpy = vi.spyOn(missionStore, 'createMission').mockResolvedValue(true)
 
     await flushPromises()
     const nameInput = wrapper.find('input[placeholder="Mission Name"]')
@@ -141,5 +194,128 @@ describe('MissionPlannerView.vue', () => {
     await createButton.trigger('click')
 
     expect(createMissionSpy).toHaveBeenCalledWith('Test Mission')
+  })
+
+  // POST /missions/create and /missions/{id}/start|pause|resume|abort need the operator Bearer: unsigned, they answer
+  // 401. The planner used to toast a bare "Failed to ..." (and, for create, nothing at all).
+  describe('operator-auth failures', () => {
+    const unsigned = { response: { status: 401, data: { detail: 'Operator authentication required' } } }
+
+    let consoleError: MockInstance
+
+    beforeEach(() => {
+      // start/resume arm a 2 s status poll; keep it from outliving the test
+      vi.useFakeTimers()
+      // the store logs every failed call (kept on purpose); not interesting here
+      consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(async () => {
+      // unmount while the fake clock still owns the timers, then drop what is left
+      await unmountAll()
+      consoleError.mockRestore()
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    })
+
+    async function mountWithMission(status: string) {
+      const wrapper = mountView()
+      const missionStore = useMissionStore()
+      missionStore.currentMission = { id: 'm-1', name: 'north lawn', waypoints: [], created_at: '2026-01-01T00:00:00Z' }
+      missionStore.missionStatus = status
+      await flushPromises()
+      return { wrapper, missionStore }
+    }
+
+    function control(wrapper: VueWrapper, label: string) {
+      return wrapper.findAll('button').find((b) => b.text() === label)!
+    }
+
+    function toasts() {
+      return useToastStore().toasts.map((t) => [t.type, t.message])
+    }
+
+    it('Create Mission with a 401 toasts the sign-in instruction and leaves no mission behind', async () => {
+      const wrapper = mountView()
+      const missionStore = useMissionStore()
+      missionStore.addWaypoint(51.5, -0.09)
+      mockedApi.post.mockRejectedValueOnce(unsigned)
+      await flushPromises()
+      await wrapper.find('input[placeholder="Mission Name"]').setValue('North lawn')
+
+      await control(wrapper, 'Create Mission').trigger('click')
+      await flushPromises()
+
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        '/api/v2/missions/create',
+        expect.objectContaining({ name: 'North lawn' })
+      )
+      expect(toasts()).toEqual([['error', SIGN_IN_REQUIRED_MESSAGE]])
+      expect(missionStore.currentMission).toBeNull()
+      expect(missionStore.missionStatus).toBe('')
+    })
+
+    it('Create Mission that succeeds toasts "Mission created" and loads the mission', async () => {
+      const wrapper = mountView()
+      const missionStore = useMissionStore()
+      missionStore.addWaypoint(51.5, -0.09)
+      mockedApi.post.mockResolvedValueOnce({
+        data: { id: 'm-9', name: 'North lawn', waypoints: [], created_at: '2026-01-01T00:00:00Z' },
+      })
+      await flushPromises()
+      await wrapper.find('input[placeholder="Mission Name"]').setValue('North lawn')
+
+      await control(wrapper, 'Create Mission').trigger('click')
+      await flushPromises()
+
+      expect(toasts()).toEqual([['success', 'Mission created']])
+      expect(missionStore.currentMission?.id).toBe('m-9')
+      expect(missionStore.missionStatus).toBe('idle')
+    })
+
+    it.each([
+      ['Start Mission', 'idle', 'start'],
+      ['Pause', 'running', 'pause'],
+      ['Resume', 'paused', 'resume'],
+      ['Abort', 'running', 'abort'],
+    ])('%s with a 401 toasts the sign-in instruction and changes nothing', async (label, status, action) => {
+      const { wrapper, missionStore } = await mountWithMission(status)
+      mockedApi.post.mockRejectedValueOnce(unsigned)
+
+      await control(wrapper, label).trigger('click')
+      await flushPromises()
+
+      expect(mockedApi.post).toHaveBeenCalledWith(`/api/v2/missions/m-1/${action}`, {})
+      expect(toasts()).toEqual([['error', SIGN_IN_REQUIRED_MESSAGE]])
+      expect(missionStore.missionStatus).toBe(status)
+      expect(missionStore.currentMission?.id).toBe('m-1')
+      // the busy guard is released, so the operator can retry once signed in
+      expect(control(wrapper, label).attributes('disabled')).toBeUndefined()
+    })
+
+    it.each([
+      ['Start Mission', 'Mission started', 'idle', 'running'],
+      ['Pause', 'Mission paused', 'running', 'paused'],
+      ['Resume', 'Mission resumed', 'paused', 'running'],
+      ['Abort', 'Mission aborted', 'running', 'aborted'],
+    ])('%s that succeeds toasts "%s" and moves the status on', async (label, message, before, after) => {
+      const { wrapper, missionStore } = await mountWithMission(before)
+
+      await control(wrapper, label).trigger('click')
+      await flushPromises()
+
+      expect(toasts()).toEqual([['success', message]])
+      expect(missionStore.missionStatus).toBe(after)
+    })
+
+    it('shows the backend detail for any other refusal', async () => {
+      const { wrapper } = await mountWithMission('idle')
+      mockedApi.post.mockRejectedValueOnce({ response: { status: 409, data: { detail: 'Mission already running' } } })
+
+      await control(wrapper, 'Start Mission').trigger('click')
+      await flushPromises()
+
+      expect(toasts()).toEqual([['error', 'Mission already running']])
+    })
   })
 })

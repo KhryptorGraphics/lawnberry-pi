@@ -14,6 +14,7 @@ import asyncio
 import glob
 import json
 import logging
+import math
 import os
 import time
 from collections.abc import Iterable
@@ -126,19 +127,43 @@ class RoboHATService:
         )
         self._cmd_valid_until: float = 0.0
         self._cmd_expiry_task: asyncio.Task | None = None
+        # Wakes the expiry task when a command with a *shorter* window arrives while it sleeps
+        # towards a later deadline (audit SF-07). Created together with the task.
+        self._cmd_wake: asyncio.Event | None = None
         # Software E-stop latch: hold neutral (and USB control) until cleared, so
         # the stop cannot be undone by the RC receiver or a later drive command.
         self._estop_hold = False
+        # Shutdown park latch: after park() only neutral drive and blade-off commands are
+        # accepted, so a loop still running during shutdown cannot re-command the platform.
+        # Cleared by initialize().
+        self._parked = False
         # Firmware echo counters, used to confirm a stop was actually accepted.
         self._acks: dict[str, int] = {"pwm": 0, "blade": 0}
+        # What the firmware was last told about the blade, recorded where every line leaves
+        # (``_send_line``): True after ``blade=on`` (also when that write failed: it may have
+        # landed) until a ``blade=off`` is written. The safety status reads it (audit HW-04).
+        self._blade_on = False
+
+    @property
+    def blade_commanded_on(self) -> bool:
+        """Is the blade (possibly) on: the last ``blade=`` line was ON, or an ON write failed?"""
+        return self._blade_on
 
     @property
     def emergency_latched(self) -> bool:
         """Is a software E-stop hold latched (drive/blade-on refused until cleared)?"""
         return self._estop_hold
 
+    def restore_emergency_hold(self) -> None:
+        """Re-latch the stop hold a previous process left set (audit SAF-16); never clears one."""
+        self._estop_hold = True
+        self._last_pwm = (1500, 1500)
+        self._last_pwm_at = time.monotonic()
+        self.status.last_error = "emergency_stop_latched"
+
     async def initialize(self) -> bool:
         """Initialize RoboHAT serial connection"""
+        self._parked = False  # a fresh bring-up re-arms a parked service
         try:
             logger.info(
                 f"Initializing RoboHAT service on {self.serial_port} at {self.baud_rate} baud"
@@ -146,7 +171,13 @@ class RoboHATService:
 
             # Open serial connection
             self.serial_conn = serial.Serial(
-                port=self.serial_port, baudrate=self.baud_rate, timeout=1.0, write_timeout=1.0
+                port=self.serial_port,
+                baudrate=self.baud_rate,
+                timeout=1.0,
+                write_timeout=1.0,
+                # A second reader on this tty (a GPS probe, a script) steals the firmware's
+                # `[USB] pwm/blade` acknowledgements: the E-stop then reads "unacked" (SAF-S1).
+                exclusive=True,
             )
 
             # Wait for connection to stabilize
@@ -189,11 +220,15 @@ class RoboHATService:
             async with self._serial_lock:
                 await asyncio.to_thread(self.serial_conn.write, message)
                 await asyncio.to_thread(self.serial_conn.flush)
+            if line.startswith("blade="):
+                self._blade_on = line.rstrip("\r\n") == "blade=on"
             return True
         except Exception as exc:  # pragma: no cover - hardware error path
             logger.error("Failed to send RoboHAT command line '%s': %s", line, exc)
             self.status.error_count += 1
             self.status.last_error = str(exc)
+            if line.rstrip("\r\n") == "blade=on":
+                self._blade_on = True  # unknown: a write that failed may still have landed
             return False
 
     def _drain_serial_buffer(self) -> None:
@@ -292,7 +327,10 @@ class RoboHATService:
         if not self.serial_conn or not self.serial_conn.is_open:
             return
 
-        if not self._usb_control_requested:
+        # A latched E-stop hold keeps USB control alive whatever the request flag says: the flag
+        # is dropped by the idle check below and by an RC-enable acknowledgement, and a hold that
+        # depended on it stopped re-sending neutral once it was gone (audit SF-10).
+        if not (self._usb_control_requested or self._estop_hold):
             return
 
         now = time.monotonic()
@@ -311,17 +349,35 @@ class RoboHATService:
                 await self._set_rc_enabled(False, force=True)
             return
         # Refresh the current command so the firmware does not time out to RC
-        # mode mid-command (SERIAL_TIMEOUT ≈ 2s on firmware).
+        # mode mid-command (SERIAL_TIMEOUT ≈ 2s on firmware). Under an E-stop hold the refresh is
+        # the constant neutral, never ``_last_pwm``: a command that slipped past the hold check
+        # must not be re-sent as the "hold" (audit SF-02). The hold is the whole stop, blade
+        # included: a process that restarted into a restored hold (``restore_emergency_hold``)
+        # never saw the previous process's ``blade=off``, and a firmware that is still running
+        # the blade (an RC receiver alive, or a reset) must be told to stop it (audit SAF-16).
         if (now - max(self._last_status_at, self._last_pwm_at)) >= 0.9:
-            steer_us, thr_us = self._last_pwm
+            if self._estop_hold:
+                await self._send_line("blade=off")
+                steer_us, thr_us = 1500, 1500
+            else:
+                steer_us, thr_us = self._last_pwm
             await self._send_line(f"pwm,{steer_us},{thr_us}")
             self._last_pwm_at = now
 
     def _ensure_command_expiry(self) -> None:
+        """Have a task waiting for the *current* deadline; wake the one that is already asleep.
+
+        A command with a shorter window than the deadline the task sleeps towards must pull
+        its wake-up forward (audit SF-07): a 0.2 s command that followed a 1.5 s one used to
+        stay in force until the first deadline.
+        """
         if self._cmd_expiry_task is None or self._cmd_expiry_task.done():
+            self._cmd_wake = asyncio.Event()
             self._cmd_expiry_task = asyncio.get_running_loop().create_task(
                 self._command_expiry_loop()
             )
+        elif self._cmd_wake is not None:
+            self._cmd_wake.set()  # re-evaluate: an earlier deadline may have just been armed
 
     def _cancel_command_expiry(self) -> None:
         self._cmd_valid_until = 0.0
@@ -331,12 +387,21 @@ class RoboHATService:
 
     async def _command_expiry_loop(self) -> None:
         """Send neutral once when a non-neutral drive command outlives its window."""
+        wake = self._cmd_wake
         while True:
             if self._cmd_valid_until <= 0.0:
                 return  # cancelled, or replaced by a neutral command
             remaining = self._cmd_valid_until - time.monotonic()
             if remaining > 0:
-                await asyncio.sleep(remaining)
+                if wake is None:  # defensive: always created with the task
+                    await asyncio.sleep(remaining)
+                    continue
+                wake.clear()
+                try:
+                    async with asyncio.timeout(remaining):
+                        await wake.wait()
+                except TimeoutError:
+                    pass
                 continue
             self._cmd_valid_until = 0.0
             logger.warning(
@@ -502,12 +567,36 @@ class RoboHATService:
             self.status.last_error = "emergency_stop_latched"
             return False
 
+        try:
+            steer_us, throttle_us = self._mix_arcade_to_pwm(left_speed, right_speed)
+        except ValueError:
+            # NaN/inf would have clamped to full scale (audit SF-12): refuse it.
+            self.status.last_error = "non_finite_command"
+            return False
+        neutral = (steer_us, throttle_us) == (1500, 1500)
+        if self._parked and not neutral:
+            self.status.last_error = "parked"
+            return False
+
         if not await self._ensure_usb_control(timeout=0.9, retries=2):
             return False
 
+        # The handshake above can take ~3 s. An E-stop (or the shutdown park) that ran in the
+        # meantime must not be overtaken by this command: re-check, with no await between the
+        # check and the write (audit SF-02).
+        if self._estop_hold or (self._parked and not neutral):
+            self.status.last_error = "emergency_stop_latched" if self._estop_hold else "parked"
+            return False
+
         validity = self._command_validity_s if valid_for_s is None else _clamp_validity(valid_for_s)
-        steer_us, throttle_us = self._mix_arcade_to_pwm(left_speed, right_speed)
         ok = await self._send_line(f"pwm,{steer_us},{throttle_us}")
+
+        if self._estop_hold or (self._parked and not neutral):
+            # The stop latched while this write was in flight. Its neutral is queued behind this
+            # write on the serial lock and lands after it, so this command must not be recorded
+            # as the one in force (that would re-arm its window and let the hold re-send it).
+            self.status.last_error = "emergency_stop_latched" if self._estop_hold else "parked"
+            return False
 
         if ok:
             self.status.motor_controller_ok = True
@@ -516,7 +605,7 @@ class RoboHATService:
             now = time.monotonic()
             self._last_pwm = (steer_us, throttle_us)
             self._last_pwm_at = now
-            if (steer_us, throttle_us) == (1500, 1500):
+            if neutral:
                 self._cancel_command_expiry()  # neutral: nothing to expire
             else:
                 self._cmd_valid_until = now + validity
@@ -531,13 +620,19 @@ class RoboHATService:
         if not self.serial_conn or not self.serial_conn.is_open or not self.running:
             return False
 
-        if active and speed > 0 and self._estop_hold:
-            self.status.last_error = "emergency_stop_latched"
+        blade_on = active and speed > 0
+        if blade_on and (self._estop_hold or self._parked):
+            self.status.last_error = "emergency_stop_latched" if self._estop_hold else "parked"
             return False
 
         if not await self._ensure_usb_control(timeout=0.9, retries=2):
             return False
-        command = "blade=on" if active and speed > 0 else "blade=off"
+        # Re-check after the handshake, as in send_motor_command (audit SF-02): a blade-on that
+        # passed the hold check must not land after the stop's blade=off.
+        if blade_on and (self._estop_hold or self._parked):
+            self.status.last_error = "emergency_stop_latched" if self._estop_hold else "parked"
+            return False
+        command = "blade=on" if blade_on else "blade=off"
         ok = await self._send_line(command)
         if ok and not active:
             self.status.last_watchdog_echo = "blade:off"
@@ -627,6 +722,7 @@ class RoboHATService:
             detail["error"] = "serial not connected"
             return detail
         self._cancel_command_expiry()
+        self._parked = True  # latch: only neutral drive / blade-off until initialize()
         self._estop_hold = False
         self._last_pwm = (1500, 1500)
         self._last_pwm_at = time.monotonic()
@@ -637,20 +733,27 @@ class RoboHATService:
         return detail
 
     async def clear_emergency(self) -> bool:
-        """Clear emergency stop on RoboHAT"""
+        """Clear emergency stop on RoboHAT.
+
+        The hold is released only AFTER the firmware is under USB control and acknowledged the
+        handshake (audit SAF-15). Until then it keeps sending neutral, so neither the RC
+        receiver nor a stale command can move the machine. A clear that fails leaves the hold
+        set and returns ``False``; the caller must report the platform as still held.
+        """
         logger.info("Clearing emergency stop on RoboHAT")
         if not self.serial_conn or not self.serial_conn.is_open or not self.running:
             return False
 
-        self._estop_hold = False
         if not await self._ensure_usb_control(timeout=0.9, retries=2):
+            self.status.last_error = "clear_emergency_failed"
             return False
         ok = await self._send_line("rc=disable")
         if not ok:
             self.status.last_error = "clear_emergency_failed"
-        else:
-            self.status.last_error = None
-        return ok
+            return False
+        self._estop_hold = False
+        self.status.last_error = None
+        return True
 
     def get_status(self) -> RoboHATStatus:
         """Get current RoboHAT status"""
@@ -659,7 +762,12 @@ class RoboHATService:
 
     @staticmethod
     def _mix_arcade_to_pwm(left_speed: float, right_speed: float) -> tuple[int, int]:
-        """Convert differential wheel speeds into steer/throttle PWM microseconds."""
+        """Convert differential wheel speeds into steer/throttle PWM microseconds.
+
+        Raises ``ValueError`` for NaN/inf: clamping turns NaN into full scale (audit SF-12).
+        """
+        if not (math.isfinite(left_speed) and math.isfinite(right_speed)):
+            raise ValueError(f"non-finite wheel speeds ({left_speed!r}, {right_speed!r}) refused")
         max_input = max(1.0, abs(left_speed), abs(right_speed))
         left_norm = left_speed / max_input
         right_norm = right_speed / max_input
@@ -673,6 +781,8 @@ class RoboHATService:
 
     @staticmethod
     def _scale_to_pwm(value: float, span: int = 450, center: int = 1500) -> int:
+        if not math.isfinite(value):
+            raise ValueError(f"non-finite pwm value {value!r} refused")
         value = max(-1.0, min(1.0, value))
         us = int(round(center + value * span))
         return max(1000, min(2000, us))

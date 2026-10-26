@@ -9,19 +9,26 @@ higher-level auth API. The facade methods adapt to the underlying
 AuthService implementation where possible.
 """
 
+import asyncio
 import hashlib
 import logging
 import os
 import secrets
+from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 
 import bcrypt
 import jwt
 import pyotp
 
+from ..core.auth_posture import sim_open_auth_enabled
 from ..core.context import get_correlation_id
+from ..core.credential_policy import assess_signing_secret, known_default_reason
+from ..core.peer_address import ipv6_group_key, peer_key
+from ..core.simulation import is_simulation_mode
 from ..models import (
     AuthenticationMethod,
     Permission,
@@ -65,24 +72,69 @@ class PasswordManager:
         hashed = bcrypt.hashpw(secret, salt)
         return hashed.decode("utf-8")
 
-    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+    def matches(self, plain_password: str, hashed_password: str | bytes) -> bool:
+        """Constant-time bcrypt comparison; a malformed ``hashed_password`` raises ValueError."""
         secret = self._prepare_secret(plain_password)
         hashed_bytes = (
             hashed_password.encode("utf-8") if isinstance(hashed_password, str) else hashed_password
         )
+        return bcrypt.checkpw(secret, hashed_bytes)
+
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         try:
-            return bcrypt.checkpw(secret, hashed_bytes)
+            return self.matches(plain_password, hashed_password)
         except ValueError:
             return False
+
+
+# bcrypt at 12 rounds costs ~270 ms of CPU. Run on the event loop it stalled the same loop that
+# carries the tractor deadman, the tilt monitor and the E-stop handlers (measured: 1.3 s for
+# five failed logins). The checks run on THIS small dedicated pool instead of the loop's default
+# executor, which the PCA9685 / RoboHAT / sensor writes share: a login flood must not be able to
+# queue ahead of an actuator write.
+_HASH_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="auth-hash")
+_T = TypeVar("_T")
+
+
+async def run_password_check(func: Callable[..., _T], *args: Any) -> _T:
+    """Run a blocking credential check (bcrypt) off the event loop, on the hash pool."""
+    return await asyncio.get_running_loop().run_in_executor(_HASH_EXECUTOR, func, *args)
+
+
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, message: str) -> None:
+    """Log ``message`` once per process (every AuthService owns a JWTManager)."""
+    if key not in _warned:
+        _warned.add(key)
+        logger.warning(message)
 
 
 class JWTManager:
     """JWT token management"""
 
     def __init__(self, secret_key: str | None = None, *, expiry_hours: int = 8) -> None:
-        self.secret_key = (
-            secret_key or os.getenv("LAWN_BERRY_AUTH_SECRET") or secrets.token_urlsafe(32)
-        )
+        configured = secret_key or os.getenv("LAWN_BERRY_AUTH_SECRET")
+        simulated = is_simulation_mode()
+        if configured:
+            weak = assess_signing_secret(configured)
+            if weak and not simulated:
+                _warn_once(
+                    "signing-secret-weak",
+                    "LAWN_BERRY_AUTH_SECRET " + "; ".join(weak) + ": operator tokens are signed "
+                    "with a weak key",
+                )
+        else:
+            configured = secrets.token_urlsafe(32)
+            if not simulated:
+                _warn_once(
+                    "signing-secret-ephemeral",
+                    "LAWN_BERRY_AUTH_SECRET is not set: operator tokens are signed with a random "
+                    "per-process key and every restart ends all sessions; run "
+                    "systemd/install_services.sh to provision a persistent secret",
+                )
+        self.secret_key = configured
         self.algorithm = "HS256"
         self.token_expiry_hours = expiry_hours
 
@@ -122,6 +174,24 @@ class JWTManager:
             )
             return None
 
+    def peek_token(self, token: str) -> dict[str, Any] | None:
+        """:meth:`verify_token`, silent: for callers that look at EVERY bearer (the global limiter).
+
+        ``verify_token`` warns about each expired or invalid token, which is right for a request
+        that is being authenticated and wrong for a limiter that classifies every request: a flood
+        of junk bearers must not also be a flood of log lines. Same checks, no log, no side effect.
+        """
+        try:
+            return jwt.decode(
+                token,
+                self.secret_key,
+                algorithms=[self.algorithm],
+                options={"require": ["exp", "sid", "sub"]},
+            )
+        except (jwt.InvalidTokenError, jwt.ExpiredSignatureError):
+            # PyJWT's ExpiredSignatureError is an InvalidTokenError; the compat stub's is not
+            return None
+
 
 class RateLimiter:
     """Rate limiter for authentication attempts.
@@ -133,7 +203,17 @@ class RateLimiter:
       OR failure) per sliding ``window_seconds``; the next attempt returns 429.
     - **Failure lockout** — after ``failure_limit`` consecutive failures the
       client is locked out for ``lockout_seconds`` (429).
+
+    The key is whatever the caller passes; every caller in this backend passes
+    :func:`~backend.src.core.peer_address.peer_key` of the TCP peer, never a header the client
+    writes. The state is bounded: attempts leave with their window, failure counts are
+    forgotten after ``FAILURE_MEMORY_SECONDS``, lockouts leave when they end, and no table
+    holds more than ``MAX_TRACKED_KEYS`` keys (the least recently active are dropped first).
     """
+
+    MAX_TRACKED_KEYS = 4096
+    FAILURE_MEMORY_SECONDS = 3600
+    PRUNE_INTERVAL_SECONDS = 30
 
     def __init__(self, *, failure_limit: int = 5, lockout_seconds: int = 30) -> None:
         self._failure_limit_default = max(1, failure_limit)
@@ -141,6 +221,8 @@ class RateLimiter:
         self._failures: dict[str, int] = {}
         self._lockout_until: dict[str, datetime] = {}
         self._attempts: dict[str, list[datetime]] = {}
+        self._failure_at: dict[str, datetime] = {}
+        self._last_prune = datetime.now(UTC)
 
     @staticmethod
     def _env_int(name: str, default: int) -> int:
@@ -168,14 +250,67 @@ class RateLimiter:
     def window_seconds(self) -> int:
         return self._env_int("AUTH_RATE_LIMIT_WINDOW", 60)
 
+    def tracked_keys(self) -> int:
+        """How many distinct keys any table currently holds."""
+        return len(set(self._attempts) | set(self._failures) | set(self._lockout_until))
+
+    def _prune(self, now: datetime) -> None:
+        """Forget what no longer matters and cap what is left; cheap unless due."""
+        cap = self.MAX_TRACKED_KEYS
+        over = max(len(self._attempts), len(self._failures), len(self._lockout_until)) > cap
+        if not over and (now - self._last_prune).total_seconds() < self.PRUNE_INTERVAL_SECONDS:
+            return
+        self._last_prune = now
+        window = self.window_seconds
+        for key in list(self._attempts):
+            recent = [t for t in self._attempts[key] if (now - t).total_seconds() < window]
+            if recent:
+                self._attempts[key] = recent
+            else:
+                del self._attempts[key]
+        for key, until in list(self._lockout_until.items()):
+            if now >= until:
+                del self._lockout_until[key]
+                self._failures.pop(key, None)
+                self._failure_at.pop(key, None)
+        for key, at in list(self._failure_at.items()):
+            if key in self._lockout_until:
+                continue
+            if (now - at).total_seconds() > self.FAILURE_MEMORY_SECONDS:
+                del self._failure_at[key]
+                self._failures.pop(key, None)
+        keep = int(cap * 0.9)
+        epoch = datetime.min.replace(tzinfo=UTC)
+        if len(self._attempts) > cap:
+            newest_first = sorted(self._attempts, key=lambda k: self._attempts[k][-1], reverse=True)
+            for key in newest_first[keep:]:
+                del self._attempts[key]
+        if len(self._failures) > cap:
+            newest_first = sorted(
+                self._failures, key=lambda k: self._failure_at.get(k, epoch), reverse=True
+            )
+            for key in newest_first[keep:]:
+                if key not in self._lockout_until:
+                    del self._failures[key]
+                    self._failure_at.pop(key, None)
+        if len(self._lockout_until) > cap:
+            latest_first = sorted(self._lockout_until, key=self._lockout_until.get, reverse=True)
+            for key in latest_first[keep:]:
+                del self._lockout_until[key]
+                self._failures.pop(key, None)
+                self._failure_at.pop(key, None)
+
     def record_attempt(self, key: str) -> int | None:
         """Count a login attempt; return retry-after seconds if the rate is exceeded."""
         now = datetime.now(UTC)
+        self._prune(now)
         window = self.window_seconds
+        limit = self.attempt_limit
         recent = [t for t in self._attempts.get(key, []) if (now - t).total_seconds() < window]
         recent.append(now)
-        self._attempts[key] = recent
-        if len(recent) > self.attempt_limit:
+        # Nothing beyond the limit is ever compared against, so never store more than that.
+        self._attempts[key] = recent[-(limit + 1) :]
+        if len(recent) > limit:
             return int(window)
         return None
 
@@ -187,6 +322,7 @@ class RateLimiter:
         if now >= until:
             self._lockout_until.pop(key, None)
             self._failures.pop(key, None)
+            self._failure_at.pop(key, None)
             return None
         return int(max(1, (until - now).total_seconds()))
 
@@ -201,8 +337,10 @@ class RateLimiter:
 
     def record_failure(self, key: str) -> int | None:
         now = datetime.now(UTC)
+        self._prune(now)
         failures = self._failures.get(key, 0) + 1
         self._failures[key] = failures
+        self._failure_at[key] = now
         if failures >= self.failure_limit:
             lockout_until = now + timedelta(seconds=self.lockout_seconds)
             self._lockout_until[key] = lockout_until
@@ -221,24 +359,85 @@ class RateLimiter:
     def reset(self, key: str) -> None:
         self._failures.pop(key, None)
         self._lockout_until.pop(key, None)
+        self._failure_at.pop(key, None)
 
     def locked_clients(self) -> list[str]:
         now = datetime.now(UTC)
         return [key for key, until in self._lockout_until.items() if until > now]
 
 
+# The coarse backstop of the per-address login lockout (SEC3-11): see GroupFailureLimiter.
+IPV6_GROUP_FAILURE_LIMIT = 25
+IPV6_GROUP_LOCKOUT_SECONDS = 30
+# How long a session termination listener (the WebSocket closer) may take before it is abandoned:
+# ending a login must never hang on a peer that does not answer a close (ws_policy.CLOSE_TIMEOUT_S
+# is 1 s per socket, all sockets at once).
+TERMINATION_LISTENER_TIMEOUT_S = 2.0
+
+
+class GroupFailureLimiter(RateLimiter):
+    """The failure lockout of a GROUP of clients (an IPv6 /64), with limits that are fixed.
+
+    An IPv6 address that is not global is counted per address (``core/peer_address.py::peer_key``:
+    on a LAN every device of the /64 would otherwise share one lockout, so one device's typos
+    would lock the others out). A host can alias as many addresses of its own /64 as it likes,
+    though, and a fresh address is a fresh five guesses: this counter, keyed by the /64 of EVERY
+    IPv6 client, is what stops that. It is deliberately coarse (a few devices' typos do not
+    reach it, a guesser does) and deliberately NOT tunable: ``AUTH_LOCKOUT_FAILURES`` and
+    ``AUTH_LOCKOUT_SECONDS`` size the per-address lockout, and a per-address limit raised above
+    this one would make the group lock first, which is the very DoS it exists to avoid.
+    """
+
+    @property
+    def failure_limit(self) -> int:
+        return self._failure_limit_default
+
+    @property
+    def lockout_seconds(self) -> int:
+        return self._lockout_seconds_default
+
+
 class AuthService:
     """Main authentication service"""
 
-    def __init__(self, operator_credential: str = "operator123"):
+    def __init__(self, operator_credential: str | None = None):
         # Managers
         self.password_manager = PasswordManager()
         self.jwt_manager = JWTManager()
         self.rate_limiter = RateLimiter(failure_limit=5, lockout_seconds=30)
+        # The coarse per-IPv6-/64 failure backstop of ``rate_limiter`` (GroupFailureLimiter).
+        self.group_limiter = GroupFailureLimiter(
+            failure_limit=IPV6_GROUP_FAILURE_LIMIT, lockout_seconds=IPV6_GROUP_LOCKOUT_SECONDS
+        )
+        # SIM_MODE=1 is not enough to accept any credential: that also needs the explicit
+        # LAWN_BERRY_SIM_OPEN_AUTH=1 opt-in and is never honoured in a production environment
+        # (core/auth_posture.sim_open_auth_enabled). Read once, at construction.
+        self._simulation_mode = sim_open_auth_enabled()
 
-        # Single shared operator credential (per constitutional requirement)
-        default_secret = os.getenv("LAWN_BERRY_OPERATOR_CREDENTIAL", operator_credential)
-        self.operator_credential_hash = self._hash_credential(default_secret)
+        # Single shared operator credential (per constitutional requirement). There is NO
+        # built-in default: unset, empty or a published default (credential_policy) means no
+        # credential is accepted and operator login is disabled (fail closed; E-stop routes
+        # are unauthenticated by design and unaffected). With the simulator opt-in above any
+        # non-empty credential is accepted, so a simulated run needs none.
+        configured = (
+            operator_credential
+            if operator_credential is not None
+            else os.getenv("LAWN_BERRY_OPERATOR_CREDENTIAL")
+        )
+        self.operator_credential_hash: str | None = None
+        problem = None
+        if not configured:
+            problem = "is not set"
+        elif not self._simulation_mode:
+            problem = known_default_reason(configured)
+        if configured and problem is None:
+            self.operator_credential_hash = self._hash_credential(configured)
+        elif not self._simulation_mode:
+            logger.critical(
+                "LAWN_BERRY_OPERATOR_CREDENTIAL %s: operator login is DISABLED (nobody can log "
+                "in). Run systemd/install_services.sh, or set a strong credential in .env.",
+                problem,
+            )
 
         # Active sessions
         self.active_sessions: dict[str, UserSession] = {}
@@ -247,23 +446,67 @@ class AuthService:
         self.session_timeout_hours = 8
         self.require_https = False  # Would be True in production
         self.audit_logging_enabled = True
-        self._simulation_mode = os.getenv("SIM_MODE", "0") == "1"
+
+        # What has to happen when a session ends (``add_termination_listener``).
+        self._termination_listeners: list[Callable[[str, str], Awaitable[None]]] = []
 
     def _hash_credential(self, credential: str) -> str:
         """Hash the operator credential"""
         return self.password_manager.hash_password(credential)
 
-    def _client_key(self, client_identifier: str | None, client_ip: str | None) -> str:
-        if client_identifier:
-            return client_identifier
-        if client_ip:
-            return f"ip:{client_ip}"
-        return "anon"
+    @staticmethod
+    def _client_key(client_ip: str | None) -> str:
+        """The limiter key: the TCP peer, never a header the client writes (SEC-03)."""
+        return peer_key(client_ip)
 
-    def _validate_credential(self, credential: str) -> bool:
-        if self._simulation_mode:
+    @staticmethod
+    def group_key(client_ip: str | None) -> str | None:
+        """The coarse failure-counter key: the IPv6 /64 of ANY IPv6 client, else ``None``.
+
+        Layered on top of :meth:`_client_key` (see :class:`GroupFailureLimiter`): IPv4 and
+        IPv4-mapped clients have no group, their own address is already the right unit.
+        """
+        return ipv6_group_key(client_ip)
+
+    def _record_failure(self, key: str, group: str | None) -> int | None:
+        """Count a failed login against the client and, for an IPv6 client, its /64.
+
+        The seconds of the lockout this failure started (the longer one if both did), else
+        ``None``.
+        """
+        lockouts = [self.rate_limiter.record_failure(key)]
+        if group is not None:
+            lockouts.append(self.group_limiter.record_failure(group))
+        started = [seconds for seconds in lockouts if seconds is not None]
+        return max(started) if started else None
+
+    def login_available(self) -> bool:
+        """``True`` when some credential can log in (a configured one, or the simulator opt-in)."""
+        return self._simulation_mode or self.operator_credential_hash is not None
+
+    def _validate_credential(self, credential: str, *, accept_simulated: bool = True) -> bool:
+        """Blocking check: bcrypt costs ~270 ms. Callers run it via :func:`run_password_check`."""
+        if accept_simulated and self._simulation_mode:
             return bool(credential)
+        if self.operator_credential_hash is None:
+            return False  # no usable credential configured: nobody logs in
         return self.password_manager.verify_password(credential, self.operator_credential_hash)
+
+    async def verify_operator_credential(
+        self, credential: str, *, accept_simulated: bool = True
+    ) -> bool:
+        """``True`` when ``credential`` is the configured operator credential.
+
+        For other credential-gated flows (manual-control unlock) that must not invent their own
+        default: with no usable credential configured nothing matches, and the simulator opt-in
+        accepts any non-empty value exactly like ``authenticate``. No throttling and no session
+        here: the caller owns both. The bcrypt work runs on the hash pool, off the event loop.
+        """
+        if (accept_simulated and self._simulation_mode) or self.operator_credential_hash is None:
+            return self._validate_credential(credential, accept_simulated=accept_simulated)
+        return await run_password_check(
+            lambda: self._validate_credential(credential, accept_simulated=accept_simulated)
+        )
 
     def _issue_token_for_session(self, session: UserSession) -> AuthResult:
         token, expires_at = self.jwt_manager.create_token(
@@ -282,14 +525,24 @@ class AuthService:
         self,
         credential: str,
         *,
-        client_identifier: str | None = None,
         client_ip: str | None = None,
         user_agent: str | None = None,
+        accept_simulated: bool = True,
     ) -> AuthResult:
-        """Authenticate with shared operator credential."""
+        """Authenticate with the shared operator credential.
 
-        key = self._client_key(client_identifier, client_ip)
+        Throttling is per TCP peer (``client_ip``); the old ``client_identifier`` argument, fed
+        from the client-writable ``X-Client-Id`` header, is gone (SEC-03). An IPv6 client also
+        counts toward the coarse failure lockout of its /64 (:class:`GroupFailureLimiter`).
+        ``accept_simulated`` is ``False`` for callers (the v1 login) that must stay strict even
+        under the simulator opt-in.
+        """
+
+        key = self._client_key(client_ip)
+        group = self.group_key(client_ip)
         self.rate_limiter.assert_not_locked(key)
+        if group is not None:
+            self.group_limiter.assert_not_locked(group)
 
         # Throttle the attempt rate (counts successes and failures alike).
         retry_after = self.rate_limiter.record_attempt(key)
@@ -305,7 +558,7 @@ class AuthService:
             )
 
         if not credential:
-            retry_after = self.rate_limiter.record_failure(key)
+            retry_after = self._record_failure(key, group)
             logger.warning(
                 "auth.login.failure",
                 extra={
@@ -320,8 +573,8 @@ class AuthService:
                 retry_after=retry_after,
             )
 
-        if not self._validate_credential(credential):
-            retry_after = self.rate_limiter.record_failure(key)
+        if not await self.verify_operator_credential(credential, accept_simulated=accept_simulated):
+            retry_after = self._record_failure(key, group)
             logger.warning(
                 "auth.login.failure",
                 extra={
@@ -338,6 +591,8 @@ class AuthService:
 
         # Successful credential validation clears any accumulated failure state
         self.rate_limiter.reset(key)
+        if group is not None:
+            self.group_limiter.reset(group)
 
         session = UserSession.create_operator_session(client_ip, user_agent)
         session.security_context.authentication_method = AuthenticationMethod.SHARED_CREDENTIAL
@@ -367,9 +622,17 @@ class AuthService:
 
         return result
 
-    async def verify_token(self, token: str) -> UserSession | None:
-        """Verify JWT token and return session"""
-        payload = self.jwt_manager.verify_token(token)
+    async def verify_token(self, token: str, *, quiet: bool = False) -> UserSession | None:
+        """Verify JWT token and return session.
+
+        ``quiet`` is for a caller that sees every credential a flood can send (the WebSocket
+        handshake): the token is checked silently (:meth:`JWTManager.peek_token`), where the
+        default logs a WARNING for each expired or invalid one. The checks are the same and an
+        expired session is still terminated on contact.
+        """
+        payload = (
+            self.jwt_manager.peek_token(token) if quiet else self.jwt_manager.verify_token(token)
+        )
         if not payload:
             return None
 
@@ -385,6 +648,23 @@ class AuthService:
             await self.terminate_session(session_id, "expired")
             return None
 
+        return session
+
+    def peek_session(self, token: str) -> UserSession | None:
+        """The live session behind a bearer token, or ``None``; silent and free of side effects.
+
+        The global limiter calls this for every request that carries a bearer, to give logged-in
+        traffic a bucket of its own (see ``middleware/rate_limiting.py``). Unlike
+        :meth:`verify_token` it logs nothing and never terminates a session; an expired session
+        is simply not live.
+        """
+        payload = self.jwt_manager.peek_token(token)
+        session_id = payload.get("sid") if payload else None
+        if not isinstance(session_id, str):
+            return None
+        session = self.active_sessions.get(session_id)
+        if session is None or session.is_expired():
+            return None
         return session
 
     async def verify_session(self, session_id: str) -> UserSession | None:
@@ -406,7 +686,9 @@ class AuthService:
         return session
 
     async def terminate_session(self, session_id: str, reason: str = "user_logout") -> bool:
-        """Terminate a session"""
+        """Terminate a session (the one place a login ends: logout, an expiry found on contact,
+        ``cleanup_expired_sessions``, a credential change) and tell the termination listeners.
+        """
         if session_id not in self.active_sessions:
             return False
 
@@ -417,11 +699,58 @@ class AuthService:
         if self.audit_logging_enabled:
             session.update_activity("logout", metadata={"reason": reason})
 
-        # Remove from active sessions
+        # Remove from active sessions (before the listeners run: whatever they ask, it is over)
         del self.active_sessions[session_id]
 
         logger.info(f"Session {session_id} terminated: {reason}")
+        await self._notify_session_ended(session_id, reason)
         return True
+
+    def add_termination_listener(self, listener: Callable[[str, str], Awaitable[None]]) -> None:
+        """Have ``await listener(session_id, reason)`` run whenever a session is terminated.
+
+        For whatever outlives the session and must end with it (the open WebSockets of a login:
+        ``api/routers/auth.py``). Adding the same listener twice is a no-op.
+        """
+        if listener not in self._termination_listeners:
+            self._termination_listeners.append(listener)
+
+    def remove_termination_listener(self, listener: Callable[[str, str], Awaitable[None]]) -> None:
+        """Stop calling ``listener`` (no-op if it was never added)."""
+        if listener in self._termination_listeners:
+            self._termination_listeners.remove(listener)
+
+    async def _notify_session_ended(self, session_id: str, reason: str) -> None:
+        """Run the termination listeners; a listener never fails or holds up the termination.
+
+        Each is given :data:`TERMINATION_LISTENER_TIMEOUT_S`; an error or a timeout is logged
+        and the next listener still runs. (Cancellation is not swallowed.)
+        """
+        for listener in tuple(self._termination_listeners):
+            try:
+                async with asyncio.timeout(TERMINATION_LISTENER_TIMEOUT_S):
+                    await listener(session_id, reason)
+            except TimeoutError:
+                logger.error(
+                    "A session termination listener took longer than %.1f s and was abandoned",
+                    TERMINATION_LISTENER_TIMEOUT_S,
+                )
+            except Exception:
+                logger.exception("A session termination listener failed")
+
+    async def session_seconds_left(self, session_id: str) -> float | None:
+        """Seconds until the live session ``session_id`` expires, ``None`` if it is gone or over.
+
+        An expired session is terminated on the spot (like :meth:`verify_session`, but without
+        its idle bookkeeping and log line: the WebSocket expiry timers ask this repeatedly).
+        """
+        session = self.active_sessions.get(session_id)
+        if session is None:
+            return None
+        if session.is_expired():
+            await self.terminate_session(session_id, "expired")
+            return None
+        return (session.expires_at - datetime.now(UTC)).total_seconds()
 
     async def extend_session(self, session_id: str, hours: int = 8) -> bool:
         """Extend session expiration"""
@@ -460,15 +789,22 @@ class AuthService:
         self, current_credential: str, new_credential: str
     ) -> bool:
         """Update the operator credential"""
-        # Verify current credential
-        if not self.password_manager.verify_password(
-            current_credential, self.operator_credential_hash
-        ):
+        if self.operator_credential_hash is None:
+            # Nothing configured to verify against: the credential can only be set through
+            # the environment (LAWN_BERRY_OPERATOR_CREDENTIAL), never over the API.
+            logger.warning("Operator credential update refused: no credential is configured")
+            return False
+        # Verify current credential (bcrypt: off the event loop) and hash the new one
+        manager = self.password_manager
+        current_hash = self.operator_credential_hash
+        if not await run_password_check(manager.verify_password, current_credential, current_hash):
             logger.warning("Failed attempt to update operator credential")
             return False
 
         # Update credential
-        self.operator_credential_hash = self._hash_credential(new_credential)
+        self.operator_credential_hash = await run_password_check(
+            self._hash_credential, new_credential
+        )
 
         # Invalidate all active sessions (force re-authentication)
         session_ids = list(self.active_sessions.keys())

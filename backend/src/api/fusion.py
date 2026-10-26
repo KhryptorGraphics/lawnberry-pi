@@ -1,6 +1,11 @@
+"""The sensor-fusion state route.
+
+``GET /api/v2/fusion/state`` reports the EKF-fused position and heading with their uncertainty and
+the per-sensor health; in SIM_MODE the filter is fed synthetic motion.
+"""
+
 from __future__ import annotations
 
-import os
 import time
 from typing import Any
 
@@ -25,7 +30,7 @@ async def get_fused_state() -> dict[str, Any]:
     synthetic motion plus periodic GPS/IMU measurements so the covariance (and
     therefore the fusion quality) stays bounded without hardware.
     """
-    sim = is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
+    sim = is_simulation_mode()
     if sim:
         # Synthetic slow turn, with periodic measurement corrections.
         state = _ekf.step(v_mps=0.0, omega_dps=5.0)

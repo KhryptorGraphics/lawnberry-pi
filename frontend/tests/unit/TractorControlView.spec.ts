@@ -66,14 +66,20 @@ describe('TractorControlView', () => {
     if (instances) instances.length = 0
   })
 
-  it('fetches state once on mount and syncs the drivetrain sliders', async () => {
+  it('fetches state once on mount and shows what the backend is holding without commanding it', async () => {
     const wrapper = await mountView(baseState({ left_lever: 0.4, right_lever: -0.6, throttle: 0.6 }))
 
     expect(api.getTractorState).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-testid="left-lever-held"]').text()).toContain('0.40')
+    expect(wrapper.find('[data-testid="right-lever-held"]').text()).toContain('-0.60')
+    // The sliders are what THIS page commands: a freshly opened page commands nothing, so it
+    // must not adopt (and start re-sending) whatever another client left on the backend.
     const leftInput = wrapper.find('[data-testid="left-lever-slider"]')
     const rightInput = wrapper.find('[data-testid="right-lever-slider"]')
-    expect(Number((leftInput.element as HTMLInputElement).value)).toBeCloseTo(0.4)
-    expect(Number((rightInput.element as HTMLInputElement).value)).toBeCloseTo(-0.6)
+    expect(Number((leftInput.element as HTMLInputElement).value)).toBe(0)
+    expect(Number((rightInput.element as HTMLInputElement).value)).toBe(0)
+    expect(api.tractorLeftLever).not.toHaveBeenCalled()
+    expect(api.tractorRightLever).not.toHaveBeenCalled()
   })
 
   it('toggles authorize/revoke based on current state', async () => {
@@ -108,9 +114,10 @@ describe('TractorControlView', () => {
       reason: 'emergency stop active',
     } as any)
 
+    // Hold-to-run: a value only counts while a pointer/key is down on the slider.
     const leftInput = wrapper.find('[data-testid="left-lever-slider"]')
+    await leftInput.trigger('pointerdown')
     await leftInput.setValue(0.5)
-    await leftInput.trigger('change')
     await flushPromises()
 
     const toastStore = useToastStore()

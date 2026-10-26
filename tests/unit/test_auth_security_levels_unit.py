@@ -26,13 +26,13 @@ class TestPasswordManager:
 
     def test_hash_and_verify_short_secret(self):
         manager = PasswordManager()
-        secret = "operator123"
+        secret = "sample-secret-001"
         hashed = manager.hash_password(secret)
 
         assert isinstance(hashed, str)
         assert hashed.startswith("$2b$")
         assert manager.verify_password(secret, hashed)
-        assert not manager.verify_password("operator124", hashed)
+        assert not manager.verify_password("sample-secret-002", hashed)
 
     def test_hash_and_verify_long_secret(self):
         manager = PasswordManager()

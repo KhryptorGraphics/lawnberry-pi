@@ -19,6 +19,7 @@ import pytest
 
 from backend.src.drivers.actuators.pca9685_driver import (
     PCA9685Driver,
+    PCA9685ReadbackError,
     PCA9685UnavailableError,
 )
 
@@ -223,3 +224,116 @@ async def test_hardware_present_write_succeeds(monkeypatch):
     assert addr == 0x41
     assert reg == 0x06 + 4 * 2  # LED0_ON_L + 4 * channel
     assert len(data) == 4
+
+
+# ------------------------- read-back (the watchdog's actuation evidence) -------------------------
+
+
+def _install_register_file_smbus2(monkeypatch):
+    """Fake smbus2 with a register file behind 4-byte block reads and writes."""
+    regs = bytearray(256)
+    faults = types.SimpleNamespace(read=False)
+
+    class _Bus:
+        def __init__(self, bus):
+            self.bus = bus
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def write_byte_data(self, addr, reg, val):
+            if reg == 0x00:
+                val &= 0x7F  # MODE1 bit 7 RESTART: writing 1 restarts and the bit clears itself
+            regs[reg] = val
+
+        def write_i2c_block_data(self, addr, reg, data):
+            for i, byte in enumerate(data):
+                regs[reg + i] = byte
+
+        def read_i2c_block_data(self, addr, reg, length):
+            if faults.read:
+                raise OSError(5, "Input/output error")
+            return list(regs[reg : reg + length])
+
+    mod = types.ModuleType("smbus2")
+    mod.SMBus = _Bus
+    monkeypatch.setitem(sys.modules, "smbus2", mod)
+    return regs, faults
+
+
+async def _ready_driver(monkeypatch):
+    _force_real(monkeypatch)
+    regs, faults = _install_register_file_smbus2(monkeypatch)
+    d = PCA9685Driver({})
+    await d.initialize()
+    assert d.is_ready()
+    return d, regs, faults
+
+
+@pytest.mark.asyncio
+async def test_verify_pwm_us_accepts_exactly_what_was_written(monkeypatch):
+    d, _regs, _faults = await _ready_driver(monkeypatch)
+    for channel, us in ((0, 1000), (0, 1500), (2, 1950), (1, 2000), (15, 1234)):
+        await d.set_pwm_us(channel, us)
+        await d.verify_pwm_us(channel, us)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_verify_pwm_us_detects_a_different_pulse(monkeypatch):
+    d, _regs, _faults = await _ready_driver(monkeypatch)
+    await d.set_pwm_us(0, 1500)
+    with pytest.raises(PCA9685ReadbackError, match="channel 0 holds"):
+        await d.verify_pwm_us(0, 1600)
+
+
+@pytest.mark.asyncio
+async def test_verify_pwm_us_detects_a_chip_reset_and_a_stuck_on_output(monkeypatch):
+    """After a brown-out the chip's outputs are FULL OFF (LEDn_OFF_H bit 4); a write-only
+    keepalive cannot see that, the read-back does. FULL ON is a fault too."""
+    d, regs, _faults = await _ready_driver(monkeypatch)
+    await d.set_pwm_us(0, 1500)
+    base = d._LED0_ON_L
+
+    regs[base : base + 4] = bytes([0x00, 0x00, 0x00, 0x10])  # power-on state: FULL OFF
+    with pytest.raises(PCA9685ReadbackError):
+        await d.verify_pwm_us(0, 1500)
+
+    regs[base : base + 4] = bytes([0x00, 0x10, 0x00, 0x00])  # FULL ON
+    with pytest.raises(PCA9685ReadbackError):
+        await d.verify_pwm_us(0, 1500)
+
+
+@pytest.mark.asyncio
+async def test_verify_pwm_us_masks_reserved_bits_only(monkeypatch):
+    d, regs, _faults = await _ready_driver(monkeypatch)
+    await d.set_pwm_us(3, 1500)
+    off_h = d._LED0_ON_L + 4 * 3 + 3
+    regs[off_h] |= 0xE0  # reserved bits 7:5 read back as noise
+    await d.verify_pwm_us(3, 1500)  # still matches
+
+
+@pytest.mark.asyncio
+async def test_verify_pwm_us_propagates_a_read_failure_and_never_writes(monkeypatch):
+    d, regs, faults = await _ready_driver(monkeypatch)
+    await d.set_pwm_us(0, 1500)
+    before = bytes(regs)
+    faults.read = True
+    with pytest.raises(OSError, match="Input/output error"):
+        await d.verify_pwm_us(0, 1500)
+    assert bytes(regs) == before, "verifying must not change an output"
+    assert d.last_error is None, "last_error is the write path's record"
+
+
+@pytest.mark.asyncio
+async def test_verify_pwm_us_is_simulated_in_sim_mode_and_refuses_an_absent_chip(monkeypatch):
+    d = PCA9685Driver({})
+    await d.verify_pwm_us(0, 1500)  # SIM_MODE: no chip by design, simulated success
+    _force_real(monkeypatch)
+    with pytest.raises(PCA9685UnavailableError):
+        await d.verify_pwm_us(0, 1500)
+    d2, _regs, _faults = await _ready_driver(monkeypatch)
+    with pytest.raises(ValueError):
+        await d2.verify_pwm_us(16, 1500)

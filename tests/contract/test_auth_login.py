@@ -4,9 +4,9 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_auth_login_success_with_credential(test_client):
+async def test_auth_login_success_with_credential(test_client, operator_credential):
     """Test successful login with shared credential returns proper response."""
-    payload = {"credential": "operator123"}  # Default test credential
+    payload = {"credential": operator_credential}  # the suite's explicit credential
 
     response = await test_client.post("/api/v1/auth/login", json=payload)
     assert response.status_code == 200
@@ -51,11 +51,12 @@ async def test_auth_login_missing_credential(test_client):
 
 
 @pytest.mark.asyncio
-async def test_auth_login_username_password_fallback(test_client):
+async def test_auth_login_username_password_fallback(test_client, operator_credential):
     """Test login with username/password format (MFA compatibility)."""
-    # The password is the shared operator credential (default "operator123"); there is
-    # no hard-wired admin/admin alias (see tests/integration/test_login_credentials.py).
-    payload = {"username": "admin", "password": "operator123"}
+    # The password is the shared operator credential (the suite configures an explicit one;
+    # there is no built-in default); there is no hard-wired admin/admin alias (see
+    # tests/integration/test_login_credentials.py).
+    payload = {"username": "admin", "password": operator_credential}
 
     response = await test_client.post("/api/v1/auth/login", json=payload)
     assert response.status_code == 200

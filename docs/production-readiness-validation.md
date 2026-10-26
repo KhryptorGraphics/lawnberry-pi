@@ -16,15 +16,17 @@ are the things that can only be confirmed on-device.
 
 ## 2. Service bring-up
 
-- [ ] systemd units start: `systemctl status lawnberry-backend lawnberry-frontend lawnberry-camera lawnberry-sensors`.
+- [ ] systemd units start: `systemctl status lawnberry-backend lawnberry-frontend lawnberry-camera`.
 - [ ] Backend runs with `SIM_MODE=0` (set in `lawnberry-backend.service`).
 - [ ] `curl -fsS http://127.0.0.1:8081/health` returns `status: healthy` with
       `message_bus / drivers / persistence / safety` all healthy on real hardware.
 
 ## 3. Security / auth (new)
 
-- [ ] Set the operator credential (`LAWN_BERRY_OPERATOR_CREDENTIAL` / secrets) and confirm
-      `POST /api/v2/auth/login` issues a bearer token.
+- [ ] The operator credential and `LAWN_BERRY_AUTH_SECRET` are in `<root>/.env` (mode 0600),
+      provisioned by `systemd/install_services.sh` (it refuses a missing, default or weak
+      credential); confirm `POST /api/v2/auth/login` issues a bearer token for that credential
+      and returns 401 for any other, including the old public default.
 - [ ] Confirm the new write-endpoint authorization (added in this PR): `PUT /api/v2/settings`,
       `PUT /api/v2/map/configuration`, `POST /api/v2/planning/jobs`, AI export, and
       `verification-artifacts` reject unauthenticated writes (401) and accept an authenticated one.
@@ -93,8 +95,9 @@ Planning jobs (a saved job = an autonomous run over its zones):
 - [ ] `npm run build` artifact served by `lawnberry-frontend`; dashboard loads.
 - [ ] **Login issues a usable bearer token** (the sanitization exemption is in place) that the
       API client attaches; protected writes succeed authenticated and 401 without.
-- [ ] **Telemetry WebSocket authenticates remotely**: the client appends `?access_token=` and
-      `/api/v2/ws/telemetry` upgrades (101) from a non-loopback origin.
+- [ ] **Telemetry WebSocket authenticates remotely**: the client trades its bearer token for a
+      single-use ticket (`POST /api/v2/auth/ws-ticket`), appends `?ticket=`, and
+      `/api/v2/ws/telemetry` upgrades (101); a reused or unknown ticket is refused (401).
 - [ ] Control view drives manually (auto manual-unlock session); Planning "Quick Mow" / job
       Start triggers an autonomous run and progress is visible.
 - [ ] Map planner reads/writes `/api/v2/map/configuration`; settings, weather, planning, and
@@ -102,7 +105,12 @@ Planning jobs (a saved job = an autonomous run over its zones):
 
 ## 10. Endurance & rollback
 
-- [ ] HIL suite on-device: `RUN_PLACEHOLDER_INTEGRATION=1 SIM_MODE=0 pytest tests/hil`.
+- [ ] HIL probe on-device (read-only polling of the running backend over HTTP; `tests/hil` only
+      checks the probe's CSV format under `SIM_MODE` against its default `http://127.0.0.1:8000`,
+      not the backend on 8081, so it is not a hardware test): run
+      `python scripts/hil_probe.py --base-url http://127.0.0.1:8081 --duration 60` with
+      `--out logs/hil_probe.csv`. Every row must have `overall_status` and `safety_state` set, and
+      `watchdog_ms` populated when the RoboHAT is connected.
 - [ ] Soak: `pytest tests/soak` (long-running) — telemetry stable, no leaks.
 - [ ] Telemetry performance budgets on the Pi: `RUN_PERF_TESTS=1 pytest tests/integration/test_telemetry_perf.py`.
 - [ ] Rollback path verified: `systemctl` stop/disable, restore previous release, restart.

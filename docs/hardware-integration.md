@@ -21,6 +21,13 @@ Safety:
 - Ensure E-stop physically cuts blade power path.
 - Software interlocks: tilt, obstacle, watchdog enforced.
 
+Software status (IBT-4 driver, 2026-10-24):
+- A real `lgpio` adapter exists (`backend/src/drivers/blade/ibt4_lgpio.py`) behind `ibt4.gpio_enabled` in `config/hardware.yaml`. It defaults to `false` and is never armed in SIM_MODE; with it off the driver is a flag-only stub, GPIO24/25 are never driven, and outside SIM_MODE the general E-stop reports the blade output `unconfirmed`.
+- It has never run on hardware; it is tested only against a fake `lgpio`. When armed, the E-stop reports the blade output `stopped` only after GPIO24/25 were written low and read back low. That does not observe the IBT-4 power stage or the blade motor.
+- When armed, an E-stop or shutdown park on a service that was never initialised (for example right after a backend restart, when the lines are in an unknown state) first claims GPIO24/25 at level 0, drives both low and reads them back itself, so the blade output is reported `stopped` or `failed`, never `not_present`. With the gate off, a never-initialised service stays `not_present` and no GPIO is touched.
+- GPIO25 (IN2) is the HaLow HAT's SPI IRQ line on the deployed Pi (audit C-03, owner action O-5; live `gpioinfo` showed it held by `mm610x_spi_irq_gpio`). The claim is therefore expected to fail and arming then fails closed (the E-stop reports the blade output `failed`) until the pin is moved; this has not been tried on the Pi.
+- UNVERIFIED, measure before arming: the IBT-4 truth table (`ibt4.on_levels` is a placeholder), whether the blade motor needs PWM or an enable line (only static levels are driven), whether `gpio_read` of an output pin on the Pi 5 follows the pad (the "read back low" evidence depends on it), and the pin state after `gpio_free`, process exit and SIGKILL (the audit M-26 scope measurement, repeated on GPIO24/25). Do the first bench check with the blade motor disconnected.
+
 ### Time-of-Flight Sensors (VL53L0X x2)
 - I2C Bus 1: SDA (GPIO 2), SCL (GPIO 3)
 - Left Sensor Address: 0x29
@@ -48,6 +55,13 @@ Verification steps:
 3. Start the backend and open the dashboard; the ToF tiles should update with live distances.
 4. If no readings appear, check journal logs for `vl53l0x` messages and verify the Python binding is installed.
 
+### Ultrasonic obstacle sensors (four JSN-SR04T behind a USB MCU)
+Software only, never run on hardware; no wiring is decided (`firmware/ultrasonic-mcu/README.md` lists every TBD). An RP2040 fires the four sensors one at a time and talks to the Pi over USB serial, so no Pi header pin is used. Master switch: `ultrasonic_enabled` in `config/limits.yaml` (ships `false`); the `ultrasonic:` block of `config/hardware.yaml` holds the rest, every number an unvalidated placeholder until audit measurement M-40.
+
+- **Port.** `ultrasonic.port` must be the MCU's *data* serial port (second CDC interface), never its REPL console or another service's port (the RoboHAT's). The driver writes nothing to a port until a valid MCU frame (INFO, repeated every second) has arrived on it, so a wrong or renumbered path is only read, never written to (a binary frame contains the console control bytes Ctrl-A..D and would stop the program on the other end); it shows as `handshake_timeout`. Reading still steals the other service's bytes, so check `ls -l /dev/serial/by-id/` first. A handshake waits at least 1.5 s whatever `handshake_timeout_s` says.
+- **What a reading means** is decided on the host: CLEAR needs a fresh in-range echo beyond `ultrasonic_obstacle_distance_cm`, or the owner's `*_is_clear` flags (ship `false`). After a NEAR echo (closer than twice the stop distance or the blind-zone line, whichever is larger: 60 cm as shipped) silence is the dead zone, not open air: blind zone / UNKNOWN for `near_hold_s` (30 s, `hardware.yaml`) or until a far echo. An OK pulse wider than the echo window is a fault. `no_echo_is_clear` lets a dead or stuck sensor read CLEAR for up to `alive_window_s` (10 s as shipped; keep it near 1 s if you opt in).
+- **Bench tool.** `python scripts/ultrasonic_mcu_probe.py --port <data port> --seconds 60 --csv out.csv` logs every reading frame, also the ones the driver ignored or refused, with its disposition; stop the backend first (the port is opened exclusively).
+
 ### Environmental Sensor (BME280)
 - I2C Bus 1: Address 0x76
 
@@ -68,7 +82,7 @@ Verification steps:
 ### IMU (BNO085)
 - Preferred: UART4 at 3,000,000 baud
 - Pi 5: /dev/ttyAMA4 → GPIO 12 (TXD4), GPIO 13 (RXD4)
-- Pi 4B: Alternative pins may be required; map to rpi4_alt_pin as specified (e.g., TXD4 on GPIO 24, RXD4 on GPIO 21). Verify with `gpioinfo`. (On the Pi 4B the overlay is `uart4`; the `rpi4_alt_pin` values in `spec/hardware.yaml` are **physical header pin numbers** (21/24), not BCM GPIOs.)
+- Pi 4B: the `uart4` overlay (BCM2711 only) puts TXD4 on GPIO 8 (physical pin 24) and RXD4 on GPIO 9 (physical pin 21); those physical pin numbers (24/21) are the `rpi4_alt_pin` values in `spec/hardware.yaml`, which the pin checker validates against the registry's Pi 4 entry. Verify with `gpioinfo`. The registry's HaLow HAT SPI0 rows use the same GPIO 8 and 9, so a Pi 4B with the HaLow HAT would need another route (the checker evaluates the deployed Pi 5 only).
 
 ### GPS
 - Preferred: USB (ZED-F9P RTK) → /dev/ttyACM*
@@ -154,4 +168,4 @@ sudo i2cdetect -y 1
 - docs/OPERATIONS.md (operational procedures)
 
 ## Pin-conflict guard
-`python3 scripts/check_hardware_pin_conflicts.py` merges the claims in `spec/hardware.yaml` (GPIO rows incl. UART4 TXD/RXD and HaLow HAT lines), `config/tractor.yaml` relays/PCA9685, and the ultrasonic driver pins (only when `config/limits.yaml` has `ultrasonic_enabled: true`). Every conflict must be listed in `spec/known_conflicts.yaml` (pin, claimants, gap ID, reason, owner action); a new or stale entry fails the check, and an allow-listed conflict that involves a tractor claimant fails once `config/tractor.yaml` has `enabled: true`. The `deployment:` block in the spec records what the deployed Pi actually exposes (e.g. no header I2C bus 1) and drives the warnings. `claims with status: unverified` only warn.
+`python3 scripts/check_hardware_pin_conflicts.py` checks the **hand-maintained** registry in `spec/hardware.yaml`; it cannot see the Pi. It merges the GPIO claims (rows incl. UART4 TXD/RXD and HaLow HAT lines; the legacy HC-SR04 pins only when `config/limits.yaml` has `ultrasonic_enabled: true` **and** `config/hardware.yaml` `ultrasonic.backend` is `gpio_hcsr04`; the default `mcu_usb` backend, four JSN-SR04T behind a USB MCU, claims no Pi pin) and the per-bus I2C claims with `config/tractor.yaml` (relays, PCA9685 address and bus; an omitted key means the runtime default). Every conflict must be listed in `spec/known_conflicts.yaml` (pin or address and bus, claimants, gap ID, reason, owner action); a new or stale entry fails the check. It also fails on an empty or self-contradicting registry (pin versus GPIO, UART rows versus overlays), on tractor values that cannot be right (a relay on a non-header GPIO, two servos on one PCA9685 channel, an address outside the I2C range), on drift between the registry and `config/hardware.yaml` (IBT-4 pins, ToF XSHUT pins, addresses and bus) or the pins hard-coded in `ultrasonic_driver.py`, `hw_selftest.py`, `motor_service.py` and `ibt4_gpio.py` (a moved file or symbol is only a warning), and on an owner action that names a GPIO the registry already claims (the report lists the GPIOs no row claims). A listed conflict is BLOCKED while a claimant's owner is armed: `config/tractor.yaml` `enabled: true` (tractor claims) or `config/hardware.yaml` `ibt4.gpio_enabled: true` (the Blade IN1/IN2 rows). An enabled tractor whose PCA9685 bus does not exist on the deployed Pi (header I2C1 is disabled there) is BLOCKED too. The `deployment:` block in the spec records what the deployed Pi actually exposes (e.g. no header I2C bus 1) and drives the warnings; claims with `status: unverified` only warn.

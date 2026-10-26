@@ -8,7 +8,7 @@ web
 
 ## Users
 
-Primary user: the builder/owner, operating the mower on their own property. Single-operator today — the dashboard has no auth gate (`OPERATOR_AUTH_REQUIRED=0`) by deliberate decision, not oversight. Not designed yet for multi-tenant or third-party operators.
+Primary user: the builder/owner, operating the mower on their own property. Single-operator today. Operator authentication is **enforced** (`OPERATOR_AUTH_REQUIRED=1` in the repo unit; the one shared credential is provisioned by `systemd/install_services.sh`, which refuses a missing, default or weak one). The earlier decision to run the dashboard with no auth gate (`OPERATOR_AUTH_REQUIRED=0`) was superseded by the 2026-10-24 safety audit; the deployed Pi keeps the old setting until the installer is run there. Not designed yet for multi-tenant or third-party operators.
 
 ## Product Purpose
 
@@ -22,15 +22,15 @@ Combines a trained Vision-Language-Action model running on dedicated edge AI sil
 
 - Outdoor deployment on a physical mower chassis; the Pi runs the stack via systemd (`SIM_MODE=0`), off-device dev/CI runs simulated (`SIM_MODE=1`).
 - Core operator workflows: draw/edit mow boundaries and exclusion zones (Maps), plan jobs and schedules (Planning), monitor live telemetry and RTK/IMU/power diagnostics, drive manually with joystick + emergency stop (Manual Control), enable/deploy the AI model and watch inference metrics (AI & Model Control).
-- A second platform variant — a ride-on Craftsman tractor with Ackermann steering — is fully implemented (manual actuation, telemetry, safety governance) but currently dormant pending physical bring-up and acceptance testing.
+- A second platform variant — a 50-inch Toro TimeCutter gas zero-turn mower (twin-lever hydrostatic drive moved by two servos through a PCA9685, starter and PTO relays; `docs/tractor-platform.md`) — has its actuation software implemented but is bench-only: `config/tractor.yaml` ships `enabled: false` and it is not cleared for unattended motion (`docs/tractor-acceptance-criteria.md`). It replaced the earlier Craftsman-class Ackermann ride-on on 2026-09-01 (`docs/RELEASE_NOTES.md`).
 - Training (VLA model authoring) happens separately on an NVIDIA Thor server; the Pi only ever runs INT8 inference, never trains.
 
 ## Capabilities and Constraints
 
-- Hardware safety is layered and independent: E-stop (hardware + software watchdog), tilt/rollover protection, motor authorization interlocks, geofence enforcement. Treat safety-chain changes as high-risk.
+- Safety is layered by design and software-only today: E-stop routes, a software watchdog, tilt/rollover protection on the tractor path, motor authorization interlocks and geofence enforcement exist; an independent hardwired E-stop and a hardware watchdog do **not** (H-08; audit D.1, D.4). Treat safety-chain changes as high-risk, and never let the UI look safer than the audit says.
 - Camera ownership is exclusive to `camera-stream.service`; other services consume frames via IPC, per the project constitution.
 - Ultrasonic obstacle sensing is currently disabled in the deployed build due to a HaLow GPIO pin conflict (tracked as issue #15) — not a design choice, a known gap.
-- Multi-sensor fusion (stereo depth, RGB, GPS, IMU, ultrasonic/ToF) feeds both the safety chain and the VLA policy.
+- Multi-sensor fusion (stereo depth, RGB, GPS, IMU, ultrasonic/ToF) is the target for both the safety chain and the VLA policy. At the audit baseline only the two ToF sensors feed the safety path, and only advisorily; stereo depth, LiDAR and ultrasonic fusion are not implemented (`docs/2026-10-24-integration-audit.md`).
 - Never assume hardware is present in code paths — hardware libraries are imported lazily so the stack stays testable under `SIM_MODE=1`.
 
 ## Brand Commitments

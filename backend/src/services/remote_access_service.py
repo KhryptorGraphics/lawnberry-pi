@@ -4,8 +4,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,90 @@ DEFAULT_NGROK_API_PORT = int(os.getenv("NGROK_API_PORT", "4040"))
 DEFAULT_CLOUDFLARE_METRICS_PORT = int(os.getenv("CLOUDFLARE_METRICS_PORT", "53123"))
 HEALTH_FAILURE_THRESHOLD = 3
 HEALTH_TIMEOUT_SECONDS = 6.0
+
+# What a tunnel agent (cloudflared, ngrok, an operator's custom command) may inherit from the
+# backend's environment (SEC3-10). The backend's environment holds its secrets (the unit's
+# EnvironmentFile: the operator credential, the signing secret, the NTRIP password...), and an
+# agent on the internet edge needs none of them: it gets THESE names and nothing else.
+TUNNEL_ENV_ALLOW_NAMES = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "LANG",
+        "LANGUAGE",
+        "TZ",
+        "TMPDIR",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "all_proxy",
+    }
+)
+# ``LC_*`` locale, ``XDG_*`` base directories, and the agents' own settings: cloudflared reads
+# ``TUNNEL_*`` (``TUNNEL_TOKEN``), ngrok ``NGROK_*`` (``NGROK_AUTHTOKEN``).
+TUNNEL_ENV_ALLOW_PREFIXES = ("LC_", "XDG_", "TUNNEL_", "NGROK_")
+# The backend's own secrets, which never travel by inheritance even when a name falls under an
+# allowed prefix: by name, by prefix, and anything that says secret/password/credential.
+_BACKEND_SECRET_NAMES = frozenset(
+    {"MANUAL_CONTROL_PASSWORD", "API_KEY_SECRET", "JWT_SECRET", "CLOUDFLARE_API_TOKEN"}
+)
+_BACKEND_SECRET_PREFIXES = ("LAWN_BERRY_", "NTRIP_", "GOOGLE_")
+_SECRET_NAME = re.compile(r"(?i)(secret|password|passwd|credential)")
+
+
+def _inherited(name: str) -> bool:
+    """May the tunnel agent inherit the backend's variable ``name``?"""
+    if name in _BACKEND_SECRET_NAMES or name.startswith(_BACKEND_SECRET_PREFIXES):
+        return False
+    if _SECRET_NAME.search(name):
+        return False
+    return name in TUNNEL_ENV_ALLOW_NAMES or name.startswith(TUNNEL_ENV_ALLOW_PREFIXES)
+
+
+def tunnel_environment(
+    extra: Mapping[str, str] | None = None, *, environ: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """The environment a tunnel agent is started with: the allow-list plus ``extra``, nothing else.
+
+    From the backend's environment (``environ``, default ``os.environ``) the child inherits only
+    the names in :data:`TUNNEL_ENV_ALLOW_NAMES` and under :data:`TUNNEL_ENV_ALLOW_PREFIXES`,
+    minus any of those that look like one of the backend's own secrets. ``extra`` is what the
+    operator wrote under ``custom.env`` (their explicit choice, for the custom command only): it
+    is passed as written and wins over an inherited value, even for a name the allow-list would
+    not have inherited. It is the only way anything beyond the allow-list reaches the child.
+    Raises :class:`RemoteAccessError` for an ``extra`` name or value the OS cannot carry.
+    """
+    source = os.environ if environ is None else environ
+    env = {name: value for name, value in source.items() if _inherited(name)}
+    for name, value in (extra or {}).items():
+        if not name or "=" in name or "\0" in name or "\0" in str(value):
+            raise RemoteAccessError(f"custom.env has a name or value that is not valid: {name!r}")
+        env[name] = str(value)
+    return env
+
+
+def _loggable_command(provider: RemoteAccessProvider, command: list[str]) -> str:
+    """What the log says about the command a tunnel is started with.
+
+    The built-in providers' command lines hold no secret (a binary, flags and paths: the ngrok
+    authtoken is in its 0600 config file, a Cloudflare token would be ``TUNNEL_TOKEN``), so
+    they are logged whole. The CUSTOM command is whatever the operator typed, and a tunnel tool
+    takes its token on the command line (``--token ...``, ``frpc -t ...``): only the program is
+    named.
+    """
+    if provider is RemoteAccessProvider.CUSTOM:
+        arguments = max(0, len(command) - 1)
+        return f"{os.path.basename(command[0])} ({arguments} argument(s) not logged)"
+    return " ".join(command)
 
 
 def _atomic_json_dump(path: Path, payload: dict[str, Any]) -> None:
@@ -370,7 +455,7 @@ class RemoteAccessService:
             cmd.extend(["--cred-file", cfg.credentials_file])
         if cfg.tunnel_name:
             cmd.append(cfg.tunnel_name)
-        env = os.environ.copy()
+        env = tunnel_environment()
         await self._launch_process(RemoteAccessProvider.CLOUDFLARE, cmd, env)
         self._status.provider = RemoteAccessProvider.CLOUDFLARE.value
         self._status.active = True
@@ -394,7 +479,7 @@ class RemoteAccessService:
             "lawnberry-api",
             "lawnberry-web",
         ]
-        env = os.environ.copy()
+        env = tunnel_environment()
         await self._launch_process(RemoteAccessProvider.NGROK, cmd, env)
         self._status.provider = RemoteAccessProvider.NGROK.value
         self._status.active = True
@@ -406,8 +491,7 @@ class RemoteAccessService:
     async def _start_custom(self, command: str | None, env_map: dict[str, str]) -> None:
         if not command:
             raise RemoteAccessError("Custom tunnel command missing")
-        env = os.environ.copy()
-        env.update(env_map or {})
+        env = tunnel_environment(env_map)
         cmd = ["/bin/bash", "-lc", command]
         await self._launch_process(RemoteAccessProvider.CUSTOM, cmd, env)
         self._status.provider = RemoteAccessProvider.CUSTOM.value
@@ -463,12 +547,13 @@ class RemoteAccessService:
         env: dict[str, str] | None,
     ) -> None:
         await self._stop_process()
-        logger.info("Starting %s tunnel: %s", provider.value, " ".join(command))
+        logger.info("Starting %s tunnel: %s", provider.value, _loggable_command(provider, command))
         process = await self._process_factory(
             *command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,
+            # Never ``None``: a child started without an ``env`` inherits ALL of ours (SEC3-10).
+            env=tunnel_environment() if env is None else env,
         )
         self._process = process
         if process.stdout:

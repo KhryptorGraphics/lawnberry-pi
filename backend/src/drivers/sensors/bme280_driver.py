@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import math
-import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -60,7 +59,7 @@ class BME280Driver(HardwareDriver):
 
     async def initialize(self) -> None:  # noqa: D401
         self.initialized = True
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             return
         try:
             from smbus2 import SMBus  # type: ignore
@@ -129,7 +128,7 @@ class BME280Driver(HardwareDriver):
 
     async def start(self) -> None:  # noqa: D401
         self.running = True
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             return
         try:
             from smbus2 import SMBus  # type: ignore
@@ -156,14 +155,16 @@ class BME280Driver(HardwareDriver):
             "initialized": self.initialized,
             "running": self.running,
             "last_env": self._last_env,
-            "last_read_age_s": (time.time() - self._last_read_ts) if self._last_read_ts else None,
+            "last_read_age_s": (
+                (time.monotonic() - self._last_read_ts) if self._last_read_ts is not None else None
+            ),
             "simulation": is_simulation_mode(),
         }
 
     async def read_environment(self) -> dict[str, float] | None:
         if not self.initialized:
             return None
-        if is_simulation_mode() or os.environ.get("SIM_MODE") == "1":
+        if is_simulation_mode():
             temp = 22.0 + (self._cycle % 10) * 0.1
             humidity = 55.0 + (self._cycle % 20) * 0.2
             pressure = 1013.0 + (self._cycle % 5) * 0.5
@@ -173,7 +174,7 @@ class BME280Driver(HardwareDriver):
                 "humidity_percent": humidity,
                 "pressure_hpa": pressure,
             }
-            self._last_read_ts = time.time()
+            self._last_read_ts = time.monotonic()
             return self._last_env
 
         if self._calibration is None:
@@ -200,7 +201,7 @@ class BME280Driver(HardwareDriver):
             env = self._compensate(raw)
             if env:
                 self._last_env = env
-                self._last_read_ts = time.time()
+                self._last_read_ts = time.monotonic()
             return self._last_env
         except Exception:
             return self._last_env

@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 def _sim() -> bool:
-    return is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
+    return is_simulation_mode()
 
 
 def _i2c_ack(bus: int | None, addresses: list[int]) -> bool:
@@ -132,6 +132,18 @@ class GPSSensorInterface:
             self.status = SensorStatus.ERROR
             return False
 
+    async def shutdown(self) -> None:
+        """Stop the driver: close the port (and its exclusive lock) and end the reader thread.
+
+        A throwaway manager (the timezone lookup, the health probe) must not leave a ``gps-io``
+        thread behind that keeps the receiver locked against the long-lived driver (audit GPS-04).
+        After it ``read_gps()`` returns ``None``.
+        """
+        self.status = SensorStatus.OFFLINE
+        driver = getattr(self, "_driver", None)
+        if driver is not None:
+            await driver.stop()
+
     async def read_gps(self) -> GpsReading | None:
         """Read GPS data"""
         if self.status != SensorStatus.ONLINE:
@@ -225,6 +237,13 @@ class IMUSensorInterface:
             return None
 
 
+def _tof_range_status(distance_mm: Any, last_read_ok: bool) -> str:
+    """``valid`` only for a fresh, non-zero measurement; ``stale`` for a replayed one."""
+    if not distance_mm:
+        return "unknown"
+    return "valid" if last_read_ok else "stale"
+
+
 class ToFSensorInterface:
     """VL53L0X Time-of-Flight sensor interface"""
 
@@ -290,16 +309,21 @@ class ToFSensorInterface:
                 async with self.coordinator.acquire_i2c("vl53l0x_pair"):
                     dl = await self._left.read_distance_mm()
                     dr = await self._right.read_distance_mm()
+                # The driver replays its previous value when a read fails. That value is
+                # old, so it must not be stamped "valid" (the obstacle guard trusts the
+                # status): "stale" keeps the number visible and tells consumers not to use it.
+                left_status = _tof_range_status(dl, getattr(self._left, "last_read_ok", True))
+                right_status = _tof_range_status(dr, getattr(self._right, "last_read_ok", True))
                 left_reading = TofReading(
                     distance=float(dl) if dl is not None else None,
                     signal_strength=None,
-                    range_status="valid" if dl else "unknown",
+                    range_status=left_status,
                     sensor_side="left",
                 )
                 right_reading = TofReading(
                     distance=float(dr) if dr is not None else None,
                     signal_strength=None,
-                    range_status="valid" if dr else "unknown",
+                    range_status=right_status,
                     sensor_side="right",
                 )
                 self.left_reading = left_reading
@@ -722,23 +746,102 @@ class PowerSensorInterface:
 
 
 class UltrasonicSensorInterface:
-    """HC-SR04 Ultrasonic sensor array interface (BEAD-050)."""
+    """Ultrasonic array interface (BEAD-050).
 
-    def __init__(self, coordinator: SensorCoordinator):
+    Default backend ``mcu_usb``: four JSN-SR04T behind a dedicated USB microcontroller
+    (``drivers/sensors/jsn_sr04t_driver.py``, ``firmware/ultrasonic-mcu/``); no Pi header pin is
+    used. Legacy backend ``gpio_hcsr04``: three HC-SR04 on Pi GPIO (do not wire: the pins collide
+    with the HaLow HAT, audit C-01). The master switch is ``ultrasonic_enabled`` in
+    ``config/limits.yaml``; when it is off ``initialize`` is never called.
+
+    ``read_ultrasonic()`` returns ONE dict per configured channel on every call once the interface
+    has been initialised, also before the first echo and while the link is down, so a dead channel
+    is visible. ``last_readings`` is the same view: for the ``mcu_usb`` backend it is computed from
+    the driver (no I/O) at the moment it is read, so a consumer that samples it at its own rate,
+    like the obstacle guard, never depends on how often the telemetry loop calls
+    ``read_ultrasonic()``; otherwise it is the list last assigned. ``channel_ids`` lists the FITTED
+    channels: a channel in ``disabled_channels`` still has an entry, with verdict ``disabled``,
+    but nothing waits for it. Stable keys per entry: ``sensor_id``, ``distance_cm`` (0.0 unless
+    ``valid``), ``valid`` (True ONLY for a fresh in-range echo), ``timestamp`` (ISO-8601 UTC of the
+    MEASUREMENT: when the MCU took it, placed on the host clock by the MCU's own timestamp, so a
+    backlog is not "just received"; None if the channel never reported), ``measured_mono`` (the
+    same instant on the driver's monotonic clock, for a consumer that ages entries without the
+    wall clock; None if never reported or legacy),
+    ``status`` (``ok|stale|blind_zone|no_echo|out_of_range|fault|disabled|link_down|no_data``),
+    ``age_ms``, ``health``, ``alive``, ``verdict`` (``clear|obstacle|unknown|disabled``, fail
+    closed, from the owner's policy in ``hardware.yaml``), ``clear_to_cm``, ``echo_us``,
+    ``index``, ``fails``. A consumer that stops on non-clear must treat ``unknown`` as not clear:
+    ``valid`` False is NOT "no obstacle".
+    """
+
+    LEGACY_CHANNELS = ("front_left", "front_center", "front_right")
+
+    def __init__(
+        self,
+        coordinator: SensorCoordinator,
+        config: dict[str, Any] | None = None,
+        obstacle_threshold_cm: float = 30.0,
+        driver_kwargs: dict[str, Any] | None = None,
+    ):
+        """``driver_kwargs`` is a test seam (serial factory, clocks); never set in production."""
+        from ..models.hardware_config import UltrasonicConfig
+
         self.coordinator = coordinator
-        self.last_readings: list[Any] = []
+        self.config = (
+            config if isinstance(config, UltrasonicConfig) else UltrasonicConfig(**(config or {}))
+        )
+        self.backend = self.config.backend
+        self.obstacle_threshold_cm = float(obstacle_threshold_cm)
+        self._cached_readings: list[dict[str, Any]] = []
         self.status = SensorStatus.OFFLINE
+        self.enabled = False  # becomes True when the manager initialises the array
+        self._driver: Any = None
         try:
-            from ..drivers.sensors.ultrasonic_driver import UltrasonicDriver
+            if self.backend == "mcu_usb":
+                from ..drivers.sensors.jsn_sr04t_driver import JsnSr04tMcuDriver
 
-            self._driver = UltrasonicDriver()
+                self._driver = JsnSr04tMcuDriver(
+                    self.config,
+                    obstacle_threshold_cm=self.obstacle_threshold_cm,
+                    **(driver_kwargs or {}),
+                )
+            else:
+                from ..drivers.sensors.ultrasonic_driver import UltrasonicDriver
+
+                self._driver = UltrasonicDriver()
         except Exception:  # pragma: no cover
+            logger.exception("ultrasonic driver construction failed")
             self._driver = None
 
+    @property
+    def channel_ids(self) -> list[str]:
+        """The FITTED channels: configured and not in ``disabled_channels`` (legacy: all three)."""
+        if self.backend == "mcu_usb":
+            return [c for c in self.config.channels if c not in self.config.disabled_channels]
+        return list(self.LEGACY_CHANNELS)
+
+    @property
+    def last_readings(self) -> list[dict[str, Any]]:
+        """The current entries, one per configured channel (see the class docstring)."""
+        if self.enabled and self.backend == "mcu_usb" and self._driver is not None:
+            return [c.as_dict() for c in self._driver.snapshot()]
+        return self._cached_readings
+
+    @last_readings.setter
+    def last_readings(self, entries: list[dict[str, Any]]) -> None:
+        self._cached_readings = list(entries)
+
     async def initialize(self) -> bool:
-        """Initialize ultrasonic sensors."""
+        """Initialize ultrasonic sensors; True when the array is demonstrably present."""
+        self.enabled = True
         try:
-            if self._driver is not None:
+            if self._driver is None:
+                detected = False
+            elif self.backend == "mcu_usb":
+                await self._driver.initialize()
+                await self._driver.start()
+                detected = self._driver.link_ok()
+            else:
                 await self._driver.initialize()
                 await self._driver.start()
                 if _sim():
@@ -750,8 +853,6 @@ class UltrasonicSensorInterface:
                         detected = any(getattr(r, "valid", False) for r in readings)
                     except Exception:
                         detected = False
-            else:
-                detected = _sim()
             self.status = SensorStatus.ONLINE if detected else SensorStatus.OFFLINE
             return detected
         except Exception as e:
@@ -759,37 +860,151 @@ class UltrasonicSensorInterface:
             self.status = SensorStatus.ERROR
             return False
 
-    async def read_ultrasonic(self) -> list[dict[str, Any]]:
-        """Read all ultrasonic sensors."""
-        if self.status != SensorStatus.ONLINE:
-            return []
+    def _refresh_status(self) -> None:
+        """Link state AND channel health (US-08): ONLINE only while every fitted channel serves.
 
+        "Serving" = it measured something (an echo, a blind-zone or an out-of-range one) or the
+        owner's policy vouches for its silence. A silent, stale, faulted or never-heard channel is
+        not serving: a degraded array reads ERROR (there is no DEGRADED), never ONLINE.
+        """
+        from ..drivers.sensors.jsn_sr04t_driver import ChannelStatus, LinkState, Verdict
+
+        if not self._driver.link_ok():
+            if self._driver.link_state is LinkState.FAULT:
+                self.status = SensorStatus.ERROR
+            else:
+                self.status = SensorStatus.OFFLINE
+            return
+        fitted = [c for c in self._driver.snapshot() if c.verdict is not Verdict.DISABLED]
+        measuring = (ChannelStatus.OK, ChannelStatus.BLIND_ZONE, ChannelStatus.OUT_OF_RANGE)
+        serving = [c for c in fitted if c.status in measuring or c.verdict is Verdict.CLEAR]
+        healthy = bool(fitted) and len(serving) == len(fitted)
+        self.status = SensorStatus.ONLINE if healthy else SensorStatus.ERROR
+
+    async def read_ultrasonic(self) -> list[dict[str, Any]]:
+        """Read all ultrasonic channels (one entry each, always; see the class docstring)."""
+        if not self.enabled or self._driver is None:
+            return []
         try:
-            if self._driver is not None:
-                readings = await self._driver.read_all()
-                self.last_readings = [
-                    {
-                        "sensor_id": r.sensor_id,
-                        "distance_cm": r.distance_cm,
-                        "valid": r.valid,
-                        "timestamp": r.timestamp.isoformat()
-                        if hasattr(r.timestamp, "isoformat")
-                        else str(r.timestamp),
-                    }
-                    for r in readings
-                ]
+            if self.backend == "mcu_usb":
+                self._driver.poll()  # non-blocking: absorb whatever arrived since the last call
+                self._refresh_status()
+                return self.last_readings
+            if self.status != SensorStatus.ONLINE:
+                self.last_readings = [self._legacy_unavailable(i) for i in self.LEGACY_CHANNELS]
+                return self.last_readings
+            readings = await self._driver.read_all()
+            self.last_readings = [self._legacy_entry(r) for r in readings]
             return self.last_readings
         except Exception as e:
             logger.error(f"Ultrasonic reading failed: {e}")
             self.status = SensorStatus.ERROR
             return []
 
+    def _legacy_unavailable(self, sensor_id: str) -> dict[str, Any]:
+        return {
+            "sensor_id": sensor_id,
+            "index": self.LEGACY_CHANNELS.index(sensor_id),
+            "distance_cm": 0.0,
+            "valid": False,
+            "timestamp": None,
+            "status": "link_down",
+            "age_ms": None,
+            "health": "link_down",
+            "alive": False,
+            "verdict": "unknown",
+            "clear_to_cm": None,
+            "echo_us": None,
+            "fails": 0,
+            "measured_mono": None,
+        }
+
+    def _legacy_entry(self, r: Any) -> dict[str, Any]:
+        """Map a legacy HC-SR04 reading onto the stable entry shape (unvalidated hardware)."""
+        valid = bool(r.valid)
+        dist = float(r.distance_cm) if valid else 0.0
+        if not valid:
+            verdict = "unknown"
+        elif dist <= self.obstacle_threshold_cm:
+            verdict = "obstacle"
+        else:
+            verdict = "clear"
+        ts = r.timestamp.isoformat() if hasattr(r.timestamp, "isoformat") else str(r.timestamp)
+        return {
+            "sensor_id": r.sensor_id,
+            "index": self.LEGACY_CHANNELS.index(r.sensor_id)
+            if r.sensor_id in self.LEGACY_CHANNELS
+            else -1,
+            "distance_cm": dist,
+            "valid": valid,
+            "timestamp": ts,
+            "status": "ok" if valid else "no_echo",
+            "age_ms": 0,
+            "health": "ok" if valid else "silent",
+            "alive": valid,
+            "verdict": verdict,
+            "clear_to_cm": dist if verdict == "clear" else None,
+            "echo_us": None,
+            "fails": 0,
+            "measured_mono": None,
+        }
+
     def get_minimum_distance(self) -> float | None:
-        """Return minimum distance from any sensor."""
-        if self._driver is not None:
+        """Return minimum distance over the channels with a valid fresh echo."""
+        if self.backend == "mcu_usb" and self._driver is not None:
             return self._driver.get_minimum_distance()
         valid = [r["distance_cm"] for r in self.last_readings if r.get("valid")]
         return min(valid) if valid else None
+
+    def obstacle_verdict(self, threshold_cm: float | None = None) -> dict[str, Any]:
+        """Fail-closed aggregate: ``obstacle`` beats ``unknown`` beats ``clear``.
+
+        ``unknown`` (stale, blind zone, no echo under the shipped policy, fault, link down, no
+        data) is NOT clear. Disabled (not fitted) channels are excluded; with none fitted the
+        answer is ``unknown``.
+        """
+        thr = self.obstacle_threshold_cm if threshold_cm is None else float(threshold_cm)
+        if self.backend == "mcu_usb" and self._driver is not None and self.enabled:
+            return self._driver.obstacle_verdict(thr)
+        entries = list(self.last_readings)
+        fitted = [e for e in entries if e.get("verdict") != "disabled"]
+        if not self.enabled or not fitted:
+            state = "unknown"
+        elif any(e["valid"] and e["distance_cm"] <= thr for e in fitted):
+            state = "obstacle"
+        elif all(e["valid"] for e in fitted):
+            state = "clear"
+        else:
+            state = "unknown"
+        return {
+            "state": state,
+            "min_cm": self.get_minimum_distance(),
+            "threshold_cm": thr,
+            "channels": entries,
+            "reasons": [f"{e['sensor_id']}:{e['status']}" for e in fitted if not e["valid"]],
+            "link_state": "n/a",
+            "link_fault": None,
+        }
+
+    async def health(self) -> dict[str, Any]:
+        if self._driver is None:
+            return {"backend": self.backend, "driver": None}
+        return await self._driver.health_check()
+
+    async def shutdown(self) -> None:
+        """Stop the service loop, release the port and disable the interface.
+
+        Called by ``SensorManager.shutdown``. After it ``read_ultrasonic()`` returns ``[]`` without
+        touching the driver (a late telemetry tick must not reopen the port); only an explicit
+        ``initialize()`` brings the interface back.
+        """
+        was_enabled, self.enabled = self.enabled, False
+        if self._driver is not None and was_enabled:
+            try:
+                await self._driver.stop()
+            except Exception:
+                logger.exception("ultrasonic shutdown failed")
+        self.status = SensorStatus.OFFLINE
 
 
 class StereoCameraSensorInterface:
@@ -856,6 +1071,8 @@ class SensorManager:
         power_config: dict | None = None,
         stereo_config: dict | None = None,
         ultrasonic_enabled: bool | None = None,
+        ultrasonic_config: dict | None = None,
+        ultrasonic_obstacle_cm: float | None = None,
     ):
         self.coordinator = SensorCoordinator()
 
@@ -865,25 +1082,44 @@ class SensorManager:
         self.tof = ToFSensorInterface(self.coordinator, tof_config=tof_config)
         self.environmental = EnvironmentalSensorInterface(self.coordinator)
         self.power = PowerSensorInterface(self.coordinator, driver_config=power_config)
-        self.ultrasonic = UltrasonicSensorInterface(self.coordinator)
         self.stereo_camera = StereoCameraSensorInterface(self.coordinator, config=stereo_config)
 
-        if ultrasonic_enabled is None:
+        if (
+            ultrasonic_enabled is None
+            or ultrasonic_config is None
+            or ultrasonic_obstacle_cm is None
+        ):
             try:
                 from ..core.config_loader import ConfigLoader
 
                 loader = ConfigLoader(config_dir=os.environ.get("LAWNBERRY_CONFIG_DIR") or None)
-                ultrasonic_enabled = bool(loader.get()[1].ultrasonic_enabled)
+                hardware, limits = loader.get()
+                if ultrasonic_enabled is None:
+                    ultrasonic_enabled = bool(limits.ultrasonic_enabled)
+                if ultrasonic_config is None and hardware.ultrasonic_config is not None:
+                    ultrasonic_config = hardware.ultrasonic_config.model_dump()
+                if ultrasonic_obstacle_cm is None:
+                    ultrasonic_obstacle_cm = float(limits.ultrasonic_obstacle_distance_cm)
             except Exception as exc:
-                # Fail closed. On this robot GPIO4/9/10/11 carry the HaLow HAT (the Pi's only
-                # link from the shed); driving them as HC-SR04 TRIG/ECHO lines glitches the
-                # radio and has taken it down on a backend restart. An unreadable config must
-                # leave the array off, never on.
-                logger.warning(
-                    "ultrasonic_enabled unreadable (%s); keeping the ultrasonic array off", exc
-                )
-                ultrasonic_enabled = False
+                if ultrasonic_enabled is None:
+                    # Fail closed. On this robot GPIO4/9/10/11 carry the HaLow HAT (the Pi's only
+                    # link from the shed); driving them as HC-SR04 TRIG/ECHO lines glitches the
+                    # radio and has taken it down on a backend restart. An unreadable config must
+                    # leave the array off, never on.
+                    logger.warning(
+                        "ultrasonic_enabled unreadable (%s); keeping the ultrasonic array off", exc
+                    )
+                    ultrasonic_enabled = False
+                else:
+                    logger.warning("ultrasonic configuration unreadable (%s); using defaults", exc)
         self.ultrasonic_enabled = ultrasonic_enabled
+        self.ultrasonic = UltrasonicSensorInterface(
+            self.coordinator,
+            config=ultrasonic_config,
+            obstacle_threshold_cm=30.0
+            if ultrasonic_obstacle_cm is None
+            else ultrasonic_obstacle_cm,
+        )
 
         self.initialized = False
         self.validation_enabled = True
@@ -1016,7 +1252,15 @@ class SensorManager:
     async def shutdown(self):
         """Shutdown sensor manager"""
         logger.info("Shutting down sensor manager")
-        # Sensor shutdown logic would go here
+        # The ultrasonic array owns a background service loop and an open port, the GNSS driver a
+        # reader thread and the receiver's exclusive lock: both are released, one failing does not
+        # keep the other from being.
+        results = await asyncio.gather(
+            self.gps.shutdown(), self.ultrasonic.shutdown(), return_exceptions=True
+        )
+        for name, result in zip(("gps", "ultrasonic"), results, strict=True):
+            if isinstance(result, BaseException):
+                logger.warning("Shutting down the %s interface failed: %r", name, result)
         self.initialized = False
 
     async def generate_telemetry_streams(self) -> list[HardwareTelemetryStream]:
@@ -1157,17 +1401,25 @@ class SensorManager:
         return streams
 
     def _map_rtk_fix_type(self, gps_reading: GpsReading) -> RtkFixType:
-        """Map GPS reading to RTK fix type"""
-        if hasattr(gps_reading, "rtk_status"):
-            status = gps_reading.rtk_status.upper() if gps_reading.rtk_status else ""
-            if "FIXED" in status or "RTK_FIXED" in status:
-                return RtkFixType.RTK_FIXED
-            elif "FLOAT" in status or "RTK_FLOAT" in status:
-                return RtkFixType.RTK_FLOAT
-            elif "DGPS" in status:
-                return RtkFixType.DGPS_FIX
+        """Map GPS reading to RTK fix type.
 
-        # Fallback to satellites count
+        A status the receiver reported is believed: ``NO_FIX`` (and dead reckoning, manual,
+        simulator) is no fix however many satellites are in view, and a plain ``GPS_FIX`` is one
+        with any number. Only a reading with no status at all falls back to the satellite count.
+        """
+        status = (getattr(gps_reading, "rtk_status", None) or "").upper()
+        if "FIXED" in status:
+            return RtkFixType.RTK_FIXED
+        if "FLOAT" in status:
+            return RtkFixType.RTK_FLOAT
+        if "DGPS" in status:
+            return RtkFixType.DGPS_FIX
+        if status == "GPS_FIX":
+            return RtkFixType.GPS_FIX
+        if status:
+            return RtkFixType.NO_FIX
+
+        # No status reported: fall back to the satellites count
         if gps_reading.satellites and gps_reading.satellites >= 6:
             return RtkFixType.GPS_FIX
         return RtkFixType.NO_FIX

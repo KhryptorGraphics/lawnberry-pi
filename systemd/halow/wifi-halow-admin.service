@@ -1,0 +1,33 @@
+[Unit]
+Description=Wi-Fi and Wi-Fi HaLow Administration UI
+After=network-online.target lawnberry-backend.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/apps/lawnberry-pi/wifi-admin
+Environment=PYTHONPATH=/apps/lawnberry-pi/wifi-admin
+Environment=LAWNBERRY_BACKEND_URL=http://127.0.0.1:8081
+Environment=WIFI_ADMIN_CONFIG=/var/lib/wifi-halow-admin/config.json
+ExecStart=/apps/lawnberry-pi/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 1337 --workers 1
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+NoNewPrivileges=true
+# wpa_cli places its reply socket in /tmp and wpa_supplicant (outside this
+# unit) must be able to reach it, so /tmp cannot be private here.
+PrivateTmp=false
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/wifi-halow-admin /etc/netplan /etc/hostapd /etc/dnsmasq.d /etc/wpa_supplicant /etc/systemd/network
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LimitNOFILE=4096
+SyslogIdentifier=wifi-halow-admin
+
+[Install]
+WantedBy=multi-user.target

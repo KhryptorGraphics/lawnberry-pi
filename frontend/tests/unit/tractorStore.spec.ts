@@ -106,6 +106,56 @@ describe('Tractor Store', () => {
 
       expect(store.state?.left_lever).toBe(0)
     })
+    it('forwards a per-request timeout to the api layer, and sends the plain call when there is none', async () => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.tractorLeftLever).mockResolvedValue({ status: 'ok' } as any)
+      vi.mocked(api.tractorRightLever).mockResolvedValue({ status: 'ok' } as any)
+      vi.mocked(api.tractorThrottle).mockResolvedValue({ status: 'ok' } as any)
+
+      await store.setLeftLever(0.5, { timeout: 500 })
+      await store.setRightLever(-0.5, { timeout: 300 })
+      await store.setThrottle(0.7, { timeout: 1000 })
+      await store.setLeftLever(0.1)
+
+      expect(api.tractorLeftLever).toHaveBeenNthCalledWith(1, 0.5, { timeout: 500 })
+      expect(api.tractorRightLever).toHaveBeenCalledWith(-0.5, { timeout: 300 })
+      expect(api.tractorThrottle).toHaveBeenCalledWith(0.7, { timeout: 1000 })
+      expect(api.tractorLeftLever).toHaveBeenNthCalledWith(2, 0.1) // no stray undefined argument
+    })
+
+    it('merges the hold the backend echoes into the state', async () => {
+      const { store } = createStoreWithWs()
+      store.state = makeState() as any
+      vi.mocked(api.tractorLeftLever).mockResolvedValue({ status: 'ok', left_lever: 0.5, hold_ms: 500 } as any)
+
+      await store.setLeftLever(0.5)
+
+      expect((store.state as any).hold_ms).toBe(500)
+    })
+  })
+
+  describe('clearEmergency', () => {
+    it.each(['ok', 'partial'])('re-reads the backend state after a %s clear', async (status) => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.tractorClearEmergency).mockResolvedValue({ status } as any)
+      vi.mocked(api.getTractorState).mockResolvedValue(makeState({ interlock_latched: true }) as any)
+
+      await store.clearEmergency()
+
+      expect(api.getTractorState).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not re-read the state after a refused clear (nothing changed)', async () => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.tractorClearEmergency).mockResolvedValue({
+        status: 'rejected',
+        reason: 'emergency stop in progress',
+      } as any)
+
+      await store.clearEmergency()
+
+      expect(api.getTractorState).not.toHaveBeenCalled()
+    })
   })
 
   describe('fail-closed WS conflict resolution', () => {

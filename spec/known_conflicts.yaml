@@ -3,8 +3,9 @@
 #   version: 1
 #   conflicts: list of entries, each with:
 #     kind: "gpio" | "i2c_address"
-#     pin: int (required for gpio)
+#     pin: int (required for gpio; BCM GPIO number)
 #     i2c_address: string (required for i2c_address, canonical "0xNN")
+#     bus: int (required for i2c_address: the same address on another bus is another conflict)
 #     claimants: list of claimant labels (must match checker output exactly, >=2 unique)
 #     gap: list of gap IDs (pattern H-XX or H-XX[a-z])
 #     reason: string (evidence summary)
@@ -13,7 +14,13 @@
 #   - a detected conflict has no matching allow-list entry (NEW)
 #   - an allow-list entry's (kind, key) no longer matches any live conflict (STALE)
 #   - an allow-list entry's claimant set differs from live conflict (CHANGED -> NEW + STALE)
-#   - tractor.enabled: true and any conflict involves a tractor claimant (BLOCKED)
+#   - a claimant of a listed conflict is owned by a component that is armed (BLOCKED). Owners:
+#     "tractor" = every claim read from config/tractor.yaml (relays, PCA9685), armed by
+#     `enabled: true`; "ibt4" = spec rows tagged `owner: ibt4`, armed by config/hardware.yaml
+#     `ibt4.gpio_enabled: true`. The checker also fails (BLOCKED) while the tractor is enabled and
+#     its PCA9685 bus does not exist on the deployed Pi, which no claim can express.
+#   - an owner_action names a GPIO the registry already claims (it must not send the owner to a
+#     pin that would create a new conflict; the report lists the GPIOs no row claims)
 # Unverified claims (status=unverified in spec) never produce hard conflicts; only warnings.
 version: 1
 conflicts:
@@ -24,7 +31,7 @@ conflicts:
       - "spec/hardware.yaml: I2C1 SCL (header bus 1)"
     gap: ["H-17", "H-25"]
     reason: "Header I2C1 SCL (GPIO3) is also the HaLow HAT WAKE line per config.txt comments and vendor schematic. Deployed config disables i2c_arm=off to avoid WAKE toggling by I2C traffic. Conflict is acknowledged but avoided by disabling the bus."
-    owner_action: "If I2C1 is re-enabled (i2c_arm=on), relocate I2C1 devices to another bus (e.g., GPIO12/13 software I2C, or RP1 I2C4) or use a different WAKE GPIO via HAT jumper if available. Physical verification of WAKE routing required."
+    owner_action: "If I2C1 is re-enabled (i2c_arm=on), relocate the header-bus devices to another I2C bus (an RP1 I2C controller muxed onto pins no registry row claims, audit D-1) or move the HaLow WAKE line off GPIO3 with a HAT jumper if the HAT offers one. Physical verification of the WAKE routing is required. config/tractor.yaml puts the PCA9685 on this bus, so the checker rejects `enabled: true` (BLOCKED) until the actuator bus has a route."
 
   - kind: "gpio"
     pin: 5
@@ -33,7 +40,7 @@ conflicts:
       - "config/tractor.yaml relays.starter"
     gap: ["H-02b"]
     reason: "Tractor starter relay uses GPIO5 (pin 29) per config/tractor.yaml. HaLow HAT RESET_N is wired to GPIO5 per runtime DT reset-gpios=<5 0> and config.txt comment. Energizing the starter will drive the HaLow reset line; HaLow reset will toggle the starter input."
-    owner_action: "Select an alternative free GPIO for the starter relay (measure with gpioinfo on deployed Pi with HAT fitted). Update config/tractor.yaml relays.starter.gpio and re-validate. Tractor must remain enabled: false until resolved."
+    owner_action: "Select an alternative GPIO for the starter relay that no registry row claims (the report lists them) and that gpioinfo shows free on the deployed Pi with the HAT fitted; scope GPIO5 during a HaLow reset first (audit M-03). Update config/tractor.yaml relays.starter.gpio and re-validate. The checker rejects `enabled: true` while this conflict stands (BLOCKED); with `enabled: false` the tractor service never claims or drives GPIO5, not even for the unauthenticated E-stop (audit SF-05)."
 
   - kind: "gpio"
     pin: 12
@@ -42,7 +49,7 @@ conflicts:
       - "spec/hardware.yaml: BNO085 TX"
     gap: ["H-03"]
     reason: "Physical pin 32 is listed twice in spec/hardware.yaml gpio_used: once as gpio=12 ToF Right Interrupt, once as txd=4 BNO085 TX (UART4). These are the same BCM GPIO12. UART4 on Pi 5 (uart4-pi5 overlay) uses GPIO12/13 for TX/RX. ToF Right IRQ is optional and unused by driver; BNO085 UART4 is preferred but overlay not enabled on deployed Pi."
-    owner_action: "If BNO085 UART4 is enabled (uart4-pi5 overlay), move ToF Right IRQ to a free GPIO (e.g., GPIO17/27 if available) or disable ToF interrupt. Physical verification of ToF IRQ pin requirement needed."
+    owner_action: "If BNO085 UART4 is enabled (uart4-pi5 overlay), move the ToF Right IRQ off GPIO12 to a GPIO no registry row claims (the report lists them) or disable the ToF interrupt (no driver reads it). Physical verification of the ToF IRQ pin requirement is needed."
 
   - kind: "gpio"
     pin: 25
@@ -50,5 +57,5 @@ conflicts:
       - "spec/hardware.yaml: Blade IN2"
       - "spec/hardware.yaml: HaLow HAT SPI_INT"
     gap: ["H-02c"]
-    reason: "Blade driver IN2 uses GPIO25 (pin 22) per spec/hardware.yaml cutting_system.blade_driver.gpio_in2. HaLow HAT SPI_INT is wired to GPIO25 per runtime DT spi-irq-gpios=<25 0> and gpioinfo line 25 'mm610x_spi_irq_gpio'. IBT-4 blade driver is currently a stub (no GPIO drive), so no active contention, but conflict exists in wiring."
-    owner_action: "If IBT-4 driver is implemented, move blade IN2 to a free GPIO (e.g., GPIO26 if not used for PTO) or verify HaLow SPI_INT can share. Measure GPIO25 level/pull with HaLow driver loaded and IBT-4 connected. Tractor must remain enabled: false until resolved."
+    reason: "Blade driver IN2 uses GPIO25 (pin 22) per spec/hardware.yaml cutting_system.blade_driver.gpio_in2. HaLow HAT SPI_INT is wired to GPIO25 per runtime DT spi-irq-gpios=<25 0> and gpioinfo line 25 'mm610x_spi_irq_gpio'. The IBT-4 driver drives no GPIO while ibt4.gpio_enabled is false (shipped), and armed its claim on GPIO25 fails closed because the kernel holds the line (audit C-03), so there is no active contention, but the conflict exists in the wiring."
+    owner_action: "Before arming the IBT-4 driver (config/hardware.yaml ibt4.gpio_enabled: true, which the checker rejects while this conflict stands: BLOCKED), move blade IN2 off GPIO25 to a GPIO no registry row claims (the report lists them) or verify that the HaLow SPI_INT can share it. Measure the GPIO25 level/pull with the HaLow driver loaded and the IBT-4 connected. The IBT-4 belongs to the differential-drive mower, not the Toro tractor, so config/tractor.yaml `enabled` has no bearing on this entry."

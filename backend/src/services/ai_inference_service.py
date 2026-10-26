@@ -20,7 +20,6 @@ from typing import Any
 import numpy as np
 
 from ..core.observability import observability
-from ..core.simulation import is_simulation_mode
 from ..drivers.ai.hailo_driver import HailoDriver
 from ..drivers.base import HardwareDriver
 from ..models.action_prediction import (
@@ -149,8 +148,6 @@ class AIInferenceService(HardwareDriver):
 
     async def initialize(self) -> None:
         """Initialize the AI inference service."""
-        is_simulation_mode() or os.environ.get("SIM_MODE") == "1"
-
         # Check if VLA model exists
         model_path = self.config.get("model_path") or self.default_model_path()
         if isinstance(model_path, str):

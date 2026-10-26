@@ -1,3 +1,9 @@
+"""Telemetry routes: the telemetry and control WebSockets, the SSE stream, export, ping and the
+dashboard telemetry read.
+
+Every WebSocket is admitted through ``admit_websocket`` before it is accepted.
+"""
+
 import asyncio
 import base64
 import datetime
@@ -5,18 +11,21 @@ import hashlib
 import io
 import json
 import logging
-import os
 import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from ...core.context import get_correlation_id
 from ...core.persistence import persistence
+from ...core.simulation import is_simulation_mode
+from ...core.ws_policy import MAX_MESSAGE_BYTES, MessageBudget, ws_registry
 from ...services.websocket_hub import websocket_hub
-from .auth import _authorize_websocket, _extract_bearer_token
+from ..deps import require_operator_auth
+from .auth import _extract_bearer_token, admit_websocket
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,7 +34,8 @@ router = APIRouter()
 # Telemetry V2 Models
 class TelemetryPingRequest(BaseModel):
     component_id: str
-    sample_count: int = 10
+    # The handler sleeps 1 ms per sample: an unbounded count was a one-request resource hog.
+    sample_count: int = Field(default=10, ge=1, le=100)
 
 
 class TelemetryPingResponse(BaseModel):
@@ -106,7 +116,7 @@ def _require_bearer_auth(request: Request) -> None:
 
     logger.warning(
         "Rejected WebSocket handshake without bearer token",
-        extra={"correlation_id": request.headers.get("X-Correlation-ID")},
+        extra={"correlation_id": get_correlation_id()},
     )
     raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -116,19 +126,40 @@ def _require_bearer_auth(request: Request) -> None:
 
 @router.websocket("/ws/telemetry")
 async def ws_telemetry(websocket: WebSocket):
-    """Primary WebSocket endpoint for telemetry topics."""
-    session = await _authorize_websocket(websocket)
+    """Primary WebSocket endpoint for telemetry topics.
+
+    Admitted through ``admit_websocket`` (handshake budget, credential, then a slot in the
+    connection budget) and bounded per socket: a frame over ``MAX_MESSAGE_BYTES`` or faster than
+    ``MESSAGE_RATE_HZ`` ends the connection, topic names and counts are limited by the hub, and
+    an anonymous socket (opt-in mode) cannot change the telemetry cadence every client shares.
+
+    A socket opened with a login is bound to it (``core/ws_policy.py``): logout, expiry and a
+    credential change close it from outside with 1008. The receive below then ends with a
+    disconnect (or the next send fails: the hub drops a client it cannot send to), and the
+    ``finally`` hands the slot back.
+    """
+    admission = await admit_websocket(websocket)
+    session = admission.session
     client_id = "ws-" + uuid.uuid4().hex
     session.add_websocket_connection(client_id, endpoint="/api/v2/ws/telemetry")
+    budget = MessageBudget()
     try:
         await websocket_hub.connect(websocket, client_id)
         # Ensure telemetry loop is running
         await websocket_hub.start_telemetry_loop()
         while True:
             msg = await websocket.receive_text()
+            if len(msg) > MAX_MESSAGE_BYTES:
+                await websocket.close(code=1009)  # message too big
+                break
+            if not budget.allow():
+                await websocket.close(code=1008)  # policy violation: too many frames
+                break
             try:
                 payload = json.loads(msg)
             except Exception:
+                continue
+            if not isinstance(payload, dict):
                 continue
             mtype = str(payload.get("type", "")).lower()
             if mtype == "subscribe":
@@ -139,7 +170,7 @@ async def ws_telemetry(websocket: WebSocket):
                 topic = str(payload.get("topic", "")).strip()
                 if topic:
                     await websocket_hub.unsubscribe(client_id, topic)
-            elif mtype == "set_cadence":
+            elif mtype == "set_cadence" and not admission.anonymous:
                 try:
                     hz = float(payload.get("cadence_hz", 5))
                 except Exception:
@@ -170,14 +201,17 @@ async def ws_telemetry(websocket: WebSocket):
     finally:
         websocket_hub.disconnect(client_id)
         session.remove_websocket_connection(client_id)
+        ws_registry.release(admission.slot)
 
 
 @router.websocket("/ws/control")
 async def ws_control(websocket: WebSocket):
-    """Secondary WebSocket endpoint for control channel events."""
-    session = await _authorize_websocket(websocket)
+    """Secondary WebSocket endpoint for control channel events (acknowledges, changes nothing)."""
+    admission = await admit_websocket(websocket, command_capable=True)
+    session = admission.session
     client_id = "ctrl-" + uuid.uuid4().hex
     session.add_websocket_connection(client_id, endpoint="/api/v2/ws/control")
+    budget = MessageBudget()
     try:
         await websocket.accept()
         await websocket.send_text(
@@ -191,7 +225,13 @@ async def ws_control(websocket: WebSocket):
         )
         while True:
             # Drain and ignore messages for now (future: control echo/lockout)
-            _ = await websocket.receive_text()
+            msg = await websocket.receive_text()
+            if len(msg) > MAX_MESSAGE_BYTES:
+                await websocket.close(code=1009)
+                break
+            if not budget.allow():
+                await websocket.close(code=1008)
+                break
             await websocket.send_text(
                 json.dumps(
                     {
@@ -204,6 +244,7 @@ async def ws_control(websocket: WebSocket):
         pass
     finally:
         session.remove_websocket_connection(client_id)
+        ws_registry.release(admission.slot)
 
 
 # HTTP Handshake Endpoints (for tests/clients that do manual handshake)
@@ -283,13 +324,9 @@ async def get_telemetry_stream(limit: int = Query(5, ge=1, le=500), since: str |
                     "status": s.get("status", "healthy"),
                     "metadata": {
                         "rtk_fix": "fallback",
-                        "rtk_fallback_reason": (
-                            "SIMULATED" if os.environ.get("SIM_MODE") == "1" else None
-                        ),
+                        "rtk_fallback_reason": ("SIMULATED" if is_simulation_mode() else None),
                         "rtk_status_message": (
-                            "RTK fallback active"
-                            if os.environ.get("SIM_MODE") == "1"
-                            else "RTK stable"
+                            "RTK fallback active" if is_simulation_mode() else "RTK stable"
                         ),
                         "orientation": {"type": "euler", "roll": 0, "pitch": 0, "yaw": 0},
                     },
@@ -384,7 +421,7 @@ async def export_telemetry_diagnostic(
         )
 
 
-@router.post("/telemetry/ping")
+@router.post("/telemetry/ping", dependencies=[Depends(require_operator_auth)])
 async def telemetry_ping(request: TelemetryPingRequest):
     """Return latency percentiles and samples to meet contract tests"""
     samples = []
@@ -576,6 +613,7 @@ async def dashboard_telemetry():
                 "hdop": position_data.get("hdop", None),
                 "rtk_status": rtk_status,
                 "rtk_fallback_message": rtk_fallback_message,
+                "fix_age_s": position_data.get("fix_age_s", None),
             },
             "imu": {
                 "roll": imu_data.get("roll", None),
@@ -634,6 +672,7 @@ async def dashboard_telemetry():
                 "hdop": telemetry_data.get("position", {}).get("hdop", None),
                 "rtk_status": telemetry_data.get("position", {}).get("rtk_status", "simulated"),
                 "rtk_fallback_message": None,
+                "fix_age_s": telemetry_data.get("position", {}).get("fix_age_s", None),
             },
             "imu": {
                 "roll": None,

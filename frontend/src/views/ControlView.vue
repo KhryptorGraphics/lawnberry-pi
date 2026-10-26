@@ -14,6 +14,7 @@
       :authenticating="authenticating"
       :can-authenticate="canAuthenticate"
       :auth-error="authError"
+      :signed-in="signedIn"
       :format-security-level="formatSecurityLevel"
       @authenticate="authenticateControl"
       @authenticate-google="authenticateWithGoogle"
@@ -182,7 +183,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { type AxiosError } from 'axios'
 import { storeToRefs } from 'pinia'
 import { useControlStore } from '@/stores/control'
 import {
@@ -190,15 +190,22 @@ import {
   pauseAutonomous,
   resumeAutonomous,
   returnToBase as returnToBaseApi,
+  getBladeStatus,
 } from '@/services/api'
 import { useToastStore } from '@/stores/toast'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useAuthStore } from '@/stores/auth'
+import { apiErrorInfo, describeApiError, SIGN_IN_REQUIRED_MESSAGE } from '@/utils/apiErrors'
 import type { RoboHATStatus } from '@/types/control'
 import VirtualJoystick from '@/components/ui/VirtualJoystick.vue'
 import SecurityGateCard from '@/components/control/SecurityGateCard.vue'
 import CameraFeedCard from '@/components/control/CameraFeedCard.vue'
 import LiveStatusCard from '@/components/control/LiveStatusCard.vue'
 import { useCameraFeed } from '@/composables/useCameraFeed'
+
+const BLADE_KEEPALIVE_DEFAULT_DEADMAN_MS = 2000
+const BLADE_KEEPALIVE_MIN_MS = 300
+const BLADE_KEEPALIVE_MAX_MS = 5000
 
 interface ManualControlSecurityConfig {
   auth_level: 'password' | 'totp' | 'google' | 'cloudflare'
@@ -240,10 +247,21 @@ const MOVEMENT_DURATION_MS = 160
 const MOVEMENT_REPEAT_INTERVAL_MS = 120
 const JOYSTICK_REASON = 'manual-joystick'
 
+const UNLOCK_UNAVAILABLE_MESSAGE = 'Manual control unlock is unavailable (backend endpoint missing).'
+// GET /control/manual-unlock/status payload `reason` while the backend enforces operator auth: it can no
+// longer verify a Cloudflare Access assertion, so this security level can never unlock.
+const CLOUDFLARE_NOT_VERIFIED_REASON = 'cloudflare_access_not_verified'
+const CLOUDFLARE_UNAVAILABLE_MESSAGE =
+  'Cloudflare Access cannot be verified by this backend; manual unlock is unavailable with this security level. Choose Password in Settings > Security.'
+// POST /control/emergency answers accepted:false, result:"incomplete" when the stop is latched but not confirmed on
+// every output; the mower may then still be moving or cutting, so it must never be reported as a clean stop.
+const EMERGENCY_NOT_CONFIRMED_MESSAGE = 'Emergency stop latched, but NOT every output was confirmed'
+
 const control = useControlStore()
 const api = useApiService()
 const toast = useToastStore()
 const preferences = usePreferencesStore()
+const auth = useAuthStore()
 
 preferences.ensureInitialized()
 const { unitSystem } = storeToRefs(preferences)
@@ -369,6 +387,10 @@ const canAuthenticate = computed(() => {
       return false
   }
 })
+
+// POST /control/manual-unlock is a step-up check: besides the operator password it needs the Bearer of a
+// signed-in operator (the ApiService attaches it whenever the auth store holds a token).
+const signedIn = computed(() => Boolean(auth.token))
 
 const robohatStatus = computed(() => control.robohatStatus as Record<string, any> | null)
 
@@ -543,6 +565,21 @@ function showStatus(message: string, success: boolean, timeout = 4000) {
   }
 }
 
+// POST /control/drive|blade answer 401 for two different reasons: no/invalid Bearer ("Operator authentication
+// required": sign in) and an unknown or expired manual-control session_id ("Manual control session required" |
+// "Manual control session invalid or expired", routers/auth.py). Telling a signed-in operator to sign in for the
+// second would send them in circles, so it keeps the backend's text and drops back to the unlock gate, where a
+// fresh session can be created.
+function reportControlFailure(error: unknown, fallback: string) {
+  const info = apiErrorInfo(error)
+  if (info.authRequired && /manual control session/i.test(info.detail)) {
+    lockControl()
+    showStatus(`${info.detail}. Unlock manual control again.`, false)
+    return
+  }
+  showStatus(describeApiError(error, fallback), false)
+}
+
 function updateSessionTimer(expiresAt?: string) {
   if (sessionTimer) {
     window.clearInterval(sessionTimer)
@@ -678,6 +715,25 @@ async function autoUnlockIfPossible() {
   }
 }
 
+// What the operator needs to hear for a failed POST /control/manual-unlock. The call now also needs the
+// operator Bearer, so a 401 is either "not signed in" or "wrong password".
+function describeUnlockError(error: unknown): string {
+  const info = apiErrorInfo(error)
+  switch (info.status) {
+    case 401:
+      return auth.token ? info.detail || 'Invalid password' : SIGN_IN_REQUIRED_MESSAGE
+    case 429:
+      return describeApiError(error, 'Too many attempts')
+    case 404:
+      return UNLOCK_UNAVAILABLE_MESSAGE
+    case 501:
+      return info.detail || UNLOCK_UNAVAILABLE_MESSAGE
+    default:
+      // 400 (blank password / TOTP code) and everything else: the backend says what was wrong
+      return info.detail || (error instanceof Error ? error.message : '') || 'Authentication failed'
+  }
+}
+
 async function authenticateControl() {
   if (!canAuthenticate.value || authenticating.value) return
 
@@ -695,25 +751,22 @@ async function authenticateControl() {
     toast.show('Manual control unlocked', 'success', 2500)
     showStatus('Manual control unlocked', true)
   } catch (error) {
-    const axiosError = error as AxiosError
-    const status = axiosError.response?.status
+    // Fail closed: nothing in this block may unlock; isControlUnlocked only flips in attemptUnlock().
+    const status = apiErrorInfo(error).status
+    const message = describeUnlockError(error)
+    authError.value = message
     if (status === 404 || status === 501) {
-      // Backend endpoint unavailable – fail closed, do not grant control.
-      const message = 'Manual control unlock is unavailable (backend endpoint missing).'
-      authError.value = message
       toast.show(message, 'error', 5000)
-      showStatus(message, false)
-    } else {
-      const message = (axiosError.response?.data as any)?.detail || axiosError.message || 'Authentication failed'
-      authError.value = message
-      showStatus(message, false)
     }
+    showStatus(message, false)
   } finally {
     authenticating.value = false
   }
 }
 
 function lockControl() {
+  stopBladeKeepAlive()
+  mowingActive.value = false
   void stopMovement(true)
   isControlUnlocked.value = false
   joystickRef.value?.reset()
@@ -740,6 +793,11 @@ async function verifyCloudflareAuth() {
       isControlUnlocked.value = true
       showStatus('Cloudflare Access verified', true)
       toast.show('Cloudflare Access verified', 'success', 2500)
+    } else if (data?.reason === CLOUDFLARE_NOT_VERIFIED_REASON) {
+      // Fail closed: this level can never unlock while the backend enforces operator auth.
+      authError.value = CLOUDFLARE_UNAVAILABLE_MESSAGE
+      toast.show(CLOUDFLARE_UNAVAILABLE_MESSAGE, 'error', 5000)
+      showStatus(CLOUDFLARE_UNAVAILABLE_MESSAGE, false)
     } else {
       showStatus('Cloudflare verification failed', false)
     }
@@ -843,7 +901,7 @@ async function dispatchDriveCommands(): Promise<void> {
         const angularMag = Math.abs(payload.vector.angular ?? 0)
         currentSpeed.value = Math.max(linearMag, angularMag)
       } catch (error) {
-        showStatus('Failed to send drive command', false)
+        reportControlFailure(error, 'Failed to send drive command')
       }
     }
   } finally {
@@ -920,14 +978,26 @@ async function stopMovement(sendStopCommand = true) {
 }
 
 async function emergencyStop() {
+  // First, before any await: the repeat must stop even when the E-stop request itself fails.
+  stopBladeKeepAlive()
+  mowingActive.value = false
   setPerforming(true)
   try {
-    await control.submitCommand('emergency', { session_id: ensureSession().session_id })
+    const reply = await control.submitCommand('emergency', { session_id: ensureSession().session_id })
     currentSpeed.value = 0
     mowingActive.value = false
-    showStatus('Emergency stop activated', true)
+    if (reply?.accepted === false || reply?.result === 'incomplete') {
+      const reason = reply && 'status_reason' in reply ? reply.status_reason : null
+      const message = reason ? `${EMERGENCY_NOT_CONFIRMED_MESSAGE} (${reason})` : EMERGENCY_NOT_CONFIRMED_MESSAGE
+      toast.show(message, 'error', 10000)
+      showStatus(message, false, 10000)
+    } else {
+      showStatus('Emergency stop activated', true)
+    }
   } catch (error) {
-    showStatus('Failed to trigger emergency stop', false)
+    // The E-stop is unauthenticated by design, so whatever failed it was never a missing sign-in: do not say so.
+    const failed = 'Failed to trigger emergency stop'
+    showStatus(apiErrorInfo(error).authRequired ? failed : describeApiError(error, failed), false)
   } finally {
     setPerforming(false)
   }
@@ -935,9 +1005,16 @@ async function emergencyStop() {
 
 async function toggleMowing() {
   if (!canSubmitBlade.value) return
+  const turningOff = mowingActive.value
+  if (turningOff) {
+    // Before any await, so no repeat can race behind the OFF.
+    stopBladeKeepAlive()
+  }
+  // An E-stop, the lock or leaving the page during the request bumps this: then Start must not win.
+  const epoch = bladeKeepAliveGeneration
   setPerforming(true)
   try {
-    const action = mowingActive.value ? 'disable' : 'enable'
+    const action = turningOff ? 'disable' : 'enable'
     const response = await control.submitCommand('blade', {
       session_id: ensureSession().session_id,
       action,
@@ -945,14 +1022,128 @@ async function toggleMowing() {
     })
     if (response?.result === 'blocked') {
       showStatus('Blade action blocked by safety system', false)
+      if (turningOff) {
+        mowingActive.value = false // nothing repeats the ON any more: the deadman switches it off
+      }
+    } else if (!turningOff && epoch !== bladeKeepAliveGeneration) {
+      // The stop that came first stands: the blade is not "started" and nothing repeats it.
+      mowingActive.value = false
     } else {
-      mowingActive.value = !mowingActive.value
+      mowingActive.value = !turningOff
       showStatus(mowingActive.value ? 'Mowing started' : 'Mowing stopped', true)
+      if (mowingActive.value) {
+        startBladeKeepAlive()
+      }
     }
   } catch (error) {
-    showStatus('Failed to toggle mowing', false)
+    if (turningOff) {
+      mowingActive.value = false
+      reportControlFailure(error, 'Failed to send the blade stop (the blade deadman switches it off)')
+    } else {
+      reportControlFailure(error, 'Failed to toggle mowing')
+    }
   } finally {
     setPerforming(false)
+  }
+}
+
+// The backend blade ON is a deadman: it only stays on while the ON is repeated (BL-01). Each tick reads the
+// backend status first and repeats the ON only while the backend still has the blade commanded on, because a
+// repeat sent after a backend drop (hold, E-stop, deadman) would be a FRESH ON and restart the blade.
+let bladeKeepAliveTimer: number | undefined
+let bladeKeepAliveGeneration = 0
+let bladeKeepAliveBusy = false
+let bladeKeepAliveIntervalMs = 0
+
+function bladeKeepAliveIntervalFor(deadmanMs: unknown): number {
+  const window = typeof deadmanMs === 'number' && Number.isFinite(deadmanMs) && deadmanMs > 0
+    ? deadmanMs
+    : BLADE_KEEPALIVE_DEFAULT_DEADMAN_MS
+  return Math.min(BLADE_KEEPALIVE_MAX_MS, Math.max(BLADE_KEEPALIVE_MIN_MS, Math.round(window / 3)))
+}
+
+function stopBladeKeepAlive() {
+  if (bladeKeepAliveTimer !== undefined) {
+    window.clearInterval(bladeKeepAliveTimer)
+    bladeKeepAliveTimer = undefined
+  }
+  bladeKeepAliveGeneration += 1
+  bladeKeepAliveBusy = false
+  bladeKeepAliveIntervalMs = 0
+}
+
+function scheduleBladeKeepAlive(intervalMs: number) {
+  if (bladeKeepAliveTimer !== undefined) window.clearInterval(bladeKeepAliveTimer)
+  bladeKeepAliveIntervalMs = intervalMs
+  bladeKeepAliveTimer = window.setInterval(() => {
+    void bladeKeepAliveTick()
+  }, intervalMs)
+}
+
+function startBladeKeepAlive() {
+  stopBladeKeepAlive()
+  scheduleBladeKeepAlive(bladeKeepAliveIntervalFor(undefined))
+  void learnBladeWindow(bladeKeepAliveGeneration)
+}
+
+async function learnBladeWindow(generation: number) {
+  bladeKeepAliveBusy = true
+  try {
+    const status = await getBladeStatus()
+    if (generation !== bladeKeepAliveGeneration) return
+    const wanted = bladeKeepAliveIntervalFor(status?.deadman_ms)
+    if (wanted !== bladeKeepAliveIntervalMs) scheduleBladeKeepAlive(wanted)
+  } catch {
+    // Keep the default window.
+  } finally {
+    if (generation === bladeKeepAliveGeneration) bladeKeepAliveBusy = false
+  }
+}
+
+function bladeDroppedByBackend(reason: string | null | undefined) {
+  stopBladeKeepAlive()
+  mowingActive.value = false
+  const message = `Blade stopped by the backend (${reason || 'no reason given'}). Press Start Mowing to restart.`
+  showStatus(message, false, 8000)
+  toast.show(message, 'error', 8000)
+}
+
+async function bladeKeepAliveTick() {
+  if (bladeKeepAliveBusy) return
+  const generation = bladeKeepAliveGeneration
+  const sessionId = session.value?.session_id
+  if (!sessionId) {
+    stopBladeKeepAlive()
+    mowingActive.value = false
+    return
+  }
+  bladeKeepAliveBusy = true
+  try {
+    const status = await getBladeStatus()
+    if (generation !== bladeKeepAliveGeneration) return
+    const wanted = bladeKeepAliveIntervalFor(status?.deadman_ms)
+    if (wanted !== bladeKeepAliveIntervalMs) scheduleBladeKeepAlive(wanted)
+    if (status?.commanded !== 'on') {
+      bladeDroppedByBackend(status?.last_drop)
+      return
+    }
+    const reply = await control.submitCommand('blade', {
+      session_id: sessionId,
+      action: 'enable',
+      reason: 'manual-control-repeat'
+    })
+    if (generation !== bladeKeepAliveGeneration) return
+    if (reply?.accepted === false || reply?.result === 'blocked' || reply?.result === 'rejected') {
+      const detail = reply && 'reason' in reply ? (reply as { reason?: string }).reason : undefined
+      bladeDroppedByBackend(detail || reply?.result)
+    }
+  } catch (error) {
+    if (generation !== bladeKeepAliveGeneration) return
+    stopBladeKeepAlive()
+    mowingActive.value = false
+    reportControlFailure(error, 'Blade keep-alive failed')
+  } finally {
+    if (generation === bladeKeepAliveGeneration) bladeKeepAliveBusy = false
   }
 }
 
@@ -1100,6 +1291,23 @@ onUnmounted(() => {
   if (sessionTimer) {
     window.clearInterval(sessionTimer)
     sessionTimer = undefined
+  }
+  const wasMowing = mowingActive.value
+  stopBladeKeepAlive()
+  mowingActive.value = false
+  if (wasMowing && session.value) {
+    // Best effort: the backend deadman is the real guard if this never arrives.
+    try {
+      void Promise.resolve(
+        control.submitCommand('blade', {
+          session_id: session.value.session_id,
+          action: 'disable',
+          reason: 'manual-control-leave'
+        })
+      ).catch(() => undefined)
+    } catch {
+      // ignored
+    }
   }
   void stopMovement(true)
   stopCameraFeed()

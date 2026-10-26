@@ -199,16 +199,23 @@ await navigation_service.stop_ai_navigation()
 ### Example Usage
 
 ```bash
+# Log in once and keep the token (docs/deployment-guide.md, "Operator authentication").
+# POST /ai/enable needs it: 401 without a Bearer token (operator auth is on in the deployed unit).
+TOKEN=$(curl -s -X POST http://localhost:8081/api/v2/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"credential": "<your operator credential>"}' | jq -r .access_token)
+
 # Enable AI control
-curl -X POST http://localhost:8000/api/v2/ai/enable \
+curl -X POST http://localhost:8081/api/v2/ai/enable \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"mode": "ai_autonomous"}'
 
 # Check status
-curl http://localhost:8000/api/v2/ai/status
+curl http://localhost:8081/api/v2/ai/status
 
 # Get metrics
-curl http://localhost:8000/api/v2/ai/metrics
+curl http://localhost:8081/api/v2/ai/metrics
 ```
 
 ## VLA Model Architecture

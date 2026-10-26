@@ -9,12 +9,16 @@ persistent data like job schedules, configuration, and telemetry history.
 import json
 import logging
 import sqlite3
+import threading
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from .simulation import is_simulation_mode
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,127 @@ class Migration:
     version: int
     description: str
     sql: str
+
+
+class AuditCoalescer:
+    """Coalesce floods of identical audit events into one row plus a count.
+
+    The first event for an action after a quiet period is written at once (an operator can
+    always see that it happened, and from where: its ``client_id``). Further events for the same
+    action inside ``window_s`` only bump a counter and note their ``client_id``; when the window
+    closes one ``<action>.coalesced`` summary row records how many were suppressed and WHO they
+    came from (``peers``, at most ``MAX_PEERS`` distinct client ids, ``peers_truncated`` when
+    more were seen), so nothing is silently lost: the unauthenticated E-stop routes write only
+    through here, and this is the only record of who stopped the mower (SEC3-13). Writes run on
+    a worker thread (never on the caller / event-loop thread) and failures are logged, never
+    raised. The number of tracked keys is capped; excess keys share one overflow bucket.
+    """
+
+    MAX_KEYS = 64
+    MAX_PEERS = 16
+    OVERFLOW_KEY = "*overflow*"
+
+    def __init__(self, layer: "PersistenceLayer") -> None:
+        self._layer = layer
+        self._lock = threading.Lock()
+        self._windows: dict[str, dict[str, Any]] = {}
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="audit-coalesce")
+
+    def _write(self, action: str, client_id, resource, details) -> None:
+        try:
+            self._layer.add_audit_log(
+                action, client_id=client_id, resource=resource, details=details
+            )
+        except Exception as exc:  # audit must never break the caller
+            logger.error("Coalesced audit write failed for %s: %s", action, exc)
+
+    def _submit(self, *args: Any) -> None:
+        try:
+            self._executor.submit(self._write, *args)
+        except Exception as exc:  # executor shut down
+            logger.error("Coalesced audit submit failed: %s", exc)
+
+    def record(
+        self,
+        action: str,
+        client_id: str | None,
+        resource: str | None,
+        details: dict[str, Any] | None,
+        window_s: float,
+    ) -> bool:
+        """Record an event; return True when it was written (first in its window)."""
+        try:
+            with self._lock:
+                key = action
+                if key not in self._windows and len(self._windows) >= self.MAX_KEYS - 1:
+                    key = self.OVERFLOW_KEY
+                win = self._windows.get(key)
+                if win is not None:
+                    win["suppressed"] += 1
+                    self._note_peer(win, client_id)
+                    return False
+                win = {
+                    "suppressed": 0,
+                    "action": key,
+                    "client_id": client_id,
+                    "resource": resource,
+                    "window_s": window_s,
+                    "peers": {client_id} if client_id else set(),
+                    "peers_truncated": False,
+                }
+                timer = threading.Timer(max(0.0, window_s), self._close, args=(key,))
+                timer.daemon = True
+                win["timer"] = timer
+                self._windows[key] = win
+                timer.start()
+            first = dict(details or {})
+            first["coalesce_window_s"] = window_s
+            self._submit(action, client_id, resource, first)
+            return True
+        except Exception as exc:
+            logger.error("Audit coalescing failed for %s: %s", action, exc)
+            return False
+
+    @classmethod
+    def _note_peer(cls, win: dict[str, Any], client_id: str | None) -> None:
+        """Remember a distinct client of a window, up to ``MAX_PEERS`` (the caller holds the lock)."""
+        if not client_id or client_id in win["peers"]:
+            return
+        if len(win["peers"]) < cls.MAX_PEERS:
+            win["peers"].add(client_id)
+        else:
+            win["peers_truncated"] = True
+
+    def _close(self, key: str) -> None:
+        with self._lock:
+            win = self._windows.pop(key, None)
+        if win is None:
+            return
+        win["timer"].cancel()
+        if win["suppressed"]:
+            self._submit(
+                win["action"] + ".coalesced",
+                win["client_id"],
+                win["resource"],
+                {
+                    "suppressed": win["suppressed"],
+                    "window_s": win["window_s"],
+                    "of_action": win["action"],
+                    "peers": sorted(win["peers"]),
+                    "peers_truncated": win["peers_truncated"],
+                },
+            )
+
+    def flush(self, timeout: float = 5.0) -> None:
+        """Close every open window now and wait for queued writes (shutdown / tests)."""
+        with self._lock:
+            keys = list(self._windows)
+        for key in keys:
+            self._close(key)
+        try:
+            self._executor.submit(lambda: None).result(timeout=timeout)
+        except Exception as exc:
+            logger.error("Audit coalescer flush failed: %s", exc)
 
 
 class PersistenceLayer:
@@ -360,6 +485,31 @@ class PersistenceLayer:
             )
             conn.commit()
 
+    def add_audit_log_coalesced(
+        self,
+        action: str,
+        client_id: str | None = None,
+        resource: str | None = None,
+        details: dict[str, Any] | None = None,
+        window_s: float = 5.0,
+    ) -> bool:
+        """Fire-and-forget audit write for flood-prone, unauthenticated paths.
+
+        Never blocks the caller on SQLite and never raises. Returns True when this event was
+        the first of its window (and so is being written); see :class:`AuditCoalescer`.
+        """
+        co = getattr(self, "_audit_coalescer", None)
+        if co is None:
+            co = AuditCoalescer(self)
+            self._audit_coalescer = co
+        return co.record(action, client_id, resource, details, window_s)
+
+    def flush_audit_coalesced(self, timeout: float = 5.0) -> None:
+        """Close open coalescing windows and wait for queued audit writes."""
+        co = getattr(self, "_audit_coalescer", None)
+        if co is not None:
+            co.flush(timeout)
+
     def load_audit_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.get_connection() as conn:
             cursor = conn.execute(
@@ -543,9 +693,7 @@ class PersistenceLayer:
 
     # Test helper: seed minimal simulated streams when SIM_MODE enabled
     def seed_simulated_streams(self, count: int = 10) -> None:
-        import os
-
-        if os.environ.get("SIM_MODE") != "1":
+        if not is_simulation_mode():
             return
         now = datetime.now(UTC)
         rows = []

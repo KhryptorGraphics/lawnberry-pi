@@ -2,26 +2,302 @@
 
 > **Authentication is ENFORCED by the repo unit (`OPERATOR_AUTH_REQUIRED=1`).**
 >
-> `systemd/lawnberry-backend.service` now ships `OPERATOR_AUTH_REQUIRED=1`
-> (2026-10-24 safety audit; it was `0`). Login, operator-auth-gated writes
-> (tractor, control, missions) and the manual-control unlock step are required.
-> The E-stop endpoints stay unauthenticated by design; clearing an E-stop or a
-> blade latch (`/tractor/clear-emergency`, `/control/emergency_clear`) requires
-> authentication. The code default of `api/deps.py::require_operator_auth` is
-> unchanged (`"1"` when unset).
+> `systemd/lawnberry-backend.service` ships `OPERATOR_AUTH_REQUIRED=1` (2026-10-24 safety
+> audit; it was `0`). Every state-changing route needs the operator's bearer token except the
+> three E-stop POSTs and the login/refresh/logout routes (below). The default of
+> `api/deps.py::require_operator_auth` is enforced when the variable is unset.
 >
-> **Before restarting the unit set the operator credential:** put
-> `LAWN_BERRY_OPERATOR_CREDENTIAL=<secret>` in `/apps/lawnberry-pi/.env`. Unset,
-> the public default `operator123` is accepted. The web UI login form posts
-> `{username, password}`; the password is that credential (any username), and
-> there is no longer an `admin/admin` alias. Scripts pass a bearer token
-> (`scripts/teleop.py --token`). To run a LAN bench without auth, set the unit's
-> value back to `0`.
+> **How the flag is read (fail closed).** Only `0`, `false`, `no` or `off` (any case, surrounding
+> blanks ignored) disable operator authentication. Unset, `1`, `true`, `yes`, `on` and every
+> ambiguous value (an empty `OPERATOR_AUTH_REQUIRED=` line, `2`, `disabled`, a typo) keep it
+> enforced; an ambiguous value is logged as a WARNING. `<root>/.env` (the unit's
+> `EnvironmentFile`) overrides the unit, so a `0` there silently turns authentication off: the
+> backend therefore logs **CRITICAL at start-up whenever it is disabled outside `SIM_MODE`**,
+> and `GET /health` (and `/api/v2/health`) report the state under `operator_auth`
+> (`operator_auth_required`, `operator_auth_flag_ambiguous`, `operator_login_available`,
+> `simulation_open_auth`). Enforcement points: `core/auth_posture.py::operator_auth_required`,
+> read by `api/deps.py::require_operator_auth` and `api/routers/auth.py`
+> (`_resolve_manual_session`, `manual_unlock`, `manual_unlock_status`).
 >
-> Enforcement points that honour the flag: `api/deps.py::require_operator_auth`,
-> and in `api/routers/auth.py` `_resolve_manual_session`, `manual_unlock`, and
-> `manual_unlock_status`. The fail-closed contract is unchanged when auth is
-> required: an unlock error never grants control.
+> **The one operator credential.** There is no built-in default. Run
+> `systemd/install_services.sh`: it refuses to finish (exit 3, nothing changed) until
+> `LAWN_BERRY_OPERATOR_CREDENTIAL` is a credential of at least 12 characters that is not a
+> published default (`operator123`, `admin`, `password`, ...), stores it in `<root>/.env`
+> (mode 0600) and generates the persistent `LAWN_BERRY_AUTH_SECRET` there. With no usable
+> credential the backend still starts but **nobody can log in** (fail closed); the E-stop routes
+> stay open. The web UI login form posts `{username, password}`; the password is that credential
+> (any username), and there is no `admin/admin` alias. Scripts pass a bearer token
+> (`scripts/teleop.py --token`). To run a LAN bench without auth, set `OPERATOR_AUTH_REQUIRED=0`
+> (a CRITICAL line is logged at every start).
+>
+> **What is open, and why** (pinned by `tests/integration/test_operator_auth_coverage.py`, which
+> enumerates every POST/PUT/PATCH/DELETE route of the app and fails on an unreviewed one):
+> `POST /api/v2/control/emergency`, `/api/v2/control/emergency-stop` and
+> `/api/v2/tractor/emergency-stop` (an E-stop must work with no credential; they are also exempt
+> from every rate limiter and from request validation, by exact path, see
+> `middleware/emergency_paths.py`); the two login routes (they are the login); `/auth/logout` and
+> `/auth/refresh` (they verify the bearer themselves). **Everything else needs
+> `Authorization: Bearer <token>`**, including missions, `/maintenance/imu/calibrate`, `/ai/*`
+> writes, `/nav/*`, the `/debug/*` injectors, `/control/drive`, `/control/blade`, the map, recording
+> and `/api/v1` writes, and clearing an E-stop or latch (`/tractor/clear-emergency`,
+> `/control/emergency_clear`). A manual-control session id is **not** a credential and
+> `X-Session-Id` is no longer read. The `/debug/*` injectors (GPS, geofence, ToF and tilt) answer
+> 404 unless `SIM_MODE=1` or `LAWNBERRY_ENABLE_DEBUG_ROUTES=1` (bench use on the mower needs that
+> flag in `<root>/.env`; `/health` reports it as `debug_routes_enabled`), and need the bearer
+> token on top.
+>
+> **WebSockets.** A browser cannot set an `Authorization` header on a WebSocket handshake, and the
+> login token must not travel in a URL (uvicorn logs the query string; `?access_token=` is no
+> longer read). It therefore trades its bearer token for a 30 s, single-use ticket
+> (`POST /api/v2/auth/ws-ticket`, bearer required; a ticket dies with the login session it was
+> minted for; the route is outside the `/api/*/auth` attempt limiter, see below) and connects with
+> `?ticket=...`. Non-browser clients may send `Authorization: Bearer <token>` on the handshake.
+> A presented but invalid credential is always refused. **With no credential, no peer is
+> admitted, the loopback included** (2026-10-24 review SEC20-02): every ingress the product ships
+> (a Cloudflare or ngrok agent pointed at the UI server, nginx) reaches the backend from a
+> loopback address, so "loopback" cannot tell the browser on the mower from a remote visitor. The
+> read-only streams (`/ws/telemetry`, `/api/v2/ws/telemetry`, `/api/v2/ws/status`) are opened to
+> anonymous clients only by an explicit opt-in in `<root>/.env`: `LAWN_BERRY_ANONYMOUS_TELEMETRY=loopback`
+> (a kiosk browser on the mower: the RESOLVED client address must be a loopback address, which is
+> only as safe as the forwarding setup, see "Forwarders, tunnels and client addresses") or `=any`
+> (anyone who can reach the port reads position, battery and state). An unrecognised value (`1`,
+> `true`, a typo) stays off and is warned about at start-up, and an anonymous browser must also
+> present an allowed `Origin` (CORS allow-list or the page's own host: CORS does not cover
+> WebSockets). `/api/v2/ws/control` (the command-capable socket) needs a credential whenever
+> operator auth is on, whatever the opt-in. Every socket is bounded: 32 in all and 8 per login
+> session (anonymous sockets draw on a separate budget of 4 in all, 2 per peer); over the limit the
+> handshake answers 503 + `Retry-After`. A frame over 4 KiB, or faster than 20 per second (burst
+> 40), ends the socket; a client holds at most 32 subscriptions with short plain topic names; a
+> socket that cannot take a frame within 2 s is dropped; `/ws/status` shares one telemetry sample
+> between all its sockets (it used to run a full sensor read per socket and tick: 12 sockets
+> pushed the E-stop POST from 4 ms to 560 ms, and one socket sending 330 000 `subscribe` frames
+> grew the backend from 241 MiB to 612 MiB, the unit's cap is 512 MiB). No WebSocket handler
+> changes mower state today (`/ws/control` only acknowledges).
+>
+> **A socket lives as long as its login (SEC3-07).** Every socket opened with a ticket or a bearer
+> is bound to that login session (`core/ws_policy.py`). Logout (`POST /auth/logout`), an expiry
+> found on any contact or by the socket's own timer, `cleanup_expired_sessions` and a credential
+> change all end a session in one place (`AuthService.terminate_session`), which closes every
+> socket of that session with close code **1008** within about a second (a peer that does not
+> answer the closing handshake is cut off after 1 s; the logout never waits longer). Each socket
+> also has a timer at the session's `expires_at` that asks the session again: `POST /auth/refresh`
+> extends the session, so the socket then stays and the timer re-arms, while a session that is
+> gone or over closes it (the timer also asks at least every 30 s, so a wall-clock step cannot
+> keep a socket past its expiry). A UI that is logged out therefore sees 1008 on every open
+> socket; it reconnects with a fresh ticket after logging in. Anonymous sockets (the opt-in) and
+> the simulator opt-in's throw-away session have no login to end and are not bound.
+>
+> **Handshakes are budgeted too (SEC3-09).** The 32 / 8 limits above count OPEN sockets, and a
+> refused handshake never holds one, so a LAN host could make 670 junk handshakes a second, each
+> with its own WARNING line, on the event loop that carries the E-stop. Now every handshake first
+> spends a token (2 a second, burst 20, constants in `core/ws_policy.py`) from the bucket of its
+> LOGIN SESSION when the ticket or bearer it presents belongs to a live one (looked up silently:
+> nothing is redeemed, logged or terminated), else from the bucket of its PEER: the rule the HTTP
+> limiter uses, so junk from an address the operator shares empties its own bucket and never the
+> operator's. An empty bucket is an HTTP 429 with `Retry-After` at the handshake, before any
+> credential is parsed. A bad bearer is checked silently, and every refusal (401, 429, 503) is
+> logged at most once per peer per minute with the number of refusals it stands for (and at most
+> 30 such lines a minute in all). Residuals: uvicorn itself writes its own INFO line per refused
+> handshake (not changed here), and a LAN host that rotates its own non-global IPv6 source
+> addresses gets a fresh bucket per address (the tables are bounded).
+>
+> **Switching `OPERATOR_AUTH_REQUIRED` off does not open the sockets (SEC3-16).** With it off the
+> HTTP routes stop asking for a bearer, but a socket with no credential is refused exactly as
+> before (pinned by `tests/integration/test_ws_admission_limits.py`). Only the explicit
+> simulator opt-in (`SIM_MODE=1` and `LAWN_BERRY_SIM_OPEN_AUTH=1`, never in production) and
+> `LAWN_BERRY_ANONYMOUS_TELEMETRY` admit a socket without a credential.
+>
+> **Manual-control unlock** (`POST /api/v2/control/manual-unlock`, the Control view's gate) is a
+> step-up for a logged-in operator: it needs the bearer token AND the credential again in the
+> body (`{"method": "password", "password": ...}`; the shape the UI already sends). The password
+> is checked against the bcrypt `password_hash` of the security settings, else
+> `MANUAL_CONTROL_PASSWORD`, else the operator credential, and against nothing if none is usable:
+> the unlock is refused (401; 400 for a blank password). Wrong passwords are throttled per TCP
+> peer like the login (`AUTH_LOCKOUT_FAILURES`, 429 + `Retry-After`). The session id it returns
+> is random (it used to be derived from the password) and is only the extra factor
+> `/control/drive` and `/control/blade` check in the request body, together with the bearer token.
+> **Cloudflare Access is not accepted**: the `CF-Access-Jwt-Assertion` header and the
+> `CF_Authorization` cookie were decoded but never verified, so any value unlocked control (and
+> the session was accepted as an operator login). `method: cloudflare` is now 501 and
+> `GET /control/manual-unlock/status` answers `authorized: false` while auth is enforced. Verifying
+> Cloudflare Access needs the Access issuer, audience and signing keys plus RS256 support
+> (`cryptography`, not installed here): owner decision, see the audit.
+>
+> **Limits are per client, not per `X-Client-Id`.** The login lockout, the unlock throttle, the
+> `/api/*/auth` limiter and the global limiter never count a header the client writes, and every
+> table is bounded. A request that carries a bearer for a LIVE login session is counted in its own
+> bucket, `session:<id>` (looked up silently by `AuthService.peek_session`: no log line, no side
+> effect); every other request (no bearer, an invalid, expired or revoked one) is counted against
+> the client's address (IPv6: see "IPv6 addresses" below). That split is what keeps anonymous
+> junk from a shared address (every visitor behind an undeclared same-host forwarder is one
+> address) from draining
+> the bucket the operator's lever POSTs use, and the login lockout only ever gates the login
+> routes, never a request that carries a valid bearer. The client address is the TCP peer, or,
+> only behind a forwarder DECLARED in `LAWN_BERRY_TRUSTED_PROXIES`, the `X-Forwarded-For` hop that
+> forwarder wrote (`core/peer_address.py`; the default trusts nobody and the loopback as a whole
+> is not trusted). uvicorn's own proxy handling is switched off (`--no-proxy-headers` in the unit)
+> because it runs first and takes whatever string it finds. What residual a shared address has:
+> with no declared forwarder all visitors share one lockout, so an anonymous visitor can delay a
+> LOGIN (a logged-in operator keeps working); declare the forwarder to separate them. Exact
+> settings per setup: "Forwarders, tunnels and client addresses" below. `POST /auth/ws-ticket` (the
+> UI calls it before every WebSocket (re)connect, with a token that may have expired) is exempt
+> from the `/api/*/auth` attempt limiter and lockout
+> (`middleware/security.py::UNLIMITED_AUTH_PATHS`): it only redeems a live bearer, and counting it
+> would block the login after a few reconnects. Tractor command POSTs and `/control/drive|blade`
+> have their own buckets so UI polling cannot starve them. Password checks (bcrypt, ~270 ms) run on
+> a small dedicated thread pool, never on the event loop that carries the deadman and the E-stop
+> handlers.
+>
+> **`SIM_MODE` is not a credential.** `SIM_MODE=1` alone no longer makes the login accept any
+> credential or admits any WebSocket client as an operator: that needs `LAWN_BERRY_SIM_OPEN_AUTH=1`
+> as well (the test suite sets it) and is ignored when `LAWNBERRY_ENV=production`. Start-up logs
+> CRITICAL for `SIM_MODE=1` in a production environment or on a non-loopback bind
+> (`--host 0.0.0.0`, `UVICORN_HOST`), and for the opt-in on such a process.
+>
+> **Reads are classified too (SEC20-01).** The "everything else needs a bearer" rule above used to hold
+> for writes only, and an anonymous `GET /settings/remote-access` returned the stored Cloudflare tunnel
+> token, the ngrok authtoken and the Google Maps key. Now: (1) **secrets are write-only**. A value stored
+> under a secret-looking name (`*_token`, `*_key`, `*password*`, `*secret*`, ... by name, at any depth,
+> `core/secret_redaction.py`) is in no response. `GET /settings/maps` and `GET /settings/remote-access`
+> need the bearer and report `<name>_set` and, for a value of 16+ characters, `<name>_last4`; the open
+> `GET /settings`, `/settings/system` and `/settings/security` drop secret names and say nothing about
+> them. A PUT with an empty secret field keeps the stored value, an explicit `null` clears it, and the
+> `_set`/`_last4` keys of a read view that a client echoes back are never stored; store files are 0600.
+> (2) **The GET audit** also gates the whole documentation hub (`/docs/*`: the folder holds runbooks and
+> hand-off notes, one of which quotes a sudo password; only `.md` files inside the folder are served),
+> `GET /system/selftest` (a GET that opens serial ports, probes I2C and drives GPIO) and
+> `GET /sensors/gps/rtk/diagnostics` (can start the NTRIP forwarder), and drops secret-named keys from
+> `/health` (it echoes whole blocks of `config/hardware.yaml`). (3) Every other read is listed with the
+> reason it is open in `tests/integration/test_operator_auth_coverage.py` (`OPEN_READS`, plus the
+> self-authenticating `/auth/profile`); the suite fails on an unlisted read route, a plain Starlette
+> route, a mounted sub-application or a WebSocket route that does not start with
+> `await _authorize_websocket(...)`. `tests/integration/test_get_routes_expose_no_secrets.py` seeds a
+> canary into every store (environment, secrets file, settings stores, hardware config, live session
+> ids) and fails if any read route, anonymous or as the operator, returns one. **Consequences:** the
+> Google Maps key is no longer sent to the browser, so Google basemaps do not load and the maps use
+> OpenStreetMap (owner decision, see the audit); the camera stream, map geometry and live telemetry
+> stay readable without a login (an `<img>` cannot send a bearer; owner decision).
+>
+> **Only failed logins count.** The `/api/*/auth` limiter and lockout (`middleware/security.py`) count
+> the credential routes (`POST /auth/login`) only. `refresh`, `logout`, `profile` and `ws-ticket`
+> (`UNLIMITED_AUTH_PATHS`) verify a token you already hold, so their 401 never feeds the lockout (after a
+> backend restart every open browser sends them with a dead token) and their 200 never resets a
+> guesser's counters. A body-less `POST` (the UI's logout/refresh) is accepted; the JSON content type is
+> enforced when a body exists. The caller-chosen `X-Correlation-ID` is kept only if it is at most 64
+> plain characters. CORS defaults to the UI's own loopback origins (`LAWN_BERRY_ALLOWED_ORIGINS` adds
+> more).
+>
+> The `lawnberry-pi ...` command examples further down describe a CLI that is not shipped (no
+> console entry point in `pyproject.toml`); the supported configuration is the environment
+> and `.env` described here.
+
+## Forwarders, tunnels and client addresses
+
+The login lockout, every rate limit and the WebSocket budgets need to know who the client is. On
+this host that is not obvious: a browser request reaches the backend through up to three hops (a
+tunnel agent or nginx, the UI server `frontend/server.mjs`, uvicorn), all of them on
+127.0.0.0/8, and any process on the host can connect from any address in that range.
+
+1. **Nobody is trusted by default.** `LAWN_BERRY_TRUSTED_PROXIES` (backend) and
+   `UI_TRUSTED_PROXIES` (UI server) default to the empty list: every client behind a forwarder is
+   counted as the forwarder's own address (one lockout and one bucket for all of them; logged-in
+   operators are still counted per login session). Safe, coarse, and what you get when nothing is
+   declared. Trust is declared, never inferred from the loopback.
+2. **A declaration is `ADDRESS[/PREFIX][=SHAPE]`, comma separated.** `ADDRESS` is the address the
+   forwarder CONNECTS FROM. `SHAPE` is what it does to `X-Forwarded-For`: `single` (the default:
+   it replaces the header with exactly one hop; two hops or a non-address means the request did
+   not come through it, the header is ignored and a warning is logged) or `last` (it appends the
+   address it saw; only the last hop is believed, everything to its left is what the client wrote
+   and is never read; trailing hops that are themselves declared forwarders are skipped).
+3. **A bad declaration trusts nobody.** A `/0`, a network wider than one LAN (IPv4 shorter than
+   /24, IPv6 shorter than /64), host bits set (`192.168.1.64/24`), an unknown shape or something
+   that is not an address makes the WHOLE list invalid: ERROR at start-up naming each problem,
+   nobody trusted, never a widened list (the backend still starts: it carries the E-stop). The
+   old default `127.0.0.0/8,::1` and the old silent acceptance of `0.0.0.0/0` are gone.
+4. **Each trusted forwarder gets its own source address.** A forwarder that passes a
+   client-written `X-Forwarded-For` through (`ssh -R`, `socat`, `frp`, a custom tunnel command, an
+   nginx location without the header) lets its client choose its own identity, bucket and lockout,
+   so it must never be listed, and it cannot be told apart from a good one at `127.0.0.1`.
+
+What the repository ships, and what to change for a tunnel (the two settings live in the units:
+the backend reads `<root>/.env`, which overrides the unit; the UI server has no `.env`, use a
+systemd drop-in, `sudo systemctl edit lawnberry-frontend`, and restart it):
+
+| Setup | Connects from | Declare | Notes |
+|---|---|---|---|
+| UI server to backend (shipped) | `127.0.0.2` (`BACKEND_SOURCE_ADDRESS`) | backend: `127.0.0.2=single` | the UI server drops every inbound `X-Forwarded-For`/`Forwarded`/`X-Real-IP` and sends exactly one hop; if it cannot bind `127.0.0.2` it logs an ERROR and the backend sees one shared address |
+| nginx in front of the UI server (`scripts/setup_https.sh`, `config/nginx.conf`) | `127.0.0.3` (`proxy_bind`) | UI server: `UI_TRUSTED_PROXIES=127.0.0.3=last` (shipped) | every proxying location, the two WebSocket ones included, now sets `X-Forwarded-For $proxy_add_x_forwarded_for` (they sent none: all remote clients were one address) |
+| cloudflared or ngrok on this host, pointed at the UI server (port 3000) | `127.0.0.1` | drop-in: `Environment=UI_TRUSTED_PROXIES=127.0.0.3=last,127.0.0.1=last` | only if the tunnel agent is the ONLY process that forwards remote traffic to port 3000 from `127.0.0.1`; the Cloudflare or ngrok edge writes the last hop |
+| a tunnel pointed straight at the backend (port 8081) | `127.0.0.1` | `.env`: `LAWN_BERRY_TRUSTED_PROXIES=127.0.0.2=single,127.0.0.3=last,127.0.0.1=last` | same condition; without it every tunnel client is one address (safe, coarse) |
+| a tunnel or proxy on another host | its LAN address | list that address (`/32` host entry), shape per its behaviour | a LAN-wide network is refused: list the proxy host |
+
+`CF-Connecting-IP` and `True-Client-IP` are never read. Cloudflare Access is not accepted as a
+credential (see above); a tunnel is transport, the operator still logs in.
+
+**Check a setup from outside** (it locks that client out of the login for `AUTH_LOCKOUT_SECONDS`,
+30 s by default): send six wrong logins through the tunnel, each with a different
+`X-Forwarded-For`. The sixth must be `429` with `Retry-After`: the header was ignored and all six
+counted against your real address. Six `401`s mean the forwarder lets the client name its own
+address: remove it from the list. The start-up log (`journalctl -u lawnberry-backend | grep -i
+"forwarder\|WebSocket"`) states the resolved trusted list, the uvicorn proxy-headers state and the
+anonymous-WebSocket mode.
+
+### IPv6 addresses (SEC3-11)
+
+The counters above need one key per client. For IPv4 (and IPv4-mapped IPv6, `::ffff:a.b.c.d`,
+which a dual-stack socket reports) that is the address. For IPv6 the rule is:
+
+* a **global unicast** address (inside `2000::/3` and not one of the special-purpose blocks that
+  Python's `ipaddress` marks as not globally reachable: the documentation ranges `2001:db8::/32`
+  and `3fff::/20`, 6to4, Teredo, ...) is counted per **/64**, `ip6:<prefix>/64`: a /64 is what an
+  ISP delegates to one subscriber, and rotating the low 64 bits must not mint fresh budgets;
+* **every other IPv6 address** (unique-local `fd00::/8`, link-local `fe80::/10`, loopback,
+  site-local, NAT64, the special-purpose blocks) is counted per **address**, `ip:<address>` (a
+  zone id such as `%eth0` is dropped). On a LAN every device of a SLAAC network sits in ONE /64,
+  and per /64 one device's five wrong logins locked the login for all of them for 30 s.
+
+Because a LAN host can alias as many addresses of its own /64 as it likes (each one a fresh
+five guesses), the **login failure lockout and the manual-unlock throttle** also count failures
+per /64 for EVERY IPv6 client, private or global: 25 failures from one /64 lock that /64 for 30 s
+(`AuthService.group_limiter`; fixed, not tunable with `AUTH_LOCKOUT_FAILURES`, which only sizes
+the per-address lockout; a success from the /64 resets it; IPv4 has no such group). So one device
+typing its password wrong no longer locks its neighbours, and one host rotating 100 addresses is
+still locked after 25 wrong guesses.
+
+Residuals, design limits: (1) a LAN whose devices all hold GLOBAL addresses from one ISP /64
+(privacy extensions, SLAAC with a delegated /64) still shares that /64's budget, as before (the
+shipped nginx forwards the IPv6 client in `X-Forwarded-For`; the backend and UI server listen on
+IPv4); (2) the rate-limit buckets (not the login lockout) of a LAN host that rotates its own
+non-global source addresses are per address: the tables are bounded and a bucket costs only
+requests the global limiter would have allowed anyway.
+
+### What a tunnel agent inherits (SEC3-10)
+
+`cloudflared`, `ngrok` and the **custom** tunnel command (`bash -lc <command>`) are third-party
+programs on the internet edge, started by the backend, whose environment holds every secret of
+`<root>/.env` (`LAWN_BERRY_OPERATOR_CREDENTIAL`, `LAWN_BERRY_AUTH_SECRET`, `NTRIP_PASSWORD`,
+`MANUAL_CONTROL_PASSWORD`, ...). They used to inherit all of it. Now the child gets **the
+allow-list plus what the operator wrote under `custom.env`, nothing else**:
+
+* inherited from the backend: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LANGUAGE`,
+  `TZ`, `TMPDIR`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`,
+  `ALL_PROXY` (and the lower-case spellings) and every name starting `LC_`, `XDG_`, `TUNNEL_`
+  (cloudflared's own settings, e.g. `TUNNEL_TOKEN`) or `NGROK_` (`NGROK_AUTHTOKEN`). A name that
+  looks like one of the backend's own secrets is not inherited even under an allowed prefix:
+  `LAWN_BERRY_*`, `NTRIP_*`, `GOOGLE_*`, `MANUAL_CONTROL_PASSWORD`, `API_KEY_SECRET`,
+  `JWT_SECRET`, `CLOUDFLARE_API_TOKEN` and any name containing `secret`, `password`, `passwd` or
+  `credential` (case-insensitive);
+* `custom.env` (the Remote Access settings, custom provider only) is the operator's explicit
+  choice and is passed as written, over an inherited value of the same name, **including a name
+  the rules above would not inherit**: write a secret there only if the command needs it;
+* the log line that starts a tunnel names the program only for the custom command (a tunnel tool
+  takes its token on the command line, `--token ...`); cloudflared and ngrok are logged with
+  their (secret-free) arguments.
+
+**Residual, a design limit, not a promise:** this limits ACCIDENTAL leakage to the agent's
+process. A hostile or compromised agent that runs as the SAME account as the backend can still
+read `<root>/.env` and `/proc/<backend pid>/environ` (same uid). Run tunnel agents as another
+account if the agent is not trusted that far.
 
 This guide covers setting up and configuring the multi-level authentication system in LawnBerry Pi v2, from basic password authentication to enterprise-grade security.
 
@@ -610,7 +886,7 @@ getent hosts lawnberry.yourdomain.com
 curl -sS https://lawnberry.yourdomain.com/ | head -c 200
 curl -sS -X POST https://lawnberry.yourdomain.com/api/v2/auth/login \
     -H 'Content-Type: application/json' \
-    -d '{"username":"admin","password":"admin"}'
+    -d '{"username":"admin","password":"<your operator credential>"}'
 ```
 
 Notes:
@@ -619,13 +895,19 @@ Notes:
 
 4. **WebSocket 401 Unauthorized (remote access)**:
 
-When accessing the UI through a tunnel/proxy, browsers cannot set custom headers on WebSocket upgrades. The backend now supports passing the session token via query params. Ensure:
+Browsers cannot set custom headers on WebSocket upgrades, so the UI trades its bearer token for a
+single-use ticket and connects with `?ticket=<ticket>`. Ensure:
 
-- You are logged in to the UI (a valid token is stored in localStorage).
-- The frontend will automatically append `?access_token=<token>` to the telemetry/control WS URLs.
-- If using Cloudflare Access, the `CF-Access-Jwt-Assertion` header is accepted for WS authorization when Access policy already authenticated the user.
+- You are logged in to the UI (a valid token is stored in localStorage); the UI then calls
+  `POST /api/v2/auth/ws-ticket` before every (re)connect. The login token itself is no longer
+  accepted in a WebSocket URL.
+- A ticket lives 30 s and works once; a retry needs a fresh one (the UI fetches one per attempt).
+- A `CF-Access-Jwt-Assertion` header is not a credential on any route (it was never verified), so
+  a Cloudflare Access policy does not authorize a WebSocket: log in to the mower UI as well.
 
-If you still see WS failures, live telemetry will fall back to REST polling. Check the browser console network tab for 401/403 responses on `/api/v2/ws/telemetry` or `/ws/telemetry` and adjust Access policies accordingly.
+If you still see WS failures, live telemetry will fall back to REST polling. Check the browser
+console network tab for 401/403 responses on `/api/v2/ws/telemetry` or `/ws/telemetry`, and for
+the `POST /api/v2/auth/ws-ticket` request that precedes them.
 
 ### Debug Commands
 
@@ -647,16 +929,15 @@ lawnberry-pi config auth --validate
 
 #### Recovering operator access
 
-There is **no** emergency-access command and **no** built-in recovery password: an earlier version of this
-guide described a `lawnberry-pi auth emergency-access` command that created a well-known temporary
-password. No such command exists in the code, and a documented default credential is exactly what this
-hardening removes. Recovery needs shell access to the Pi:
+No emergency password and no `lawnberry-pi auth emergency-access` command exist. With shell
+access to the Pi, set a new credential and re-run the installer (it keeps the signing secret;
+`--rotate-auth-secret` also ends every existing session):
 
 ```bash
-sudo systemctl stop lawnberry-backend
-# set a NEW operator credential in the service's environment file (see "Configuration" above);
-# choose a long random value and never reuse a credential that has appeared in a file or chat
-sudo systemctl start lawnberry-backend
+f=$(mktemp) && ${EDITOR:-nano} "$f"      # one line: the new credential
+sudo bash systemd/install_services.sh --operator-credential-file "$f" --rotate-auth-secret
+shred -u "$f"
+# restart lawnberry-backend to load it (on the shed Pi only with physical access)
 ```
 
 #### Configuration Backup/Restore

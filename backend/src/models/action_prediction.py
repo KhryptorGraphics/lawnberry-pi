@@ -5,6 +5,7 @@ Defines the output structure for Vision-Language-Action model predictions
 used in autonomous mowing control.
 """
 
+import math
 import time
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
@@ -68,9 +69,29 @@ class ActionPrediction:
     safety_override: bool = False  # True if action was modified by safety system
     obstacle_detected: bool = False
     boundary_warning: bool = False
+    #: True when a control output or the confidence was not a finite number (a broken model run):
+    #: the prediction was made neutral below and is not a statement of the model at all. A consumer
+    #: must not read it as "low confidence" and ignore it, because whatever it commanded last is
+    #: still in force; it stands the machine down and counts these (audit NAV-07).
+    unusable: bool = False
 
     def __post_init__(self):
-        """Validate action bounds."""
+        """Validate action bounds.
+
+        A control output or confidence that is not a finite number (a NaN or infinity from a broken
+        model run) must never be clamped into range: ``min(1.0, nan)`` is ``1.0``, which made a NaN
+        run full throttle with full confidence. The whole prediction becomes neutral, zero
+        confidence and blade off, marked as overridden and ``unusable``, so nothing downstream
+        acts on it as a command.
+        """
+        if not all(math.isfinite(v) for v in (self.steering, self.throttle, self.confidence)):
+            self.steering = 0.0
+            self.throttle = 0.0
+            self.confidence = 0.0
+            self.blade = False
+            self.safety_override = True
+            self.unusable = True
+            return
         self.steering = max(-1.0, min(1.0, self.steering))
         self.throttle = max(0.0, min(1.0, self.throttle))
         self.confidence = max(0.0, min(1.0, self.confidence))
@@ -153,6 +174,7 @@ class ActionPrediction:
             "safety_override": self.safety_override,
             "obstacle_detected": self.obstacle_detected,
             "boundary_warning": self.boundary_warning,
+            "unusable": self.unusable,
         }
 
 

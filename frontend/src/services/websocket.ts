@@ -1,5 +1,6 @@
 import { ref, onUnmounted } from 'vue'
 import type { TelemetryTopicPayloadMap } from '@/types/telemetry'
+import { useApiService } from '@/services/api'
 
 export interface WebSocketMessage {
   event: string
@@ -10,6 +11,8 @@ export interface WebSocketMessage {
 }
 
 let lastWsErrorLogAt = 0
+// A ticket is only worth waiting for briefly: without one the socket connects anonymously.
+const TICKET_TIMEOUT_MS = 5000
 
 export class WebSocketService {
   private ws: WebSocket | null = null
@@ -48,25 +51,40 @@ export class WebSocketService {
     }
   }
 
-  // Browsers cannot set an Authorization header on a WebSocket handshake, so the
-  // backend (_authorize_websocket) accepts the bearer token as a query param.
-  private appendToken(url: string): string {
-    let token = ''
+  // A browser cannot set an Authorization header on a WebSocket handshake, and the login JWT must
+  // not travel in the URL (the server logs the query string). A signed-in client therefore trades
+  // its bearer token for a single-use, 30 s `ticket` (POST /api/v2/auth/ws-ticket; the shared
+  // ApiService attaches the bearer) and connects with `?ticket=`. A ticket cannot be reused, so
+  // one is fetched for EVERY connect attempt: the first connect, each reconnect and the alternate
+  // URL candidate. Not signed in, or the ticket call failed: connect without one (the backend
+  // admits only the read-only telemetry/status sockets from the UI proxy anonymously).
+  private async withTicket(url: string): Promise<string> {
+    let signedIn = false
     try {
-      token = (typeof localStorage !== 'undefined' && localStorage.getItem('auth_token')) || ''
+      signedIn = typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token')
     } catch {
-      token = ''
+      signedIn = false
     }
-    if (!token) return url
-    const sep = url.includes('?') ? '&' : '?'
-    return `${url}${sep}access_token=${encodeURIComponent(token)}`
+    if (!signedIn) return url
+    try {
+      const reply = await useApiService().post<{ ticket?: unknown }>(
+        '/api/v2/auth/ws-ticket',
+        {},
+        { timeout: TICKET_TIMEOUT_MS }
+      )
+      const ticket = reply.data?.ticket
+      if (typeof ticket !== 'string' || !ticket) return url
+      return `${url}${url.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(ticket)}`
+    } catch {
+      return url
+    }
   }
 
   connect(): Promise<void> {
     return new Promise((resolve, _reject) => {
-      const tryConnect = () => {
+      const tryConnect = async () => {
         const base = this.urlCandidates[this.urlIndex] || this.urlCandidates[0]
-        const target = this.appendToken(base)
+        const target = await this.withTicket(base)
         try {
           this.ws = new WebSocket(target)
         
@@ -114,7 +132,7 @@ export class WebSocketService {
             // Try alternate candidate once before giving up initial connect
             if (this.urlCandidates.length > 1 && this.urlIndex < this.urlCandidates.length - 1) {
               this.urlIndex++
-              tryConnect()
+              void tryConnect()
             } else {
               // Allow reconnect loop to proceed
               this.handleReconnect()
@@ -126,7 +144,7 @@ export class WebSocketService {
           // Try alternate or schedule reconnect
           if (this.urlCandidates.length > 1 && this.urlIndex < this.urlCandidates.length - 1) {
             this.urlIndex++
-            tryConnect()
+            void tryConnect()
           } else {
             this.handleReconnect()
             resolve()
@@ -134,7 +152,7 @@ export class WebSocketService {
         }
       }
 
-      tryConnect()
+      void tryConnect()
     })
   }
 
@@ -341,17 +359,6 @@ export function useWebSocket(type: 'telemetry' | 'control' = 'telemetry') {
     wsUrl = `${protocol}//${host}/api/v2/ws/telemetry`
   } else {
     wsUrl = `${protocol}//${host}/api/v2/ws/control`
-  }
-  // Attach access token for authenticated websocket upgrade when required by server
-  try {
-    const token = localStorage.getItem('auth_token')
-    if (token) {
-      const url = new URL(wsUrl)
-      url.searchParams.set('access_token', token)
-      wsUrl = url.toString()
-    }
-  } catch {
-    // ignore
   }
   const wsService = new WebSocketService(wsUrl)
 

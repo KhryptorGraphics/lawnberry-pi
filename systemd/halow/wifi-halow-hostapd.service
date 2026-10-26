@@ -1,0 +1,19 @@
+[Unit]
+Description=Wi-Fi HaLow access point (hostapd on halow0)
+# Only runs when the admin UI has selected AP mode (flag file present).
+ConditionPathExists=/var/lib/wifi-halow-admin/halow-ap-mode
+BindsTo=sys-subsystem-net-devices-halow0.device
+After=sys-subsystem-net-devices-halow0.device halow-bringup.service network.target
+Before=wifi-halow-dnsmasq.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/hostapd /etc/hostapd/wifi-halow-admin.conf
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=wifi-halow-admin hostapd
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target

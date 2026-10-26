@@ -1,3 +1,7 @@
 spec/hardware.yaml   @acredsfan
 specs/**             @acredsfan
 .github/workflows/** @acredsfan
+# The secret scan a pull request is judged by: its rules and its reviewed exceptions (CI runs the
+# base branch's copy, so a change to either only takes effect once this owner has approved it).
+scripts/check_no_secrets.py   @acredsfan
+spec/secret_scan_allow.txt    @acredsfan

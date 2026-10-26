@@ -4,7 +4,12 @@ import os
 
 import pytest
 
-from backend.src.drivers.sensors.gps_driver import GPSDriver
+from backend.src.drivers.sensors.gps_driver import (
+    GPSDriver,
+    fix_status_from_quality,
+    parse_gga,
+    parse_gst_sigma,
+)
 from backend.src.models.sensor_data import GpsMode
 
 
@@ -40,35 +45,32 @@ async def test_gps_driver_health_check_fields():
 
 
 def test_gps_driver_parse_gga_and_fix_quality():
-    drv = GPSDriver({"mode": GpsMode.F9P_USB.value})
-    sentence = "$GNGGA,123519,4807.038,N,01131.000,E,4,12,0.7,545.4,M,46.9,M,,*5B"
-    parsed = drv._parse_gga(sentence)
-    assert parsed is not None
-    lat, lon, alt, sats, hdop, fix_quality = parsed
-    assert lat == pytest.approx(48.1173, rel=1e-4)
-    assert lon == pytest.approx(11.5166667, rel=1e-4)
-    assert alt == pytest.approx(545.4)
-    assert sats == 12
-    assert hdop == pytest.approx(0.7)
-    assert fix_quality == 4
+    sentence = "$GNGGA,123519,4807.038,N,01131.000,E,4,12,0.7,545.4,M,46.9,M,1.0,0000*5B"
+    gga = parse_gga(sentence)
+    assert gga is not None
+    assert gga.lat == pytest.approx(48.1173, rel=1e-4)
+    assert gga.lon == pytest.approx(11.5166667, rel=1e-4)
+    assert gga.altitude_m == pytest.approx(545.4)
+    assert gga.satellites == 12
+    assert gga.hdop == pytest.approx(0.7)
+    assert gga.quality == 4 and gga.correction_age_s == pytest.approx(1.0)
+    assert gga.utc_s == 12 * 3600 + 35 * 60 + 19
     # Fix quality 4 should map to RTK fixed status
-    status = drv._map_fix_quality(fix_quality)
-    assert status == "RTK_FIXED"
+    assert fix_status_from_quality(gga.quality) == "RTK_FIXED"
 
 
 def test_gps_driver_parse_gst_accuracy():
-    drv = GPSDriver({"mode": GpsMode.F9P_USB.value})
     # SD values 0.02 m and 0.03 m should combine via sqrt(a^2 + b^2)
     gst = "$GPGST,024603.00,0.010,0.020,0.030,0.000,0.020,0.030,0.050*5C"
-    accuracy = drv._parse_gst(gst)
-    assert accuracy == pytest.approx((0.02**2 + 0.03**2) ** 0.5)
+    assert parse_gst_sigma(gst) == pytest.approx((0.02**2 + 0.03**2) ** 0.5)
 
 
-def test_gps_driver_fix_quality_mapping_handles_unknown():
-    drv = GPSDriver({"mode": GpsMode.NEO8M_UART.value})
-    assert drv._map_fix_quality(None) is None
-    assert drv._map_fix_quality(1) == "GPS_FIX"
-    assert drv._map_fix_quality(2) == "DGPS"
-    assert drv._map_fix_quality(5) == "RTK_FLOAT"
-    # Unknown codes should return None
-    assert drv._map_fix_quality(42) is None
+def test_gps_driver_fix_quality_mapping_is_fail_closed():
+    assert fix_status_from_quality(None) == "NO_FIX"
+    assert fix_status_from_quality(0) == "NO_FIX"
+    assert fix_status_from_quality(1) == "GPS_FIX"
+    assert fix_status_from_quality(2) == "DGPS"
+    assert fix_status_from_quality(5) == "RTK_FLOAT"
+    # A quality outside the table is not a fix (3 = PPS, 9 = WAAS on some receivers, or garbage)
+    for unknown in (3, 9, 42, -1):
+        assert fix_status_from_quality(unknown) == "NO_FIX"

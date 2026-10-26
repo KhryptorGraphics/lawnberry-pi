@@ -36,20 +36,24 @@ class _FakeTractor:
         self.applied: list = []
         self.levers_calls: list[tuple[float, float]] = []
         self.blade_calls: list[bool] = []
+        self.sources: list[str | None] = []  # source label of every actuation call
         self.emergency_stop_calls = 0
         self.start_engine_calls = 0
         self.start_engine_result = {"status": "ok", "engine": "running"}
 
-    async def apply(self, cmd):
+    async def apply(self, cmd, source=None):
         self.applied.append(cmd)
+        self.sources.append(source)
         return {"status": "applied"}
 
-    async def set_levers(self, left: float, right: float):
+    async def set_levers(self, left: float, right: float, source=None):
         self.levers_calls.append((left, right))
+        self.sources.append(source)
         return {"status": "ok", "left_lever": left, "right_lever": right}
 
-    async def engage_blade(self, on: bool):
+    async def engage_blade(self, on: bool, source=None):
         self.blade_calls.append(bool(on))
+        self.sources.append(source)
         return {"status": "ok", "blade_engaged": bool(on)}
 
     async def start_engine(self):
@@ -95,7 +99,7 @@ async def test_go_to_waypoint_tractor_command_sign_and_values(monkeypatch):
     _patch_empty_mission_service(monkeypatch)
     tractor = _FakeTractor(enabled=True)
 
-    async def _apply_then_arrive(cmd):
+    async def _apply_then_arrive(cmd, source=None):
         tractor.applied.append(cmd)
         nav.navigation_state.current_position = target_pos  # arrive next tick
         return {"status": "applied"}
@@ -164,7 +168,7 @@ async def test_go_to_waypoint_apply_failure_triggers_hard_stop(monkeypatch):
     _patch_empty_mission_service(monkeypatch)
     tractor = _FakeTractor(enabled=True)
 
-    async def _boom(cmd):
+    async def _boom(cmd, source=None):
         raise RuntimeError("i2c bus fault")
 
     tractor.apply = _boom
@@ -267,7 +271,7 @@ async def test_go_to_waypoint_skips_robohat_blade_command_when_tractor_enabled(m
     _patch_empty_mission_service(monkeypatch)
     tractor = _FakeTractor(enabled=True)
 
-    async def _apply_then_arrive(cmd):
+    async def _apply_then_arrive(cmd, source=None):
         tractor.applied.append(cmd)
         nav.navigation_state.current_position = Position(latitude=40.001, longitude=-83.001)
         return {"status": "applied"}

@@ -1,15 +1,15 @@
 [Unit]
-Description=LawnBerry Pi v2 System Health Monitor
+Description=LawnBerry Pi System Health Monitor
 Documentation=https://github.com/acredsfan/lawnberry_pi
 After=lawnberry-backend.service
 Wants=lawnberry-backend.service
 
 [Service]
 Type=simple
-User=pi
-Group=pi
-WorkingDirectory=/apps/lawnberry-pi
-Environment=PYTHONPATH=/apps/lawnberry-pi
+User=@LB_USER@
+Group=@LB_GROUP@
+WorkingDirectory=@LB_ROOT@
+Environment=PYTHONPATH=@LB_ROOT@
 
 # Health monitoring script
 ExecStart=/bin/bash -c 'while true; do \
@@ -27,7 +27,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=false
 ProtectSystem=strict
-ReadWritePaths=/apps/lawnberry-pi/logs
+ReadWritePaths=@LB_ROOT@/logs
 
 # Resource limits
 LimitNOFILE=64

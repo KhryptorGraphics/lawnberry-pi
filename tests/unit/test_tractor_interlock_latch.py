@@ -19,8 +19,8 @@ from backend.src.safety.estop_handler import EstopHandler
 from backend.src.safety.motor_authorization import MotorAuthorization
 from backend.src.safety.safety_triggers import SafetyTriggerManager
 from backend.src.safety.tractor_safety_monitor import TractorSafetyMonitor
-from backend.src.safety.watchdog import Watchdog
-from backend.src.services.navigation_service import NavigationService
+from backend.src.safety.watchdog import SAFETY_MONITOR_SOURCE, Watchdog
+from backend.src.services.navigation_service import LegResult, NavigationService
 from backend.src.services.tractor_service import TractorControlService
 
 
@@ -46,7 +46,11 @@ class Imu:
 
 
 def _monitor(tractor: TractorControlService, imu: Imu) -> TractorSafetyMonitor:
-    wd = Watchdog(EstopHandler(MotorAuthorization()), timeout_ms=60_000)
+    wd = Watchdog(
+        EstopHandler(MotorAuthorization()),
+        timeout_ms=60_000,
+        required_sources=(SAFETY_MONITOR_SOURCE,),
+    )
     return TractorSafetyMonitor(
         tractor,
         wd,
@@ -194,7 +198,10 @@ async def test_navigation_loop_does_not_reengage_the_blade_after_a_tilt(monkeypa
         await asyncio.sleep(1.0)  # five more navigation ticks, each re-sending blade_on=True
         assert svc.state.blade_engaged is False, "navigation re-engaged the blade while tilted"
         assert svc.blade_pto.state is False
-        assert svc.state.moving is True, "the mission loop is still commanding the drive"
+        # The tilt latch is a safety stop (audit SAF-01): it ENDS the run instead of letting
+        # the loop go on driving without the blade, and a later clear cannot revive it.
+        assert mission.done() and mission.result() is LegResult.STOPPED
+        assert svc.state.moving is False, "a tilt latch must not leave the drive running"
     finally:
         mission.cancel()
         await asyncio.gather(mission, return_exceptions=True)

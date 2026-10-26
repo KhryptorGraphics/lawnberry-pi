@@ -30,10 +30,23 @@ class MissionService:
         self.mission_statuses[mission.id] = MissionStatus(mission_id=mission.id, status="idle")
         return mission
 
+    async def _await_previous_run(self, mission_id: str) -> None:
+        """A mission never starts over a run of itself that is still ending (two loops would fight).
+
+        A run that was paused or aborted ends by itself at its next control tick (it is never
+        cancelled, audit NAV-02); a new run for the same mission waits for that, bounded.
+        """
+        task = self.mission_tasks.get(mission_id)
+        if task is None or task.done():
+            return
+        if not await self.nav_service.await_unwind(task):
+            raise ValueError("The previous run of this mission has not ended yet.")
+
     async def start_mission(self, mission_id: str):
         if mission_id not in self.missions:
             raise ValueError("Mission not found.")
 
+        await self._await_previous_run(mission_id)
         mission = self.missions[mission_id]
         self.mission_statuses[mission_id] = MissionStatus(
             mission_id=mission.id, status="running", current_waypoint_index=0
@@ -58,7 +71,9 @@ class MissionService:
                 self.mission_statuses[mid].status = "failed"
                 print(f"Mission {mid} failed: {e}")
             finally:
-                del self.mission_tasks[mid]
+                # Only this task's own entry: a run started over it (after a pause) is another task
+                if self.mission_tasks.get(mid) is task:
+                    del self.mission_tasks[mid]
 
         return callback
 
@@ -79,6 +94,11 @@ class MissionService:
             or self.mission_statuses[mission_id].status != "paused"
         ):
             raise ValueError("Mission is not paused or does not exist.")
+        # The paused run ends by itself at its next tick; its successor starts after it, not beside
+        # it
+        await self._await_previous_run(mission_id)
+        if self.mission_statuses[mission_id].status != "paused":
+            raise ValueError("Mission is not paused or does not exist.")
         self.mission_statuses[mission_id].status = "running"
 
         # The navigation service's execute_mission loop will continue
@@ -92,13 +112,43 @@ class MissionService:
         task.add_done_callback(self._mission_completed_callback(mission_id))
 
     async def abort_mission(self, mission_id: str):
+        """End a mission now: the platform stops at once and the run is never cancelled.
+
+        The status becomes ``aborted``, which the run's loop reads at the top of its next tick
+        (it stands the platform down itself and returns). The task is NOT cancelled (audit
+        NAV-02): a cancel mid-write releases the actuation lock with the transfer still on the bus,
+        and that transfer can land after the stop's neutral. So: stop the platform now (the loop's
+        last command may still be in force), wait for the loop to END (bounded by
+        ``ABORT_UNWIND_TIMEOUT_S``), and stop once more: after the loop has ended nothing of it can
+        command anything, so that stop is the last word.
+        """
         if mission_id not in self.mission_statuses:
             raise ValueError("Mission not found.")
         self.mission_statuses[mission_id].status = "aborted"
-        if mission_id in self.mission_tasks:
-            self.mission_tasks[mission_id].cancel()
-            del self.mission_tasks[mission_id]
+        task = self.mission_tasks.get(mission_id)
         await self.nav_service.stop_navigation()
+        if task is not None:
+            await self.nav_service.await_unwind(task)
+            await self.nav_service.stop_navigation()
+            if task.done() and self.mission_tasks.get(mission_id) is task:
+                del self.mission_tasks[mission_id]  # a run that is still ending stays tracked
+
+    def abort_all(self, reason: str) -> list[str]:
+        """End every running or paused mission now (audit SAF-01); never raises.
+
+        Synchronous and cooperative: the status becomes ``aborted``, which ``execute_mission``
+        and ``go_to_waypoint`` read at the top of every tick, so each loop ends at its very
+        next check and a later clear of a latch cannot resume it. No task is cancelled (one
+        cancelled in the middle of an actuator write releases the lock with the write still on
+        the bus) and no actuator is commanded: the stop that calls this owns the outputs.
+        Returns the ids of the missions that were ended; ``reason`` is for the caller's log.
+        """
+        ended: list[str] = []
+        for mission_id, status in list(self.mission_statuses.items()):
+            if status.status in ("running", "paused"):
+                status.status = "aborted"
+                ended.append(mission_id)
+        return ended
 
     async def get_mission_status(self, mission_id: str) -> MissionStatus:
         if mission_id not in self.mission_statuses:

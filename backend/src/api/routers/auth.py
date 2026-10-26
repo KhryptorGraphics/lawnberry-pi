@@ -1,32 +1,68 @@
-import base64
-import hashlib
-import json
+"""Operator login, token refresh/logout and the manual-control unlock.
+
+Authority model (see ``docs/authentication-config.md``):
+
+* ``POST /auth/login`` exchanges the one shared operator credential for a bearer token. That
+  token is the ONLY credential ``api.deps.require_operator_auth`` accepts.
+* ``POST /control/manual-unlock`` is a step-up: it requires that bearer token AND the credential
+  again (the bcrypt ``password_hash`` of the security settings, else ``MANUAL_CONTROL_PASSWORD``,
+  else the operator credential), and mints a random manual-control session id. That id is an
+  additional factor the drive and blade routes check in the request body; it is not an operator
+  credential. Nothing is minted for an unverified identity: Cloudflare Access assertions are
+  not accepted (they were decoded but never verified, so any header value unlocked control).
+"""
+
+import functools
+import hmac
 import logging
 import os
-import uuid
+import secrets
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
-import bcrypt
 import pyotp
-from fastapi import APIRouter, HTTPException, Request, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, status
 from pydantic import BaseModel
 
+from ...core.auth_posture import operator_auth_required, sim_open_auth_enabled
 from ...core.globals import _manual_control_sessions, _security_settings
+from ...core.peer_address import (
+    client_host,
+    is_loopback_address,
+    is_trusted_proxy_peer,
+    peer_key,
+    request_peer_key,
+)
+from ...core.ws_policy import (
+    ANON_ANY,
+    ANON_LOOPBACK,
+    REFUSAL_LOG_INTERVAL_S,
+    WsLimitError,
+    WsSlot,
+    anonymous_telemetry_mode,
+    ws_registry,
+)
+from ...middleware.security import _default_allowed_origins
 from ...models.auth_security_config import SecurityLevel
-from ...models.user_session import UserSession
-from ...services.auth_service import AuthenticationError, primary_auth_service
+from ...models.user_session import Permission, UserRole, UserSession
+from ...services.auth_service import AuthenticationError, primary_auth_service, run_password_check
+from ..deps import require_operator_auth
 from .settings import get_security_level
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Security settings (auth levels, MFA options)
-# This was in rest.py as _security_settings.
-# I should probably move this to a service or keep it here if it's only used here.
-# It is used in manual unlock logic.
-# Security settings (auth levels, MFA options)
-# Imported from globals.py
+# At most this many manual-control sessions are live at once; the soonest to expire makes room.
+MANUAL_SESSION_LIMIT = 64
+# What the auth-disabled unlock hands back (nothing resolves it: with auth off, any id passes).
+AUTH_DISABLED_SESSION_ID = "manual-auth-disabled"
+CLOUDFLARE_UNSUPPORTED = (
+    "Cloudflare Access assertions are not verified by this backend, so they cannot unlock "
+    "manual control; unlock with the operator password"
+)
 
 
 # Models
@@ -86,70 +122,45 @@ class RefreshResponse(BaseModel):
 
 
 # Helpers
-def _decode_jwt_payload(token: str) -> dict[str, Any]:
-    try:
-        parts = token.split(".")
-        if len(parts) < 2:
-            return {}
-        payload_segment = parts[1]
-        padding = "=" * ((4 - len(payload_segment) % 4) % 4)
-        decoded = base64.urlsafe_b64decode((payload_segment + padding).encode("utf-8"))
-        data = json.loads(decoded.decode("utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _manual_session_expiry(
-    default_minutes: int | None = None, token_payload: dict[str, Any] | None = None
-) -> datetime:
-    now = datetime.now(UTC)
-    if token_payload and isinstance(token_payload.get("exp"), (int, float)):
-        try:
-            exp = datetime.fromtimestamp(float(token_payload["exp"]), tz=UTC)
-            if exp > now:
-                return exp
-        except Exception:
-            pass
+def _manual_session_expiry(default_minutes: int | None = None) -> datetime:
     minutes = default_minutes or 60
     try:
         minutes = int(minutes)
     except Exception:
         minutes = 60
-    return now + timedelta(minutes=max(1, minutes))
+    return datetime.now(UTC) + timedelta(minutes=max(1, minutes))
 
 
-def _manual_session_key(seed: str) -> str:
-    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
-    return f"manual-{digest[:16]}"
+def _issue_manual_session(expires_at: datetime, principal: str | None) -> dict[str, Any]:
+    """Mint a manual-control session whose id is random, not derived from any secret.
 
-
-def _store_manual_session(seed: str, expires_at: datetime, principal: str | None) -> dict[str, Any]:
-    # Garbage collect expired sessions first
+    The id used to be ``sha256`` of the unlocking password (and peer address) or of the
+    Cloudflare token: anyone who saw an id (the camera stream URL carries it, so it reaches
+    access logs) could test password guesses against it offline.
+    """
     now = datetime.now(UTC)
-    for key in list(_manual_control_sessions.keys()):
-        if _manual_control_sessions[key]["expires_at"] <= now:
-            _manual_control_sessions.pop(key, None)
+    for key in [k for k, v in _manual_control_sessions.items() if v["expires_at"] <= now]:
+        _manual_control_sessions.pop(key, None)
+    while len(_manual_control_sessions) >= MANUAL_SESSION_LIMIT:
+        soonest = min(
+            _manual_control_sessions, key=lambda k: _manual_control_sessions[k]["expires_at"]
+        )
+        _manual_control_sessions.pop(soonest, None)
 
-    entry = _manual_control_sessions.get(seed)
-    if entry:
-        entry["expires_at"] = expires_at
-        if principal:
-            entry["principal"] = principal
-        return entry
-
-    session_id = _manual_session_key(seed)
-    entry = {
-        "session_id": session_id,
-        "expires_at": expires_at,
-        "principal": principal,
-    }
-    _manual_control_sessions[seed] = entry
+    session_id = f"manual-{secrets.token_urlsafe(24)}"
+    entry = {"session_id": session_id, "expires_at": expires_at, "principal": principal}
+    _manual_control_sessions[session_id] = entry
     return entry
 
 
+def _auth_disabled_unlock() -> tuple[str, str]:
+    """Session id and expiry handed back while ``OPERATOR_AUTH_REQUIRED`` is off."""
+    timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
+    return AUTH_DISABLED_SESSION_ID, _manual_session_expiry(timeout_minutes).isoformat()
+
+
 def _resolve_manual_session(session_id: str | None) -> dict[str, Any]:
-    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
+    if not operator_auth_required():
         return {"principal": "operator", "session_id": "auth-disabled"}
 
     token = (session_id or "").strip()
@@ -159,17 +170,17 @@ def _resolve_manual_session(session_id: str | None) -> dict[str, Any]:
     now = datetime.now(UTC)
     matched_entry: dict[str, Any] | None = None
     expired: list[str] = []
-    for seed, entry in _manual_control_sessions.items():
+    wanted = token.encode("utf-8")
+    for key, entry in _manual_control_sessions.items():
         expires_at: datetime = entry.get("expires_at", now)
         if expires_at <= now:
-            expired.append(seed)
+            expired.append(key)
             continue
-        if entry.get("session_id") == token:
+        if secrets.compare_digest(str(entry.get("session_id", "")).encode("utf-8"), wanted):
             matched_entry = entry
-            break
 
-    for seed in expired:
-        _manual_control_sessions.pop(seed, None)
+    for key in expired:
+        _manual_control_sessions.pop(key, None)
 
     if matched_entry is None:
         raise HTTPException(
@@ -180,46 +191,104 @@ def _resolve_manual_session(session_id: str | None) -> dict[str, Any]:
 
 
 def _manual_unlock_principal(request: Request, method: str) -> str:
-    host = None
     try:
-        client = getattr(request, "client", None)
-        if client is not None:
-            host = getattr(client, "host", None)
+        host = client_host(request)  # the real client behind a trusted proxy, else the peer
     except Exception:
         host = None
     host_str = str(host).strip() if host else ""
     return f"{method}:{host_str}" if host_str else method
 
 
-def _validate_manual_password(password: str | None) -> str:
-    pwd = (password or "").strip()
-    required = bool(
-        _security_settings.password_required()
-        or _security_settings.password_hash
-        or os.getenv("MANUAL_CONTROL_PASSWORD")
-    )
-    if required and not pwd:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, detail="Password required for manual unlock"
-        )
-    if not pwd:
-        return pwd
+async def _manual_password_matches(pwd: str) -> bool:
+    """Compare ``pwd`` with the first usable manual-unlock secret; ``False`` if none matches.
+
+    In order: the bcrypt ``password_hash`` of the security settings, ``MANUAL_CONTROL_PASSWORD``
+    (constant-time compare), else the shared operator credential. With none usable (no
+    credential configured, or only a published default) nothing matches. bcrypt runs on the
+    hash pool, never on the event loop.
+    """
     if _security_settings.password_hash:
         try:
-            if not bcrypt.checkpw(
-                pwd.encode("utf-8"), _security_settings.password_hash.encode("utf-8")
-            ):
-                raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+            return await run_password_check(
+                primary_auth_service.password_manager.matches,
+                pwd,
+                _security_settings.password_hash,
+            )
         except ValueError as exc:
             logger.error("Invalid password hash configuration: %s", exc)
             raise HTTPException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Password configuration invalid"
             ) from exc
-    else:
-        fallback = os.getenv("MANUAL_CONTROL_PASSWORD")
-        if fallback and pwd != fallback:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+    fallback = os.getenv("MANUAL_CONTROL_PASSWORD")
+    if fallback:
+        return hmac.compare_digest(pwd.encode("utf-8"), fallback.encode("utf-8"))
+    return await primary_auth_service.verify_operator_credential(pwd)
+
+
+async def _validate_manual_password(password: str | None) -> str:
+    """Check the password of a manual unlock; never fail open.
+
+    A blank password is a 400 and a wrong one a 401. (The caller wraps this in the per-peer
+    unlock throttle, so a wrong guess counts.)
+    """
+    pwd = (password or "").strip()
+    if not pwd:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="Password required for manual unlock"
+        )
+    if not await _manual_password_matches(pwd):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
     return pwd
+
+
+async def _throttled_unlock(request: Request, check: Callable[[], Awaitable[Any]]) -> Any:
+    """Run ``check`` under the per-peer unlock throttle (same limiter, separate key, as login).
+
+    The unlock is a second place to guess the operator credential, so it gets the same
+    attempt-rate limit and failure lockout as the login, keyed on the TCP peer, and an IPv6
+    client the same coarse /64 lockout (``AuthService.group_limiter``, also under its own
+    ``unlock:`` key: a LAN host rotating its own addresses must not get a fresh guess per
+    address). Only a 401 (a wrong secret) counts as a failure.
+    """
+    limiter = primary_auth_service.rate_limiter
+    host = client_host(request)
+    key = f"unlock:{peer_key(host)}"
+    group_limiter = primary_auth_service.group_limiter
+    group = primary_auth_service.group_key(host)
+    group_key = f"unlock:{group}" if group is not None else None
+    try:
+        limiter.assert_not_locked(key)
+        if group_key is not None:
+            group_limiter.assert_not_locked(group_key)
+        retry_after = limiter.record_attempt(key)
+        if retry_after is not None:
+            raise AuthenticationError(
+                "Too many authentication attempts", status_code=429, retry_after=retry_after
+            )
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail, headers=exc.headers
+        ) from exc
+
+    try:
+        result = await check()
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            started = [limiter.record_failure(key)]
+            if group_key is not None:
+                started.append(group_limiter.record_failure(group_key))
+            lockout = max((seconds for seconds in started if seconds is not None), default=None)
+            if lockout is not None:
+                headers = dict(exc.headers or {})
+                headers["Retry-After"] = str(lockout)
+                raise HTTPException(
+                    status_code=exc.status_code, detail=exc.detail, headers=headers
+                ) from exc
+        raise
+    limiter.reset(key)
+    if group_key is not None:
+        group_limiter.reset(group_key)
+    return result
 
 
 def _verify_totp_code(code: str | None) -> tuple[bool, bool]:
@@ -251,49 +320,10 @@ def _verify_totp_code(code: str | None) -> tuple[bool, bool]:
     return True, False
 
 
-def _extract_cloudflare_identity(
-    request: Request,
-) -> tuple[str | None, dict[str, Any], str | None]:
-    token = request.headers.get("CF-Access-Jwt-Assertion") or request.headers.get(
-        "cf-access-jwt-assertion"
-    )
-    if not token:
-        token = request.cookies.get("CF_Authorization")
-    payload = _decode_jwt_payload(token) if token else {}
-    email = (
-        request.headers.get("CF-Access-Authenticated-User-Email")
-        or request.headers.get("cf-access-authenticated-user-email")
-        or payload.get("email")
-        or payload.get("sub")
-    )
-    if email:
-        try:
-            email = str(email)
-        except Exception:
-            email = None
-    return token, payload, email
-
-
-def _client_identifier(request: Request) -> str | None:
-    header = request.headers.get("X-Client-Id")
-    if header:
-        return header
-    request_id = request.headers.get("X-Request-ID")
-    if request_id:
-        return f"request:{request_id}"
-    correlation = request.headers.get("X-Correlation-ID")
-    if correlation:
-        return f"correlation:{correlation}"
-    if os.getenv("SIM_MODE", "0") == "1":
-        return f"sim:{uuid.uuid4().hex}"
-    return None
-
-
 def _client_ip(request: Request) -> str | None:
-    client = request.client
-    if client and getattr(client, "host", None):
-        return str(client.host)
-    return None
+    """The client address for login throttling and the session record (proxy-aware)."""
+    host = client_host(request)
+    return str(host) if host else None
 
 
 def _extract_bearer_token(auth_header: str | None) -> str | None:
@@ -315,75 +345,305 @@ async def _require_session(request: Request) -> UserSession:
     return session
 
 
-async def _authorize_websocket(websocket: WebSocket) -> UserSession:
-    """Authorize websocket connections.
+# Single-use WebSocket tickets. A browser cannot set an Authorization header on a WebSocket
+# handshake, and the 8 hour login token must not travel in a URL (uvicorn logs the query
+# string), so the UI exchanges its bearer token for a 30 s, single-use ticket per connection.
+WS_TICKET_TTL_SECONDS = 30
+WS_TICKET_LIMIT = 256
+_ws_tickets: dict[str, dict[str, Any]] = {}
 
-    Priority:
-    1) Authorization: Bearer <token>
-    2) Query param: access_token/token/auth_token
-    3) Cloudflare Access assertion headers (when present)
-    4) Local development (localhost/127.0.0.1) and SIM_MODE
+
+class WsTicketResponse(BaseModel):
+    ticket: str
+    expires_in: int
+
+
+def _mint_ws_ticket(session_id: str) -> str:
+    now = datetime.now(UTC)
+    for key in [k for k, v in _ws_tickets.items() if v["expires_at"] <= now]:
+        _ws_tickets.pop(key, None)
+    while len(_ws_tickets) >= WS_TICKET_LIMIT:
+        _ws_tickets.pop(min(_ws_tickets, key=lambda k: _ws_tickets[k]["expires_at"]), None)
+    ticket = secrets.token_urlsafe(24)
+    expires_at = now + timedelta(seconds=WS_TICKET_TTL_SECONDS)
+    _ws_tickets[ticket] = {"session_id": session_id, "expires_at": expires_at}
+    return ticket
+
+
+async def _session_for_ws_ticket(ticket: str) -> UserSession | None:
+    """Redeem a ticket: the live login session it was minted for, else ``None``. Single use."""
+    entry = _ws_tickets.pop(ticket, None)  # popped first: a ticket can never be presented twice
+    if entry is None or entry["expires_at"] <= datetime.now(UTC):
+        return None
+    return await primary_auth_service.verify_session(entry["session_id"])
+
+
+def _peek_ws_ticket_session_id(ticket: str) -> str | None:
+    """The live session a ticket was minted for, WITHOUT redeeming it (``None``: not live).
+
+    For the handshake budget key only: a ticket that belongs to a live login is counted as that
+    login, anything else as the peer. Never consumes, never logs.
     """
-    # 1) Standard Bearer header
+    entry = _ws_tickets.get(ticket)
+    if entry is None or entry["expires_at"] <= datetime.now(UTC):
+        return None
+    session = primary_auth_service.active_sessions.get(entry["session_id"])
+    if session is None or session.is_expired():
+        return None
+    return str(entry["session_id"])
+
+
+def _ws_ticket_of(websocket: WebSocket) -> str | None:
+    """The ``?ticket=`` of a handshake, else ``None`` (never raises)."""
+    try:
+        getter = getattr(getattr(websocket, "query_params", None), "get", None)
+        ticket = getter("ticket") if callable(getter) else None
+    except Exception:
+        return None
+    return str(ticket) if ticket else None
+
+
+def _anonymous_session(client_ip: str | None, user_agent: str | None) -> UserSession:
+    """The throw-away, read-only identity of an anonymous socket (never stored anywhere)."""
+    session = UserSession(client_ip=client_ip, user_agent=user_agent)
+    session.security_context.role = UserRole.VIEWER
+    session.security_context.permissions = [Permission.VIEW_STATUS, Permission.VIEW_TELEMETRY]
+    return session
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
+
+
+def _origin_parts(value: str) -> tuple[str, str, int | None] | None:
+    """``(scheme, host, port)`` of an ``Origin`` value (default ports filled in), else ``None``."""
+    try:
+        parts = urlsplit(value.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.scheme or not parts.hostname:
+        return None
+    scheme = parts.scheme.lower()
+    return scheme, parts.hostname.lower(), port or _DEFAULT_PORTS.get(scheme)
+
+
+def _host_parts(value: str, scheme: str) -> tuple[str, int | None] | None:
+    """``(host, port)`` of a ``Host`` / ``X-Forwarded-Host`` value, the port defaulted by scheme."""
+    try:
+        parts = urlsplit("//" + value.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.hostname:
+        return None
+    return parts.hostname.lower(), port or _DEFAULT_PORTS.get(scheme)
+
+
+def _origin_allowed(websocket: WebSocket) -> bool:
+    """May a browser page at this ``Origin`` open an ANONYMOUS socket? (CORS does not cover WS.)
+
+    No ``Origin`` header means not a browser (a script, curl): allowed here, the other rules still
+    apply. A browser always sends it, and a page the operator opened in the browser that sits on
+    the mower (or on the LAN) must not be able to read the live stream cross-origin. Accepted:
+    an origin on the CORS allow-list (``LAWN_BERRY_ALLOWED_ORIGINS``, default the UI's own), or
+    the page's own origin, i.e. its host:port is the ``Host`` of the request (or the
+    ``X-Forwarded-Host`` a declared forwarder set: the UI server rewrites ``Host`` to the
+    backend's). ``Origin: null`` and anything unparseable is refused.
+    """
+    origin = websocket.headers.get("origin")
+    if origin is None:
+        return True
+    parsed = _origin_parts(origin)
+    if parsed is None:
+        return False
+    if any(_origin_parts(allowed) == parsed for allowed in _default_allowed_origins()):
+        return True
+    scheme, host, port = parsed
+    hosts = [websocket.headers.get("host")]
+    if is_trusted_proxy_peer(websocket):
+        forwarded = websocket.headers.get("x-forwarded-host")
+        hosts.append(forwarded.split(",")[-1] if forwarded else None)
+    return any(h and _host_parts(h, scheme) == (host, port) for h in hosts)
+
+
+async def _admit(websocket: WebSocket, *, command_capable: bool) -> tuple[UserSession, bool]:
+    """The admission decision: ``(session, anonymous)``, or raise 401. See ``admit_websocket``.
+
+    A bad credential is checked QUIETLY (no WARNING per attempt, ``verify_token(quiet=True)``):
+    the refusal is one line per peer per minute, written by ``admit_websocket``.
+    """
     token = _extract_bearer_token(websocket.headers.get("Authorization"))
-
-    # 2) Query param fallbacks used by browsers that cannot set custom headers in WS
-    if not token:
-        try:
-            qp = getattr(websocket, "query_params", None)
-            if qp is not None:
-                getter = getattr(qp, "get", None)
-                if callable(getter):
-                    token = getter("access_token") or getter("token") or getter("auth_token")
-        except Exception:
-            token = None
-
     if token:
-        session = await primary_auth_service.verify_token(token)
+        session = await primary_auth_service.verify_token(token, quiet=True)
         if not session:
             raise HTTPException(status_code=401, detail="Unauthorized")
-        return session
+        return session, False
 
-    # 3) Cloudflare Access: trust Access assertion when Zero Trust policy already enforced at edge
-    try:
-        cf_assert = websocket.headers.get("CF-Access-Jwt-Assertion") or websocket.headers.get(
-            "cf-access-jwt-assertion"
-        )
-    except Exception:
-        cf_assert = None
-    if cf_assert:
-        # Create an operator session bound to the connecting IP as a best-effort identity
-        client = websocket.client
-        client_ip = (
-            (client[0] if isinstance(client, (list, tuple)) else getattr(client, "host", None))
-            if client is not None
-            else None
-        )
-        return UserSession.create_operator_session(
-            client_ip=str(client_ip) if client_ip else None,
-            user_agent=websocket.headers.get("User-Agent"),
-        )
+    ticket = _ws_ticket_of(websocket)
+    if ticket:
+        session = await _session_for_ws_ticket(ticket)
+        if session is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return session, False
 
-    # 4) Local dev and SIM_MODE safe path
-    client = websocket.client
-    if client is not None:
-        host = (
-            client[0] if isinstance(client, (list, tuple)) else getattr(client, "host", None)
-        ) or ""
-    else:
-        host = websocket.headers.get("host", "")
-    host_lower = str(host).lower()
-    if (
-        host_lower.startswith("127.")
-        or host_lower in {"::1", "localhost", "testserver", "testclient"}
-        or os.getenv("SIM_MODE", "0") == "1"
-    ):
-        session = UserSession.create_operator_session(
-            client_ip=host_lower or None, user_agent=websocket.headers.get("User-Agent")
-        )
-        return session
-
+    # No credential from here on.
+    if command_capable and operator_auth_required():
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client_ip = client_host(websocket)
+    user_agent = websocket.headers.get("User-Agent")
+    if sim_open_auth_enabled():
+        # The explicit simulator opt-in (never in production): nothing is enforced anywhere, the
+        # sockets follow. Switching OPERATOR_AUTH_REQUIRED off does NOT open the sockets: the
+        # anonymous streams below stay a separate, explicit opt-in.
+        return UserSession.create_operator_session(client_ip, user_agent), False
+    mode = anonymous_telemetry_mode()
+    if mode == ANON_ANY or (mode == ANON_LOOPBACK and is_loopback_address(client_ip)):
+        if _origin_allowed(websocket):
+            return _anonymous_session(client_ip, user_agent), True
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+async def _authorize_websocket(
+    websocket: WebSocket, *, command_capable: bool = False
+) -> UserSession:
+    """Who may open this socket (the policy only; ``admit_websocket`` also takes a slot).
+
+    A credential is honoured on every path: ``Authorization: Bearer <login token>`` (non-browser
+    clients) or a single-use ``?ticket=`` from ``POST /auth/ws-ticket`` (browsers). A presented
+    but invalid credential is always refused, whoever the peer is. The login token in a query
+    string (``access_token``/``token``/``auth_token``) is not read at all.
+
+    With no credential NO peer is admitted, the loopback included: a browser on the mower used to
+    count as "loopback", but every ingress the product ships (a Cloudflare or ngrok agent on the
+    Pi, nginx) reaches the backend from a loopback address, so remote visitors looked exactly like
+    the local browser. The exceptions, all explicit:
+
+    * the simulator opt-in (``SIM_MODE=1`` AND ``LAWN_BERRY_SIM_OPEN_AUTH=1``, never in
+      production): nothing is enforced anywhere, so the sockets follow. Switching operator
+      authentication off (``OPERATOR_AUTH_REQUIRED=0``; CRITICAL at start-up) is NOT the same
+      thing and does NOT open the sockets: it only stops the HTTP routes asking for a bearer, a
+      socket with no credential is refused exactly as before;
+    * ``LAWN_BERRY_ANONYMOUS_TELEMETRY=loopback|any`` (``core/ws_policy.py``): the read-only
+      streams, never ``/ws/control`` while auth is on, for loopback clients or everybody, and
+      only for a page whose ``Origin`` is allowed (``_origin_allowed``).
+
+    "Client" is :func:`core.peer_address.client_host`: the TCP peer, or the address a DECLARED
+    forwarder recorded; never a header from an undeclared peer.
+
+    No WebSocket handler changes mower state (``/ws/control`` only acknowledges), so an
+    anonymous connection could not actuate anything even where one is admitted.
+
+    A ``CF-Access-Jwt-Assertion`` header is deliberately NOT a credential: it was accepted
+    without any verification, so any client could name itself an operator.
+    """
+    return (await _admit(websocket, command_capable=command_capable))[0]
+
+
+@dataclass(eq=False)
+class WsAdmission:
+    """An admitted socket: who it is, whether it is anonymous, and its place in the budget."""
+
+    session: UserSession
+    slot: WsSlot
+    anonymous: bool
+
+
+async def _end_session_sockets(session_id: str, reason: str) -> None:
+    """Termination listener: a login that ends takes its open WebSockets with it (SEC3-07)."""
+    closed = await ws_registry.close_session(session_id)
+    if closed:
+        logger.info("WebSocket: %d socket(s) closed with their session (%s)", closed, reason)
+
+
+def _handshake_key(websocket: WebSocket, peer: str) -> str:
+    """Whose handshake budget this handshake spends: the live login session of the credential
+    it presents, else its peer.
+
+    The HTTP limiter's rule exactly (``middleware/rate_limiting.py::limiter_client_key``): junk
+    from an address the operator shares (every visitor behind an undeclared forwarder is one
+    address) can empty its own bucket and never the operator's, and a client cannot choose the
+    key (a session id sits inside a signed token, a ticket is a 192-bit secret). The credential
+    is only LOOKED AT here, silently: a ticket is not redeemed, nothing is logged and an expired
+    session is not terminated (``_admit`` does all of that, after the budget).
+    """
+    token = _extract_bearer_token(websocket.headers.get("Authorization"))
+    if token:
+        session = primary_auth_service.peek_session(token)
+        return f"session:{session.session_id}" if session is not None else peer
+    ticket = _ws_ticket_of(websocket)
+    session_id = _peek_ws_ticket_session_id(ticket) if ticket else None
+    return f"session:{session_id}" if session_id else peer
+
+
+def _log_refusal(peer: str, why: str) -> None:
+    """One WARNING per peer per minute for the handshakes refused, saying how many it stands for
+    (``ws_policy.RefusalLog``: a flood of junk handshakes must not be a flood of journal lines)."""
+    stands_for = ws_registry.refusals.note(peer)
+    if stands_for is not None:
+        logger.warning(
+            "WebSocket handshake refused for %s: %s (%d refusal(s) since the last line; at most "
+            "one line per peer per %d s)",
+            peer,
+            why,
+            stands_for,
+            int(REFUSAL_LOG_INTERVAL_S),
+        )
+
+
+async def admit_websocket(websocket: WebSocket, *, command_capable: bool = False) -> WsAdmission:
+    """Authorize the socket AND take a slot in the connection budget (``core/ws_policy.py``).
+
+    In this order: (1) the handshake budget, BEFORE any credential is parsed or verified: 429 +
+    ``Retry-After`` when the bucket of this login session (or, for a credential that is not a
+    live login, this peer) is empty; (2) the policy (``_admit``): 401 for no or a bad
+    credential; (3) the connection budget: 503 + ``Retry-After`` when too many sockets are open
+    overall, for this login session or, for anonymous ones, for this client. Every refusal is
+    logged at most once per peer per minute.
+
+    A socket admitted with a stored login session is BOUND to it: the session's end (logout,
+    expiry, credential change) closes the socket with 1008, and an expiry timer re-checks the
+    session at its deadline (module docstring of ``core/ws_policy.py``). The handler MUST hand
+    the slot back (``ws_registry.release(admission.slot)``) in its ``finally``.
+    """
+    peer = request_peer_key(websocket)
+    retry_after = ws_registry.check_handshake(_handshake_key(websocket, peer))
+    if retry_after is not None:
+        _log_refusal(peer, "handshake rate limit")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many WebSocket handshakes",
+            headers={"Retry-After": str(retry_after)},
+        )
+    try:
+        session, anonymous = await _admit(websocket, command_capable=command_capable)
+    except HTTPException as exc:
+        _log_refusal(peer, f"{exc.status_code} {exc.detail}")
+        raise
+    # Bound = a stored login (the simulator opt-in's throw-away session is not in the store,
+    # and has no login to end; an anonymous socket has none either).
+    bound = (
+        not anonymous and primary_auth_service.active_sessions.get(session.session_id) is session
+    )
+    try:
+        slot = ws_registry.acquire(
+            session_id=session.session_id,
+            peer=peer,
+            anonymous=anonymous,
+            websocket=websocket if bound else None,
+        )
+    except WsLimitError as exc:
+        _log_refusal(peer, str(exc))
+        raise HTTPException(
+            status_code=503, detail="Too many WebSocket connections", headers={"Retry-After": "5"}
+        ) from exc
+    if bound:
+        # The service that admitted the socket is the one that must end it (whichever instance
+        # that is: tests swap the module's service), so the listener is added here, not at import.
+        primary_auth_service.add_termination_listener(_end_session_sockets)
+        ws_registry.watch_expiry(
+            slot, functools.partial(primary_auth_service.session_seconds_left, session.session_id)
+        )
+    return WsAdmission(session=session, slot=slot, anonymous=anonymous)
 
 
 # Endpoints
@@ -402,7 +662,6 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
     try:
         result = await primary_auth_service.authenticate(
             credential or "",
-            client_identifier=_client_identifier(request),
             client_ip=_client_ip(request),
             user_agent=request.headers.get("User-Agent"),
         )
@@ -460,48 +719,61 @@ async def auth_profile(request: Request):
     )
 
 
-@router.get("/control/manual-unlock/status", response_model=ManualUnlockStatusResponse)
-async def manual_unlock_status(request: Request):
-    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
-        expires_at = _manual_session_expiry(timeout_minutes)
-        session_entry = _store_manual_session("auth-disabled", expires_at, "operator")
-        return ManualUnlockStatusResponse(
-            authorized=True,
-            session_id=session_entry["session_id"],
-            expires_at=session_entry["expires_at"].isoformat(),
-            principal=session_entry.get("principal"),
-        )
+@router.post(
+    "/auth/ws-ticket",
+    response_model=WsTicketResponse,
+    dependencies=[Depends(require_operator_auth)],
+)
+async def auth_ws_ticket(request: Request):
+    """A 30 s single-use ticket for one WebSocket connection (``?ticket=``).
 
-    token, payload, principal = _extract_cloudflare_identity(request)
-    if not token:
-        return ManualUnlockStatusResponse(
-            authorized=False,
-            reason="missing_cloudflare_token",
-        )
-
-    timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
-    expires_at = _manual_session_expiry(timeout_minutes, payload)
-    session_entry = _store_manual_session(token, expires_at, principal)
-    return ManualUnlockStatusResponse(
-        authorized=True,
-        session_id=session_entry["session_id"],
-        expires_at=session_entry["expires_at"].isoformat(),
-        principal=session_entry.get("principal"),
+    Verifies the bearer token itself, so it answers 401 without a login whatever
+    ``OPERATOR_AUTH_REQUIRED`` says. Fetch a fresh ticket for every (re)connect.
+    """
+    session = await _require_session(request)
+    return WsTicketResponse(
+        ticket=_mint_ws_ticket(session.session_id), expires_in=WS_TICKET_TTL_SECONDS
     )
 
 
-@router.post("/control/manual-unlock", response_model=ManualUnlockResponse)
+@router.get("/control/manual-unlock/status", response_model=ManualUnlockStatusResponse)
+async def manual_unlock_status():
+    """Cloudflare-gate probe of the Control view.
+
+    With operator auth disabled it approves, as the unlock does. With auth enforced it never
+    authorizes: the Cloudflare Access assertion it used to trust was decoded but not verified
+    (any header value passed), and verifying it needs the Access issuer, audience and signing
+    keys plus an RS256 implementation that this deployment does not carry.
+    """
+    if not operator_auth_required():
+        session_id, expires_at = _auth_disabled_unlock()
+        return ManualUnlockStatusResponse(
+            authorized=True,
+            session_id=session_id,
+            expires_at=expires_at,
+            principal="operator",
+        )
+    return ManualUnlockStatusResponse(authorized=False, reason="cloudflare_access_not_verified")
+
+
+@router.post(
+    "/control/manual-unlock",
+    response_model=ManualUnlockResponse,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def manual_unlock(request: Request, body: ManualUnlockRequest):
-    if os.getenv("OPERATOR_AUTH_REQUIRED", "1") != "1":
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
-        expires_at = _manual_session_expiry(timeout_minutes)
-        session_entry = _store_manual_session("auth-disabled", expires_at, "operator")
+    """Step-up unlock of manual control for an already logged-in operator.
+
+    Needs the operator's bearer token (``require_operator_auth``) and, in the body, the
+    credential again. Wrong credentials are throttled per TCP peer exactly like the login.
+    """
+    if not operator_auth_required():
+        session_id, expires_at = _auth_disabled_unlock()
         return ManualUnlockResponse(
             authorized=True,
-            session_id=session_entry["session_id"],
-            expires_at=session_entry["expires_at"].isoformat(),
-            principal=session_entry.get("principal"),
+            session_id=session_id,
+            expires_at=expires_at,
+            principal="operator",
             source="auth_disabled",
         )
 
@@ -517,32 +789,17 @@ async def manual_unlock(request: Request, body: ManualUnlockRequest):
         else:
             method = "password"
     if method in {"cloudflare", "cloudflare_tunnel_auth", "tunnel"}:
-        token, payload, principal = _extract_cloudflare_identity(request)
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Cloudflare Access token missing",
-            )
-
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
-        expires_at = _manual_session_expiry(timeout_minutes, payload)
-        session_entry = _store_manual_session(token, expires_at, principal)
-        return ManualUnlockResponse(
-            authorized=True,
-            session_id=session_entry["session_id"],
-            expires_at=session_entry["expires_at"].isoformat(),
-            principal=session_entry.get("principal"),
-            source="cloudflare_access",
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=CLOUDFLARE_UNSUPPORTED
         )
 
+    timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
+
     if method in {"password", "password_only"}:
-        password = _validate_manual_password(body.password)
+        await _throttled_unlock(request, lambda: _validate_manual_password(body.password))
         principal = _manual_unlock_principal(request, "password")
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
         expires_at = _manual_session_expiry(timeout_minutes)
-        seed_material = f"password:{principal}:{password}"
-        seed = f"password:{hashlib.sha256(seed_material.encode('utf-8')).hexdigest()}"
-        session_entry = _store_manual_session(seed, expires_at, principal)
+        session_entry = _issue_manual_session(expires_at, principal)
         logger.info("manual_control.unlock", extra={"method": "password", "principal": principal})
         return ManualUnlockResponse(
             authorized=True,
@@ -553,14 +810,16 @@ async def manual_unlock(request: Request, body: ManualUnlockRequest):
         )
 
     if method in {"totp", "password_totp"}:
-        totp_ok, backup_used = _verify_totp_code(body.totp_code)
-        password = _validate_manual_password(body.password)
+
+        async def _check_totp_and_password() -> tuple[bool, bool]:
+            totp_ok, backup_used = _verify_totp_code(body.totp_code)
+            await _validate_manual_password(body.password)
+            return totp_ok, backup_used
+
+        totp_ok, backup_used = await _throttled_unlock(request, _check_totp_and_password)
         principal = _manual_unlock_principal(request, "totp")
-        timeout_minutes = getattr(_security_settings, "session_timeout_minutes", 60)
         expires_at = _manual_session_expiry(timeout_minutes)
-        seed_material = f"totp:{principal}:{body.totp_code or ''}:{password}:{'backup' if backup_used else 'primary'}"  # noqa: E501
-        seed = f"totp:{hashlib.sha256(seed_material.encode('utf-8')).hexdigest()}"
-        session_entry = _store_manual_session(seed, expires_at, principal)
+        session_entry = _issue_manual_session(expires_at, principal)
         logger.info(
             "manual_control.unlock",
             extra={

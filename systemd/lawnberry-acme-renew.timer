@@ -3,8 +3,8 @@ Description=LawnBerry Pi ACME Certificate Renewal Timer
 Requires=lawnberry-acme-renew.service
 
 [Timer]
-# Run twice daily at 00:00 and 12:00
-OnCalendar=00:00,12:00
+# Run twice daily at 00:00 and 12:00 ("00:00,12:00" would be 00:00 and 00:12)
+OnCalendar=*-*-* 00,12:00:00
 # Run on boot after 10 minutes
 OnBootSec=10min
 # Add randomization to avoid load spikes

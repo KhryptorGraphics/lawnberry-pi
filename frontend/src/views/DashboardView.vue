@@ -116,6 +116,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { systemApi, telemetryApi, weatherApi, maintenanceApi } from '@/services/api'
+import { describeApiError } from '@/utils/apiErrors'
 import { useWebSocket } from '@/services/websocket'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useSystemStore } from '@/stores/system'
@@ -1006,6 +1007,7 @@ const runImuCalibration = async () => {
   if (calibrationPollHandle === null) {
     calibrationPollHandle = window.setInterval(refreshCalibrationStatus, 2000)
   }
+  let failure: string | null = null
   try {
     const result = await maintenanceApi.runImuCalibration()
     applyCalibrationResult(result)
@@ -1020,12 +1022,18 @@ const runImuCalibration = async () => {
       handleImuUnsupported()
       return
     }
-    const detail = error?.response?.data?.detail || error?.message || 'Calibration failed'
-    calibrationError.value = detail
-    addLogEntry(`IMU calibration failed: ${detail}`, 'error')
+    // POST /maintenance/imu/calibrate needs the operator Bearer: a 401 reads as the sign-in instruction.
+    // maintenanceApi turns a 404 into an Error flagged `unsupported` (it carries no response; its message is
+    // already operator text and must not become "no response from the backend").
+    failure = error?.unsupported ? String(error.message) : describeApiError(error, 'Calibration failed')
+    calibrationError.value = failure
+    addLogEntry(`IMU calibration failed: ${failure}`, 'error')
   } finally {
     if (imuSupported.value) {
       await refreshCalibrationStatus()
+      // A healthy status read clears calibrationError; the failure of the run itself has to outlive it,
+      // otherwise the operator would never get to read why the calibration did not start.
+      if (failure) calibrationError.value = failure
     } else {
       imuCalibrating.value = false
     }

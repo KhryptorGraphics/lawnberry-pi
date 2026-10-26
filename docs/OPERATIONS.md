@@ -1,11 +1,15 @@
-# LawnBerry Pi v2 - Operations Guide
+# LawnBerry Pi - Operations Guide
 
 This document summarizes common operational procedures and API references relevant to day-to-day use on Raspberry Pi OS (64-bit, Bookworm). All examples target Raspberry Pi 5 primarily, with Pi 4B compatibility noted where relevant.
 
 ## Services
 - Backend API (FastAPI/Uvicorn): port 8081
-- Web UI (Vite dev): port 3000 (proxy to /api → /api/v2)
+- Web UI: port 3000 (`frontend/server.mjs` in production, Vite dev in development; both proxy /api → /api/v2)
 - WebSocket: ws://127.0.0.1:8081/api/v2/ws/telemetry
+- Operator authentication is enforced (`OPERATOR_AUTH_REQUIRED=1` in the unit). Log in with
+  `POST /api/v2/auth/login` and send `Authorization: Bearer <token>` on operator writes. The
+  credential and the token-signing secret live in `<root>/.env` (mode 0600), provisioned by
+  `systemd/install_services.sh`; there is no built-in credential.
 
 ## TLS/HTTPS Operations
 
@@ -28,6 +32,9 @@ sudo systemctl start lawnberry-cert-renewal.service
 # Dry-run renewal test
 sudo certbot renew --dry-run
 
+# What the renewal job will read from .env (no root needed; nothing is changed)
+bash scripts/renew_certificates.sh --print-config
+
 # Backend health and metrics for TLS status
 curl -s http://127.0.0.1:8081/api/v2/health | jq '.subsystems.tls'
 curl -s http://127.0.0.1:8081/metrics | grep lawnberry_tls_cert_
@@ -38,6 +45,33 @@ Environment variables (set in `.env`):
 - `LETSENCRYPT_EMAIL` – contact email for Let’s Encrypt
 - `ALT_DOMAINS` – optional SANs (comma-separated), e.g., `www.example.com,api.example.com`
 - `CLOUDFLARE_API_TOKEN` – optional, for DNS-01 (wildcards or no port 80)
+
+The renewal job runs as **root**, but the checkout and its `.env` belong to the service account (the
+backend runs as that account and can write both). So the job never runs anything from the checkout
+and never executes `.env`:
+- `lawnberry-cert-renewal.service` runs only `/usr/local/sbin/lawnberry-renew-certificates.sh`, a
+  root-owned copy (`root:root`, 0755) that `systemd/install_services.sh` makes from
+  `scripts/renew_certificates.sh` on every run. **Run the installer again after changing the script.**
+  Until it has run, the unit is skipped (its `ConditionPathExists` is false), not failed.
+- From `.env` the job takes only `LB_DOMAIN` and `DOMAIN` (`LB_DOMAIN` wins), read as data by a strict
+  line parser: `KEY=value`, `KEY='value'` or `KEY="value"`, the last assignment of a key wins, no
+  `export ` prefix and no inline comments. The value must be a host name (letters, digits, dots and
+  hyphens, up to 253 characters, starting and ending with a letter or digit, no `..`); anything else
+  is ignored and logged as a warning that does not repeat it. A symbolic link or a file that is not a
+  regular file is not read, and only the first 32 KiB are. `LETSENCRYPT_EMAIL`, `ALT_DOMAINS`, the
+  ports and every other line are ignored by the job (`scripts/setup_lets_encrypt.sh` uses them).
+- `bash scripts/renew_certificates.sh --print-config` prints the `domain=` and `env_file=` that run
+  would use (from the checkout it is in: `<checkout>/.env`, which is what the installer puts in the
+  unit unless you installed with another `--root`) and changes nothing. The unit's own value is
+  in `systemctl show -p Environment lawnberry-cert-renewal.service`. A `LB_DOMAIN` in the job's
+  environment (`sudo systemctl edit lawnberry-cert-renewal`, then `Environment=LB_DOMAIN=...`) wins
+  over the file.
+- The unit's sandbox leaves `/etc` read-only except `/etc/lawnberry`, `/etc/nginx` and
+  `/etc/letsencrypt` (the self-signed fallback, the nginx configs it edits, certbot's state) and keeps
+  a checkout under `/home` readable (`ProtectHome=read-only`). The job cannot install packages:
+  install certbot first (`scripts/setup_lets_encrypt.sh` does). It cannot create `/etc/lawnberry`
+  either: `scripts/setup_https.sh` makes `/etc/lawnberry/certs/selfsigned`, and a run on a host
+  without it stops with an error that says so.
 
 ## Health & Status
 - GET http://127.0.0.1:8081/health → { status: "healthy" }
@@ -55,9 +89,14 @@ Environment variables (set in `.env`):
 
 ## Control
 - POST http://127.0.0.1:8081/api/v2/control/drive
-- POST http://127.0.0.1:8081/api/v2/control/blade
-- POST http://127.0.0.1:8081/api/v2/control/emergency-stop
-- POST http://127.0.0.1:8081/api/v2/control/emergency_clear → clear E-stop with confirmation
+- POST http://127.0.0.1:8081/api/v2/control/blade → IBT-4 blade. Body `{"active": true|false}` (a real JSON boolean; anything else is 422) or `{"action": "enable|on|start|disable|off|stop"}`. **Blade ON is a deadman**: repeat the ON about every `ibt4.deadman_ms / 3` (default 2000 ms window) or the blade is switched OFF and confirmed on the pads; every E-stop, tractor latch (tilt, watchdog), hold and park also switches it off, and an ON is refused unless the pads read off first. The answer carries `blade_state` (pads read back), `reason` when refused and `audit_logged: false` if only the audit write failed.
+  A blade ON also needs the manual-control `session_id` (`POST /control/manual-unlock`) whenever operator auth is on; an OFF never does. `{"command": "blade_enable|blade_disable"}` is accepted too (its answer also carries `blade_status`: ENABLED/DISABLED only when the pads confirm it, else UNKNOWN).
+- GET http://127.0.0.1:8081/api/v2/control/blade/status → the blade as the pads read now (`commanded`, `observed`, `pad`, `active`, `state_confirmed`, latch, `off_pending`, `deadman_remaining_ms`, `refusal`).
+- **Control page (Manual Control, Mowing Controls)**: while *Start Mowing* is on and the page is open, the page repeats the blade ON by itself every `ibt4.deadman_ms / 3` (never faster than 300 ms or slower than 5 s; the window comes from `GET /control/blade/status`, 2000 ms if that read fails). Before each repeat it reads the status and repeats only while the backend still has the blade `commanded: on`: a blade the backend dropped (deadman, E-stop from another client, tractor latch, obstacle or GNSS hold) is NOT restarted by a repeat; the page says *Blade stopped by the backend (<last_drop>)* and waits for a new *Start Mowing*. *Stop Mowing*, the E-stop button (its first statement, even if its request fails), the manual-control lock or session expiry, any failed repeat and leaving the page end the repeating (leaving also sends one best-effort OFF). A page hidden for minutes is throttled by the browser: the blade then drops by its deadman, never keeps running unattended. The repeat is two requests (status, ON) sharing the 8 requests/s limiter of `/control/blade`, so an `ibt4.deadman_ms` below about 900 cannot be kept alive from the page. An ON whose readback and rollback both fail is followed by an OFF the service itself keeps retrying (`off_pending` in the status) and no ON is accepted until it is confirmed.
+- Restarting the backend: `systemctl restart lawnberry-backend` (SIGTERM runs the lifespan shutdown that parks the actuators). The unit has no `reload`: SIGHUP makes uvicorn exit without that shutdown.
+- POST http://127.0.0.1:8081/api/v2/control/emergency-stop → software E-stop (alias of `/control/emergency`), unauthenticated by design. **Not a hardware stop**: it latches the software flag and drives every stop path that exists (tractor service, RoboHAT, IBT-4 blade service). Read the reply: `motors_stopped` / `blade_disabled` are `true` only when a real path confirmed the stop and none failed; `subsystems` gives each output's `stopped` / `simulated` / `unconfirmed` / `failed` / `not_present`. `unconfirmed` means the command was issued but its effect could not be verified (for example a driver that only sets a flag). There is no independent hardwired E-stop yet (audit H-08, D.1), and follow-up commands are blocked only for a short window after the stop (N-02), so use the physical means to stop the machine.
+- POST http://127.0.0.1:8081/api/v2/tractor/emergency-stop → Toro variant: PTO off, levers neutral, throttle idle; cleared by the authenticated `POST /api/v2/tractor/clear-emergency`
+- POST http://127.0.0.1:8081/api/v2/control/emergency_clear → clear the E-stop latch with confirmation; requires operator authentication
 - GET http://127.0.0.1:8081/api/v2/hardware/robohat → RoboHAT status
 
 The Web UI now exposes a virtual joystick for manual drive control. Drag in any direction to stream drive vectors (linear/forward on the Y axis, angular/turn rate on the X axis). The slider underneath scales max velocity (10–100%). Releasing the joystick or pressing **Stop Motors** immediately sends a zero-vector command and clears the motion queue; the backend rate limiter has dedicated bursts for these endpoints to prevent inadvertent HTTP 429 responses during manual driving sessions.
@@ -72,10 +111,16 @@ The Web UI now exposes a virtual joystick for manual drive control. Drag in any 
 - POST http://127.0.0.1:8081/api/v2/verification-artifacts → upload verification artifacts
 
 ## Systemd
-See systemd/*.service and systemd/install_services.sh for installation. Backend service listens on port 8081.
+The units in `systemd/` are templates; `systemd/install_services.sh` renders them for the real
+account and checkout (`--user`, `--group`, `--root`), provisions `<root>/.env` and enables them
+(`--dry-run` shows the rendered units and writes nothing). It refuses to finish without a strong
+operator credential and generates the persistent `LAWN_BERRY_AUTH_SECRET`. Backend service
+listens on port 8081. See `docs/deployment-guide.md`. On the shed Pi do not stop or restart
+`lawnberry-backend` without physical access (it also stops `lawnberry-camera`).
 
 Certificate renewal units:
-- `lawnberry-cert-renewal.service` — on-demand renewal/validation + nginx reload + fallback
+- `lawnberry-cert-renewal.service` — on-demand renewal/validation + nginx reload + fallback; runs as
+  root, and only the root-owned copy installed by `systemd/install_services.sh` (see above)
 - `lawnberry-cert-renewal.timer` — runs the renewal daily with randomized delay
 
 ## WebSocket Topics
@@ -118,18 +163,21 @@ python scripts/generate_docs_bundle.py
 ```
 
 ## Emergency Stop Recovery
-When an emergency stop is active, all motion is locked out. To clear it:
+When an emergency stop is active, motion is locked out. To clear it:
 
-1) Ensure the physical E-stop button is released and area is safe
-2) Clear via API with explicit confirmation flag:
+1) Ensure the physical E-stop button (if one is fitted) is released and the area is safe
+2) Clear via the API with an operator token and the explicit confirmation flag:
 
 ```bash
 curl -X POST http://127.0.0.1:8081/api/v2/control/emergency_clear \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"confirmation": true}'
 ```
 
-The system will return status EMERGENCY_CLEARED.
+The system returns status EMERGENCY_CLEARED. A latched tractor E-stop or blade interlock is not
+released by this call: the reply lists it under `still_latched` and it needs its own
+authenticated `POST /api/v2/tractor/clear-emergency`.
 
 ## Blade Safety Lockout
 By default, blade engagement is locked out until safety preconditions are satisfied (no emergency stop, motors not active, authorization present). If a blade command is rejected, check active interlocks and remediate hazards before retrying.

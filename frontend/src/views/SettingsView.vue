@@ -195,6 +195,7 @@
             </select>
           </div>
           
+          <p v-if="signedOutNote" class="form-text text-muted">{{ signedOutNote }}</p>
           <div v-if="remoteSettings.method === 'cloudflare'" class="remote-config">
             <div class="form-group">
               <label for="cloudflare-token">Cloudflare Tunnel Token</label>
@@ -205,6 +206,9 @@
                 class="form-control"
                 placeholder="Enter tunnel token"
               >
+              <small v-if="remoteSettings.cloudflare_token_set" class="form-text text-muted">
+                A tunnel token is saved on the mower{{ remoteSettings.cloudflare_token_last4 ? ` (ends ${remoteSettings.cloudflare_token_last4})` : '' }}. Saved tokens are never shown; leave this empty to keep it.
+              </small>
             </div>
           </div>
           
@@ -218,6 +222,9 @@
                 class="form-control"
                 placeholder="Enter ngrok token"
               >
+              <small v-if="remoteSettings.ngrok_token_set" class="form-text text-muted">
+                An ngrok token is saved on the mower{{ remoteSettings.ngrok_token_last4 ? ` (ends ${remoteSettings.ngrok_token_last4})` : '' }}. Saved tokens are never shown; leave this empty to keep it.
+              </small>
             </div>
           </div>
           
@@ -304,6 +311,9 @@
                 class="form-control"
                 placeholder="Enter your Google Maps API key"
               >
+              <small v-if="mapsSettings.google_api_key_set" class="form-text text-muted">
+                A key is saved on the mower{{ mapsSettings.google_api_key_last4 ? ` (ends ${mapsSettings.google_api_key_last4})` : '' }}. Saved keys are never sent back to the browser, so Google basemaps are not available here and the maps use OpenStreetMap; leave this empty to keep the key.
+              </small>
               <small class="form-text text-muted">
                 Required for Google Maps features. Get your key at 
                 <a href="https://developers.google.com/maps" target="_blank">Google Cloud Console</a>
@@ -584,7 +594,11 @@ const remoteSettings = ref({
   method: 'none',
   enabled: false,
   cloudflare_token: '',
+  cloudflare_token_set: false,
+  cloudflare_token_last4: '',
   ngrok_token: '',
+  ngrok_token_set: false,
+  ngrok_token_last4: '',
   custom_domain: '',
   auto_tls: true
 })
@@ -592,6 +606,8 @@ const remoteSettings = ref({
 const mapsSettings = ref({
   provider: 'osm',
   google_api_key: '',
+  google_api_key_set: false,
+  google_api_key_last4: '',
   google_billing_warnings: true,
   style: 'standard'
 })
@@ -628,14 +644,27 @@ watch(
   { immediate: true }
 )
 
+// The remote-access and maps reads need the operator's login (they say which secrets are saved).
+// Signed out, keep the defaults and say so instead of failing the whole page.
+const signedOutNote = ref('')
+function optionalForOperator(call: Promise<any>): Promise<any> {
+  return call.catch((err: any) => {
+    if (err?.response?.status === 401) {
+      signedOutNote.value = 'Sign in to see which tokens and keys are saved.'
+      return { data: {} }
+    }
+    throw err
+  })
+}
+
 // Load settings
 async function loadAllSettings() {
   try {
     const [system, security, remote, maps, gps] = await Promise.all([
       api.get('/api/v2/settings/system'),
       api.get('/api/v2/settings/security'),
-      api.get('/api/v2/settings/remote-access'),
-      api.get('/api/v2/settings/maps'),
+      optionalForOperator(api.get('/api/v2/settings/remote-access')),
+      optionalForOperator(api.get('/api/v2/settings/maps')),
       // gps-policy has no backend endpoint yet; tolerate its absence so the
       // contract-valid settings sections above still load.
       api.get('/api/v2/settings/gps-policy').catch(() => ({ data: {} }))

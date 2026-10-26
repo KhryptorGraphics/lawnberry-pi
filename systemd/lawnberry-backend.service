@@ -1,5 +1,5 @@
 [Unit]
-Description=LawnBerry Pi v2 Backend API Service
+Description=LawnBerry Pi Backend API Service
 Documentation=https://github.com/acredsfan/lawnberry_pi
 After=network-online.target
 Wants=network-online.target
@@ -7,40 +7,75 @@ Requires=lawnberry-database.service
 
 [Service]
 Type=exec
-User=pi
-Group=pi
-WorkingDirectory=/apps/lawnberry-pi
-Environment=PYTHONPATH=/apps/lawnberry-pi
+User=@LB_USER@
+Group=@LB_GROUP@
+WorkingDirectory=@LB_ROOT@
+Environment=PYTHONPATH=@LB_ROOT@
 Environment=LAWNBERRY_ENV=production
-Environment=LAWNBERRY_CONFIG_DIR=/apps/lawnberry-pi/config
-Environment=LAWNBERRY_LOG_DIR=/apps/lawnberry-pi/logs
-Environment=LAWNBERRY_DATA_DIR=/apps/lawnberry-pi/data
+Environment=LAWNBERRY_CONFIG_DIR=@LB_ROOT@/config
+Environment=LAWNBERRY_LOG_DIR=@LB_ROOT@/logs
+Environment=LAWNBERRY_DATA_DIR=@LB_ROOT@/data
 Environment=SIM_MODE=0
 Environment=PYTHONUNBUFFERED=1
-# Operator auth is ENFORCED (was 0 = disabled, 2026-10-24 safety audit): login,
-# operator-auth-gated writes (tractor/control/missions) and the manual-control
-# unlock step are required. The E-stop endpoints stay unauthenticated by design
-# (POST /api/v2/control/emergency, /control/emergency-stop, /tractor/emergency-stop);
-# clearing an E-stop or latch is authenticated. See api/deps.py::require_operator_auth.
-# DEPLOYMENT REQUIRES: set LAWN_BERRY_OPERATOR_CREDENTIAL in /apps/lawnberry-pi/.env
-# (EnvironmentFile below) BEFORE restarting this unit. Unset, the shipped default
-# credential ("operator123", public in the repo) is accepted, which is NOT secure.
-# The web UI login form posts {username, password}: the password is that credential
-# (any username). Scripts need a bearer token (scripts/teleop.py --token).
-# To disable again (LAN bench only): set this to 0 and restart.
+# Operator auth is ENFORCED (it was 0 = disabled until the 2026-10-24 safety audit). Every
+# state-changing route needs `Authorization: Bearer <token>` from POST /api/v2/auth/login:
+# tractor, control (drive, blade), missions, AI, navigation, maintenance, map, recording, the
+# debug injectors (which also answer 404 unless SIM_MODE=1 or LAWNBERRY_ENABLE_DEBUG_ROUTES=1)
+# and the manual-control unlock (which also re-checks the credential). Open by design: the
+# E-stop POSTs (/api/v2/control/emergency, /control/emergency-stop, /tractor/emergency-stop;
+# also exempt from every rate limiter) and the login routes; clearing an E-stop or latch is
+# authenticated. See api/deps.py::require_operator_auth, docs/authentication-config.md and
+# tests/integration/test_operator_auth_coverage.py (lists every open route and why).
+# WebSockets: a browser trades its bearer token for a 30 s single-use ticket
+# (POST /api/v2/auth/ws-ticket); /api/v2/ws/control needs a credential while auth is on.
+# Login lockout and the rate limiters count the client address: the TCP peer, or behind a
+# DECLARED forwarder its X-Forwarded-For hop; never an X-Client-Id header. Nobody is trusted unless
+# listed (below). Logged-in traffic is limited per login session, so anonymous junk from a shared
+# address cannot starve the operator. WebSockets need a ticket or bearer from EVERY peer, the
+# loopback included (LAWN_BERRY_ANONYMOUS_TELEMETRY=loopback|any in .env is the explicit opt-in).
+# Only 0, false, no or off disable it; any other value (an empty line, a typo) keeps it ON.
+# @LB_ROOT@/.env (EnvironmentFile below) overrides this line, and the backend logs CRITICAL at
+# start-up (GET /health reports operator_auth) whenever auth is disabled outside SIM_MODE.
+# CREDENTIAL: there is no built-in default. systemd/install_services.sh refuses to finish until
+# LAWN_BERRY_OPERATOR_CREDENTIAL (>= 12 characters, not a known default) is set in
+# @LB_ROOT@/.env (EnvironmentFile below), and it generates the persistent
+# LAWN_BERRY_AUTH_SECRET (token signing key) there. With no usable credential the backend still
+# starts but nobody can log in (fail closed); the E-stop endpoints keep working.
+# The web UI login form posts {username, password}: the password is that credential (any
+# username). Scripts need a bearer token (scripts/teleop.py --token).
+# SIM_MODE=0 above on purpose: SIM_MODE=1 alone no longer accepts any credential, and the
+# LAWN_BERRY_SIM_OPEN_AUTH opt-in is ignored while LAWNBERRY_ENV=production.
+# To disable auth (LAN bench only): set OPERATOR_AUTH_REQUIRED to 0 and restart (CRITICAL logged).
 Environment=OPERATOR_AUTH_REQUIRED=1
+# Forwarders whose X-Forwarded-For is believed, ADDRESS=SHAPE (docs/authentication-config.md):
+# 127.0.0.2 is the web UI server (it connects from there, BACKEND_SOURCE_ADDRESS, and replaces the
+# header with exactly ONE hop: single); 127.0.0.3 is the repo's nginx (proxy_bind, appends the
+# address it saw: last). The loopback as a whole is NOT trusted: a tunnel agent, ssh -R or socat
+# connects from 127.0.0.1 and could let its client choose its identity. An invalid value trusts
+# nobody (ERROR at start-up). uvicorn's own proxy handling is off (--no-proxy-headers below): it
+# believes any X-Forwarded-For string from FORWARDED_ALLOW_IPS before this list is consulted.
+Environment=LAWN_BERRY_TRUSTED_PROXIES=127.0.0.2=single,127.0.0.3=last
 # Auto-upload recorded mowing sessions to the Thor training server.
 # Set THOR_UPLOAD_ENABLED=1 and THOR_BASE_URL to Thor's receiver (host:port).
 Environment=THOR_UPLOAD_ENABLED=0
 Environment=THOR_BASE_URL=http://192.168.1.64:15454
 # Load runtime secrets and configuration (e.g., NTRIP_*) from .env if present
-EnvironmentFile=-/apps/lawnberry-pi/.env
+EnvironmentFile=-@LB_ROOT@/.env
 
 # Main service command
-ExecStart=/apps/lawnberry-pi/.venv/bin/uvicorn backend.src.main:app --host 0.0.0.0 --port 8081 --workers 1
+# Connection limits (docs/deployment-guide.md, "Connection limits and the E-stop"): --http reaps
+# sockets that never send a request, caps open connections below LimitNOFILE and keeps the E-stop
+# reachable (backend/src/core/uvicorn_protocol.py); --ws-max-size bounds one WebSocket frame;
+# --limit-concurrency stays UNSET on purpose (it would answer the E-stop POST with 503).
+ExecStart=@LB_ROOT@/.venv/bin/uvicorn backend.src.main:app --host 0.0.0.0 --port 8081 --workers 1 \
+    --no-proxy-headers --http backend.src.core.uvicorn_protocol:LawnBerryHttpProtocol \
+    --ws-max-size 65536 --timeout-keep-alive 5 --backlog 128
 
-# Health checks and monitoring
-ExecReload=/bin/kill -HUP $MAINPID
+# Shutdown and monitoring
+# There is deliberately NO ExecReload: uvicorn --workers 1 exits with status 129 on SIGHUP WITHOUT
+# running the lifespan shutdown, so a `systemctl reload` skipped park_actuators() and left the
+# blade, levers and throttle as they were. `systemctl restart` (SIGTERM, then the lifespan
+# shutdown parks every actuator) is the only way to apply a change; `reload` is refused.
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=30
@@ -57,7 +92,7 @@ ProtectHome=false
 ProtectSystem=strict
 # App root must be writable: lgpio creates its .lgd-nfy-* notification FIFO in the
 # process CWD; with only subdirs writable, ultrasonic GPIO init fails (ENOENT).
-ReadWritePaths=/apps/lawnberry-pi
+ReadWritePaths=@LB_ROOT@
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

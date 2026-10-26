@@ -36,6 +36,11 @@ export async function getRoboHATStatus(): Promise<RoboHATStatus> {
   return response.data
 }
 
+export async function getBladeStatus(): Promise<BladeStatus> {
+  const response = await apiService.get<BladeStatus>('/api/v2/control/blade/status')
+  return response.data
+}
+
 // Map API methods
 export async function getMapConfiguration(configId: string = 'default') {
   const response = await apiService.get(`/api/v2/map/configuration?config_id=${configId}`)
@@ -105,14 +110,41 @@ export async function planningJobAction(
 export async function getTractorState(): Promise<TractorState> {
   return (await apiService.get<TractorState>('/api/v2/tractor/state')).data
 }
-export async function tractorLeftLever(value: number): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/left-lever', { value })).data
+// A lever/throttle command is only held for the backend's command-hold window
+// (500 ms by default: backend tractor_service.py, `command_deadman`), so a caller
+// that keeps re-sending one (composables/useTractorHold.ts) passes a per-request
+// `timeout`: a stalled link must be noticed inside that window, not after the
+// client-wide 10 s default.
+export interface TractorCommandOptions {
+  /** Per-request timeout in ms (overrides the client-wide default). */
+  timeout?: number
 }
-export async function tractorRightLever(value: number): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/right-lever', { value })).data
+function commandConfig(options?: TractorCommandOptions): AxiosRequestConfig | undefined {
+  return options?.timeout ? { timeout: options.timeout } : undefined
 }
-export async function tractorThrottle(value: number): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/throttle', { value })).data
+export async function tractorLeftLever(
+  value: number,
+  options?: TractorCommandOptions
+): Promise<TractorActuatorResponse> {
+  return (
+    await apiService.post<TractorActuatorResponse>('/api/v2/tractor/left-lever', { value }, commandConfig(options))
+  ).data
+}
+export async function tractorRightLever(
+  value: number,
+  options?: TractorCommandOptions
+): Promise<TractorActuatorResponse> {
+  return (
+    await apiService.post<TractorActuatorResponse>('/api/v2/tractor/right-lever', { value }, commandConfig(options))
+  ).data
+}
+export async function tractorThrottle(
+  value: number,
+  options?: TractorCommandOptions
+): Promise<TractorActuatorResponse> {
+  return (
+    await apiService.post<TractorActuatorResponse>('/api/v2/tractor/throttle', { value }, commandConfig(options))
+  ).data
 }
 export async function tractorBlade(engaged: boolean): Promise<TractorActuatorResponse> {
   return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/blade', { engaged })).data
@@ -123,11 +155,11 @@ export async function tractorStart(): Promise<TractorActuatorResponse> {
 export async function tractorStopEngine(): Promise<TractorActuatorResponse> {
   return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/stop-engine', {})).data
 }
-export async function tractorEmergencyStop(): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/emergency-stop', {})).data
+export async function tractorEmergencyStop(): Promise<TractorSafetyResponse> {
+  return (await apiService.post<TractorSafetyResponse>('/api/v2/tractor/emergency-stop', {})).data
 }
-export async function tractorClearEmergency(): Promise<TractorActuatorResponse> {
-  return (await apiService.post<TractorActuatorResponse>('/api/v2/tractor/clear-emergency', {})).data
+export async function tractorClearEmergency(): Promise<TractorSafetyResponse> {
+  return (await apiService.post<TractorSafetyResponse>('/api/v2/tractor/clear-emergency', {})).data
 }
 export async function tractorAuthorize(authorized: boolean): Promise<TractorAuthResult> {
   const path = authorized ? '/api/v2/tractor/authorize' : '/api/v2/tractor/revoke'
@@ -143,6 +175,7 @@ import type {
   BladeCommandResponse,
   EmergencyStopResult,
   RoboHATStatus,
+  BladeStatus,
   AutonomyStartResult,
   AutonomyStopResult,
   AutonomyPauseResult,
@@ -153,6 +186,7 @@ import type {
   TractorState,
   TractorActuatorResponse,
   TractorAuthResult,
+  TractorSafetyResponse,
   IMUCalibrationResult,
   IMUCalibrationStatus,
 } from '@/types/control'
@@ -185,6 +219,23 @@ function generateClientId(): string {
   return randomId
 }
 
+// A 401 from these calls is final: refreshing the token and replaying the request would be wrong or pointless.
+//  - /auth/refresh is the refresh itself (replaying it would loop).
+//  - /auth/login and /control/manual-unlock carry a credential the operator just typed. Their 401 means "wrong or
+//    missing credential", never "expired token": replaying would send the same wrong password a second time and
+//    count it twice against the backend's per-peer lockout (429 after repeated wrong passwords).
+//  - /auth/logout: a 401 means the Bearer is already dead, so there is nothing to refresh. Refreshing anyway made
+//    authStore.refreshToken() -> logout() -> POST /auth/logout (401) -> refreshToken() -> logout() ... recurse
+//    without end: a request storm that never settled the call that started it.
+// Matching is by path suffix, so `/control/manual-unlock/status` is deliberately not covered.
+const NO_REFRESH_ON_401_PATHS = ['/auth/refresh', '/auth/login', '/auth/logout', '/control/manual-unlock']
+
+function skipsTokenRefresh(url: unknown): boolean {
+  if (typeof url !== 'string') return false
+  const path = url.split('?')[0].replace(/\/+$/, '')
+  return NO_REFRESH_ON_401_PATHS.some((suffix) => path.endsWith(suffix))
+}
+
 class ApiService {
   private client: AxiosInstance
 
@@ -215,13 +266,16 @@ class ApiService {
       }
     )
 
-    // Response interceptor: on 401, refresh once and retry (skip for the refresh call itself to avoid looping)
+    // Response interceptor: on 401, refresh once and retry (except for the calls listed above, whose 401 is final)
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config
-        const isRefreshCall = typeof originalRequest?.url === 'string' && originalRequest.url.includes('/auth/refresh')
-        if (error.response?.status === 401 && !isRefreshCall && !originalRequest?._retried) {
+        if (
+          error.response?.status === 401 &&
+          !skipsTokenRefresh(originalRequest?.url) &&
+          !originalRequest?._retried
+        ) {
           const authStore = useAuthStore()
           const refreshed = await authStore.refreshToken()
           if (refreshed && authStore.token) {
@@ -310,11 +364,14 @@ const apiService = new ApiService()
 export const authApi = {
   login: async (credentials: LoginCredentials): Promise<AuthResponse> =>
     (await apiService.post<AuthResponse>('/api/v2/auth/login', credentials)).data,
+  // These two POSTs carry no data, and axios then sends no Content-Type, so a backend that insists
+  // on JSON (the auth middleware did, answering 415) never saw the logout: the session and its
+  // WebSocket tickets stayed alive after "sign out" (SEC20-06). `{}` is a real JSON body.
   logout: async (): Promise<void> => {
-    await apiService.post('/api/v2/auth/logout')
+    await apiService.post('/api/v2/auth/logout', {})
   },
   refresh: async (): Promise<RefreshResponse> =>
-    (await apiService.post<RefreshResponse>('/api/v2/auth/refresh')).data,
+    (await apiService.post<RefreshResponse>('/api/v2/auth/refresh', {})).data,
   getProfile: async (): Promise<User> => (await apiService.get<User>('/api/v2/auth/profile')).data,
 }
 

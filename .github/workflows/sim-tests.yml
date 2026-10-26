@@ -6,6 +6,10 @@ concurrency:
 jobs:
   sim:
     runs-on: ubuntu-latest
+    # The whole suite takes about ten minutes. A hung test used to hold the job for GitHub's default
+    # six hours with no verdict (audit TOOL3-01); pytest-timeout bounds each test (pyproject.toml),
+    # this bounds anything that gets past it (a hung install, a deadlock in a C extension).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.11
@@ -22,5 +26,5 @@ jobs:
           --host 127.0.0.1 --port 8000 & echo $! > server.pid)
           sleep 3
           curl -fsS http://127.0.0.1:8000/health \
-          || (echo "API health failed" && kill $(cat server.pid) && exit 1)
-          kill $(cat server.pid) || true
+          || (echo "API health failed" && kill "$(cat server.pid)" && exit 1)
+          kill "$(cat server.pid)" || true

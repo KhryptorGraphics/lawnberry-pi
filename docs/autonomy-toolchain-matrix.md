@@ -89,7 +89,7 @@ has the details.
 | Thor inference (ONNX → TensorRT) | Thor | **verified** | `trtexec` TensorRT 10.16.2 FP16 engine `PASSED` |
 | ONNX Runtime GPU on Thor | Thor | blocked (not needed) | `onnxruntime 1.30.0` is CPU-only; use TensorRT |
 | Coverage planner (W6) | Thor | **verified (software)** | `backend/src/nav/thor_strategist.py`, `tests/unit/test_thor_strategist.py` |
-| Pi ↔ Thor link (W7) | Pi + Thor | protocol verified in software; link measured | `tests/unit/test_thor_link.py`, HaLow table above |
+| Pi ↔ Thor link (W7) | Pi + Thor | protocol verified in software; wired into `main.py` behind `config/thor_link.yaml` (off by default) and exercised over real UDP on loopback in `SIM_MODE` with `scripts/thor_link_client.py`; link measured; **not run on HaLow or on the mower** | `tests/unit/test_thor_link.py`, `tests/unit/test_thor_plan_follower.py`, `tests/integration/test_thor_link_e2e.py`, HaLow table above |
 
 ## Storage
 
@@ -332,7 +332,7 @@ an `nvcr.io` credential in `~/.docker/config.json`, so re-pulling the 17.6 GB im
 | `$LB/data/hailo/compiled` | `yolo26s_smoke.hef` + sidecar (opt level 2; failed its on-device gate on 2026-10-13) |
 | `$LB/data/captures`, `$LB/data/datasets` | **empty** — no real imagery has been collected |
 | `workshop.autolabel` | deps present in `$LB/env` (`transformers==4.57.1`, imagehash, PIL); MM-Grounding-DINO weights are **not** cached; huggingface.co reachable from the box |
-| `workshop.train_detector` | requires `--real` for a valid validation split; `--smoke-sdg-val` is documented as "metrics are NOT a recall gate" |
+| `workshop.train_detector` | requires `--real` for a valid validation split; `--smoke-sdg-val` is documented as "metrics are NOT a recall gate", and the run manifest agrees: its `gate.status` is `passed` / `failed` / `not_evaluated`, and a smoke split, a failed per-class extraction or a tier-1 class without validation samples is `not_evaluated`, never a pass (`gate_failures: []` is gone; manifest schema `train-v2`) |
 | `$LB/repo` | a 32 MB snapshot dated 2026-10-13, **not a git checkout** (no `.git`) |
 
 ## Workshop `$LB/env` re-verified on the P100 (2026-10-24)

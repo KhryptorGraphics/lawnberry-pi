@@ -1,0 +1,14 @@
+# Re-adds 192.168.1.0/24 and 192.168.1.1 via 192.168.50.1 dev halow0 metric 500 when missing.
+# Triggered by halow-lan-routes.timer; see /usr/local/sbin/halow-lan-routes.sh for why.
+[Unit]
+Description=Re-add LAN-via-HaLow routes if missing
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/halow-lan-routes.sh
+TimeoutStartSec=30
+SyslogIdentifier=halow-lan-routes
+# Runs every 15 s: keep PID 1's per-run info lines (Starting/Finished/Deactivated, ~17k a day)
+# out of the journal. The script's own output is logged at notice, so re-adds and failures stay.
+SyslogLevel=notice
+LogLevelMax=notice

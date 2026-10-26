@@ -38,11 +38,18 @@ An advanced autonomous lawn mower powered by Raspberry Pi 5 with Hailo 8L AI acc
 - **Geofencing**: Virtual boundary enforcement with configurable zones
 
 ### Safety Systems
-- **Multi-Layer Obstacle Detection** (target): the only obstacle input the code uses is two VL53L0X ToF sensors, and it
-  is advisory. Four JSN-SR04T ultrasonics (owner requirement), stereo depth and optional 2D LiDAR are not
-  implemented; the legacy 3x HC-SR04 driver is disabled because its pins collide with the HaLow radio
-- **Emergency Stop**: software only, with a watchdog; an independent hardwired E-stop is **not implemented** (H-08).
-  Which stop routes actually actuate hardware is listed under "Emergency stop and recovery" below
+- **Obstacle stop** (software; every number UNVALIDATED, audit M-43): the two VL53L0X ToF sensors (and the
+  ultrasonic array when enabled) feed one fail-closed `ObstacleGuard`. A stale, blind, unknown or missing required
+  sensor, or an obstacle inside the speed-dependent stopping envelope, holds autonomous motion (levers neutral, blade
+  off) for missions, the AI loop and Thor plans; manual operator drive is not limited by default. Four JSN-SR04T
+  ultrasonics (owner requirement), stereo depth and optional 2D LiDAR are not implemented; the legacy 3x HC-SR04
+  driver is disabled because its pins collide with the HaLow radio
+- **GNSS hold** (software; thresholds UNVALIDATED): autonomous motion holds and a mission will not start while the fix
+  is missing, stale, inaccurate or newly regained (resume dwell)
+- **Emergency Stop**: software only. An in-process watchdog needs two heartbeats (the tractor's own actuation
+  self-check with PCA9685 read-back, and the tilt monitor) and repeats the stop until the outputs verify; it shares the
+  event loop it supervises. An independent hardwired E-stop and a **hardware watchdog (O-7)** are **not implemented**
+  (H-08). Which stop routes actually actuate hardware is listed under "Emergency stop and recovery" below
 - **Tilt Protection**: tractor path only, and the BNO085 driver is a simulation stub, so the cutoff cannot trip on real
   hardware at the audit baseline
 - **Safety Interlocks**: Motor authorization, blade guards, perimeter enforcement
@@ -211,8 +218,10 @@ Deployed units (`systemd/lawnberry-backend.service`, `systemd/lawnberry-frontend
 
 ## API Reference
 
-Examples assume the deployed port. **Operator authentication is disabled in the shipped unit**
-(`OPERATOR_AUTH_REQUIRED=0`), so these routes are open to anything that can reach the port.
+Examples assume the deployed port. **Operator authentication is enforced** (`OPERATOR_AUTH_REQUIRED=1` in
+the repo unit; the deployed Pi keeps the old `0` until `systemd/install_services.sh` is run there, which also
+provisions the credential). Log in with `POST /api/v2/auth/login` and send `Authorization: Bearer <token>` on
+operator writes; the E-stop routes stay open by design. Where a route below has no auth dependency (N-16), it is still open.
 
 ```bash
 export API=http://localhost:8081
@@ -221,8 +230,9 @@ export API=http://localhost:8081
 ### AI Control
 
 ```bash
-# Enable AI autonomous mode
+# Enable AI autonomous mode (an operator write: TOKEN is the access token of POST /api/v2/auth/login)
 curl -X POST $API/api/v2/ai/enable \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"mode": "ai_autonomous"}'
 
@@ -233,7 +243,7 @@ curl $API/api/v2/ai/status
 curl $API/api/v2/ai/metrics
 
 # Disable AI mode (return to manual)
-curl -X POST $API/api/v2/ai/disable
+curl -X POST $API/api/v2/ai/disable -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Telemetry
@@ -268,15 +278,19 @@ curl $API/api/v2/missions/list
 
 ### Emergency stop and recovery
 
-The route the earlier README gave (`POST /api/v2/control/estop`) does not exist. Routes that do exist, and what they
-do at the audit baseline (2026-10-24, commit 765c737; later changes are listed in the audit's "Implemented in this PR"):
+The route the earlier README gave (`POST /api/v2/control/estop`) does not exist. Routes that exist:
 
 | Route | Platform | What it does |
 |---|---|---|
-| `POST /api/v2/tractor/emergency-stop` | Toro | Disengages the PTO relay, commands both levers to neutral and the throttle to idle, revokes authorization; no auth by design (`backend/src/services/tractor_service.py:258-288`). Cleared by `POST /api/v2/tractor/clear-emergency` |
-| `POST /api/v2/control/emergency` | differential-drive | Sets software flags and stops the RoboHAT only if its serial link is up; does not stop the tractor or the IBT-4 blade (`backend/src/api/rest.py:600-673`) |
-| `POST /api/v2/control/emergency-stop` | alias | Sets software flags and replies `motors_stopped: true, blade_disabled: true` but calls neither the RoboHAT, the blade service nor the tractor (`backend/src/api/rest.py:676-692`) |
-| `POST /api/v2/control/emergency_clear` | any | Clears the flag from a body `confirmation`; has no auth dependency (`backend/src/api/safety.py:19`) |
+| `POST /api/v2/tractor/emergency-stop` | Toro | Opens the PTO and starter relays, commands both levers to neutral and the throttle to idle, revokes authorization and latches the tractor E-stop; no auth by design (`TractorControlService.emergency_stop`). Cleared by `POST /api/v2/tractor/clear-emergency` |
+| `POST /api/v2/control/emergency` | any | Latches the software E-stop and fans out through `execute_emergency_stop` (`backend/src/services/emergency_stop_service.py`) to every stop path in the process: the tractor, the RoboHAT drive/blade controller and the IBT-4 blade service, concurrently. The response carries the per-subsystem report (`emergency_stop`, `complete`); never gated on a session |
+| `POST /api/v2/control/emergency-stop` | any (alias) | The same fan-out, always HTTP 200: `emergency_stop_active` is the software latch, `motors_stopped` / `blade_disabled` / `complete` are `true` only for confirmed stops, `subsystems` and `faults` say what each output did |
+| `POST /api/v2/control/emergency_clear` | any | Operator-authenticated (`require_operator_auth`) and needs `confirmation: true`; clears the general latch, the IBT-4 latch and the RoboHAT hold. It does **not** clear a latched tractor E-stop or interlock: those need `POST /api/v2/tractor/clear-emergency` and are listed in `still_latched` |
+
+A subsystem reports one of `stopped`, `simulated` (SIM_MODE), `unconfirmed`, `failed`, `not_present` or
+`not_enabled`; absent or unconfirmed hardware never reads as "stopped" outside SIM_MODE. Outside SIM_MODE the IBT-4
+blade output stays `unconfirmed` while `ibt4.gpio_enabled` is `false`. None of this replaces the hardwired E-stop
+(audit G0).
 
 ---
 
@@ -407,7 +421,8 @@ pytest tests/hil/ -v            # Hardware-in-loop tests
 
 ### Test Coverage
 Baseline on 2026-10-24 (commit 765c737): `SIM_MODE=1 pytest tests --ignore=tests/soak` gave **530 passed, 69 skipped,
-0 failed**. The skips include placeholder tests that never run by default, gated perf tests and TDD stubs for
+0 failed** (that was the baseline before this branch's work; the integrated branch collects 4248 tests: 4221 passed, 27 skipped,
+0 failed, see `docs/2026-10-24-integration-audit.md`, "Integration round 4"). The skips include placeholder tests that never run by default, gated perf tests and TDD stubs for
 WebSocket and manual-control authentication. `tests/hil/` is a probe only and no CI job runs it or `tests/soak`.
 Every passing safety test runs against fakes or simulation; none proves a physical outcome. Details:
 [`docs/2026-10-24-integration-audit.md`](docs/2026-10-24-integration-audit.md) Part A (tests).
@@ -451,9 +466,10 @@ ultrasonic_enabled: false  # Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi
 ```
 
 These are configured thresholds, not measured performance. `estop_latency_ms` is validated only as
-`watchdog_timeout_ms >= estop_latency_ms` (`backend/src/safety/safety_validator.py:37-38`), and the two obstacle
-thresholds are consumed only by the debug injection endpoint (`backend/src/api/routers/sensors.py:474`), not by any
-stop path.
+`watchdog_timeout_ms >= estop_latency_ms` (`backend/src/safety/safety_validator.py:37-38`). The two obstacle
+thresholds above raise the obstacle interlocks that `ObstacleStopMonitor` publishes from the real sensor readings
+(a hold, not an E-stop); the speed-dependent slow/stop distances come from the separate `obstacle_stop` block and the
+GNSS bound from `gps_degradation`, both `validated: false` in `config/limits.yaml`.
 
 ---
 

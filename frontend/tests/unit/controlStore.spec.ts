@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useControlStore } from '@/stores/control'
 import * as api from '@/services/api'
+import { SIGN_IN_REQUIRED_MESSAGE } from '@/utils/apiErrors'
 
 function getControlWsEntry() {
   const instances = (globalThis as any).__wsMockInstances as Array<{
@@ -114,6 +115,115 @@ describe('Control Store', () => {
 
       expect(progressDuringCall).toBe(true)
       expect(store.commandInProgress).toBe(false)
+    })
+  })
+
+  // The backend now answers 401 to an unsigned drive/blade call (and 429 after repeated wrong
+  // unlock passwords). Neither is a safety interlock, and the lockout can only be cleared by a
+  // WS "system.safety" event, so tripping it on them would brick the Control page until reload.
+  describe('submitCommand refusals that are not safety interlocks', () => {
+    function httpError(status: number, data: Record<string, unknown> = {}, headers: Record<string, string> = {}) {
+      return Object.assign(new Error(`Request failed with status code ${status}`), {
+        response: { status, data, headers },
+      })
+    }
+
+    it('a 401 does not trip the lockout: it reports the sign-in text, rethrows and leaves remediationLink alone', async () => {
+      const { store } = createStoreWithWs()
+      store.remediationLink = '/docs/OPERATIONS.md#blade-safety-lockout'
+      const error = httpError(401, { detail: 'Operator authentication required' })
+      vi.mocked(api.sendControlCommand).mockRejectedValue(error)
+
+      await expect(store.submitCommand('drive', { session_id: 's1' })).rejects.toBe(error)
+
+      expect(store.lockout).toBe(false)
+      expect(store.lockoutActive).toBe(false)
+      expect(store.lockoutReason).toBe('')
+      expect(store.lastCommandResult).toEqual({ result: 'error', status_reason: SIGN_IN_REQUIRED_MESSAGE })
+      expect(store.remediationLink).toBe('/docs/OPERATIONS.md#blade-safety-lockout')
+      expect(store.canSubmitCommand).toBe(true)
+    })
+
+    it('after a 401 the next command is still sent (the page is not bricked)', async () => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.sendControlCommand).mockRejectedValueOnce(httpError(401, { detail: 'Operator authentication required' }))
+      await expect(store.submitCommand('blade', { action: 'enable' })).rejects.toBeDefined()
+
+      const ok = { accepted: true, result: 'accepted', audit_id: 'a1', timestamp: new Date().toISOString() }
+      vi.mocked(api.sendControlCommand).mockResolvedValueOnce(ok as any)
+
+      await expect(store.submitCommand('blade', { action: 'enable' })).resolves.toEqual(ok)
+      expect(api.sendControlCommand).toHaveBeenCalledTimes(2)
+    })
+
+    it('a 429 reports the Retry-After wait and does not trip the lockout', async () => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.sendControlCommand).mockRejectedValue(
+        httpError(429, { detail: 'Too many requests' }, { 'retry-after': '30' })
+      )
+
+      await expect(store.submitCommand('drive', {})).rejects.toBeDefined()
+
+      expect(store.lockoutActive).toBe(false)
+      expect(store.lastCommandResult).toEqual({
+        result: 'error',
+        status_reason: 'Too many attempts: try again in 30 s.',
+      })
+    })
+
+    it('an authorization-class 403 (no safety text) does not trip the lockout and shows the backend detail', async () => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.sendControlCommand).mockRejectedValue(httpError(403, { detail: 'Forbidden' }))
+
+      await expect(store.submitCommand('drive', {})).rejects.toBeDefined()
+
+      expect(store.lockoutActive).toBe(false)
+      expect(store.lastCommandResult).toEqual({ result: 'error', status_reason: 'Forbidden' })
+    })
+
+    it.each([
+      ['drive while the emergency stop is active', 'Emergency stop active - drive commands blocked'],
+      ['blade while a safety interlock holds', 'safety_interlock: emergency_stop_active - blade commands blocked'],
+      ['blade while the motors are running', 'Safety interlock: motors_active'],
+    ])('a 403 that IS a safety block (%s) still trips the fail-closed lockout', async (_name, detail) => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.sendControlCommand).mockRejectedValue(httpError(403, { detail }))
+
+      await expect(store.submitCommand('drive', {})).rejects.toBeDefined()
+
+      expect(store.lockout).toBe(true)
+      expect(store.lockoutActive).toBe(true)
+      expect(store.lockoutReason).toBe('Request failed with status code 403')
+    })
+
+    it('a 423 blade lockout still trips the lockout and surfaces the remediation link', async () => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.sendControlCommand).mockRejectedValue(
+        httpError(423, {
+          result: 'blocked',
+          status_reason: 'SAFETY_LOCKOUT',
+          remediation_url: '/docs/OPERATIONS.md#blade-safety-lockout',
+        })
+      )
+
+      await expect(store.submitCommand('blade', { action: 'enable' })).rejects.toBeDefined()
+
+      expect(store.lockoutActive).toBe(true)
+      expect(store.remediationLink).toBe('/docs/OPERATIONS.md#blade-safety-lockout')
+    })
+
+    it.each([
+      ['a 500', () => httpError(500, { detail: 'boom' })],
+      ['a network error (no HTTP response)', () => new Error('Network Error')],
+    ])('%s still trips the fail-closed lockout', async (_name, makeError) => {
+      const { store } = createStoreWithWs()
+      vi.mocked(api.sendControlCommand).mockRejectedValue(makeError())
+
+      await expect(store.submitCommand('drive', {})).rejects.toBeDefined()
+
+      expect(store.lockout).toBe(true)
+      expect(store.lockoutActive).toBe(true)
+      expect(store.lastCommandResult).toMatchObject({ result: 'error' })
     })
   })
 

@@ -172,6 +172,14 @@ tractor-specific items above:
 - [ ] Motor-watchdog heartbeat, with automatic emergency stop on timeout, is
       wired to the tractor's actuator control loop.
 
+      > **Software status (branch `finish/nav`, 2026-10-24; boxes stay unticked until the bench evidence exists).**
+      > The watchdog (`backend/src/safety/watchdog.py`) now needs two heartbeats: the tractor service's own
+      > actuation self-check (`TractorControlService.supervise_once`: servo outputs read back from the PCA9685, no
+      > write fault, deadman running, a latched stop really safe) and the tilt monitor's completed cycle. A timeout
+      > revokes authorization and runs `emergency_stop`, repeated until the outputs verify again. This is software
+      > only and runs in the same event loop it supervises: **a hardware watchdog (audit O-7) is still required** and
+      > the PCA9685 read-back is unverified on hardware (bench check M-28).
+
 ## 8. OEM seat / operator-presence (OPC) switch decision
 
 See `docs/tractor-platform.md`'s "Physical integration decisions" §4. Confirmed
@@ -264,3 +272,11 @@ and fault-injection items.
 | 9. Reverse definition: pivot vs. true reverse | | | | |
 | 10. Lever self-centring (gates item 1) | | | | |
 | 11. Manual-start operating sequence | | | | |
+
+## Software-side evidence from the 2026-10-24 review fixes (not hardware evidence)
+
+- E-stop ordering with a stalled PCA9685 write (fake bus, `tests/unit/test_tractor_estop_durability.py`): PTO and starter relays open at
+  0 ms, the first servo neutral write lands at 51 ms, and `complete` is reported only after the stalled write finished and neutral was
+  re-asserted. This does NOT tick the per-actuator physical-latency boxes in section 4: those still need the bench run on real hardware.
+- A stop issued while a write is in flight, a park followed by a still-running loop, a clear on a tilted machine and a clear racing a stop
+  are covered by unit tests (names in the audit section "Review-fix track FixActuation").

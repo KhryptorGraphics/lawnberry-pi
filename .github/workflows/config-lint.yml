@@ -13,17 +13,27 @@ jobs:
         with: { args: '.' }
       - uses: ludeeus/action-shellcheck@master
         with: { scandir: 'scripts' }
+      - name: Shellcheck the installer
+        run: shellcheck -x systemd/install_services.sh
       - name: Validate systemd units
         run: |
           sudo apt-get update && sudo apt-get install -y systemd
+          # The repository units are templates (@LB_USER@, @LB_GROUP@, @LB_ROOT@) and are not
+          # valid unit files as they stand. Verify what the installer actually renders, via a
+          # staged install (no root, nothing under /etc, a throw-away credential).
+          stage="$(mktemp -d)"
+          # --root must be a LawnBerry checkout (the installer refuses anything else): this one.
+          LAWN_BERRY_OPERATOR_CREDENTIAL="ci-$(openssl rand -hex 16)" \
+            bash systemd/install_services.sh --destdir "$stage/root" --root "$PWD" --user "$(id -un)"
           status=0
-          for f in systemd/*.service; do
+          for f in "$stage"/root/etc/systemd/system/*.service "$stage"/root/etc/systemd/system/*.timer; do
             [ -f "$f" ] || continue
             out=$(systemd-analyze verify "$f" 2>&1) || true
-            # The units reference on-device deploy paths (e.g. /apps/lawnberry-pi/.venv/...)
+            # The units reference on-device deploy paths (.venv/bin/..., /usr/local/sbin/...)
             # that don't exist in CI; ignore those ExecStart-missing errors but fail on
-            # any genuine unit-file problem.
-            filtered=$(printf '%s\n' "$out" | grep -viE "is not executable|No such file or directory" || true)
+            # any genuine problem reported for this unit (lines about other units on the
+            # machine are not this unit's problem).
+            filtered=$(printf '%s\n' "$out" | grep -F "$(basename "$f")" | grep -viE "is not executable|No such file or directory" || true)
             if [ -n "$filtered" ]; then
               echo "Unit issues in $f:"; printf '%s\n' "$out"; status=1
             fi

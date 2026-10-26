@@ -1,0 +1,13 @@
+[Unit]
+Description=Prefer HaLow when WiFi is associated but dead
+After=network-online.target systemd-networkd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/halow-wifi-failover.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

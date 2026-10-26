@@ -8,8 +8,19 @@ Pydantic models, and provides cached access with optional reload.
 Acceptance (FR-003, FR-004):
 - Loads at startup
 - Validates against HardwareConfig and SafetyLimits schemas
+
+Where the files are (audit SAF-09): ``config_dir`` if given, else ``LAWNBERRY_CONFIG_DIR`` (the
+variable the systemd unit sets and every other loader honours: ``tractor.yaml``, ``thor_link.yaml``,
+the IBT-4 and ultrasonic blocks), else ``./config``. A bare ``ConfigLoader()`` used to ignore the
+variable and read whatever ``config/`` the working directory happened to contain.
+
+``limits.yaml`` must exist and be readable outside ``SIM_MODE``: a missing, unreadable or empty
+file raises :class:`ConfigFileError` instead of silently becoming the built-in defaults (which are
+not the shipped values: ``ultrasonic_enabled`` defaults to true, the shipped file says false
+because the HaLow radio owns those pins). In ``SIM_MODE`` the defaults are used, with a WARNING.
 """
 
+import logging  # noqa: E402
 import os  # noqa: E402
 from copy import deepcopy  # noqa: E402
 from typing import Any  # noqa: E402
@@ -20,9 +31,19 @@ from pydantic import ValidationError  # noqa: E402
 from backend.src.models.hardware_config import HardwareConfig  # noqa: E402
 from backend.src.models.safety_limits import SafetyLimits  # noqa: E402
 
+from .simulation import is_simulation_mode  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+CONFIG_DIR_ENV = "LAWNBERRY_CONFIG_DIR"
+
+
+class ConfigFileError(ValueError):
+    """A configuration file that has to be there is missing, unreadable or empty."""
+
 
 def _default_config_dir() -> str:
-    return os.path.join(os.getcwd(), "config")
+    return os.environ.get(CONFIG_DIR_ENV) or os.path.join(os.getcwd(), "config")
 
 
 class ConfigLoader:
@@ -55,15 +76,43 @@ class ConfigLoader:
         )
         self._cache: tuple[HardwareConfig, SafetyLimits] | None = None
 
-    def _read_yaml(self, path: str) -> dict[str, Any]:
+    def _read_yaml(self, path: str, *, required: bool = False) -> dict[str, Any]:
+        """The mapping in ``path``. A missing file is ``{}`` unless ``required``; a file that
+        exists but cannot be read or parsed is always an error naming the path."""
         try:
             with open(path, encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-                if not isinstance(data, dict):
-                    raise ValueError(f"YAML at {path} must be a mapping/object")
-                return data
+                data = yaml.safe_load(f)
         except FileNotFoundError:
+            if required:
+                raise ConfigFileError(
+                    f"{path} does not exist ({CONFIG_DIR_ENV}={os.environ.get(CONFIG_DIR_ENV)!r}, "
+                    f"cwd {os.getcwd()})"
+                ) from None
             return {}
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            raise ConfigFileError(f"cannot read {path}: {exc}") from exc
+        if data is None:
+            data = {}
+        if not isinstance(data, dict):
+            raise ConfigFileError(f"YAML at {path} must be a mapping/object")
+        return data
+
+    def _read_limits(self) -> dict[str, Any]:
+        """``limits.yaml``: outside ``SIM_MODE`` it must exist and say something, because the
+        built-in defaults are not the shipped limits (audit SAF-09)."""
+        strict = not is_simulation_mode()
+        raw = self._read_yaml(self.limits_path, required=strict)
+        if raw:
+            return raw
+        if strict:
+            raise ConfigFileError(
+                f"{self.limits_path} is empty: refusing to run on the built-in default limits"
+            )
+        logger.warning(
+            "%s is missing or empty: using the built-in default limits (SIM_MODE only)",
+            self.limits_path,
+        )
+        return raw
 
     def load(self) -> tuple[HardwareConfig, SafetyLimits]:
         """Load and validate configuration; caches the result.
@@ -75,7 +124,7 @@ class ConfigLoader:
         local_raw = self._read_yaml(self.hardware_local_path) if self.hardware_local_path else {}
         if local_raw:
             hw_raw = self._deep_merge(hw_raw, local_raw)
-        limits_raw = self._read_yaml(self.limits_path)
+        limits_raw = self._read_limits()
 
         try:
             hardware = HardwareConfig(**self._normalize_hardware_yaml(hw_raw))
@@ -210,6 +259,10 @@ class ConfigLoader:
             mapped["ina3221_config"] = cfg["ina3221"]
         if "victron" in cfg and isinstance(cfg["victron"], dict):
             mapped["victron_config"] = cfg["victron"]
+        if "ibt4" in cfg and isinstance(cfg["ibt4"], dict):
+            mapped["ibt4_config"] = cfg["ibt4"]
+        if "ultrasonic" in cfg and isinstance(cfg["ultrasonic"], dict):
+            mapped["ultrasonic_config"] = cfg["ultrasonic"]
 
         motor = cfg.get("motor_controller") or {}
         if isinstance(motor, dict) and "type" in motor and "motor_controller" not in mapped:

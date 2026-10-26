@@ -1,19 +1,27 @@
+"""Maintenance routes: the system self-test, readiness and liveness probes, the time zone, and the
+IMU calibration start and status.
+
+The self-test and the calibration need the operator bearer token.
+"""
+
 import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...core.persistence import persistence
 from ...services.calibration_service import (
     CalibrationInProgressError,
+    CalibrationRefusedError,
     DriveControllerUnavailableError,
     imu_calibration_service,
 )
 from ...services.hw_selftest import run_selftest
 from ...services.timezone_service import detect_system_timezone
 from ...services.websocket_hub import websocket_hub
+from ..deps import require_operator_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -59,11 +67,15 @@ class TimezoneResponse(BaseModel):
 # ------------------------ Hardware Self-Test ------------------------
 
 
-@router.get("/system/selftest")
+@router.get("/system/selftest", dependencies=[Depends(require_operator_auth)])
 def system_selftest():
-    """Run on-device hardware self-test.
+    """Run on-device hardware self-test (operator only).
 
-    Safe to run on systems without hardware; returns a structured report.
+    Safe to run on systems without hardware; returns a structured report. It is a GET with
+    hardware side effects, not a read: it opens the serial ports the GPS driver may hold (and
+    drains their input), reads I2C addresses and claims and drives the GPIO pins of the old
+    ultrasonic array. An anonymous or cross-site GET must never be able to do that, so it
+    needs the operator's bearer token (an ``<img src>`` or a link cannot send one).
     """
     report = run_selftest()
     return report
@@ -124,9 +136,19 @@ def get_system_timezone() -> TimezoneResponse:
 # -------------------- IMU Calibration --------------------
 
 
-@router.post("/maintenance/imu/calibrate", response_model=IMUCalibrationResultPayload)
+@router.post(
+    "/maintenance/imu/calibrate",
+    response_model=IMUCalibrationResultPayload,
+    dependencies=[Depends(require_operator_auth)],
+)
 async def post_calibrate_imu(request: Request) -> IMUCalibrationResultPayload:
-    """Execute the IMU calibration routine and return the resulting summary."""
+    """Execute the IMU calibration routine and return the resulting summary.
+
+    The manoeuvre is held to the same safety rules as an autonomous leg (audit SAF-11): it is
+    refused with 423 (nothing moves) while a stop is latched, the obstacle guard holds, or an
+    autonomous run owns the drive, and a run that is stopped part way (a hold or a safety stop
+    appears) answers 200 with ``status: "aborted"`` and the reason in ``notes``; it never resumes.
+    """
     hub = getattr(request.app.state, "websocket_hub", websocket_hub)
 
     if hub._calibration_lock.locked() or imu_calibration_service.is_running():
@@ -148,6 +170,10 @@ async def post_calibrate_imu(request: Request) -> IMUCalibrationResultPayload:
             raise HTTPException(
                 status.HTTP_409_CONFLICT, detail="IMU calibration already in progress"
             ) from None
+        except CalibrationRefusedError as exc:
+            raise HTTPException(
+                status.HTTP_423_LOCKED, detail=f"Calibration refused: {exc}"
+            ) from exc
         except DriveControllerUnavailableError as exc:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - hardware dependent

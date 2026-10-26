@@ -1,0 +1,16 @@
+[Unit]
+Description=Wi-Fi HaLow access point DHCP/DNS (dnsmasq on halow0)
+ConditionPathExists=/var/lib/wifi-halow-admin/halow-ap-mode
+BindsTo=sys-subsystem-net-devices-halow0.device
+After=wifi-halow-hostapd.service
+Requires=wifi-halow-hostapd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dnsmasq --no-daemon --conf-file=/etc/dnsmasq.d/wifi-halow-admin.conf --pid-file=/run/wifi-halow-admin/dnsmasq.pid
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=wifi-halow-admin
+
+[Install]
+WantedBy=multi-user.target

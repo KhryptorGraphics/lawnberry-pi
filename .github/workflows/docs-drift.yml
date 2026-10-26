@@ -16,5 +16,18 @@ jobs:
           fetch-depth: 0
 
       - name: Run docs drift detection
+        env:
+          # Pull requests: empty, so the script diffs merge-base(origin/<PR base branch>, HEAD)..HEAD.
+          # Push to main: the pre-push commit, so the range is the pushed commits. origin/main already
+          # equals HEAD there, which would compare nothing (the script refuses that on a push event).
+          BASE_REF: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           bash scripts/check_docs_drift.sh
+
+      - name: Code structure overview follows the changed files
+        if: github.event_name == 'pull_request'
+        env:
+          # A branch name is attacker-chosen text (`a"$(id)"` is a valid ref name): it goes in an
+          # environment variable, never into the script text with ${{ }}.
+          PR_BASE_BRANCH: ${{ github.base_ref }}
+        run: python3 scripts/sync_code_structure.py --check --base "origin/$PR_BASE_BRANCH"

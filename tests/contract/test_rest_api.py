@@ -5,10 +5,10 @@ from backend.src.main import app
 
 
 @pytest.mark.asyncio
-async def test_auth_login_success():
+async def test_auth_login_success(operator_credential):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/v2/auth/login", json={"credential": "secret"})
+        resp = await client.post("/api/v2/auth/login", json={"credential": operator_credential})
         assert resp.status_code == 200
         body = resp.json()
         assert "token" in body and isinstance(body["token"], str)
