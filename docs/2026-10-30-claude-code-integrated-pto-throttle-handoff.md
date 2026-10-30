@@ -15,6 +15,13 @@ You are the lead mechanical CAD, mechatronics, embedded safety and systems-integ
 
 Do not discard or supersede known user measurements without stating the conflict. Work on a feature branch created from the design-requirements branch; preserve existing code, documentation and CAD.
 
+### CRITICAL correction: identify the actual switch
+- Official Toro model 77603 operator manual 3473-450C, p. 3-2 / 3-3, shows that **the round knob immediately above the ignition key is the CHOKE, NOT THE PTO**. Earlier AI identification of that knob as PTO was wrong.
+- **The PTO is the rectangular rocker/blade-control switch** at the lower left of the control panel, corresponding to the lower-left rectangular switch in the available user photo. The additional yellow switch is not established as PTO.
+- Parts catalog 3476-743A p. 27 (model 77603 serial 418961000 and up) identifies a rocker switch part 139-6368. Verify the exact serial range and real connector before assigning part, wire colors, or pins.
+- Manual: https://www.toro.com/getpub/273204 ; parts catalog: https://www.toro.com/getpub/265916 . Explicitly disregard any earlier suggestions to actuate or electrically tap the round choke knob for blade control.
+- **This is a panel-device identification only, NOT confirmation of the exact connector pinout.** Serial plate and a photo of the switch's rear connector/pin markings are still needed.
+
 ### Part A: Mechanical throttle modification — do not redesign steering
 - Project mower: user-identified Toro TimeCutter Max Havoc MyRIDE 60-inch **model 77603**. Serial remains to be confirmed.
 - Retain existing right steering mechanism, servo, linkage, and original geometries. Integrate an **additional MG995 throttle servo** onto/above the right-side mount rather than reworking the mower drivetrain.
