@@ -38,4 +38,6 @@ The **Raspberry Pi 5 is the primary control computer**. The **Libre Alta is a ru
 4. Explicit relay/authorization truth table and a wiring diagram based on measured, serial-matched hardware; validate default GPIO startup, power-off and floating-input behavior.
 5. Unit and bench-in-the-loop tests for each single-host power failure, freeze, restart, stale packets, unilateral network loss and failed relay feedback. Record command response plus **observed physical** engine/PTO/drive effects; hardware-actuation timing is not derivable from 600 ms heartbeat timeout alone.
 
+**Implementation handoff:** [Software-only Pi/Alta heartbeat, failure detection, authority, and shutdown sequence](2026-10-30-software-only-dual-controller-failover-design.md). This more detailed design also records why Alta steering-neutral control cannot be assumed without an actual independent signal interface.
+
 **Boundary:** This document records the owner-preferred redundant *software supervisory* architecture, replacing superseded prescriptive safety-spec files on this feature branch. It does not itself establish an independent safety-rated emergency stop.
