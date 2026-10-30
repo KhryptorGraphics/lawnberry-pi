@@ -3,6 +3,10 @@
 Date: 2026-10-30
 Status: **Manufacturer part numbers verified for Toro serial >=418961000; engine-mounted starter OEM part and final harness pinout need individual engine and mower serial validation.**
 
+## Confirmed ignition STOP operating principle (2026-10-30 follow-up)
+
+Kawasaki's FR691V-family official service manual (**ELECTRICAL SYSTEM 9-18/9-19**) explicitly states that **closing the stop switch grounds the ignition primary**, preventing spark. This confirms a **ground-to-kill ignition behavior at the engine-family level**, not an actual verified Toro 77603 connector or field polarity measurement. A conventional **series battery-positive relay** is **not** a substitute for the correctly isolated engine STOP path. Neither GPIO nor a +12 V supply may be applied to a kill terminal without a serial-specific verified schematic. This differs electrically from **opening the PTO clutch supply**. [Official Kawasaki service manual](https://www.kawasakipower.com/kengine/3-TechService/Home/Serviceman/99924-2093-06_FR_FS_FX651V_691V_730V_English_eBook_Rev.pdf). See [continued manufacturer-source research](2026-10-30-followup-hardware-research-findings.md).
+
 ## Manufacturer sources
 1. Toro serial-specific catalog 3476-743A, model 77603, serial **418961000 and up**, Electrical Assembly printed p. 27 and Engine and Muffler printed p. 23: https://www.toro.com/getpub/265916
 2. Toro operator manual 3473-450C, engine start p. 4-11 and wiring schematic ch. 8 p. 8-1, drawing G454156: https://www.toro.com/getpub/273204
