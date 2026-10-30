@@ -4,8 +4,8 @@ Status: Consolidated **requirements and purchase-status notes**, not an installe
 Target: Toro TimeCutter MAX Havoc MyRIDE 60-inch **model 77603**; serial-specific wiring remains unverified.
 
 ## Architecture — two local controllers, not one central PWM bus
-- **Raspberry Pi 5:** autonomous steering/navigation, two 150 kg-class steering servos, AI/vision. A **PCA9685** board drives servo **control signals** locally; steering servos receive high-current power from their separately purchased steering converters, not the PCA9685.
-- **Libre Alta:** independent engine and blade control (virtual ignition RUN/OFF, momentary starter, blade/PTO), plus **MG995 throttle servo** from a second local PCA9685 board. The Alta's GPIO/relay controller interfaces with separate appropriately rated switching components for ignition and PTO. A PCA9685 cannot directly switch starter, ignition or electric clutch power.
+- **Raspberry Pi 5 — primary controller:** coordinates normal steering/navigation and engine/PTO/throttle commands, with two 150 kg-class steering servos controlled locally through its PCA9685. Its servo signals do not supply servo motor current. The Pi has its **own direct stop-authority interface** for engine and blade PTO; it must not depend on commands sent through Alta to stop them.
+- **Libre Alta — hot standby and local peripheral host:** maintains independent software peer monitoring, a second PCA9685 for the MG995 throttle servo, and a **separate direct stop-authority interface** for engine and blade PTO. When the Pi fails, the Alta uses its own outputs to request both **engine OFF and blades/PTO OFF**. During normal operation the Pi coordinates commands, but Alta owns only the local interfaces that are electrically attached to it. The precise shared relay arbitration is not designed or verified; neither PCA9685 can directly switch starter, ignition or electric clutch power.
 - **Two PCA9685 16-channel boards (32 PWM channels total)** are more than enough for the **three planned servos** (two steering, one MG995). With one board per computer, each host has up to 16 local PWM channels, not a shared 32-channel inter-host bank; the two boards do not remove the need for relay drivers and independent safety hardware. Both controllers use I2C and 3.3 V-compatible logic; address and electrical compatibility on each host require bench checks. The repository documents an INA3221 at 0x40 on the Pi, so set the Pi's PCA9685 to a nonconflicting address such as 0x41.
 - Both Pi 5 and Alta have 5 V on header physical pins 2/4, but their safe **spare current** depends on each installed USB-C power converter and other loads. PWM boards' logic can use compatible 3.3 V rail, **but servo power must be separate**. Do not assume the host's 5 V pins can supply relay coils without supply-budget measurement.
 - **Two parallel intercontroller transport configurations:** **Mode A — Wi-Fi HaLow peer link** (existing), or **Mode B — direct wired Ethernet between Pi 5 and Alta** (new candidate). In Mode B, **all Pi–Alta traffic** (heartbeats, coordination/commands, state, fault/status, acknowledgements, optional diagnostics) uses Ethernet, while the two existing HaLow cards remain available for the base station, Thor, web UI, and other off-mower connections. An ordinary patch cable is the only additional interconnect item if both native Ethernet ports are available. No Ethernet switch is needed for a direct link. Select one mode explicitly; do not silently switch transports after a link failure. See [intercontroller Ethernet alternative](2026-10-30-intercontroller-ethernet-alternative.md).
@@ -33,7 +33,7 @@ Target: Toro TimeCutter MAX Havoc MyRIDE 60-inch **model 77603**; serial-specifi
 
 ## Virtual operator controls — requirements, not verified wiring
 - GUI contains **virtual ignition OFF/RUN** toggle. RUN persists as a software request until switched OFF or safety revoked; OFF requests reliable OEM-compatible engine shutdown.
-- GUI has **momentary press-and-hold START**: start request must stop immediately upon finger/mouse release, pointer cancel, navigation loss, communication loss, emergency stop, or engine-running detection. No software-latched starter command.
+- GUI has **momentary press-and-hold START**: start request must stop immediately upon finger/mouse release, pointer cancel, navigation loss, communication loss, fault-requested stop, or engine-running detection. No software-latched starter command.
 - User explicitly requested 5 seconds between attempts; **manufacturer manual specifies max 5 seconds crank and 15 seconds rest after unsuccessful start**. Record the 5-second preference but enforce the manufacturer protection unless validated, approved redesign establishes safe alternative; display actual enforced timer.
 - Start request follows the **factory interlock path**, including PTO OFF and bars in PARK. Existing fore/aft-only servo linkage does not place bars in PARK, so no unattended autonomous start is available with that arrangement as-is. Do not bypass seat/PARK/PTO interlocks.
 - GUI has **BLADE ON/OFF** but the factory PTO is the **rectangular rocker (Toro 139-6368 in applicable serial range)**; the round knob above ignition is **CHOKE**, not PTO. A single relay in series with clutch feed provides only permission-to-engage if the OEM switch is already ON; it cannot by itself independently command ON/OFF.
@@ -41,16 +41,15 @@ Target: Toro TimeCutter MAX Havoc MyRIDE 60-inch **model 77603**; serial-specifi
 - Minimal-cost design should reuse OEM solenoid and clutch, use owned electronics first, and buy only electrically verified missing switching and power items.
 
 ## Existing seat sensor condition (owner report)
-The seat-presence input reportedly **always reads occupied**. It is therefore **not a usable safety interlock** for the design and should not be counted among available protections. This is a statement of current reported machine condition, not a recommendation or approval to defeat OEM interlocks. The other start/PTO/PARK protections and independent engine/PTO/propulsion fail-stop safeguards must be verified separately. See the revised section 8 of `tractor-acceptance-criteria.md`.
+The seat-presence input reportedly **always reads occupied**. It is therefore **not a usable safety interlock** for the design and should not be counted among available protections. This is a statement of current reported machine condition, not a recommendation or approval to defeat OEM interlocks. The other start/PTO/PARK protections and independent engine/PTO/propulsion fail-stop safeguards must be verified separately. Do not treat the reported seat-switch condition as a substitute for other protective functions.
 
-## REQUIRED controller-failure rule (priority over routine stop)
-If **either Pi 5 OR Alta** loses power, crashes/freezes, loses the selected intercontroller link (HaLow in Mode A, Ethernet in Mode B), stops transmitting valid heartbeat, or otherwise loses safe control, **the entire mower must enter a latched SAFE_STOP**, including:
-1. Immediate PTO power authorization off and actual blade spin-down measured.
-2. Starter permission removed, and **engine shut off** through an independently operating, OEM-compatible physical stop path.
-3. Drive motion halted with **physically verified neutral/braking** of both lap bars (simply cutting power to a geared servo may leave its last position; the lever self-centering and PARK mechanisms have not been proven).
-4. All authorization revoked; deliberate operator rearm required. No automatic restart after connectivity or power returns.
-
-The safety shutdown **must function even if both SBCs are dead or the selected intercontroller link fails**. A network heartbeat alone is not an independent hardware stop. Design hardware watchdog/independent safeguard first, then test it by killing power to each SBC alone, both at once, inducing stuck PWM and split/failed HaLow, including actual mechanical stop measurements. See `2026-10-30-dual-controller-safe-stop-requirement.md` and `tractor-acceptance-criteria.md` section 12.
+## Owner-selected two-computer software fault-response decision (not validated)
+- **Alta fails:** Raspberry Pi 5 detects loss of Alta heartbeats, revokes RUN authorization, and issues local **PTO OFF / blades OFF** and **engine OFF** commands.
+- **Pi 5 fails:** Libre Alta detects loss of Pi heartbeats, revokes RUN authorization, and issues local **PTO OFF / blades OFF** and **engine OFF** commands using outputs it can access *without the Pi*.
+- Either controller must be able to request stop through a **stop-dominant, electrically isolated interface** even if its peer is powered off, frozen or unable to communicate. Do not connect the controllers' GPIO pins together.
+- Continue bidirectional 200 ms peer heartbeat checks; three missed intervals (~600 ms) are an initial failure-detection setting, not actual mechanical stopping-time verification. Select either the HaLow or wired Ethernet transport.
+- The owner requested **no additional external watchdog modules and no added physical E-stop switch** in the proposed cost-reduced design, and scoped automatic software takeover to **single-host failures**. No autonomous stop claim is established for both-host failure, stuck relays/PWM, or jammed linkage. Engine/PTO OFF commands do not by themselves establish neutral steering or instant blade stopping. Existing OEM protection circuits are not to be defeated.
+- **Document authority:** [Pi 5 primary / Alta backup software-control decision](2026-10-30-primary-backup-software-control.md). The earlier prescriptive controller safe-stop specification and tractor acceptance checklist have been retired from this branch at the owner's request. Physical component and wiring ratings still require independent confirmation before use.
 
 ## Throttle mechanical scope preserved
 MG995 on right-side steering structure operates throttle via **five printable linkage variants** from the existing addendum; steering linkage is not to be redesigned. A printable design and fitting remain prototypes until measured and tested under heat/vibration. Keep original geometry and previously recorded measurements.
@@ -63,7 +62,6 @@ MG995 on right-side steering structure operates throttle via **five printable li
 - `2026-10-30-toro-77603-starter-ignition-technical-research.md`
 - `2026-10-30-toro-77603-pto-switch-research.md`
 - `2026-10-30-claude-code-integrated-pto-throttle-handoff.md`
-- `2026-10-30-dual-controller-safe-stop-requirement.md`
+- `2026-10-30-primary-backup-software-control.md`
 - `2026-10-30-intercontroller-ethernet-alternative.md`
-- `tractor-acceptance-criteria.md`
 - Official Toro electrical manual: https://www.toro.com/getpub/273204
