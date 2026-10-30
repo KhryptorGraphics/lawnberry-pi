@@ -2,7 +2,7 @@
 Date: 2026-10-24. Status: **engineering design / NOT an as-built wiring diagram**. Target: Toro TimeCutter MAX MyRIDE 50-inch model 77502 (verify actual serial plate).
 
 ## Evidence and precedence
-- Tractor-specific authoritative *software intentions*: `config/tractor.yaml`, `docs/tractor-platform.md`, `docs/tractor-acceptance-criteria.md`.
+- Tractor-specific authoritative *software intentions*: `config/tractor.yaml`, `docs/tractor-platform.md`, `docs/2026-10-30-primary-backup-software-control.md`.
 - Older differential-drive documentation: `docs/hardware-integration.md`, `docs/servo-hat-pins.md` sections 1–6, parts of `spec/hardware.yaml`. **Do not apply their RoboHAT/Cytron/IBT-4 motor wiring to the Toro.**
 - Hardware owned/installed versus planned must be verified with photos, part labels and measurements. No connection below is represented as physically tested.
 
@@ -43,7 +43,7 @@ The last six assignments are transcribed from `docs/ultrasonic-wiring-guide.md` 
 ## I2C, power and actuator design
 - `config/tractor.yaml` requests PCA9685 bus 1, address **0x41**, 50 Hz. Address 0x40 is reserved in older spec for INA3221; verify PCA9685 A0 strap and real `i2cdetect` results before energizing actuators.
 - `config/tractor.yaml` contains **illustrative** 1000/1500/2000 µs lever endpoints and 1100/1900 µs throttle endpoints. They are NOT calibrated values. Validate actual linkage geometry and actuator supply voltage.
-- `docs/tractor-platform.md` selects 12 V RDS51150SG servos and explicitly says older 24 V design is superseded; `docs/tractor-acceptance-criteria.md` still assumes 24 V in a latency section. **Resolve the exact purchased servo label and datasheet before connecting power.** Do not connect a 24 V supply to a 12 V servo or to Pi/PCA9685 logic rails. The servo supply and control electronics need separate appropriately rated, fused distribution and a deliberate ground/isolation strategy.
+- `docs/tractor-platform.md` selects 12 V RDS51150SG servos and explicitly says older 24 V design is superseded; a superseded (deleted) acceptance checklist assumed 24 V in a latency section. **Resolve the exact purchased servo label and datasheet before connecting power.** Do not connect a 24 V supply to a 12 V servo or to Pi/PCA9685 logic rails. The servo supply and control electronics need separate appropriately rated, fused distribution and a deliberate ground/isolation strategy.
 - PCA9685 retains last PWM on host/I2C failure. The PCA9685 **OE input is active-low**: driving OE **high** disables PWM outputs; driving it low enables them. The existing acceptance checklist incorrectly suggests driving OE low to disable outputs. Disabling PWM does **not** itself guarantee lever return to neutral; verify spring return or design independent mechanically safe disengagement. Test physical lever movement with engine OFF, machine immobilized, blades disabled.
 - Hardwired E-stop, independent watchdog and physically verified blade power removal must remain effective when Pi, Thor, HaLow, I2C or servo software fails. E-stop safety must not depend on Wi-Fi or an API call. Do not bypass OEM operator-presence protections.
 
