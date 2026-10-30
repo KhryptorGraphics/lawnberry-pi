@@ -15,7 +15,7 @@
 - `spec/hardware.yaml` assigns physical header pin 32 to both GPIO12 ToF interrupt and UART4 TXD4; it also lists UART4 RX on physical pin 33 while `docs/hardware-integration.md` states GPIO13 RXD4. Pin multiplexing and physical mapping must be verified against Pi 5 overlays and actual configuration.
 - `PRODUCT.md` reports ultrasonic sensing disabled because of HaLow GPIO conflict, issue #15. Validate current code/config and close the conflict before using ultrasound as a safety input.
 - `spec/hardware.yaml` describes a small differential-drive platform with RoboHAT/IBT-4 and also a Toro TimeCutter tractor with PCA9685 servos/relays. These are **different platform variants**, not one wiring harness. Owner's 50-inch zero-turn mower must have its own authoritative bill of materials and wiring diagram.
-- `docs/tractor-acceptance-criteria.md` explicitly leaves PCA9685 bus-fault failsafe, E-stop physical behavior, tilt cutoff, motor watchdog, lever return-to-neutral, and operator-presence integration unverified. No unattended mowing until independently validated.
+- A superseded (now deleted) acceptance checklist identified PCA9685 bus-fault response, E-stop physical behavior, tilt cutoff, motor watchdog, lever return-to-neutral, and operator-presence integration as unverified. See the [current owner-selected software-control decision](2026-10-30-primary-backup-software-control.md). No unattended mowing until independently validated.
 - `PRODUCT.md` currently describes NVIDIA Thor primarily as an offline training server; owner is also considering Thor-in-house for live high-level inference/planning over Wi-Fi HaLow. Treat this as a **proposed architectural change**, not an implemented capability.
 
 ## Deliverables for Oh My Pi
