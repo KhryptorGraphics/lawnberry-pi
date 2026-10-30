@@ -70,3 +70,11 @@ Kawasaki FR691V is identified in the Toro engine assembly as the FR691 family (p
 - Do not say a schematic pin equals a physical connector cavity without serial-specific trace and inspection.
 - Do not bypass safety interlocks to achieve autonomous starting.
 - Do not use external manuals from different Toro families for pin-by-pin instructions without cross-verification.
+
+
+## Operator preference update — retry interval (2026-10-30)
+- **Requested UI behavior:** Virtual ignition ON/RUN toggle; press-and-hold START requests cranking, and immediately releasing/canceling START must cease the request. OFF requests engine shutdown. No latched START action.
+- **User's explicit requested retry delay:** **5 seconds**, **not 15 seconds**.
+- **Manufacturer constraint that conflicts with this preference:** Toro's operator manual 3473-450C p. 4-11 specifically says **maximum 5 seconds of starter engagement per attempt**, then **wait 15 seconds after an unsuccessful start** before another attempt. Source: https://www.toro.com/getpub/273204 . The 5-second cranking cap and 15-second rest are *two different specifications*.
+- **Implementation resolution:** Record the 5-second retry interval as the user's requested product setting, *not an approved hardware protection value*. Until starter thermal/electrical testing and qualified review justify a different value, enforce the manufacturer's **15-second minimum failed-start lockout**; never silently claim that five seconds complies with Toro. Show the actual enforced lockout in the UI. Request explicit engineering review before shortening it.
+- Press-and-hold control must stop on pointerup, pointercancel, loss of client heartbeat, navigation away or disconnect. Independent maximum starter-on timer and interlock authorization are required.
