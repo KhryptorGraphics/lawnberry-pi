@@ -16,6 +16,8 @@ The **Raspberry Pi 5 is the primary control computer**. The **Libre Alta is a ru
 | Intercontroller link fails with both hosts alive | Both locally | No assumption that the peer is healthy: each locally revokes run authorization and commands the available shutdown interfaces. Do not wait for a STOP message from the other host. |
 | Both hosts fail, shared electrical failure, actuator/relay sticks, or mechanical linkage jams | No functioning software path is guaranteed | **Not covered by software redundancy alone.** Real-world stop outcomes are not guaranteed. Do not report this case as handled, negligible, or validated. |
 
+**Explicit blade redundancy decision (2026-10-30):** The Libre Alta must be connected to a verified blade/PTO **OFF** control path that remains operable when the Pi 5 is entirely offline. The Pi 5 likewise must have a verified PTO-OFF path if Alta fails. The already purchased Pololu #2806 is **steering PWM only** and does not switch the blade clutch. The two single-channel HiLetGo relay modules do **not** prove sufficient contacts for steering, PTO and engine functions; actual electrical integration remains open. See [PTO redundancy detail](2026-10-30-software-only-dual-controller-failover-design.md#2c-independent-bladepto-shutdown--explicit-owner-requirement).
+
 ## Communications
 
 - Intercontroller traffic is selectable: **Mode A — Wi-Fi HaLow**, or **Mode B — direct Ethernet carrying *all* Pi–Alta communications**. See [parallel interconnect design](2026-10-30-intercontroller-ethernet-alternative.md). HaLow radios may remain in use for off-mower connectivity when Ethernet is selected.
