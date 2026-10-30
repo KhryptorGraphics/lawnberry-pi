@@ -3,6 +3,12 @@ Date: 2026-10-30
 Status: Design instructions; physical dimensions and fit require verification.
 This document supplements the existing servo-throttle linkage specification on this branch. Do not redesign the mower or alter the existing steering drive and pushrod except for the right-side mount extension needed to carry the new throttle servo.
 
+## Confirmed mower identification (user-read ID plate, 2026-10-30)
+- **Toro model number: 77603.** The user read this number from the mower's identification label.
+- Mower: **60-inch Toro TimeCutter Max Havoc MyRIDE**, as identified in the project discussion. Use **77603** for model-specific Toro documentation lookup; record the serial number separately when available.
+- **Blade/PTO wiring:** Any electronic PTO control design must be researched against the actual model 77603 schematic and applicable serial-number range. The user describes a push-activated control operated again to turn the blades off; do not assume a generic maintained, momentary, rocker, or push-pull switch circuit without confirmation from the applicable electrical diagram and physical switch. Do not treat prior generic relay discussion as a verified pinout.
+- Preserve the factory PTO interlocks and independent emergency stop in any electronic-control proposal. This identification does not validate wiring modifications or blade stopping time.
+
 ## Required servo envelope (user measured)
 Orient servo on its base, output shaft up on the far side:
 - Body: 1.50 in high × 0.50 in thick (left–right) × 1.50 in long (front–back).
