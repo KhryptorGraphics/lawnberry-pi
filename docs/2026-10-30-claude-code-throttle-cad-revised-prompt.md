@@ -1,4 +1,6 @@
 # Claude Code — revised executable prompt for Lawnberry Pi throttle CAD
+
+> **FACT-CHECK CORRECTION (2026-10-30):** In the official Toro 77603 operator manual 3473-450C pp. 3-2 to 3-3, the round knob immediately above the ignition is the **CHOKE**, not the PTO. The **rectangular lower-left rocker** is the blade-control/PTO switch. Any earlier round-knob PTO or push-button identification is wrong. See `docs/2026-10-30-toro-77603-pto-switch-research.md` and https://www.toro.com/getpub/273204 . This is a control identification, **not** verified connector pinout. Check mower serial and actual switch harness before any wiring.
 Updated October 30, 2026. This prompt is to be given directly to Claude Code operating in the mower repository. The goal is **actual editable CAD and printable STL deliverables**, not documentation alone.
 
 ```text
