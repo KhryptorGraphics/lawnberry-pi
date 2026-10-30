@@ -147,23 +147,29 @@ tractor-specific items above:
 - [ ] Motor-watchdog heartbeat, with automatic emergency stop on timeout, is
       wired to the tractor's actuator control loop.
 
-## 8. OEM seat / operator-presence (OPC) switch decision
+## 8. OEM seat / operator-presence (OPC) — current condition
 
-See `docs/tractor-platform.md`'s "Physical integration decisions" §4. Confirmed
-from the Toro operator's manual (form 3465-589): the engine shuts off **within
-1 second** whenever the motion-control levers are out of PARK and the operator
-rises from the seat. This is measured OEM behaviour, not an assumption.
+**Owner report, 2026-10-30:** The seat-presence input on this particular mower
+always indicates that an operator is seated. Treat this as **current reported
+hardware condition**, not as an available or functioning safety interlock.
+Do not count it among the redundant protections in a minimal-cost redesign,
+and do not treat this report as evidence that unattended operation is safe.
 
-- [ ] Confirm how the seat/OPC circuit is handled for autonomous (unoccupied)
-      operation — satisfied (e.g., a wired "occupied" bridge) vs. genuinely
-      bypassed — is decided and documented in `docs/tractor-platform.md`.
-- [ ] Confirm whichever approach is used is explicitly paired with, and does
-      not substitute for, the Constitution's operator-attestation gate
-      (Principle VI): a bypassed presence switch is only acceptable alongside
-      a logged, enforced software attestation standing in for it.
-- [ ] Confirm the 1-second engine cutoff is observed on the actual machine
-      before any decision is made to defeat it — measure the behaviour being
-      traded away, don't take the manual's word for it.
+The manufacturer's normal operator-presence protective function is therefore
+unavailable as described. The design must preserve the remaining factory
+start/PTO/PARK interlocks and add independently verifiable stopping safeguards
+appropriate to an unoccupied machine. No instructions to defeat protective
+circuits are implied or authorized by this status record.
+
+- [ ] Validate and document the actual electrical condition on the mower;
+      distinguish user report from instrumented test.
+- [ ] Do not count the seat signal as a heartbeat, operator-presence sensor,
+      emergency-stop channel, or proof that the area is clear.
+- [ ] Document and review the loss of operator-presence protection with the
+      physical fail-stop architecture; no unmanned deployment before
+      independent engine/PTO/propulsion stops are physically proven.
+- [ ] Keep the separate pre-mission area-clear/operator-authorization gate;
+      it does not replace an independent physical safety stop.
 
 ## 9. Reverse definition: pivot turn vs. true reverse
 
