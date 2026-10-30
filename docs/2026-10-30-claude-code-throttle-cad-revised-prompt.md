@@ -38,13 +38,13 @@ Retrieve the two current documents from the specified branch and inspect existin
 - Develop and compare at least three printable continuous-adjustment/locking concepts: captive sliding wedge/cam with second retainer; printed split collet tightened by a large printable threaded ring; printed lead screw/sleeve with anti-backdrive retainer, or equivalent.
 - Include visible lock engagement, captive mechanical end-stops so parts cannot separate on clamp slip, repeatable fine adjustment, minimum safe overlap, stiffness and access for readjustment. Do not rely on friction alone to prevent catastrophic disconnection. If none meets validation requirements, document the failure and do not release the design as safe.
 
-5. INVERTED-U / UPSIDE-DOWN-BOX THROTTLE END:
-- At the far throttle end, create a fully printable inverted-U/open-bottom box fitting engaging the actual mower throttle lever.
-- Its required CLEAR INTERNAL SIDE-TO-SIDE WIDTH and CLEAR INTERNAL FRONT-TO-BACK DEPTH are NOT MEASURED. The user specifically needs both numbers to know if it will fit. Do not invent them or claim it already fits.
-- Expose independently editable parameters: actual throttle engagement-point outside left/right width, outside front/back thickness or depth, chosen clearance on each side, interior contact height, wall thickness and installation path.
-- Interior width = measured exterior throttle width + 2 × left/right running clearance; interior depth = measured exterior throttle depth + 2 × front/back clearance.
-- Provide a small printable fit-check sample/template before final print, and ask for just the two critical outside dimensions when they cannot be obtained from an existing scaled CAD or trustworthy measurements.
-- Model the throttle-lever cap/engagement geometry and sweep to prevent binding, excessive side loading or open-throttle jamming. Do not confuse steering-bar offset with the throttle lever's size.
+5. INVERTED-U / UPSIDE-DOWN-BOX THROTTLE END — INITIAL USER DIMENSIONS AND RIGHTWARD TILT:
+- The far throttle end shall be a fully printable inverted-U/open-bottom box-shaped fitting.
+- **STARTING INTERNAL CLEAR DIMENSIONS** (not exterior dimensions): FRONT TO BACK = **0.50 inch (12.70 mm)**; LEFT TO RIGHT = **1.25 inches (31.75 mm)**. Implement as editable defaults `throttle_u_inner_depth_mm=12.70` and `throttle_u_inner_width_mm=31.75`. These are the nominal INSIDE opening, so do NOT add arbitrary running clearance again by default.
+- Provide independently editable allowance/clearance refinements only after measuring the actual throttle lever outer width and depth. Also parameterize opening height/engagement depth, wall thickness, lead-in, fillets, fit tolerances and installation/removal path. Print a small test gauge for the 12.70 by 31.75 mm opening.
+- IMPORTANT: the actual mower throttle lever is slanted slightly to the RIGHT. Ensure the U-shaped opening aligns with the throttle's own angled axis rather than sitting skewed relative to the lever. Provide a signed, editable `throttle_lean_right_deg` parameter for the left/right-versus-vertical plane. Exact angle is not supplied: mark TO MEASURE, and DO NOT invent a verified tilt angle. Separately parameterize yaw/pitch if necessary. Rightward tilt is NOT the same as the 2.5–4.5 inch side offset from the right steering bar.
+- Consider a printed tilted neck or positively captured, fully printed articulating fitting if the lean changes through travel, without bolts or purchased metal joints. Preserve alignment at idle, intermediate, and full speed, allowing intended motion without jamming, prying, excessive side load or holding the throttle open.
+- Check full lever sweep, installation, steering clearance, emergency engine stop and independent return-to-idle. Initial dimensions are CONFIGURABLE DESIGN VALUES, not proof of actual fit; record the actual lever cross-section and tilt angle as remaining measurements.
 
 6. FIVE DISTINCT COMPLETE CAD OPTIONS; DO NOT SELECT ONE:
 A. Direct connection to one existing X-horn arm with printable captive joint.
