@@ -49,7 +49,7 @@ that occurs after hardware was confirmed present (as opposed to a tolerated
 no-op when no board is wired up at all) so a real transport fault is visible to
 callers, but a physical bus-fault failsafe (e.g. a watchdog driving the board's
 `OE` pin) is a separate, not-yet-built hardware-phase requirement — see
-`docs/tractor-acceptance-criteria.md` item 1.
+the current [software-control decision](2026-10-30-primary-backup-software-control.md) for the owner-selected architecture (the former acceptance checklist was retired).
 
 ## Safety interlocks (standard lawn-tractor, ANSI/OPEI-style)
 
@@ -63,7 +63,7 @@ callers, but a physical bus-fault failsafe (e.g. a watchdog driving the board's
   mower's own OEM mechanical Reverse Operation System may also cut the blade
   in reverse independently of this software interlock; which one actually
   fires (or both) must be confirmed on the bench, not assumed — see
-  `docs/tractor-acceptance-criteria.md`.
+  the current [software-control decision](2026-10-30-primary-backup-software-control.md) for the latest ownership model.
 - **Emergency stop** has three effects: disengages the blade/PTO, returns
   both drive levers to neutral, and idles the throttle — **the engine keeps
   running** (configurable); authorization is revoked and further commands are
