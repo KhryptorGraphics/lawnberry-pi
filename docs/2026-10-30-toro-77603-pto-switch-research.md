@@ -40,6 +40,9 @@ OEM PTO switch, safeguards and engine-kill chain remain independent.
 - Relay/module must be sized for **measured clutch steady-state current and inductive release transients**; proper suppression and isolation are required. No unverified GPIO-direct or guessed terminal-to-terminal wiring.
 - Blade control from SBC must not be treated as the sole protective layer for detecting people, pets, or obstacles.
 
+## Dual-controller owner requirement (2026-10-30)
+The current Pi 5 primary / Libre Alta backup architecture requires **both** hosts independently to request **PTO OFF** after the other fails. A proposed **two-contact series, energize-to-allow PTO permission logic** can satisfy this at the functional level **without bypassing factory interlocks**. It does not itself provide independent PTO ON when the OEM PTO rocker is OFF. With one of the two owned one-channel HiLetGo modules reserved for steering, **only one such PTO permission contact is accounted for**; the existing automotive relay harness may or may not include an installed second relay. **Do not mark the dual contact electrical interface as complete** until actual relay bodies, ratings and mower serial-specific wiring are checked. The Pololu #2806 is for steering PWM only. See [dual-controller PTO electrical feasibility, relay inventory and tests](2026-10-30-dual-controller-pto-circuit-feasibility.md). No separate new watchdog or physical E-stop is part of the owner-selected *software-supervisory* scope, but that choice does not prove safe unattended operation.
+
 ## Decisions to verify against serial-specific Toro service information
 1. Confirm serial number and obtain the **exact** electrical/parts wiring revision for the machine.
 2. Identify switch connector, pin numbering, switch contact states, and whether it is momentary, maintained, multiplexed or part of a controller module.
