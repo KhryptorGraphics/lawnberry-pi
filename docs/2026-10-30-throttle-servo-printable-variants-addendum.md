@@ -48,14 +48,19 @@ This section supersedes any ambiguous earlier description of a clamp secured by 
 - Parametrize minimum telescoping overlap and dimensional tolerances for the actual selected filament and print orientation. Evaluate loss of clamp force due to filament creep, vibration, temperature, humidity, repeated operation and layer-direction loading. Test for slip at measured throttle forces before any field operation.
 - If no fully printable scheme meets retention, repeatability, fatigue and return-to-idle safety criteria, flag this as an **unresolved engineering blocker**, not as a reason to quietly replace parts with metal hardware.
 
-## Inverted-U / upside-down-box throttle lever attachment — dimensions not yet measured
-The pushrod's throttle end must engage the existing mower's throttle control via an upside-down U-shaped or open-bottom box-shaped printed interface. **Neither its clear inside side-to-side width nor its clear inside front-to-back depth has been measured or established in the existing supplied photos or specifications. Do not invent either number or mark a CAD fit as verified.**
+## Inverted-U / upside-down-box throttle lever attachment — initial dimensions and rightward lean (2026-10-30)
+The pushrod's throttle end shall engage the mower's throttle control through a **fully printed inverted-U / open-bottom box**. The user has now specified the following **INITIAL CAD OPENING DIMENSIONS**, which are **starting design parameters, not physically validated throttle-lever dimensions**:
+- **Clear inside front-to-back opening:** **0.50 in = 12.70 mm** (`throttle_u_inner_depth_mm = 12.70`).
+- **Clear inside left-to-right opening:** **1.25 in = 31.75 mm** (`throttle_u_inner_width_mm = 31.75`).
+- These are the nominal **inside clearances of the opening itself**. Do **not** automatically add a second allowance on top of them. Expose `fit_clearance_front_mm` and `fit_clearance_side_mm` as separately adjustable refinement parameters for later fitting *after* the actual throttle lever's external cross section has been checked.
+- Expose printable wall thickness, vertical insertion depth, fillets, mouth lead-in, mount attachment point, print tolerances, minimum engagement and removal path as editable parameters. Make a small printable sample gauge at the stated initial opening sizes before full pushrod manufacture.
 
-- Define separately parameterized **internal clear left-to-right width** (`throttle_tip_width_mm` plus twice `fit_clearance_side_mm`) and **internal clear front-to-back depth** (`throttle_tip_depth_mm` plus twice `fit_clearance_front_mm`). Also parameterize engagement height, wall thickness, fillets, motion clearance and removal/installation path.
-- Obtain measured **actual throttle lever/knob outside width and front-to-back thickness/depth at the point of engagement**, including any taper, grip, protrusions and movement. The right steering bar offset ranges are *not* dimensions of the throttle lever or inverted-U tip.
-- Use configurable print clearance chosen by test coupon and material; no unmeasured inside width/depth is to be presented as fixed or final.
-- Model full lever sweep and contact loads, preventing binding, snagging and accidental throttle pull-open while allowing independent steering and emergency-stop operation. Print a small fit-check gauge for the selected opening before fabricating a full-length pushrod.
-- Explicitly report these two currently missing measurements to the user in the final implementation summary.
+**RIGHTWARD THROTTLE LEAN / ORIENTATION:** The physical throttle control is slanted slightly **toward the right** (as viewed from the normal operator-facing frame). An opening which stays rigidly vertical or misaligned must NOT be treated as a correct fit merely because width and depth match.
+- Expose a signed `throttle_lean_right_deg` parameter (angle currently **unknown**, no invented default used as a verified measurement). This describes lean in the left/right-versus-vertical plane, not the rightward offset distance to the steering bar. Also allow separate yaw/pitch adjustments if actual geometry demands.
+- Orient the long axis and contact walls of the U fitting to match the measured lever lean and its local surface geometry; consider an angled printable neck and/or a **fully printed, positively captured articulating alignment joint** if the lever angle changes through its stroke.
+- Maintain required opening clearances when tilted. Validate insertion/removal, full throttle sweep at back/middle/forward, lever contact and normal steering motion. Ensure the joint cannot snag, wedge, pull the throttle open, or block the independent return-to-idle and engine stop.
+- Measure or determine from reliable existing CAD the actual throttle engagement-point outside width, front/back thickness, rightward inclination angle and any taper/protrusions. Until verified, explicitly label **12.70 × 31.75 mm as nominal initial internal opening**, label lean angle as **TO MEASURE**, and do not claim verified fit.
+- Preserve the fully printed continuously sliding micro-fine pushrod lock and secondary captive anti-separation stop: no metal lock bolt or purchased joint hardware.
 
 ## 3D printer manufacturing envelope — mandatory
 Printer nominal build volume: **420 mm X × 420 mm Y × 500 mm Z** (millimeters).
