@@ -41,6 +41,36 @@ This specification defines **what the software must attempt and how it coordinat
 
 Manufacturer PCA9685 reference: https://www.nxp.com/products/power-drivers/lighting-driver-and-controller-ics/led-drivers/16-channel-12-bit-pwm-fm-plus-ic-bus-led-driver:PCA9685 . HiLetGo model identified in owned-hardware document as **B0CHFJSNP6**; confirm actual purchased relay coil marking and contact wiring before designing the interface.
 
+## 2B. Candidate hardware: Pololu four-channel RC servo signal multiplexer (#2806)
+
+**Purchase research status — 2026-10-30:** Verified manufacturer product and pin/functional documentation; **no specific Amazon product listing verified**. The Amazon URL below is a **search-results link**, not a product listing, and does not establish Amazon availability or price.
+
+- **Product:** Pololu **4-Channel RC Servo Multiplexer (Assembled)**, manufacturer SKU **2806**. It provides **four paired 2-input, 1-output RC/PWM signal paths**, enough to select between Pi 5 and Alta for **both steering servos** without purchasing another PCA9685.
+- **Amazon product search (NOT a verified seller listing):** https://www.amazon.com/s?k=Pololu+2806+4+Channel+RC+Servo+Multiplexer
+- **Manufacturer's exact product:** https://www.pololu.com/product/2806 (manufacturer currently lists **$19.95 USD**, availability/rationing subject to change).
+- **Verified alternative vendor listing:** https://www.robotshop.com/products/pololu-4-channel-rc-servo-multiplexer-assembled (observed **$17.95 USD**, stock/pricing subject to change).
+- **Manufacturer setup/pinout guide:** https://www.pololu.com/docs/0J60/all
+
+### Proposed functional signal topology (NOT a final wiring diagram)
+
+```text
+Pi 5 PCA9685 steering LEFT PWM  ──> M1  ┐
+Alta PCA9685 spare LEFT PWM     ──> S1  ├── OUT1 signal ──> left steering servo PWM input
+Pi 5 PCA9685 steering RIGHT PWM ──> M2  ┐
+Alta PCA9685 spare RIGHT PWM    ──> S2  ├── OUT2 signal ──> right steering servo PWM input
+
+Alta PCA9685 spare RC PWM selector ──> SEL
+  normal: selects Pi/master; Pi failed + Alta responsive: selects Alta/slave.
+  Pi healthy + Alta failed: invalid SEL defaults to Pi/master only if
+  the manufacturer's FAILMODE configuration is left in its master-default state.
+```
+
+**Important:** the Pololu **SEL** input expects **valid hobby RC pulses**, not simply a static GPIO level: **10–330 Hz, 0.5–2.5 ms pulse width**, default slave selection above roughly **1700 μs**, with a configurable threshold/direction. A spare Alta PCA9685 channel could generate SEL at 50 Hz while Alta's local steering backup channels produce neutral. Test the exact state and logic, rather than assuming a stuck or invalid selector produces a safe steering position. Manufacturer states that when SEL is invalid, the **FAILMODE** jumper selects either **master source** (jumper OFF) or **outputs forced low** (jumper ON); low outputs do not guarantee servo neutrality. The board **does not have a safe-start feature**.
+
+**Steering-servo power:** The owned 150 kg servo class can require high current and a supply separate from controller logic. **Do not pass their unverified high-current power supply through the multiplexer board's VM/servo-header power traces.** Route selected **PWM signals only** to servo signal pins, with ground reference and a separately validated low-current board-power arrangement that does not backfeed the other SBC or the servo power supply; verify board logic and input levels with the actual installed devices. The manufacturer's ordinary RC wiring diagrams assume shared servo power through VM and therefore **cannot be copied directly** to this high-current mower wiring.
+
+**This product is a candidate for a bench-tested signal selector only, not an automotive safety-rated failover device.** It switches signals but cannot guarantee neutral if the Alta also fails, if servo power is lost, if a drive linkage sticks, or if its selector fails. An I²C/PCA9685 process freeze may leave a previously commanded pulse active; both modes must be fault-injected and actual lever positions measured before an engine-on trial.
+
 ## 3. Selectable peer transport
 
 Support **Mode A: Wi-Fi HaLow**, or **Mode B: a direct Ethernet cable connecting Pi 5 and Alta**. In Mode B, **all** Pi–Alta peer packets (heartbeats, state, fault messages, coordination, acknowledgments and telemetry) use Ethernet; HaLow can independently serve base station, Thor and the remote UI. The software must explicitly configure which interface/IP is the active peer transport; **do not silently fail back to HaLow** on Ethernet loss without a separately specified policy.
