@@ -8,6 +8,17 @@ Status: Research and design handoff, **not a verified wiring installation proced
 - Official manual source: https://www.toro.com/getpub/273204
 - Do not check the entire third-party copyrighted manual into this public repository. Access the manufacturer's official hosted publication instead; check the link remains current.
 
+## 2026-10-30 manufacturer illustration cross-check — CORRECTION (HIGH CONFIDENCE)
+The manufacturer's actual Toro 3473-450C operator manual, p. 3-2 (PDF physical page 17), **labels the round pull knob above the ignition as CHOKE control, NOT PTO.** The rectangular switch near the lower-left of the console is labeled **Blade-Control (PTO)**. The diagram on p. 3-3 explicitly shows the blade-control as a rocker/rectangular control. **Prior conversation descriptions identifying the round knob as PTO were wrong and must not be used for mechanical actuator or electrical wiring work.**
+- Manual control-panel illustration: https://www.toro.com/getpub/273204#page=17 (print p. 3-2).
+- Blade-control illustration: https://www.toro.com/getpub/273204#page=18 (print p. 3-3).
+- Electrical schematic: https://www.toro.com/getpub/273204#page=87 (print p. 8-1, drawing G454156).
+- Original user's photo shows a round control immediately above the key consistent with the choke, plus rectangular panel switches. The rectangular lower-left switch is the PTO **by visual layout comparison**, but its underside pins are not visible. A yellow upper-left switch appears to have a light/brightness marking and is not established as PTO.
+- Toro parts catalog for model 77603 (serial 418961000 and up), Form 3476-743A, electrical assembly printed pp. 26-27, lists ref. 7 = **139-6368, Switch-Rocker, On-None-On**, ref. 4 = 110-6765 (2 switches), and main wiring harness ref. 1 = 145-6382. Parts catalog: https://www.toro.com/getpub/265916#page=27 . Note that part selection remains serial-dependent; do **not** assign pin numbers to the mower using this catalog alone.
+- Toro operator manual p. 4-4 states startup is interlocked so PTO must be disengaged and motion control levers parked; it also describes an engine-off interlock involving seat occupancy and the motion-control levers. Do not bypass any such safety function.
+
+**Pinout verification status: still NOT physically confirmed.** The printed diagram identifies the functional circuit but does not document connector orientation from the photo. Get the full serial number and a clear straight-on picture of the rear of the rectangular PTO rocker *with its molded pin labels and plug/wire colors visible*, taken with key removed, engine off, and battery negative disconnected by a qualified technician. Continuity/function checks must use a serial-matched service diagram. Do not transfer terminal numbers from older Toro TITAN/SS/MX service manuals to this 77603.
+
 ## What is known
 - The blade engagement/disengagement function is electric PTO clutch control, not mechanical movement of the mower blades by a servo.
 - The PTO operator control is associated with the engine-start / safety interlock logic.
