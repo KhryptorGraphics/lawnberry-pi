@@ -25,6 +25,7 @@ Read in order:
 8. `docs/2026-10-30-claude-code-throttle-cad-revised-prompt.md`
 9. `docs/2026-10-30-toro-77603-pto-switch-research.md`
 10. `docs/2026-10-30-dual-controller-pto-circuit-feasibility.md`
+10a. `docs/2026-10-30-followup-hardware-research-findings.md` (**mandatory new manufacturer-verified corrections: Kawasaki ground-to-kill, 1-643275 OEM relay not spare, Pololu selector fallback, Seeed SPI-only Mini PCIe, Quectel RTK option, four JSN-SR04T sensors and Raspberry Pi physical pin 17 correction**)
 11. `hardware/mounts/README.md`, `INSTALL.md`, `assemblies.scad`, `enclosure_common.scad`, other relevant `*.scad`, and `build_printables.py`.
 
 These documents contain corrections and supersede legacy model **77502** assumptions. **Actual mower is Toro TimeCutter MAX Havoc MyRIDE 60-inch, model 77603**; serial unknown. The existing 77502 CAD is useful as a baseline **only**, not proven to fit the 77603. Do not reinstate deleted obsolete acceptance/safety documents.
