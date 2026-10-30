@@ -39,6 +39,9 @@ Target: Toro TimeCutter MAX Havoc MyRIDE 60-inch **model 77603**; serial-specifi
 - OEM components identified provisionally from Toro serial >=418961000 catalog: ignition switch 137-4100, starter solenoid 117-1197, auxiliary relay 1-643275 (role unknown), PTO rocker 139-6368. No specific physical pins or full engine starter-motor suffix confirmed. Do not bridge high-current solenoid studs.
 - Minimal-cost design should reuse OEM solenoid and clutch, use owned electronics first, and buy only electrically verified missing switching and power items.
 
+## Existing seat sensor condition (owner report)
+The seat-presence input reportedly **always reads occupied**. It is therefore **not a usable safety interlock** for the design and should not be counted among available protections. This is a statement of current reported machine condition, not a recommendation or approval to defeat OEM interlocks. The other start/PTO/PARK protections and independent engine/PTO/propulsion fail-stop safeguards must be verified separately. See the revised section 8 of `tractor-acceptance-criteria.md`.
+
 ## REQUIRED controller-failure rule (priority over routine stop)
 If **either Pi 5 OR Alta** loses power, crashes/freezes, disconnects from HaLow, stops transmitting valid heartbeat, or otherwise loses safe control, **the entire mower must enter a latched SAFE_STOP**, including:
 1. Immediate PTO power authorization off and actual blade spin-down measured.
