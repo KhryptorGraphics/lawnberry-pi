@@ -43,12 +43,12 @@ Manufacturer PCA9685 reference: https://www.nxp.com/products/power-drivers/light
 
 ## 2B. Candidate hardware: Pololu four-channel RC servo signal multiplexer (#2806)
 
-**Purchase research status — 2026-10-30:** Verified manufacturer product and pin/functional documentation; **no specific Amazon product listing verified**. The Amazon URL below is a **search-results link**, not a product listing, and does not establish Amazon availability or price.
+**Purchase research status — 2026-10-30:** Verified manufacturer functionality and exact direct purchase pages; **no specific Amazon product-detail listing could be verified**. Per owner request, do **not** provide Amazon search-results links as substitutes for product pages. Prices are USD before any shipping/taxes and can change.
 
-- **Product:** Pololu **4-Channel RC Servo Multiplexer (Assembled)**, manufacturer SKU **2806**. It provides **four paired 2-input, 1-output RC/PWM signal paths**, enough to select between Pi 5 and Alta for **both steering servos** without purchasing another PCA9685.
-- **Amazon product search (NOT a verified seller listing):** https://www.amazon.com/s?k=Pololu+2806+4+Channel+RC+Servo+Multiplexer
-- **Manufacturer's exact product:** https://www.pololu.com/product/2806 (manufacturer currently lists **$19.95 USD**, availability/rationing subject to change).
-- **Verified alternative vendor listing:** https://www.robotshop.com/products/pololu-4-channel-rc-servo-multiplexer-assembled (observed **$17.95 USD**, stock/pricing subject to change).
+- **Product:** Pololu **4-Channel RC Servo Multiplexer**, manufacturer SKU **2806 (assembled)** or **2807 (partial kit)**. It provides **four paired 2-input, 1-output RC/PWM signal paths**, enough to select between Pi 5 and Alta for **both steering servos** without purchasing another PCA9685.
+- **Cheapest verified exact compatible option (requires through-hole soldering):** Pololu **2807 partial kit**, **$14.95**, direct product page https://www.pololu.com/product/2807 . This is the same four-channel RC PWM switching function, but headers/jumper hardware require assembly.
+- **Cheapest verified preassembled option:** Pololu **2806**, **$17.95** direct manufacturer product page https://www.pololu.com/product/2806 ; also **$17.95** at RobotShop https://www.robotshop.com/products/pololu-4-channel-rc-servo-multiplexer-assembled .
+- **Amazon:** No directly verified matching Amazon product page found in current research. No Amazon search link provided; do not fabricate an ASIN or assert stock.
 - **Manufacturer setup/pinout guide:** https://www.pololu.com/docs/0J60/all
 
 ### Proposed functional signal topology (NOT a final wiring diagram)
