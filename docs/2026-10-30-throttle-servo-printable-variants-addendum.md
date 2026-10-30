@@ -1,4 +1,6 @@
 # Claude Code CAD implementation addendum — MG995 throttle actuator and segmented 3D printing
+
+> **FACT-CHECK CORRECTION (2026-10-30):** In the official Toro 77603 operator manual 3473-450C pp. 3-2 to 3-3, the round knob immediately above the ignition is the **CHOKE**, not the PTO. The **rectangular lower-left rocker** is the blade-control/PTO switch. Any earlier round-knob PTO or push-button identification is wrong. See `docs/2026-10-30-toro-77603-pto-switch-research.md` and https://www.toro.com/getpub/273204 . This is a control identification, **not** verified connector pinout. Check mower serial and actual switch harness before any wiring.
 Date: 2026-10-30
 Status: Design instructions; physical dimensions and fit require verification.
 This document supplements the existing servo-throttle linkage specification on this branch. Do not redesign the mower or alter the existing steering drive and pushrod except for the right-side mount extension needed to carry the new throttle servo.
