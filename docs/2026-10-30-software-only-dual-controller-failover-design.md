@@ -41,14 +41,12 @@ This specification defines **what the software must attempt and how it coordinat
 
 Manufacturer PCA9685 reference: https://www.nxp.com/products/power-drivers/lighting-driver-and-controller-ics/led-drivers/16-channel-12-bit-pwm-fm-plus-ic-bus-led-driver:PCA9685 . HiLetGo model identified in owned-hardware document as **B0CHFJSNP6**; confirm actual purchased relay coil marking and contact wiring before designing the interface.
 
-## 2B. Candidate hardware: Pololu four-channel RC servo signal multiplexer (#2806)
+## 2B. Owner-purchased hardware: one Pololu 4-channel RC servo signal multiplexer, assembled #2806
 
-**Purchase research status — 2026-10-30:** Verified manufacturer functionality and exact direct purchase pages; **no specific Amazon product-detail listing could be verified**. Per owner request, do **not** provide Amazon search-results links as substitutes for product pages. Prices are USD before any shipping/taxes and can change.
+**Purchase update — owner-confirmed 2026-10-30:** **ONE assembled Pololu 4-Channel RC Servo Multiplexer, model #2806, has been purchased.** This is the correct quantity to select PWM for both steering servos; only two of its four mux channels are needed. The partial soldering kit **#2807 was not selected**. **Do not buy another multiplexer.** Delivery, installation, and hardware testing remain unconfirmed.
 
-- **Product:** Pololu **4-Channel RC Servo Multiplexer**, manufacturer SKU **2806 (assembled)** or **2807 (partial kit)**. It provides **four paired 2-input, 1-output RC/PWM signal paths**, enough to select between Pi 5 and Alta for **both steering servos** without purchasing another PCA9685.
-- **Cheapest verified exact compatible option (requires through-hole soldering):** Pololu **2807 partial kit**, **$14.95**, direct product page https://www.pololu.com/product/2807 . This is the same four-channel RC PWM switching function, but headers/jumper hardware require assembly.
-- **Cheapest verified preassembled option:** Pololu **2806**, **$17.95** direct manufacturer product page https://www.pololu.com/product/2806 ; also **$17.95** at RobotShop https://www.robotshop.com/products/pololu-4-channel-rc-servo-multiplexer-assembled .
-- **Amazon:** No directly verified matching Amazon product page found in current research. No Amazon search link provided; do not fabricate an ASIN or assert stock.
+- **Purchased item:** 1 × [Pololu assembled 4-Channel RC Servo Multiplexer #2806](https://www.pololu.com/product/2806).
+- **Purchase status:** Bought by owner; not yet physically verified installed. Earlier shopping comparisons are historical and are **not** open purchase recommendations.
 - **Manufacturer setup/pinout guide:** https://www.pololu.com/docs/0J60/all
 
 ### Proposed functional signal topology (NOT a final wiring diagram)
@@ -156,9 +154,9 @@ Implementation must use independent send/receive scheduling, nonblocking shutdow
 
 ## 9. Existing inventory and additional purchase implications
 
-- **Already owned:** Pi 5, Alta, two PCA9685 boards, two HiLetgo single-channel relays, 150 kg steering servos, MG995 throttle servo, existing servo and SBC converters, automotive relay harness.
+- **Already purchased/owned:** Pi 5, Alta, two PCA9685 boards, two HiLetgo single-channel relays, 150 kg steering servos, MG995 throttle servo, existing servo and SBC converters, automotive relay harness, **one assembled Pololu #2806 four-channel servo multiplexer (owner confirmed purchased 2026-10-30; delivery not verified)**.
 - **No additional external hardware watchdog or added E-stop switch** is included in this *user-selected* software proposal.
-- **Not yet proven sufficient:** independent engine and PTO switch contacts for both computers, independent steering command ownership under Pi failure, regulated MG995 supply, 5 V relay coil supply, and OEM-compatible starter/ignition control. **Software cannot create an extra relay pole or a missing signal wire.** Do not finalize a purchase list until actual model/serial pinouts, power ratings and interface counts are verified.
+- **Not yet proven sufficient:** independent engine and PTO switch contacts for both computers, correct steering-source selection wiring and operation through purchased Pololu #2806 under Pi failure, regulated MG995 supply, 5 V relay coil supply, and OEM-compatible starter/ignition control. **Software cannot create an extra relay pole or a missing signal wire.** Do not finalize a purchase list until actual model/serial pinouts, power ratings and interface counts are verified.
 
 **Authoritative cross-references:** [Owner-selected primary/backup roles](2026-10-30-primary-backup-software-control.md), [hardware allocation](2026-10-30-integrated-hardware-and-control-decisions.md), [Ethernet/HaLow alternative](2026-10-30-intercontroller-ethernet-alternative.md).  
 **Status:** Documentation only — not implemented, integrated, or verified as safe for unattended mowing.
