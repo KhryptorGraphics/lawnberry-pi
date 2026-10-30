@@ -25,7 +25,7 @@ INDEPENDENT: physical E-stop, safety watchdog, OEM protections, safe actuator me
 - **Acceptance:** signed netlist, measured supply rails, unambiguous pin matrix, risk register, independent stop test procedure, all P0 issues closed or explicitly blocked.
 
 ## P1 — bench-only tractor interface
-- Review `config/tractor.yaml`, `docs/tractor-platform.md`, `docs/tractor-acceptance-criteria.md` and driver code. Note `enabled: false` is current default.
+- Review `config/tractor.yaml`, `docs/tractor-platform.md`, `docs/2026-10-30-primary-backup-software-control.md` and driver code. Note `enabled: false` is current default.
 - Verify address 0x41, ch0 left lever, ch1 throttle, ch2 right lever, BCM5 starter control, BCM26 PTO control; confirm relay input polarity and physical connector labels.
 - Instrument physical lever and throttle position; use engine-OFF, blades-disconnected, immobilized tests. Test power cycle, I2C hang, GPIO fault, watchdog timeout, E-stop, and no-PWM/servo-power loss.
 - **Acceptance:** measured safe positions and stop timing per actuator; no unsafe motion on fault; all OEM safety protections functional; independent sign-off. Unit tests alone do not count.
