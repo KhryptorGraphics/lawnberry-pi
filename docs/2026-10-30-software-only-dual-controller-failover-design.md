@@ -85,6 +85,8 @@ Alta PCA9685 spare RC PWM selector ──> SEL
 
 **This product is a candidate for a bench-tested signal selector only, not an automotive safety-rated failover device.** It switches signals but cannot guarantee neutral if the Alta also fails, if servo power is lost, if a drive linkage sticks, or if its selector fails. An I²C/PCA9685 process freeze may leave a previously commanded pulse active; both modes must be fault-injected and actual lever positions measured before an engine-on trial.
 
+**Verified Pololu selector behavior (2026-10-30):** The purchased assembled #2806 has **no safe-start feature**. With Alta generating SEL: default SEL pulse widths **above ~1700 μs** select Alta/slave; when SEL pulses disappear, **FAILMODE jumper OFF selects Pi/master**, while **FAILMODE jumper ON forces outputs low**. Neither forced-low nor mux power loss commands mechanical steering neutral. Test default selection, Pi crash, Alta crash, and power/ground isolation before use. [Pololu official guide](https://www.pololu.com/docs/0J60/all). See [continued manufacturer-source research](2026-10-30-followup-hardware-research-findings.md).
+
 ## 3. Selectable peer transport
 
 Support **Mode A: Wi-Fi HaLow**, or **Mode B: a direct Ethernet cable connecting Pi 5 and Alta**. In Mode B, **all** Pi–Alta peer packets (heartbeats, state, fault messages, coordination, acknowledgments and telemetry) use Ethernet; HaLow can independently serve base station, Thor and the remote UI. The software must explicitly configure which interface/IP is the active peer transport; **do not silently fail back to HaLow** on Ethernet loss without a separately specified policy.
