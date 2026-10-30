@@ -245,6 +245,8 @@ physical safe stop cannot depend solely on either host or the radio link.
       shutdown and propulsion stop time.
 - [ ] Confirm the stop remains latched until deliberate operator inspection
       and rearm; connectivity recovery never restarts mowing.
+- [ ] Record HaLow monitoring payload size, send frequency and actual network traffic. Test initial target of 24-byte heartbeats at 5 Hz (960 bit/s of application payload per direction, before link overhead).
+- [ ] Inject loss/jitter, duplicate/replayed packets, one-way receive faults and AP failure; confirm measured timeout, independent hardware shutdown and no automatic rearm. The tentative 600 ms timeout is not accepted until physically tested against the safety stopping budget.
 - [ ] No autonomous engine-on deployment until these tests pass on real hardware.
 
 ## Sign-off
