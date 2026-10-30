@@ -12,6 +12,10 @@
 4. **Intercontroller transport choices:** (A) Wi-Fi HaLow peer link and (B) **all Pi 5 ↔ Libre Alta peer communication through direct wired Ethernet** (heartbeats/coordination/fault/status), with HaLow optionally used for off-mower devices. Both are recorded in [networking alternative](2026-10-30-intercontroller-ethernet-alternative.md). Neither has been bench-tested.
 5. **Servo throttle mechanical concept:** five printable linkage directions and the requested rightward-offset mounting arrangement are **documented as CAD requirements**, not manufactured or field-tested designs. See [linkage addendum](2026-10-30-throttle-servo-printable-variants-addendum.md).
 
+## Follow-up manufacturer-source findings recorded October 30, 2026
+
+See [continued hardware research](2026-10-30-followup-hardware-research-findings.md) for verified Toro FR691V ground-to-kill theory, OEM relay identification, a strong Seeed Mini PCIe SPI-versus-USB explanation, documented LC29H-BS/DA RTK capability, and correction of an unsafe legacy ultrasonic header-pin label. These results narrow the remaining tests; they **do not prove a complete mower electrical installation**.
+
 ## Research that is still open (conclusions not established)
 
 | Priority | Area | What's known / reason incomplete | Specific remaining evidence or decision | Existing reference |
