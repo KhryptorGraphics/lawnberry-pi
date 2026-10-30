@@ -26,6 +26,22 @@ This specification defines **what the software must attempt and how it coordinat
 
 **Output access dependency (open):** To meet the owner's *full steering-neutral request after Pi failure*, the Alta needs a **real independently operable steering signal path** with defined single-writer ownership/isolation. A common network protocol does not establish such a path; connecting two PWM outputs or I²C masters together without suitable arbitration/isolation is not a valid software solution. If this path is not physically available, the correct documented outcome is **Alta requests engine and PTO OFF but cannot guarantee or command steering neutral**.
 
+## 2C. Independent blade/PTO shutdown — explicit owner requirement
+
+**Owner clarification (2026-10-30):** In addition to backup steering, the **Libre Alta must independently be capable of switching the mower's blades OFF** when the Raspberry Pi 5 fails. Conversely, if Alta fails, **Pi 5 must independently command blades OFF**. The Pololu #2806 does **not** participate in PTO control; it is for steering servo PWM only.
+
+| Failure | Surviving computer | Mandatory PTO behavior |
+| --- | --- | --- |
+| Pi 5 failure | Libre Alta | Issue **PTO OFF** through an **Alta-accessible electrical path**, without a Pi GPIO, Pi I²C, Pi process, or network acknowledgement. |
+| Alta failure | Raspberry Pi 5 | Issue **PTO OFF** through a **Pi-accessible electrical path**, without an Alta GPIO, Alta I²C, or network acknowledgement. |
+| Pi–Alta heartbeat link lost | Each working computer | Revoke local permission to run blades and request **PTO OFF**, with no assumption of a healthy peer. |
+
+**Software contract:** Implement a local `request_pto_off()` adapter on **each** computer and call it during any latched fault **without waiting for steering return or engine shutdown**. The adapter's existence in code is not evidence that its relay or clutch circuit actually switches OFF.
+
+**Unresolved physical dependency:** The two existing **HiLetGo 5 V, 30 A single-channel relay modules** do not automatically provide independently controllable steering power, PTO, engine kill, and starter circuits. One module is planned for steering-power control; whether the other plus the owned automotive relay harness can implement **both hosts' independent PTO-OFF authority** (as well as distinct engine-control functions) must be determined from the model 77603 serial-matched wiring and actual relay contacts. **Do not tie Pi and Alta GPIO outputs together**, assume a software-only GPIO command interrupts clutch current, or bypass the factory blade safety circuit.
+
+**Verification gate:** With PTO electrically isolated in a safe test arrangement, demonstrate (a) Pi removed and Alta commands clutch permission OFF, (b) Alta removed and Pi commands clutch permission OFF, (c) heartbeat loss results in OFF requests, (d) no automatic re-engagement after restart. A PTO-OFF command disengages an electric clutch; **blade coast-down takes additional time** and must be measured separately.
+
 ## 2A. Owner-proposed Alta connection to steering HiLetGo relay — clarified
 
 **Owner clarification (2026-10-30):** The Libre Alta is intended to be **wired into the same existing HiLetGo relay interface that switches the steering-servo power**, so Alta can act if the Pi 5 fails. This is a **proposed wiring design**, not an already verified installed connection.
