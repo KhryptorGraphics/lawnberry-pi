@@ -12,6 +12,9 @@
 | 1 | **Automotive relay harness** | Already purchased. Quantity of relay sockets, installed relays, wiring and pin ratings unverified. Do not order duplicate harnesses without matching to the actual parts. |
 | 2 | **Battery-to-USB-C power converters** | Already purchased: one to run the **Libre Alta**, one for **Raspberry Pi 5**. Do not reorder a separate Pi 5 buck converter merely because an older BOM mentions it. |
 
+## Newly purchased steering signal selector (owner-confirmed 2026-10-30)
+- **Quantity: 1 — Pololu 4-Channel RC Servo Multiplexer, ASSEMBLED, model #2806.** Owner confirmed the assembled version was **purchased**; delivery/installation/bench testing have **not** been confirmed. **Do not buy another** or substitute partial kit #2807. One #2806 can select between primary Pi 5 and backup Libre Alta PWM control for both steering servos (using two of four channels), assuming appropriate signal/power separation and bench validation. [Manufacturer product](https://www.pololu.com/product/2806).
+
 ## Other hardware known from previous project discussion
 - Raspberry Pi 5 and Libre Alta are owned.
 - A separate MG995 throttle servo and horn were described as already owned in the 2026-10-30 throttle design handoff; this is distinct from the two steering servos.
