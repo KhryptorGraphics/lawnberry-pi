@@ -40,7 +40,7 @@
 
 ## Roles, system limitations, and tests
 
-- Retain Pi 5 as primary coordinator with Alta authorized to detect Pi 5 failure and request shutdown; Pi detects Alta failure likewise. The **dual computer software design and electrical relay/actuator authority are distinct from transport choice**.
+- Retain Pi 5 as primary controller and Alta as hot standby. **On Alta failure, Pi 5 independently commands PTO/blades OFF and engine OFF; on Pi 5 failure, Alta independently commands PTO/blades OFF and engine OFF.** Each must have its own electrically viable shutdown authority and cannot rely on the failed peer. See [primary/backup control decision](2026-10-30-primary-backup-software-control.md). The **dual computer software design and electrical relay/actuator authority are distinct from transport choice**.
 - Ethernet improves local link predictability; it does **not** by itself prove safe stopping. An unresponsive controller can leave last-command PWM active, and remote software cannot undo a stuck mechanical drive linkage. Safety and stop hardware remain unresolved validation matters in other project documents.
 - Before choosing Mode B for an operating mower, test real 5 Hz peer packets both directions, under load; unplug the cable; kill power to each host separately; freeze each peer process; inject stale/duplicate messages, unidirectional packet loss, and network flooding; record fault-detection, commanded stop, and physically measured neutral/blade/engine stopping times.
 - Implementation should expose `intercontroller_transport = halow | ethernet` (illustrative setting), with separate network addresses/interfaces and a common health protocol, so both modes can be selected without rewriting mower control logic.
