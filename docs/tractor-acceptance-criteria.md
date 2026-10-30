@@ -219,6 +219,28 @@ impossible in this configuration.
 - [ ] Confirm the starter relay's presence in the wiring does not lead anyone
       to believe unattended autonomous start is available.
 
+## 12. Dual-controller complete safe stop (Pi 5 OR Libre Alta failure)
+
+The owner requires a **complete, latched stop if either controller fails**, not
+merely separate local shutdown or a routine pause. See
+[`2026-10-30-dual-controller-safe-stop-requirement.md`](2026-10-30-dual-controller-safe-stop-requirement.md).
+This overrides the older engine-keeps-running emergency-stop preference for
+**controller failures**. Control messages may travel over Wi-Fi HaLow, but a
+physical safe stop cannot depend solely on either host or the radio link.
+
+- [ ] Loss of either controller individually, both together, or intercontroller
+      heartbeat drives PTO authorization OFF, disables starting, shuts down the
+      engine and demonstrably halts propulsion through independent protection.
+- [ ] Confirm physical lever neutral/braking under power-loss conditions; cutting
+      servo power **alone does not prove** a safe mechanical stopping outcome.
+- [ ] Fault-inject controller crashes, reboots, unidirectional radio loss,
+      stale messages, stuck PWM outputs and loss of both supplies.
+- [ ] Record measured response times, blade coast-down to zero RPM, engine
+      shutdown and propulsion stop time.
+- [ ] Confirm the stop remains latched until deliberate operator inspection
+      and rearm; connectivity recovery never restarts mowing.
+- [ ] No autonomous engine-on deployment until these tests pass on real hardware.
+
 ## Sign-off
 
 None of the above may be checked off from simulation or unit-test evidence
@@ -239,3 +261,4 @@ and fault-injection items.
 | 9. Reverse definition: pivot vs. true reverse | | | | |
 | 10. Lever self-centring (gates item 1) | | | | |
 | 11. Manual-start operating sequence | | | | |
+| 12. Dual-controller complete safe stop | | | | |
