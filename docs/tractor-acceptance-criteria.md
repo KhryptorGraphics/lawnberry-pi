@@ -231,22 +231,23 @@ The owner requires a **complete, latched stop if either controller fails**, not
 merely separate local shutdown or a routine pause. See
 [`2026-10-30-dual-controller-safe-stop-requirement.md`](2026-10-30-dual-controller-safe-stop-requirement.md).
 This overrides the older engine-keeps-running emergency-stop preference for
-**controller failures**. Control messages may travel over Wi-Fi HaLow, but a
-physical safe stop cannot depend solely on either host or the radio link.
+**controller failures**. Intercontroller traffic may use **Wi-Fi HaLow (Mode A)** or
+**direct wired Ethernet (Mode B)**; neither link alone proves a physical safe stop.
+See [parallel transport design](2026-10-30-intercontroller-ethernet-alternative.md).
 
 - [ ] Loss of either controller individually, both together, or intercontroller
       heartbeat drives PTO authorization OFF, disables starting, shuts down the
       engine and demonstrably halts propulsion through independent protection.
 - [ ] Confirm physical lever neutral/braking under power-loss conditions; cutting
       servo power **alone does not prove** a safe mechanical stopping outcome.
-- [ ] Fault-inject controller crashes, reboots, unidirectional radio loss,
+- [ ] Fault-inject controller crashes, reboots, unidirectional **selected-link** packet loss,
       stale messages, stuck PWM outputs and loss of both supplies.
 - [ ] Record measured response times, blade coast-down to zero RPM, engine
       shutdown and propulsion stop time.
 - [ ] Confirm the stop remains latched until deliberate operator inspection
       and rearm; connectivity recovery never restarts mowing.
-- [ ] Record HaLow monitoring payload size, send frequency and actual network traffic. Test initial target of 24-byte heartbeats at 5 Hz (960 bit/s of application payload per direction, before link overhead).
-- [ ] Inject loss/jitter, duplicate/replayed packets, one-way receive faults and AP failure; confirm measured timeout, independent hardware shutdown and no automatic rearm. The tentative 600 ms timeout is not accepted until physically tested against the safety stopping budget.
+- [ ] For **each configured transport**, record monitoring payload size, send frequency, and actual link traffic. Test the initial 24-byte heartbeat at 5 Hz (960 bit/s application payload per direction before Ethernet or HaLow overhead).
+- [ ] Inject loss/jitter, duplicate/replayed packets, and one-way receive faults; in HaLow mode test AP failure; in Ethernet mode unplug the cable, shut down the interface, and prove peer control packets do not silently reroute over HaLow. Confirm measured timeout, independent hardware shutdown, and no automatic rearm. The tentative 600 ms timeout is not accepted until physically tested against the safety stopping budget.
 - [ ] No autonomous engine-on deployment until these tests pass on real hardware.
 
 ## Sign-off
