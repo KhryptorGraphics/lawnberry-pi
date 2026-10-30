@@ -25,6 +25,8 @@ Target: Toro TimeCutter MAX Havoc MyRIDE 60-inch **model 77603**; serial-specifi
 
 **Historical BOM caution:** `hardware.md` includes earlier model 77502 design, old power assumptions, and "Need to buy" items that overlap purchased hardware. Treat it as sourcing reference, NOT an order sheet for model 77603.
 
+**PTO relay sufficiency verdict (2026-10-30):** The proposed two-computer stop-dominant PTO permission design calls for **two independently controlled, normally-open relay contacts in series in the OEM-authorized PTO clutch feed**. The owner proposed one of two HiLetGo one-channel relays for steering power, leaving only one confirmed HiLetGo contact for PTO. The owned automotive relay **harness** is not verified to contain a relay/contact. A second PTO contact (plus independently controlled engine kill and distinct starter interface) must be documented as **conditional hardware gaps**, not presumed already purchased. Factory clutch circuit placement and inductive loading remain unverified. See [full feasibility assessment](2026-10-30-dual-controller-pto-circuit-feasibility.md).
+
 ## Power-distribution decisions and unresolved supply gaps
 - Mower power source is a **12 V nominal starting battery** with real charging and cranking transients. Each new branch requires appropriate fusing, grounding, load protection and vibration/moisture handling.
 - Pi 5 and Libre Alta are each supplied by their **existing dedicated battery-to-USB-C converter**. Verify USB-C output current at the required voltage.
