@@ -5,7 +5,7 @@ Bill of materials for the autonomous zero-turn mower build, with buy links.
 > Prices are **live from Amazon** via the `amazon` MCP scraper, rounded to the
 > dollar. Listings change often — **re-check before ordering.**
 
-## Already have
+> **PURCHASE-STATUS UPDATE (2026-10-30, Toro 77603):** The owner confirms **two 125 kg steering servos**, **one controller/relay board**, **two steering power converters**, **one automotive relay harness**, and **two battery-to-USB-C converters** (Libre Alta and Raspberry Pi 5) already purchased. The older 150 kg servo SKU and "Need to buy" lines below are historical planning entries, **not** a valid purchase order. Verify the actual models before buying anything twice. See [confirmed purchased-hardware inventory](docs/2026-10-30-user-confirmed-owned-hardware.md).\n\n## Already have
 - Raspberry Pi 5
 - RTK GPS (u-blox ZED-F9P), BNO085 IMU, ToF sensors, camera, INA3221
 - Hailo-8L AI accelerator
