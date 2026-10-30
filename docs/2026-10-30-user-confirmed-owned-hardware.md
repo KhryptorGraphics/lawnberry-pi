@@ -18,10 +18,10 @@
 - OEM Toro starter solenoid and PTO clutch are to be reused, not replaced as part of this upgrade.
 
 ## Outstanding assessment for new starter / blade ON-OFF shopping list
-1. Verify electrical ratings of the purchased HiLetgo relay modules and confirm whether additional switching contacts or independent watchdog outputs are required. The two PCA9685 boards cannot substitute for engine/PTO relays.
+1. Verify electrical ratings of the purchased HiLetgo relay modules and confirm whether additional switching contacts are required for two independent controller STOP paths. The two PCA9685 boards cannot substitute for engine/PTO relays.
 2. Check whether the **automotive harness includes relay bodies** and how many sockets/contacts. A purchased harness does not establish that relays are included.
 3. Verify the Toro **model 77603**, serial-specific switch-contact topology, ignition kill/run/start and PTO interlock circuits before prescribing any new relay. See `2026-10-30-toro-77603-starter-ignition-technical-research.md` and `2026-10-30-toro-77603-pto-switch-research.md`.
-4. Retain factory interlocks, physical E-stop, fused circuits and independent loss-of-control protection. Never emulate safety contacts or switch the solenoid's high-current starter studs.
+4. The owner selected Pi 5 primary / Alta backup software monitoring, without additional external watchdog modules or added E-stop hardware; do not claim this proves physically safe shutdown. Retain OEM protective functions and fused circuits. Never emulate OEM safety contacts or switch the starter solenoid's high-current studs.
 5. After comparison, produce an **incremental** shopping list only; do not rebuy the steering servos, steering converters, battery-to-USB-C converters, PCA9685 boards, HiLetgo relay modules or automotive harness without explicitly showing why an additional part is needed.
 
 **Legacy-document warning:** `hardware.md` lists 150 kg-class servos, consistent with the owner's corrected rating, but that document is for an earlier Toro 77502 build and is **not a purchase receipt or proof of exact part number**. Treat the owner's 150 kg purchase confirmation as authoritative without assuming the older listed brand/SKU is an exact match.
@@ -29,3 +29,9 @@
 
 ## 2026-10-30 architecture clarification
 See [integrated hardware, control and safe-stop decisions](2026-10-30-integrated-hardware-and-control-decisions.md). A PCA9685 supplies PWM signals, **not 5 V servo motor power, ignition switching or PTO switching**. One module per SBC is sufficient for the three existing servo channels; the separately identified HiLetgo modules are relay-control hardware.
+
+## Owner decision: primary Pi with Alta backup (2026-10-30)
+- If **Alta fails**, **Pi 5** independently commands PTO/blade OFF and engine OFF.
+- If **Pi 5 fails**, **Libre Alta** independently commands PTO/blade OFF and engine OFF.
+- Each shutdown path needs verified electrically independent control; the pair of single-channel HiLetgo relay boards is **not yet demonstrated sufficient** for all switching functions.
+- See [current software control design](2026-10-30-primary-backup-software-control.md). Heartbeat 200 ms; HaLow or direct Ethernet options.
