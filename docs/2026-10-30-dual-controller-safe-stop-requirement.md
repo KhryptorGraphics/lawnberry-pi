@@ -26,6 +26,16 @@ SAFE_STOP means, as independently verified physical outcomes:
 5. This fault response is **stricter than the older generic `emergency_stop()` contract that can leave the engine running**. For either-controller failures use SAFE_STOP with mandatory engine shutdown, not an engine-running soft stop.
 6. Do not represent the mower as capable of safe autonomous operation until physical braking/neutral return, engine kill, blade spin-down and both-controller failures have been demonstrated on the actual machine. The current fore/aft steering linkage does not actuate the PARK brake; that is an unresolved design gate.
 
+## Ultra-low-bandwidth HaLow peer monitoring — owner requirement 2026-10-30
+
+- Monitor both computers continuously using a **minimal, fixed-size, bidirectional health/authorization packet**; no camera frames, servo PWM streaming, or verbose dashboard logs on this safety heartbeat channel.
+- **Initial test target:** <=24 application-payload bytes per message at **5 Hz per computer**, which equals 120 B/s = **960 bit/s in each direction** before UDP/IP, Wi-Fi MAC, encryption, retransmissions and management overhead. Measure real on-air utilization separately: it will be higher and signal conditions can increase it.
+- Include protocol version, device identity, rolling counter, safety authorization/state and health/error bits. Authenticate traffic and detect stale/duplicate/replayed messages; a newly connected device is not automatically authorized.
+- Treat **3 missed consecutive 200 ms heartbeats (~600 ms)** as an **initial candidate**, not a safety-certified delay. Set the final interval and watchdog threshold from measured network jitter plus allowable stopping risk, and independently demonstrate end-to-end shutdown timings.
+- Compute peer freshness from **local monotonic time of last valid receipt**; do not assume synchronized device clocks. Keep heartbeat handling independent of web dashboards and nonessential telemetry.
+- Loss of the radio link, either computer, or both computers must result in a latched full-mower stop. Neither a wirelessly delivered STOP packet nor a Pi/Alta software watchdog is the sole protective measure: require an independent physical fail-closed safety mechanism.
+- Where Wi-Fi HaLow AP/client topology is used, verify that both endpoints can exchange messages reliably and that AP failure produces the same safe-stop response.
+
 ## Acceptance tests (required; all currently unchecked)
 
 - [ ] Kill power to the Pi 5 with the Alta operating: confirm starter disabled, PTO off, engine stops, and propulsion stops safely; record measured timings.
