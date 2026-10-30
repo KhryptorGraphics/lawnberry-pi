@@ -10,6 +10,12 @@ REQUIRED DOCUMENTS:
 - docs/2026-10-30-throttle-servo-printable-variants-addendum.md
 - docs/2026-10-30-throttle-right-steering-offset.md
 
+MOWER IDENTIFICATION (confirmed by user reading its ID plate on 2026-10-30):
+- Toro TimeCutter Max Havoc MyRIDE, 60-inch deck.
+- **Toro model number: 77603**. Serial number not yet recorded.
+- Use 77603 and the actual serial-number range for any Toro-specific geometry, PTO switch, clutch, wiring diagram or parts lookup. Do not treat another TimeCutter model's PTO switch topology as verified for this mower.
+- The operator describes a button/press-actuated PTO control; actual contact type and wiring must be verified on the matching diagram before designing Pi-controlled engagement or disengagement. Preserve interlocks and independent emergency stop.
+
 MISSION
 Retrieve the two current documents from the specified branch and inspect existing native mower CAD. Create an implementation branch based on that documentation branch. Preserve all existing steering servos, steering bar/pushrod geometry and other mower components. This is a throttle-servo mounting and linkage modification, NOT a full mechanical redesign. Deliver five independently viewable, editable, printable throttle linkage variants integrated into the existing model. Generate CAD/STEP/STL, drawings, exploded views, renders, instructions, bill of printed components, checks and an engineering comparison. Never claim completed CAD unless actual geometry has been generated and files verified.
 
