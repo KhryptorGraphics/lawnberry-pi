@@ -26,6 +26,21 @@ This specification defines **what the software must attempt and how it coordinat
 
 **Output access dependency (open):** To meet the owner's *full steering-neutral request after Pi failure*, the Alta needs a **real independently operable steering signal path** with defined single-writer ownership/isolation. A common network protocol does not establish such a path; connecting two PWM outputs or I²C masters together without suitable arbitration/isolation is not a valid software solution. If this path is not physically available, the correct documented outcome is **Alta requests engine and PTO OFF but cannot guarantee or command steering neutral**.
 
+## 2A. Owner-proposed Alta connection to steering HiLetGo relay — clarified
+
+**Owner clarification (2026-10-30):** The Libre Alta is intended to be **wired into the same existing HiLetGo relay interface that switches the steering-servo power**, so Alta can act if the Pi 5 fails. This is a **proposed wiring design**, not an already verified installed connection.
+
+**What the shared relay does:** The HiLetGo 5 V, 30 A, **one-channel relay module** is an electrically operated **on/off contact**. A software command from Alta could operate a properly isolated, independently controllable **steering power-enable/power-cut circuit**. The relay **does not generate the per-servo PWM signals** needed to set both steering levers to their neutral positions. With power removed, positional/geared servos may keep the bars where they were; this must not be represented as commanded neutral.
+
+**Separate control paths must be distinguished:**
+- **Power authority:** If Alta can independently make the existing steering relay release, it can request *servo power OFF*, subject to actual supply topology and the relay's contact state. Two SBC GPIO outputs **must not be shorted directly together** into a single trigger input; design and verify stop-dominant electrical input isolation/combining.
+- **Position authority:** To command **both bars to NEUTRAL** on Pi failure, Alta must also control the PWM signals feeding the two steering servos. Options to evaluate (not presumed present) are **an electrically isolated selectable PWM source** using spare channels on Alta's already owned PCA9685, or a **properly arbitrated and isolated I²C path** to the steering PCA9685. Neither is accomplished by connecting Alta only to the HiLetGo relay. No extra servo PWM controller may be necessary, but **signal-selection/isolation wiring or hardware is still needed**.
+- **Engine and blades:** The steering-power relay does not independently switch the ignition RUN/kill and blade/PTO circuits. Their separate OFF-command paths still need verification.
+
+**Proposed software behavior with the owner's relay connection:** On Pi failure, Alta first revokes starting/motion/PTO authorization and issues its independently connected **engine OFF** and **blade PTO OFF** requests. Alta may request steering **NEUTRAL only if a live and independently selectable PWM path is verified**; otherwise it can only request steering-servo **power OFF**, reporting `STEERING_POWER_CUT_NO_NEUTRAL_CONTROL`. Do not claim stopped motion based on relay activation alone.
+
+Manufacturer PCA9685 reference: https://www.nxp.com/products/power-drivers/lighting-driver-and-controller-ics/led-drivers/16-channel-12-bit-pwm-fm-plus-ic-bus-led-driver:PCA9685 . HiLetGo model identified in owned-hardware document as **B0CHFJSNP6**; confirm actual purchased relay coil marking and contact wiring before designing the interface.
+
 ## 3. Selectable peer transport
 
 Support **Mode A: Wi-Fi HaLow**, or **Mode B: a direct Ethernet cable connecting Pi 5 and Alta**. In Mode B, **all** Pi–Alta peer packets (heartbeats, state, fault messages, coordination, acknowledgments and telemetry) use Ethernet; HaLow can independently serve base station, Thor and the remote UI. The software must explicitly configure which interface/IP is the active peer transport; **do not silently fail back to HaLow** on Ethernet loss without a separately specified policy.
