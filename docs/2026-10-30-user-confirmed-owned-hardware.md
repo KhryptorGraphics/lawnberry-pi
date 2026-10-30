@@ -5,7 +5,7 @@
 ## Confirmed purchased / on hand
 | Count | Item | Notes |
 |---:|---|---|
-| 2 | **125 kg-class steering-bar servo motors** | The owner explicitly says **125 kg**, not the 150 kg units in the older `hardware.md` list. Exact SKU and whether 125 kg is a torque marketing figure must be inspected; do not buy replacements. |
+| 2 | **150 kg-class steering-bar servo motors** | **Owner's latest explicit correction: 150 kg, NOT 125 kg**. Exact SKU and whether the stated rating is a marketing torque figure must be inspected; do not buy replacements. The older `hardware.md` lists a 150 kg servo class but does not establish the purchased vendor/SKU. |
 | 1 | **Controller/relay board** | Owner says "a single controller relay board." Board channel count, output types and electrical ratings not yet established. Do not assume it is the generic PCA9685 or a specific HiLetgo relay board. |
 | 2 | **Power converters for the steering bars** | Already purchased; electrical ratings and whether one supplies each servo require reading device labels. Do not reorder steering converters. |
 | 1 | **Automotive relay harness** | Already purchased. Quantity of relay sockets, installed relays, wiring and pin ratings unverified. Do not order duplicate harnesses without matching to the actual parts. |
@@ -23,4 +23,4 @@
 4. Retain factory interlocks, physical E-stop, fused circuits and independent loss-of-control protection. Never emulate safety contacts or switch the solenoid's high-current starter studs.
 5. After comparison, produce an **incremental** shopping list only; do not rebuy the steering servos, steering converters, battery-to-USB-C converters, relay-controller board or automotive harness without explicitly showing why an additional part is needed.
 
-**Legacy-document warning:** `hardware.md` on the older platform lists 150 kg servos and several components under "Need to buy." That list is not a current receipt and uses an older Toro 77502 build. Treat this file's direct owner confirmation as overriding those earlier purchase-status assumptions, without treating the old SKU choices as model-matched to the user's parts.
+**Legacy-document warning:** `hardware.md` lists 150 kg-class servos, consistent with the owner's corrected rating, but that document is for an earlier Toro 77502 build and is **not a purchase receipt or proof of exact part number**. Treat the owner's 150 kg purchase confirmation as authoritative without assuming the older listed brand/SKU is an exact match.
