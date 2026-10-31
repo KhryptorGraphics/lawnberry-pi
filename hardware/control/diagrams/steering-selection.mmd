@@ -1,0 +1,60 @@
+# Steering PWM source selection — Pololu #2806
+
+**CONDITIONAL — NOT INSTALLATION WIRING.** Functional blocks only. No Toro connector pin, wire
+colour or fuse rating is assigned. See `2026-10-30-dual-controller-electrical-model.md` for the
+evidence register and the full failure truth table.
+
+```mermaid
+flowchart LR
+    subgraph PI["Raspberry Pi 5 — primary"]
+        PCH0["PCA9685 @0x41 CH0"]
+        PCH2["PCA9685 @0x41 CH2"]
+    end
+
+    subgraph ALTA["Libre Alta — hot standby"]
+        ACH0["PCA9685 CH0<br/>NEUTRAL ONLY"]
+        ACH2["PCA9685 CH2<br/>NEUTRAL ONLY"]
+        ACH1["PCA9685 CH1<br/>MG995 throttle"]
+        ACH3["PCA9685 CH3<br/>SEL 1000 / 2000 us"]
+    end
+
+    MUX{"Pololu 2806<br/>one assembled unit<br/>FAILMODE OFF"}
+
+    PCH0 -->|M1 signal| MUX
+    PCH2 -->|M2 signal| MUX
+    ACH0 -->|S1 signal| MUX
+    ACH2 -->|S2 signal| MUX
+    ACH3 -->|SEL| MUX
+
+    MUX -->|OUT1 signal| LS["Left steering servo<br/>signal pin only"]
+    MUX -->|OUT2 signal| RS["Right steering servo<br/>signal pin only"]
+
+    CV1["Owned steering converter A"] -->|power, fused| LS
+    CV2["Owned steering converter B"] -->|power, fused| RS
+    VLOG["Protected low-current<br/>V_MUX_LOGIC branch<br/>independent of both SBCs"] --> MUX
+
+    ACH1 --> TH["MG995 throttle<br/>own regulated supply"]
+```
+
+## Selection rule
+
+| SEL at mux | State | OUT follows |
+| --- | --- | --- |
+| 1000 µs at 50 Hz (valid, below threshold) | not active | **Pi M1/M2** |
+| 2000 µs at 50 Hz (valid, above threshold) | active | **Alta S1/S2 (neutral only)** |
+| no valid pulse, FAILMODE OFF | invalid | **Pi M1/M2** |
+| no valid pulse, FAILMODE ON | invalid | outputs low — **no pulse, NOT neutral** |
+| mux unpowered | — | **no signal — NOT neutral** |
+
+Manufacturer defaults: threshold 1696 µs, ±64 µs hysteresis, three good pulses to qualify, ≈130 ms
+of no activity before SEL is invalid. The mux has **no safe-start**.
+
+## Deliberate design rules
+
+1. **Only the Alta writes SEL.** The Pi never connects to SEL, so no two GPIOs are tied.
+2. **Alta S1/S2 carry neutral and nothing else**, from boot through takeover. That is the only reason
+   a frozen valid slave-select pulse is tolerable: the slave inputs never hold a driving angle.
+3. **Servo power never passes through the mux.** OUT pins carry signal only; each servo is fed from
+   its own converter through its own protection.
+4. **Mux logic must survive either host.** It is not powered from a Pi or Alta header rail, because
+   losing the host that powers the mux would remove *both* steering paths.

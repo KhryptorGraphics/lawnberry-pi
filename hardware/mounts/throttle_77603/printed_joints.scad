@@ -1,0 +1,236 @@
+// Reusable fully-printed joint and retainer primitives for the 77603 throttle station.
+//
+// Every piece here is printable on its own and needs no bought screw, pin, bearing or
+// insert. These are geometry primitives; retention and wear limits are unvalidated until
+// physical cycling. Sibling include path is plain <name.scad> because parameters.scad sits
+// in this same directory.
+include <parameters.scad>
+
+// ---- Captive printed hinge pin ------------------------------------------------------
+// A flanged pin that passes through a clevis ear and a bushing, then locks with a printed
+// cross-keeper. Head and tail flange prevent withdrawal along the pin axis; the keeper
+// prevents rotation/back-out, so retention does not depend on friction.
+module printed_pin(len, d = pin_d_mm, head_d = pin_head_d_mm, keeper = true) {
+    assert(len > 2, "Pin must span both ears");
+    union() {
+        // Built from z=0 exactly: a negative epsilon would put the mesh under the bed and
+        // fail the bed-zero gate.
+        cylinder(d = d, h = len);
+        cylinder(d = head_d, h = keeper_t_mm);
+        translate([0, 0, len - keeper_t_mm]) cylinder(d = head_d, h = keeper_t_mm);
+        if (keeper)
+            // Cross-keeper land: a printed wedge drops through and cannot pull out.
+            translate([-keeper_t_mm / 2 - 0.2, -head_d / 2 - keeper_t_mm, 0])
+                cube([keeper_t_mm + 0.4, head_d + 2 * keeper_t_mm, keeper_t_mm]);
+    }
+}
+
+/// Keeper wedge: printed separately so the pin can be inserted before capture.
+module printed_keeper(w = pin_head_d_mm + 2 * keeper_t_mm, t = keeper_t_mm, h = 14) {
+    // Two overlapping blocks with a real taper. (A hull of two zero-height cubes collapsed
+    // to 1 mm3, which passed the solid gate but was not a part.)
+    assert(is_num(w) && is_num(t) && is_num(h), "keeper dimensions must all be numbers");
+    union() {
+        translate([-w / 2, 0, 0]) cube([w, t, h * 0.55]);
+        translate([-w / 2 + 1.5, 0, h * 0.55 - 0.2]) cube([w - 3, t, h * 0.45]);
+    }
+}
+
+// ---- Replaceable bushing -----------------------------------------------------------
+// Sacrificial wear part: pressed into the ear, replaced when clearance grows.
+module printed_bushing(od = bushing_od_mm, id = bushing_id_mm, len = bushing_len_mm) {
+    assert(od - id >= 3, "Bushing wall too thin to print and press");
+    difference() {
+        cylinder(d = od, h = len);
+        translate([0, 0, -0.5]) cylinder(d = id, h = len + 1);
+        // Anti-rotation key so the bushing cannot spin its wear surface.
+        translate([od / 2 - 0.01, -1, len / 2]) rotate([90, 0, 0])
+            cylinder(d = 2.4, h = 2.2);
+    }
+}
+
+/// Split wear shoe for the ball socket: replaceable, retained by the cage, not by glue.
+module printed_wear_socket(ball_d = ball_d_mm, wall = ball_socket_wall_mm,
+                           split = 1.6) {
+    od = ball_d + 2 * wall;
+    difference() {
+        // Straight sleeve. A spherical cavity combined with a half-width split cut produced
+        // coincident faces and a degenerate triangle, which the mesh gate correctly rejects.
+        cylinder(d = od, h = ball_d * 0.9);
+        translate([0, 0, -1]) cylinder(d = ball_d + 0.6, h = ball_d * 0.9 + 2);
+        // Split slot cut PART WAY through the wall region only, never spanning the full bore
+        // height: a through-slit severs the sleeve into two shells and a coincident-face cut
+        // produces degenerate triangles, both of which the mesh gate correctly rejects.
+        translate([-split / 2, -od / 2 - 1, ball_d * 0.9 - wall])
+            cube([split, od + 2, wall + 0.5]);
+    }
+}
+
+// ---- Double-shear clevis -----------------------------------------------------------
+// Two printed ears with a gap sized for the rod eye; the pin and bushing pass through all
+// three parts, so the eye is loaded in double shear and cannot lever the joint open.
+module printed_clevis(gap = clevis_gap_mm, ear_t = clevis_ear_t_mm,
+                      reach = 22, keeper = true) {
+    // Ears are SEPARATED IN X by `gap`, so the rod eye physically sits between them and the
+    // pin carries it in double shear. A single full-width block would have no gap at all.
+    // The spine across the top ties both ears into one connected printable solid.
+    total = gap + 2 * ear_t;
+    height = ear_t + gap + ear_t;
+    spine_t = ear_t;
+    pin_z = ear_t + gap / 2;
+    difference() {
+        union() {
+            translate([-total / 2, -reach / 2, 0]) cube([ear_t, reach, height]);
+            translate([gap / 2, -reach / 2, 0]) cube([ear_t, reach, height]);
+            translate([-total / 2, -reach / 2, height - spine_t])
+                cube([total, reach, spine_t]);
+        }
+        translate([0, -reach / 2 - 1, pin_z]) rotate([90, 0, 0])
+            cylinder(d = pin_d_mm + 2 * joint_clearance_mm, h = reach + 2);
+    }
+}
+
+// ---- Keyed segment splice ----------------------------------------------------------
+// Fixed segment join: a spigot enters the next tube and a printed cross-wedge locks it.
+// This is assembly retention only -- never a length adjustment.
+module keyed_spigot(len = 40, w = rods_bore_mm - 0.4, wedge = true) {
+    difference() {
+        translate([-w / 2, -w / 2, 0]) cube([w, w, len]);
+        if (wedge)
+            translate([-w / 2 - 1, -keeper_t_mm / 2, len * 0.55])
+                cube([w + 2, keeper_t_mm, keeper_t_mm]);
+        // Anti-rotation key rib so the joint cannot clock under load.
+        translate([-1.6, -w / 2 - 1.2, len * 0.15]) cube([3.2, 2.4, len * 0.3]);
+    }
+}
+
+module splice_wedge(w = keeper_t_mm, h = 12) { printed_keeper(h = h, t = w); }
+
+// ---- End-stop capture collar -------------------------------------------------------
+// Clamps onto the sliding member as a hard stop. If the adjustment lock slips, this stops
+// separation. It does NOT prevent unwanted throttle motion -- report that separately.
+module endstop_collar(w = rods_w_mm + 6, t = 6) {
+    difference() {
+        translate([-w / 2, -w / 2, 0]) cube([w, w, t]);
+        translate([-rods_w_mm / 2 - joint_clearance_mm,
+                   -rods_w_mm / 2 - joint_clearance_mm, -1])
+            cube([rods_w_mm + 2 * joint_clearance_mm,
+                  rods_w_mm + 2 * joint_clearance_mm, t + 2]);
+        // Printed wedge slot instead of a bought bolt.
+        translate([-w / 2 - 1, -keeper_t_mm / 2, t / 2 - keeper_t_mm / 2])
+            cube([w + 2, keeper_t_mm, keeper_t_mm]);
+    }
+}
+
+// ---- Printed fine-pitch screw and nut ----------------------------------------------
+// Coarse, printable trapezoidal thread approximation: a swept profile along a helix.
+// Fractional turns give continuous adjustment; printed accuracy is NOT claimed.
+module thread_profile(pitch = fine_screw_pitch_mm, depth = 1.6, r_root) {
+    // Trapezoid: wide at the root, narrower at the crest, so it prints unsupported.
+    polygon([[r_root - 0.05, -pitch * 0.30],
+             [r_root + depth, -pitch * 0.16],
+             [r_root + depth, pitch * 0.16],
+             [r_root - 0.05, pitch * 0.30]]);
+}
+
+module printed_screw(len, d = fine_screw_d_mm, pitch = fine_screw_pitch_mm,
+                     depth = 1.6, step_deg = 12) {
+    r_root = d / 2 - depth;
+    turns = len / pitch;
+    steps = max(12, ceil(turns * 360 / step_deg));
+    union() {
+        cylinder(d = d - 2 * depth, h = len);
+        for (i = [0:steps - 1])
+            hull() {
+                translate([0, 0, len * i / steps])
+                    rotate([0, 0, -360 * turns * i / steps])
+                        linear_extrude(height = 0.01) thread_profile(pitch, depth, r_root);
+                translate([0, 0, len * (i + 1) / steps])
+                    rotate([0, 0, -360 * turns * (i + 1) / steps])
+                        linear_extrude(height = 0.01) thread_profile(pitch, depth, r_root);
+            }
+        // End flange keeps the nut captive on the screw.
+        translate([0, 0, len - keeper_t_mm]) cylinder(d = d + 4, h = keeper_t_mm);
+    }
+}
+
+module printed_nut(d = fine_screw_d_mm, pitch = fine_screw_pitch_mm,
+                   h = fine_nut_height_mm, depth = 1.6, step_deg = 12) {
+    r_crest = d / 2 + joint_clearance_mm;
+    turns = h / pitch;
+    steps = max(12, ceil(turns * 360 / step_deg));
+    difference() {
+        cylinder(d = d + 10, h = h);
+        translate([0, 0, -0.5]) cylinder(d = d - 2 * depth - 0.2, h = h + 1);
+        for (i = [0:steps - 1])
+            hull() {
+                translate([0, 0, h * i / steps])
+                    rotate([0, 0, 360 * turns * i / steps])
+                        linear_extrude(height = 0.01)
+                            thread_profile(pitch, depth + joint_clearance_mm,
+                                           r_crest - depth - joint_clearance_mm);
+                translate([0, 0, h * (i + 1) / steps])
+                    rotate([0, 0, 360 * turns * (i + 1) / steps])
+                        linear_extrude(height = 0.01)
+                            thread_profile(pitch, depth + joint_clearance_mm,
+                                           r_crest - depth - joint_clearance_mm);
+            }
+        // Anti-backdrive window: a printed lip engages it so vibration cannot unwind.
+        for (k = [0:3])
+            rotate([0, 0, k * 90 + 45])
+                translate([d / 2 + 5 - leadscrew_anti_backdrive_lip_mm / 2, -1.2, -0.01])
+                    cube([leadscrew_anti_backdrive_lip_mm, 2.4, h * 0.5]);
+    }
+}
+
+module anti_backdrive_lip() {
+    difference() {
+        hull() {
+            translate([-leadscrew_anti_backdrive_lip_mm / 2, 0, 0])
+                cube([leadscrew_anti_backdrive_lip_mm, 2.2, fine_nut_height_mm * 0.45]);
+            translate([-leadscrew_anti_backdrive_lip_mm / 2 + 1, 0,
+                       fine_nut_height_mm * 0.45])
+                cube([leadscrew_anti_backdrive_lip_mm - 2, 2.2, 3]);
+        }
+        translate([0, -1.2, fine_nut_height_mm * 0.30]) rotate([45, 0, 0])
+            cube([leadscrew_anti_backdrive_lip_mm, 2, 2], center = true);
+    }
+}
+
+// ---- Two-axis alignment neck -------------------------------------------------------
+// Positively captured printed articulation for the throttle-end fitting. Declared
+// +/-joint_articulation_deg capacity, not a measured mower requirement.
+module alignment_yoke(gap = clevis_gap_mm) {
+    printed_clevis(gap = gap, ear_t = clevis_ear_t_mm, reach = 18);
+}
+
+module alignment_cross_block(gap = clevis_gap_mm) {
+    union() {
+        translate([-gap / 2 - joint_clearance_mm, -6, -6])
+            cube([gap + 2 * joint_clearance_mm, 12, 12]);
+        rotate([0, 0, 90]) printed_clevis(gap = gap, ear_t = clevis_ear_t_mm, reach = 16);
+    }
+}
+
+// ---- Entry point -------------------------------------------------------------------
+// The catalog drives individual primitives through this selector. Names index the module
+// list so a typo fails loudly instead of silently rendering the wrong part.
+joint_part = "pin";
+
+module printed_joint_part(kind = joint_part) {
+    if (kind == "pin") printed_pin(24);
+    else if (kind == "clevis") printed_clevis();
+    else if (kind == "bushing") printed_bushing();
+    else if (kind == "wear_socket") printed_wear_socket();
+    else if (kind == "endstop_collar") endstop_collar();
+    else if (kind == "nut") printed_nut();
+    else if (kind == "keyed_spigot") keyed_spigot();
+    else if (kind == "screw") printed_screw(60);
+    else if (kind == "anti_backdrive") anti_backdrive_lip();
+    else if (kind == "keeper") printed_keeper();
+    else if (kind == "alignment_yoke") alignment_yoke();
+    else if (kind == "alignment_cross") alignment_cross_block();
+    else assert(false, str("unknown joint part: ", kind));
+}
+
+printed_joint_part(joint_part);

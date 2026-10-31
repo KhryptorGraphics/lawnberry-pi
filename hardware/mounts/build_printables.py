@@ -17,6 +17,7 @@ import hashlib
 import json
 import math
 import re
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -481,6 +482,199 @@ def defines(parameters: dict) -> list[str]:
     ]
 
 
+def build_hardware_77603(output_dir: Path | None = None) -> int:
+    """Render the Toro 77603 profile into its own output tree.
+
+    Additive: this never writes a legacy root export, view or ``validation.json``. Geometry
+    rules are the same ones the legacy build uses (``mesh_report``), plus the usable-envelope
+    margin check and CSG probes that must be empty or non-empty as declared in the catalog.
+    """
+    from hardware_77603_catalog import (  # local import: legacy build must not require it
+        BUILD_VOLUME_MM,
+        COMPONENT_INVENTORY,
+        DRAWING_WATERMARK,
+        MATERIAL_ASSUMPTIONS,
+        PARTS_77603,
+        PROBES_77603,
+        USABLE_VOLUME_MM,
+        VIEWS_77603,
+    )
+
+    out = (output_dir or ROOT / "generated_77603").resolve()
+    staging_root = Path(tempfile.mkdtemp(prefix=".cad-build-77603-", dir=ROOT))
+    if out.exists():
+        raise SystemExit(f"refusing to overwrite existing output tree: {out}")
+
+    def render_piece(piece) -> tuple:
+        target = staging_root / f"{piece.name}.stl"
+        run(
+            [
+                "openscad",
+                "--export-format",
+                "binstl",
+                "-o",
+                str(target),
+                *defines(piece.parameters),
+                str(ROOT / piece.source),
+            ]
+        )
+        report = mesh_report(target)
+        size = report["size_mm"]
+        if (
+            size[0] > USABLE_VOLUME_MM[0]
+            or size[1] > USABLE_VOLUME_MM[1]
+            or size[2] > USABLE_VOLUME_MM[2]
+        ):
+            raise ValueError(
+                f"{piece.name} exceeds the usable {USABLE_VOLUME_MM} mm envelope: {size}"
+            )
+        report.update(
+            source=f"{piece.source}.scad",
+            parameters=piece.parameters,
+            quantity=piece.quantity,
+            print_orientation=piece.orientation,
+            material_hypothesis=piece.material,
+            note=piece.note,
+            build_envelope_mm=list(BUILD_VOLUME_MM),
+            usable_envelope_mm=list(USABLE_VOLUME_MM),
+        )
+        print(f"PASS mesh {piece.name}: {size}", flush=True)
+        return piece.name, report
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        reports = dict(pool.map(render_piece, PARTS_77603))
+
+    def run_probe(probe) -> dict:
+        results = []
+        for params in probe.parameter_sets:
+            target = staging_root / f"probe_{probe.check}.stl"
+            text = run(
+                [
+                    "openscad",
+                    "--export-format",
+                    "binstl",
+                    "-o",
+                    str(target),
+                    # The parameter set carries the implemented check name; Probe.check is
+                    # only a human-facing label, so the parameter set must win the merge.
+                    *defines({"check": probe.check, **params}),
+                    str(ROOT / "throttle_77603" / "fit_checks.scad"),
+                ],
+                empty=True,
+            )
+            empty = "Current top level object is empty" in text
+            if probe.expect == "empty" and not empty:
+                raise ValueError(f"interference in check {probe.check}: {text}")
+            if probe.expect == "contact" and empty:
+                raise ValueError(f"no retention/land in check {probe.check}")
+            results.append({"check": probe.check, "expect": probe.expect, "empty": empty})
+            print(f"PASS probe {probe.check} ({probe.expect})", flush=True)
+        return results
+
+    probes = []
+    for probe in PROBES_77603:
+        probes.extend(run_probe(probe))
+
+    def render_view(scene) -> str:
+        folder = "drawings" if scene.kind == "drawing" else "views"
+        if scene.kind == "drawing":
+            target = staging_root / f"{scene.name}.svg"
+            run(
+                [
+                    "openscad",
+                    "-o",
+                    str(target),
+                    *defines(scene.parameters),
+                    str(ROOT / scene.source),
+                ]
+            )
+            if not target.read_bytes().lstrip().startswith(b"<"):
+                raise ValueError(f"Missing SVG drawing {scene.name}")
+        else:
+            target = staging_root / f"{scene.name}.png"
+            run(
+                [
+                    "xvfb-run",
+                    "-a",
+                    "openscad",
+                    "-o",
+                    str(target),
+                    "--imgsize=1200,900",
+                    "--projection=p",
+                    f"--camera={scene.camera}",
+                    "--colorscheme=Tomorrow",
+                    *defines(scene.parameters),
+                    str(ROOT / scene.source),
+                ]
+            )
+            if not target.read_bytes().startswith(b"\x89PNG"):
+                raise ValueError(f"Missing view {scene.name}")
+        print(f"PASS {scene.kind} {scene.name}", flush=True)
+        return f"{folder}/{target.name}"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        artifacts = list(pool.map(render_view, VIEWS_77603))
+
+    # Publish only after every mesh and probe passed.
+    for sub in ("stl", "3mf", "previews", "views", "drawings"):
+        (out / sub).mkdir(parents=True, exist_ok=True)
+    print_files = {}
+    for name in sorted(reports):
+        shutil.move(str(staging_root / f"{name}.stl"), str(out / "stl" / f"{name}.stl"))
+        target = out / "3mf" / f"{name}.3mf"
+        write_3mf(out / "stl" / f"{name}.stl", target)
+        print_files[name] = {
+            "path": f"3mf/{name}.3mf",
+            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+        }
+    for artifact in artifacts:
+        folder, filename = artifact.split("/", 1)
+        shutil.move(str(staging_root / filename), str(out / folder / filename))
+
+    sources = sorted(
+        {
+            *(p.source for p in PARTS_77603),
+            *(v.source for v in VIEWS_77603),
+            "throttle_77603/fit_checks.scad",
+            "throttle_77603/parameters.scad",
+            "throttle_77603/printed_joints.scad",
+            "control_77603/parameters.scad",
+            "control_77603/board_carriers.scad",
+            "enclosure_common.scad",
+            "common.scad",
+        }
+    )
+    manifest = {
+        "profile": "hardware_77603",
+        "model": "Toro TimeCutter MAX Havoc MyRIDE 60 in, model 77603 (serial unknown)",
+        "status": "geometry_generated_not_physically_qualified",
+        "watermark": DRAWING_WATERMARK,
+        "tool": run(["openscad", "--version"]).strip(),
+        "build_volume_mm": list(BUILD_VOLUME_MM),
+        "usable_envelope_mm": list(USABLE_VOLUME_MM),
+        "step_status": "UNAVAILABLE: OpenSCAD 2021.01 has no STEP writer; no BREP exported",
+        "sources_sha256": {
+            source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest()
+            for source in sources
+        },
+        "parts": reports,
+        "print_files": print_files,
+        "probes": probes,
+        "artifacts": sorted(artifacts),
+        "component_inventory": [
+            {"name": n, "quantity": q, "status": s, "role": r}
+            for n, q, s, r in COMPONENT_INVENTORY
+        ],
+        "material_assumptions": MATERIAL_ASSUMPTIONS,
+    }
+    (out / "validation.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(
+        f"Published {len(reports)} meshes, {len(print_files)} 3MFs, "
+        f"{len(artifacts)} views/drawings and {len(probes)} probes to {out}"
+    )
+    return 0
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix=".cad-build-", dir=ROOT) as temp:
         staging = Path(temp)
@@ -653,4 +847,23 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--profile",
+        choices=("legacy", "hardware_77603"),
+        default="legacy",
+        help="legacy rebuilds every existing part in place; hardware_77603 writes its own tree",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="hardware_77603 only: publish here instead of hardware/mounts/generated_77603",
+    )
+    args = parser.parse_args()
+    if args.profile == "legacy":
+        main()
+    else:
+        raise SystemExit(build_hardware_77603(args.output_dir))

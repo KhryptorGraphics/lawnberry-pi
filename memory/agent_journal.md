@@ -491,3 +491,41 @@ reboots after 10 min, at most once per 4 h, and never touches `morse`. `systemd/
 this board did not have. Both state machines were exercised against stubbed `iw`/`ping`/`arping`/
 `systemctl` (healthy, mute, lost, cooldown, recovery), and the Pi script's reboot path was checked in
 dry-run so nothing rebooted. Installing them is the first thing to do when the link is back.
+
+## 2026-10-30 — Toro 77603 throttle CAD, electronics packaging and dual-controller shutdown model
+
+Branch `feat/2026-10-30-throttle-dual-controller-hardware` (from requirements
+`docs/2026-10-30-throttle-servo-linkage`, pinned `3fb138ab`). Additive only: 199 of 200 legacy
+CAD files are byte-identical; the sole legacy edit is an added `hardware_77603` profile in
+`hardware/mounts/build_printables.py` (the no-argument legacy build is unchanged).
+
+Delivered: five complete printable throttle variants (A direct horn eye, B horn reinforcement
+shell, C continuously variable horn radius, D captured ball with replaceable wear socket,
+E double-shear clevis), three interchangeable all-printed continuous locks (wedge/cam, split
+collet, lead screw) on a segmented rod with printed spindles and an end-stop collar, the
+12.70 x 31.75 mm inverted-U lever capture with a fit gauge, a capacity-based electronics
+sidecar (Pi 5, Alta, 2 x PCA9685, one Pololu 2806, 2 x HiLetGo, converters, harness), and an
+offline Pi/Alta shutdown model with 53 behavioural tests.
+
+Generated and verified: 58 STLs + 58 3MFs (each one watertight, bed-zero solid inside a
+400 x 400 x 490 mm envelope), 18 PNG views, 5 projected SVG drawings, 19 CSG probes, and a
+manifest. STEP is unavailable — OpenSCAD 2021.01 has no writer, no FreeCAD/CadQuery present.
+
+Two structural revisions were forced by geometry, not preference. The throttle bracket first
+hung off the lower arm column; `mount_vs_steering` showed the cradle sitting inside the right
+steering servo's case, and lengthening the riser made it worse because the column rakes
+outboard with height. It now extends the *existing right steering servo bracket* as the
+requirement asks, anchored on the servo land with the foot verified against the real
+`arm_head_assembly()` solid (X 187.3..209.6, Y 141..157), tower ~186 mm outboard to clear the
+pushrod sweep (X 273.8..370.1) and cradle ~180 mm above `arm_tip_z`.
+
+`hardware/mounts/probe_77603.py` treats any openscad WARNING as a probe failure. That exists
+because three silent defects produced plausible but meaningless output: a 1 mm3 keeper from an
+undefined variable, every rod piece rendering the whole 1 m assembly from a wrong `-D` key, and
+a 255-warning "pass" on the steering-clearance probe. None of those would have been caught by
+exit codes alone.
+
+Unverified and stated as such: all fits are prototype geometry from owner-provisional
+dimensions; no load, creep, fatigue, heat, UV or vibration qualification; the lever pivot, arc,
+cross-section and lean are unmeasured; the electrical model is functional-only with the second
+PTO contact and both engine-stop contacts conditional. No physical testing was performed.

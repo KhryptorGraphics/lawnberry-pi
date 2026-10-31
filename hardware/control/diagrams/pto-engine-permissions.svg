@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="960" height="520" role="img" aria-label="PTO permission contacts in series and engine-stop contacts in parallel">
+  <title>PTO permission and engine-stop contacts — CONDITIONAL, NOT INSTALLATION WIRING</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+
+  <text x="480" y="24" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="var(--fg)">PTO permission (series) and engine stop (parallel)</text>
+  <text x="480" y="44" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="var(--warning)">CONDITIONAL — NOT INSTALLATION WIRING · no Toro pin, colour, rating or fuse assigned</text>
+
+  <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="var(--fg)">
+    <text x="40" y="82" font-weight="600">PTO clutch permission</text>
+    <text x="40" y="99" font-size="11" fill="var(--muted)">CLUTCH = OEM_ALLOWED AND K_PI AND K_ALTA</text>
+
+    <rect x="40" y="112" width="96" height="42" rx="6" fill="none" stroke="var(--border)"/>
+    <text x="88" y="130" text-anchor="middle" font-size="11">factory fuse</text>
+    <text x="88" y="145" text-anchor="middle" font-size="10" fill="var(--muted)">OEM</text>
+
+    <rect x="160" y="112" width="120" height="42" rx="6" fill="none" stroke="var(--border)"/>
+    <text x="220" y="130" text-anchor="middle" font-size="11">PTO rocker</text>
+    <text x="220" y="145" text-anchor="middle" font-size="10" fill="var(--muted)">139-6368 (serial-dep.)</text>
+
+    <rect x="304" y="112" width="112" height="42" rx="6" fill="none" stroke="var(--accent)"/>
+    <text x="360" y="130" text-anchor="middle" font-size="11" font-weight="600">K_PI_PTO</text>
+    <text x="360" y="145" text-anchor="middle" font-size="10" fill="var(--muted)">NO · energize-to-allow</text>
+
+    <rect x="440" y="112" width="112" height="42" rx="6" fill="none" stroke="var(--accent)"/>
+    <text x="496" y="130" text-anchor="middle" font-size="11" font-weight="600">K_ALTA_PTO</text>
+    <text x="496" y="145" text-anchor="middle" font-size="10" fill="var(--warning)">NO · CONDITIONAL</text>
+
+    <rect x="576" y="112" width="130" height="42" rx="6" fill="none" stroke="var(--border)"/>
+    <text x="641" y="130" text-anchor="middle" font-size="11">OEM PTO clutch</text>
+    <text x="641" y="145" text-anchor="middle" font-size="10" fill="var(--muted)">retained, not replaced</text>
+
+    <text x="40" y="196" font-weight="600">Engine stop — ground-to-kill candidate</text>
+    <text x="40" y="213" font-size="11" fill="var(--muted)">parallel: EITHER contact grounds the kill node</text>
+
+    <rect x="40" y="230" width="130" height="42" rx="6" fill="none" stroke="var(--border)"/>
+    <text x="105" y="248" text-anchor="middle" font-size="11">OEM kill node</text>
+    <text x="105" y="263" text-anchor="middle" font-size="10" fill="var(--muted)">unidentified lead</text>
+
+    <rect x="240" y="230" width="130" height="42" rx="6" fill="none" stroke="var(--accent)"/>
+    <text x="305" y="248" text-anchor="middle" font-size="11" font-weight="600">K_KILL_PI</text>
+    <text x="305" y="263" text-anchor="middle" font-size="10" fill="var(--muted)">NC · energize-to-run</text>
+
+    <rect x="240" y="300" width="130" height="42" rx="6" fill="none" stroke="var(--accent)"/>
+    <text x="305" y="318" text-anchor="middle" font-size="11" font-weight="600">K_KILL_ALTA</text>
+    <text x="305" y="333" text-anchor="middle" font-size="10" fill="var(--warning)">NC · CONDITIONAL</text>
+
+    <rect x="440" y="265" width="120" height="42" rx="6" fill="none" stroke="var(--border)"/>
+    <text x="500" y="283" text-anchor="middle" font-size="11">chassis ground</text>
+    <text x="500" y="298" text-anchor="middle" font-size="10" fill="var(--muted)">never +12 V here</text>
+
+    <text x="40" y="392" font-weight="600">Contact accounting — no invented inventory</text>
+    <text x="40" y="412" font-size="11">Steering power enable      1 pole   owned allocation, host unresolved</text>
+    <text x="40" y="430" font-size="11">Pi PTO permission          1 pole   HiLetGo candidate, rating unverified</text>
+    <text x="40" y="448" font-size="11" fill="var(--warning)">Alta PTO permission        1 pole   CONDITIONAL — not in verified inventory</text>
+    <text x="40" y="466" font-size="11" fill="var(--warning)">Pi / Alta engine stop    2 poles   CONDITIONAL — form and interface BLOCKED</text>
+    <text x="40" y="484" font-size="11">Starter                    1 pole   separate function, not allocated</text>
+    <text x="40" y="504" font-size="10" fill="var(--muted)">Two HiLetGo single-channel modules confirmed; harness relay bodies unverified; factory relay 1-643275 is not a spare.</text>
+  </g>
+
+  <g stroke="currentColor" fill="none" marker-end="url(#a)" stroke-width="1.6">
+    <path d="M136 133 L158 133"/>
+    <path d="M280 133 L302 133"/>
+    <path d="M416 133 L438 133"/>
+    <path d="M552 133 L574 133"/>
+    <path d="M170 251 L238 251"/>
+    <path d="M370 251 L438 286"/>
+    <path d="M370 321 L438 300"/>
+  </g>
+</svg>

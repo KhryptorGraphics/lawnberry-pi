@@ -1,0 +1,77 @@
+# PTO permission and engine-stop contacts
+
+**CONDITIONAL — NOT INSTALLATION WIRING.** Functional blocks only. No Toro connector pin, wire
+colour, contact rating or fuse value is assigned. Serial-specific verification is outstanding.
+
+```mermaid
+flowchart TB
+    subgraph OEM["OEM circuit — untouched, all factory interlocks retained"]
+        FUSE["factory fuse"]
+        ROCKER["PTO rocker 139-6368<br/>(rectangular blade control)"]
+        CLUTCH["OEM electric PTO clutch"]
+        KILL["OEM kill node<br/>(ground-to-kill candidate)"]
+        GND["chassis ground"]
+    end
+
+    subgraph PI["Pi 5 outputs"]
+        KPI["K_PI_PTO<br/>NO, energize-to-allow"]
+        KPIK["K_KILL_PI<br/>NC, energize-to-run"]
+    end
+
+    subgraph ALTA["Libre Alta outputs"]
+        KALTA["K_ALTA_PTO<br/>NO, energize-to-allow"]
+        KALK["K_KILL_ALTA<br/>NC, energize-to-run"]
+    end
+
+    FUSE --> ROCKER --> KPI --> KALTA --> CLUTCH
+
+    KILL --> KPIK --> GND
+    KILL --> KALK --> GND
+
+    PI -.->|local request only| KPI
+    PI -.->|local request only| KPIK
+    ALTA -.->|local request only| KALTA
+    ALTA -.->|local request only| KALK
+```
+
+## PTO permission — series, energize-to-allow
+
+`CLUTCH_PERMISSION = OEM_PTO_ALLOWED AND K_PI_closed AND K_ALTA_closed`
+
+| OEM PTO | K_PI | K_ALTA | Clutch feed |
+| --- | --- | --- | --- |
+| OFF | any | any | **OFF** |
+| ON | closed | closed | permitted |
+| ON | open | closed | **OFF** |
+| ON | closed | open | **OFF** |
+| ON | open | open | **OFF** |
+
+Either host opens **its own** contact from a purely local request. A dead peer cannot keep the clutch
+fed, and this circuit cannot engage PTO while the OEM rocker is OFF.
+
+## Engine stop — parallel, conditionally NC
+
+The two stop contacts are **parallel**: either one grounds the kill node. Series contacts would
+require both hosts to close, so a living host would defeat the other's stop.
+
+Consequence: engine RUN becomes a **2-of-2 permission**, so an Alta reboot also stops the engine. That
+matches "Pi commands engine OFF when Alta fails" but is a genuine behaviour change.
+
+- A **stuck-open** NC contact is the dangerous direction: the engine would not stop through that path.
+- Never apply +12 V to a magneto kill lead.
+- Contact form, coil voltage and engine-family compatibility are **BLOCKED** on inspection.
+
+## Contact inventory honesty
+
+| Function | Poles | Status |
+| --- | --- | --- |
+| Steering power enable | 1 | owned allocation, host ownership unresolved |
+| Pi PTO permission | 1 | HiLetGo candidate, contact/rating unverified |
+| Alta PTO permission | 1 | **CONDITIONAL — not in verified inventory** |
+| Pi engine stop | 1 | **CONDITIONAL — form/interface BLOCKED** |
+| Alta engine stop | 1 | **CONDITIONAL — form/interface BLOCKED** |
+| Starter | 1 | separate function, not allocated |
+
+Two HiLetGo single-channel modules are confirmed and one is intended for steering power. The
+automotive harness is **not** verified to contain relay bodies. Toro factory relay 1-643275 is part of
+the OEM circuit, not a spare. Software cannot create a switching pole.
