@@ -236,3 +236,45 @@ class TestRodSegmentPlan:
             seg = self._seg_len(span, n)
             total = seg * n + (n - 1) * 40.0
             assert total == pytest.approx(span, abs=1e-6), span
+
+
+class TestDrawingSheets:
+    """Drawing sheets must be readable and must actually differ per variant.
+
+    A drawing is not "present" because a file exists: the first delivery was five
+    byte-identical 549-byte silhouettes with no text at all, and the correction that followed
+    put the white sheet *after* the geometry, hiding the section. Both faults are asserted
+    here by structure, not by grep presence.
+    """
+
+    DRAWINGS = Path("hardware/mounts/generated_77603/drawings")
+
+    @pytest.fixture(scope="class")
+    def sheets(self) -> dict[str, str]:
+        if not self.DRAWINGS.is_dir():
+            pytest.skip("no generated drawings in this checkout (CI has no OpenSCAD)")
+        files = sorted(self.DRAWINGS.glob("*.svg"))
+        assert files, "drawings directory is empty"
+        return {f.name: f.read_text() for f in files}
+
+    def test_one_sheet_per_variant(self, sheets):
+        for letter in "abcde":
+            assert any(letter in name for name in sheets), letter
+
+    def test_sheets_are_not_copies_of_each_other(self, sheets):
+        bodies = {name: body[body.find("<path"):] for name, body in sheets.items()}
+        assert len(set(bodies.values())) == len(bodies), "two variant sheets share geometry"
+
+    def test_every_sheet_carries_annotation_text(self, sheets):
+        for name, body in sheets.items():
+            assert body.count("<text") >= 5, f"{name} has too little annotation"
+
+    def test_white_sheet_precedes_the_geometry(self, sheets):
+        for name, body in sheets.items():
+            rect = body.find("<rect")
+            path = body.find("<path")
+            assert 0 <= rect < path, f"{name}: background must be BEHIND the geometry"
+
+    def test_sheets_state_the_prototype_boundary(self, sheets):
+        for name, body in sheets.items():
+            assert "PROTOTYPE" in body, f"{name} omits the qualification watermark"

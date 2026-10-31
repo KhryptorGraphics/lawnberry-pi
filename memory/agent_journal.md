@@ -503,13 +503,14 @@ Delivered: five complete printable throttle variants (A direct horn eye, B horn 
 shell, C continuously variable horn radius, D captured ball with replaceable wear socket,
 E double-shear clevis), three interchangeable all-printed continuous locks (wedge/cam, split
 collet, lead screw) on a segmented rod with printed spindles and an end-stop collar, the
-12.70 x 31.75 mm inverted-U lever capture with a fit gauge, a capacity-based electronics
+31.75 x 12.70 mm inverted-U lever capture with a fit gauge, a capacity-based electronics
 sidecar (Pi 5, Alta, 2 x PCA9685, one Pololu 2806, 2 x HiLetGo, converters, harness), and an
 offline Pi/Alta shutdown model with 53 behavioural tests.
 
-Generated and verified: 58 STLs + 58 3MFs (each one watertight, bed-zero solid inside a
-400 x 400 x 490 mm envelope), 18 PNG views, 5 projected SVG drawings, 19 CSG probes, and a
-manifest. STEP is unavailable — OpenSCAD 2021.01 has no writer, no FreeCAD/CadQuery present.
+Generated and verified: 51 STLs + 51 3MFs (each one watertight, bed-zero solid inside a
+400 x 400 x 490 mm envelope), 18 PNG views, 5 annotated SVG section drawings, 18 CSG probes,
+and a manifest. The early count of 58/19 included seven orphan pieces from the abandoned
+column-wrap saddle and the vacuous flange-hook probe, all since removed. STEP is unavailable — OpenSCAD 2021.01 has no writer, no FreeCAD/CadQuery present.
 
 Two structural revisions were forced by geometry, not preference. The throttle bracket first
 hung off the lower arm column; `mount_vs_steering` showed the cradle sitting inside the right
