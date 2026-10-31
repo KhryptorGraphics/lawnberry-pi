@@ -1,3 +1,5 @@
+> **Current owner requirement (2026-10-31):** Engine cranking, ignition RUN and engine shutdown are **manual OEM operations only**. Remove earlier proposals for starter/engine-kill GPIO, relays, APIs, virtual ignition buttons and independent engine-stop commands. This document's fault response retains *independent blade PTO-OFF*, attainable neutral/idle steering, monitoring and fault latching. Neither host is expected or able to stop the running engine; label resulting autonomous safety limitations honestly. Factory interlocks remain intact.
+
 # Lawnberry Pi — software-only dual-controller failover design
 
 **Decision date:** 2026-10-30  
@@ -16,8 +18,8 @@ This specification defines **what the software must attempt and how it coordinat
 
 | Component | Software responsibility while healthy | Responsibility if its peer fails |
 | --- | --- | --- |
-| **Raspberry Pi 5 — primary** | Own normal navigation and requested motion/steering, throttle, starter, blade/PTO control *through verified available local interfaces*. Publish desired mode and actual state. | If **Alta fails**, immediately stop accepting new motion/start/PTO commands, request steering **NEUTRAL**, throttle **IDLE**, **PTO OFF**, and **ENGINE OFF**, then latch the fault. |
-| **Libre Alta — hot standby** | Run the same heartbeat parser, fault detector, stop state machine, and local stop-output service in parallel. Keep its output authority available without requiring Pi messages during a failure. | If **Pi fails**, immediately stop accepting new commands, request steering **NEUTRAL only if Alta has an independently usable steering output path**, throttle **IDLE** if controllable, **PTO OFF**, and **ENGINE OFF** through its **own verified interfaces**, then latch the fault. |
+| **Raspberry Pi 5 — primary** | Own normal navigation and requested motion/steering, throttle and blade/PTO control *through verified available local interfaces*. Publish desired mode and actual state. | If **Alta fails**, immediately stop accepting new motion/PTO commands, request steering **NEUTRAL**, throttle **IDLE**, and **PTO OFF**, then latch the fault. |
+| **Libre Alta — hot standby** | Run the same heartbeat parser, fault detector, stop state machine, and local stop-output service in parallel. Keep its output authority available without requiring Pi messages during a failure. | If **Pi fails**, immediately stop accepting new commands, request steering **NEUTRAL only if Alta has an independently usable steering output path**, throttle **IDLE** if controllable, and **PTO OFF** through its **own verified interfaces**, then latch the fault. |
 | **PCA9685 on Pi** | Pi-local PWM for two steering servos as currently proposed. | May hold its last PWM if the Pi/I²C fails. **Alta cannot assume it can update Pi-controlled PWM remotely.** |
 | **PCA9685 on Alta** | Alta-local PWM for MG995 throttle as currently proposed. | It is **not automatically an alternate controller for Pi steering PWM** merely because it has spare channels. |
 | **Relay/control outputs** | Must expose correctly rated and independent off-command paths for engine and PTO. | A surviving computer cannot issue an electrically effective OFF command through a failed host's GPIO or I²C path. |
@@ -36,9 +38,9 @@ This specification defines **what the software must attempt and how it coordinat
 | Alta failure | Raspberry Pi 5 | Issue **PTO OFF** through a **Pi-accessible electrical path**, without an Alta GPIO, Alta I²C, or network acknowledgement. |
 | Pi–Alta heartbeat link lost | Each working computer | Revoke local permission to run blades and request **PTO OFF**, with no assumption of a healthy peer. |
 
-**Software contract:** Implement a local `request_pto_off()` adapter on **each** computer and call it during any latched fault **without waiting for steering return or engine shutdown**. The adapter's existence in code is not evidence that its relay or clutch circuit actually switches OFF.
+**Software contract:** Implement a local `request_pto_off()` adapter on **each** computer and call it during any latched fault **without waiting for steering return or blade-state confirmation**. The adapter's existence in code is not evidence that its relay or clutch circuit actually switches OFF.
 
-**Unresolved physical dependency:** The two existing **HiLetGo 5 V, 30 A single-channel relay modules** do not automatically provide independently controllable steering power, PTO, engine kill, and starter circuits. One module is planned for steering-power control; whether the other plus the owned automotive relay harness can implement **both hosts' independent PTO-OFF authority** (as well as distinct engine-control functions) must be determined from the model 77603 serial-matched wiring and actual relay contacts. **Do not tie Pi and Alta GPIO outputs together**, assume a software-only GPIO command interrupts clutch current, or bypass the factory blade safety circuit.
+**Unresolved physical dependency:** The two existing **HiLetGo 5 V, 30 A single-channel relay modules** do not automatically provide independently controllable steering power, PTO, PTO and steering-power circuits. One module is planned for steering-power control; whether the other plus the owned automotive relay harness can implement **both hosts' independent PTO-OFF authority** (as well as distinct engine-control functions) must be determined from the model 77603 serial-matched wiring and actual relay contacts. **Do not tie Pi and Alta GPIO outputs together**, assume a software-only GPIO command interrupts clutch current, or bypass the factory blade safety circuit.
 
 **Verification gate:** With PTO electrically isolated in a safe test arrangement, demonstrate (a) Pi removed and Alta commands clutch permission OFF, (b) Alta removed and Pi commands clutch permission OFF, (c) heartbeat loss results in OFF requests, (d) no automatic re-engagement after restart. A PTO-OFF command disengages an electric clutch; **blade coast-down takes additional time** and must be measured separately.
 
@@ -107,7 +109,7 @@ Use the same application-level monitoring and stop logic on either transport. Pe
 - **BOOT_DISARMED:** No automatic engine start, PTO engagement, throttle advance or motion commands. Confirm local hardware services, peer health and authorized operator request before arming.
 - **PEER_VALIDATED:** Bidirectional fresh heartbeat established, outputs known and neutral/idle/OFF requests accepted; no motion yet.
 - **RUN_AUTHORIZED:** Pi 5 is the sole normal command authority. Alta monitors but does not send contradictory active drive commands.
-- **FAULT_LATCHED:** New starter, PTO-ON, motion and throttle-up commands rejected. The appropriate host issues its own available stop commands; fault remains latched after peer reconnect/reboot until a deliberate human re-arm following inspections and functional checks.
+- **FAULT_LATCHED:** New PTO-ON, motion and throttle-up commands rejected. The appropriate host issues its own available stop commands; fault remains latched after peer reconnect/reboot until a deliberate human re-arm following inspections and functional checks.
 
 If a link is partitioned with both computers alive, **both enter FAULT_LATCHED** instead of electing competing masters. A recovered connection never automatically reauthorizes mowing.
 
@@ -118,8 +120,8 @@ If a link is partitioned with both computers alive, **both enter FAULT_LATCHED**
 
 When a peer is declared failed, the survivor locally performs the following **without waiting for the peer, Thor, web UI or network command acknowledgment**:
 
-1. Atomically set `run_authorized = false`, `starter_allowed = false`, `pto_allowed = false`, `movement_allowed = false`; latch the fault and record the cause.
-2. Immediately request **PTO OFF** and **ENGINE OFF** via its *own electrically accessible, independently operable* control interfaces.
+1. Atomically set `run_authorized = false`, `pto_allowed = false`, `movement_allowed = false`; latch the fault and record the cause.
+2. Immediately request **PTO OFF** via its *own electrically accessible, independently operable* control interfaces.
 3. Concurrently request **both steering levers to NEUTRAL** and **throttle to IDLE** **only on interfaces the survivor actually controls**. Do not delay PTO/engine OFF while waiting for servo repositioning. If the survivor lacks steering authority, report **NEUTRAL_NOT_COMMANDABLE**, not success.
 4. Verify whatever physical feedback actually exists (engine RPM, PTO/clutch state, steering position/neutral sensors). A transmitted GPIO/I²C command is **not proof** of clutch release, blade cessation, or neutral.
 5. Continue publishing `FAULT_LATCHED` and actionable diagnostics. No automatic restart or blade re-engagement even if the other computer boots or radio/Ethernet recovers.
@@ -143,8 +145,7 @@ def enter_latched_stop(reason):
     revoke_all_run_start_motion_and_pto_permissions()
     record_fault(reason)
     request_pto_off_via_my_local_stop_output()
-    request_engine_off_via_my_local_stop_output()
-    if my_steering_controller_is_independently_accessible():
+        if my_steering_controller_is_independently_accessible():
         request_both_steering_levers_neutral()
     else:
         report("NEUTRAL_NOT_COMMANDABLE")
@@ -174,7 +175,7 @@ Implementation must use independent send/receive scheduling, nonblocking shutdow
 
 - **Already purchased/owned:** Pi 5, Alta, two PCA9685 boards, two HiLetgo single-channel relays, 150 kg steering servos, MG995 throttle servo, existing servo and SBC converters, automotive relay harness, **one assembled Pololu #2806 four-channel servo multiplexer (owner confirmed purchased 2026-10-30; delivery not verified)**.
 - **No additional external hardware watchdog or added E-stop switch** is included in this *user-selected* software proposal.
-- **Not yet proven sufficient:** independent engine and PTO switch contacts for both computers, correct steering-source selection wiring and operation through purchased Pololu #2806 under Pi failure, regulated MG995 supply, 5 V relay coil supply, and OEM-compatible starter/ignition control. **Software cannot create an extra relay pole or a missing signal wire.** Do not finalize a purchase list until actual model/serial pinouts, power ratings and interface counts are verified.
+- **Not yet proven sufficient:** independent PTO switch contacts for both computers, correct steering-source selection wiring and operation through purchased Pololu #2806 under Pi failure, regulated MG995 supply, 5 V relay coil supply, and OEM factory manual ignition retained. **Software cannot create an extra relay pole or a missing signal wire.** Do not finalize a purchase list until actual model/serial pinouts, power ratings and interface counts are verified.
 
 **Authoritative cross-references:** [Owner-selected primary/backup roles](2026-10-30-primary-backup-software-control.md), [hardware allocation](2026-10-30-integrated-hardware-and-control-decisions.md), [Ethernet/HaLow alternative](2026-10-30-intercontroller-ethernet-alternative.md).  
 **Status:** Documentation only — not implemented, integrated, or verified as safe for unattended mowing.
