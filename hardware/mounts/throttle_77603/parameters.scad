@@ -164,6 +164,8 @@ tower_offset_y = 26;    // forward of shaft centre, DERIVED for case clearance
 post_w_mm = 16;
 foot_t_mm = 8;
 foot_w_mm = 16;   // matches post_w_mm: the clear attachment band width
+// Reinforcement pad added to the derivative arm head, behind the servo-face land.
+reinforcement_t_mm = 6;
 riser_wall_mm = 6;
 riser_w_mm = 46;
 riser_d_mm = 40;

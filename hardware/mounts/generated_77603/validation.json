@@ -26,13 +26,56 @@
     "throttle_77603/drawings.scad": "383aa92fc0b1db6b87d7b0b003481d3dcbf4c46e54339b1e67656261e778aee5",
     "throttle_77603/fit_checks.scad": "fb9d6aa93e2d6c8b91ab60527a2b4af4c5605f9203058d28f908aeafa62ccebb",
     "throttle_77603/mg995_throttle_mount.scad": "717c2c1210b3714f9b62e0aebfb05bd4e1179428bd16446061be337c9d2eb784",
-    "throttle_77603/parameters.scad": "5fa9389cf07c460213e7cf9a2d4297cc065886e486f2263e8bd3cb21b4dfe600",
+    "throttle_77603/parameters.scad": "f22262bdebf98af7fef45d97cbe582a8e716d399feec0e0e110ea5cb46d479f8",
     "throttle_77603/printed_joints.scad": "b12a5218630d810eac972f65ad5a9941b1cf4516b2306583360ff1f280135bc5",
+    "throttle_77603/throttle_arm_head.scad": "acf5537da842635ec4226aa67073dc304aa4b0f9625390e330a0d53850d6ebd9",
     "throttle_77603/throttle_horn_variants.scad": "664958715bbd8626d3dfdd1da121f0993d73cbbbab61d0e94792f20c04bcc068",
     "throttle_77603/throttle_pushrod.scad": "2ea35ddc274d93584e39ff2bd2464506124004740c1b5baf4ce74768b7f742bd",
     "throttle_77603/throttle_u_fitting.scad": "8d4e06c7af1918019b0eb1695c3401c4c6c86fbaeb9d1fc10072e35fcc05b561"
   },
   "parts": {
+    "throttle_arm_head": {
+      "triangles": 6294,
+      "connected_solids": 1,
+      "watertight": true,
+      "consistent_winding": true,
+      "bounds_mm": [
+        [
+          -29.504005432128906,
+          0.0,
+          -3.1016186841092974e-10
+        ],
+        [
+          154.11683654785156,
+          88.0,
+          362.0314636230469
+        ]
+      ],
+      "size_mm": [
+        183.621,
+        88.0,
+        362.031
+      ],
+      "volume_mm3": 373690.671,
+      "stl_sha256": "b67424b31aa59e9e8d244b4b0ab0248549ba5f5be6a096c05b892ec8d454c0fb",
+      "mesh_sha256": "67500e129af3e5bf3c71dbf51d5f16db9977d7909dcf74a15b5fe3f35697de38",
+      "source": "throttle_77603/throttle_arm_head.scad.scad",
+      "parameters": {},
+      "quantity": 1,
+      "print_orientation": "mating face down, as the legacy arm head prints",
+      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
+      "note": "superset of arm_head_right: +24.7% material, original servo land and holes kept",
+      "build_envelope_mm": [
+        420,
+        420,
+        500
+      ],
+      "usable_envelope_mm": [
+        400,
+        400,
+        490
+      ]
+    },
     "riser_lower": {
       "triangles": 300,
       "connected_solids": 1,
@@ -278,7 +321,7 @@
         24.0
       ],
       "volume_mm3": 863.515,
-      "stl_sha256": "e862c1204e9121110aede8bee24ee2a37b0bb666e8f33720ca214b1b7918f872",
+      "stl_sha256": "ceb36b1cc133467ae145d07d166c00168ca503a6758086f0ad6b31c6612c06ed",
       "mesh_sha256": "3e83b2bcdf085ea9d343af8f2de8561f6334acb7c523c3f5cca7fd493ff42a97",
       "source": "throttle_77603/printed_joints.scad.scad",
       "parameters": {
@@ -366,7 +409,7 @@
         8.0
       ],
       "volume_mm3": 322.976,
-      "stl_sha256": "e7daef6f21b0971b82911ca2f70d59be548a64f073c7980c217adeaaae6b2f68",
+      "stl_sha256": "1fdc0514901bb6476648a0e2b5c36fba5532e16ed9234e255ce769f88c2d88f3",
       "mesh_sha256": "aca968d6837311b39833aff5c4e316da130e222326e69e0e366f505e096c69d4",
       "source": "throttle_77603/printed_joints.scad.scad",
       "parameters": {
@@ -410,7 +453,7 @@
         9.0
       ],
       "volume_mm3": 1446.171,
-      "stl_sha256": "bcf776662a0b9c79778294e589b8e57abc72c9bb058baf5e7d0625cdb5c78c63",
+      "stl_sha256": "f5860fde09a5769945e9334af7499fb76f956ac579a1d6cdb9e8256589f49dde",
       "mesh_sha256": "017035241183b1a30072a9cea713496208713d945240fd60f277d4c1521e1c39",
       "source": "throttle_77603/printed_joints.scad.scad",
       "parameters": {
@@ -498,7 +541,7 @@
         10.0
       ],
       "volume_mm3": 3840.306,
-      "stl_sha256": "12e3316f60b79472f8d7742b185a405352f787dff07ecdee542e57a3b18e8d66",
+      "stl_sha256": "fefd8469f9a6c06149597d3983815d7c75eead99760fcc2015c5c061585217d2",
       "mesh_sha256": "d8b62e226675b0c597bbd95bb5ef556be54bdf3e72d83e85450d03be2ecfce27",
       "source": "throttle_77603/printed_joints.scad.scad",
       "parameters": {
@@ -586,7 +629,7 @@
         60.01
       ],
       "volume_mm3": 8555.714,
-      "stl_sha256": "b2d3566f4cc7c9602bae1b4092511b2d00d35e615fba34ea1171c61cb256d113",
+      "stl_sha256": "dcaa08c53ebb0384f8c07aba63e4daa34cc2004d05c7ae9c0ca66d8a45f6ec8b",
       "mesh_sha256": "a9560b743e6c958099f5e2efd45e10c119d62a1f987a9b92402c193d7a131f66",
       "source": "throttle_77603/printed_joints.scad.scad",
       "parameters": {
@@ -988,7 +1031,7 @@
         14.0
       ],
       "volume_mm3": 6178.84,
-      "stl_sha256": "ccac077875f78cd7bdda5e5dc53f8c87a565c9d8f00b7e550d7c1676a2dcff8a",
+      "stl_sha256": "bdda51156839eaca8d80cfe189fd147c9d3073e4938f97580192bf8a936387a5",
       "mesh_sha256": "1edc0bc68631e790024e659eebb2cc5a0869c79691edd980ef40b8ce5c0e7db6",
       "source": "throttle_77603/throttle_pushrod.scad.scad",
       "parameters": {
@@ -1123,7 +1166,7 @@
         44.01
       ],
       "volume_mm3": 6469.691,
-      "stl_sha256": "956907418577d316a24b6ca80cf619b33807e92457981c65a445b2b9f96d3d4c",
+      "stl_sha256": "e2c314b65e86a8a525d3b093f8fb9b03e4254d8fafcaa8144ca63daf397267e3",
       "mesh_sha256": "88c05eb797246bc54750a9a5c919aadade35b03a9832693ac4102c6dfc5ff1ba",
       "source": "throttle_77603/throttle_pushrod.scad.scad",
       "parameters": {
@@ -1257,7 +1300,7 @@
         24.0
       ],
       "volume_mm3": 5763.132,
-      "stl_sha256": "5caca68f9ed9d87b7dac91c56326f5199019b7b4e3669bb1107f936a7aef037a",
+      "stl_sha256": "9bdab18a5c49ec9ec4884bbcf49d10602a6877ee5304332bfc1c41ed657d1685",
       "mesh_sha256": "a848210f3caf01fd166687cae30fd80d5a0423c4e5055d81a5113fed8d2a4d22",
       "source": "throttle_77603/throttle_u_fitting.scad.scad",
       "parameters": {
@@ -1301,7 +1344,7 @@
         24.0
       ],
       "volume_mm3": 8934.235,
-      "stl_sha256": "b3a1bbbe3fbe56d936bfe1b11ac838ac996854149e60cd6c3cd3cb1c3bebe73a",
+      "stl_sha256": "96d43724f3ae1109146c21a0bc9984db1b7544dc75d3212de0da9478806e31ef",
       "mesh_sha256": "813c5a5cd79963c857505382942f98f5d7934566bae544b0034e670655cce861",
       "source": "throttle_77603/throttle_u_fitting.scad.scad",
       "parameters": {
@@ -1345,7 +1388,7 @@
         30.0
       ],
       "volume_mm3": 1103.461,
-      "stl_sha256": "aa039c0558fc0358da2b5ed971a3832761aec3c7487b19e7bf895cb1b57991ea",
+      "stl_sha256": "f5628c7b82837865c30c12bdb315711e9f67d842701dbef31d3d3f917cc8997b",
       "mesh_sha256": "ed31df222d1bc63732ab40ea10d92290b8e8ab7c48abdb4e9940a94b868193b5",
       "source": "throttle_77603/throttle_u_fitting.scad.scad",
       "parameters": {
@@ -1389,7 +1432,7 @@
         24.0
       ],
       "volume_mm3": 1473.298,
-      "stl_sha256": "5ac933e9a48a8a8edcf565a71e2b957b6c663c1308578c9f633eb05c248e9216",
+      "stl_sha256": "dfff0c6a63b65ff84954e7a92b9df154fdedc92420669fa57205ec2877d31e04",
       "mesh_sha256": "9fb34da85e0804b977811f2fa11f9e3b7a68f0d80fc36b60a398366d97321766",
       "source": "throttle_77603/throttle_u_fitting.scad.scad",
       "parameters": {
@@ -1478,7 +1521,7 @@
         6.0
       ],
       "volume_mm3": 8217.36,
-      "stl_sha256": "cba538214040e30e88670fb2071c89cf0ef34e0f22a5fa3b9dca62b4256fc4ef",
+      "stl_sha256": "bfefbe0686315d06a436c0a4b25159891010d57e99a76f9ad9ef49377006ed8d",
       "mesh_sha256": "5de794707c30594dd95e83bf7562c46a55dc5f8692218813005d30855780be71",
       "source": "throttle_77603/throttle_horn_variants.scad.scad",
       "parameters": {
@@ -1523,7 +1566,7 @@
         3.0
       ],
       "volume_mm3": 4108.68,
-      "stl_sha256": "c9ac501dbbba4ec908b7bca810c4cf87f19c90f533511ee05bb846d328478a43",
+      "stl_sha256": "8b1613fa82aa2e9ca7e0c6b2014741892368ed9ca59136f8cf9faa7d9f561915",
       "mesh_sha256": "7885169315bc34f68041e19d8c0213d3cd3723dbe63b7754c5920a2b91040fa7",
       "source": "throttle_77603/throttle_horn_variants.scad.scad",
       "parameters": {
@@ -1703,7 +1746,7 @@
         14.994
       ],
       "volume_mm3": 1395.001,
-      "stl_sha256": "9dea5635cef98e5babe950ccbf1131ccc0833e28b5fbf5c837fbe201d6da1c43",
+      "stl_sha256": "2f8db662fd57af5d1889f560572e3baadac90caa938a62d0be13491bfac01cd5",
       "mesh_sha256": "726b263d28b7e4c80f12912ec396d79d1f426f9b1e539f00b562410dfafcf0b4",
       "source": "throttle_77603/throttle_horn_variants.scad.scad",
       "parameters": {
@@ -1748,7 +1791,7 @@
         11.5
       ],
       "volume_mm3": 3673.43,
-      "stl_sha256": "d58c1a02d7881ee0c4f01d9625bb51d5819a4992fea5b3adffe898114ce1faf1",
+      "stl_sha256": "097e93bfb49347678353f568f95a76bc8cdb7636a37e8aefecea45fa181f5af6",
       "mesh_sha256": "0815b8d6ce903b00cc9a70757045a613c565e1bdaed569fd086b74abb6e7502d",
       "source": "throttle_77603/throttle_horn_variants.scad.scad",
       "parameters": {
@@ -1793,7 +1836,7 @@
         4.0
       ],
       "volume_mm3": 1816.871,
-      "stl_sha256": "0b37ab2430fc45c6951d18f897eacdb3d2502bb4275128f673c916df4578e7d4",
+      "stl_sha256": "f378fcb7d5a9d3cd2527be61ded8931cd4ffeceb9949569e9f2932be6d9945de",
       "mesh_sha256": "9a890c6f2a564b1249a635dcbd0ed411fa5c76b09c20d75434122b7feeaef88e",
       "source": "throttle_77603/throttle_horn_variants.scad.scad",
       "parameters": {
@@ -1883,7 +1926,7 @@
         260.0
       ],
       "volume_mm3": 2002026.719,
-      "stl_sha256": "212ad8474c30472b00bda75689f61e00a604f0b5ef88a3512cebfaf5aac599da",
+      "stl_sha256": "2542b3d38a3df8a0f817418dc9c55f3faa8d15f0ced15444dd7b35e27ce9705a",
       "mesh_sha256": "d4d43b301436382f6ad856cfe2a90668b25de91b72b52d9b48bdc57f6bf67faf",
       "source": "control_77603/electronics_enclosure.scad.scad",
       "parameters": {
@@ -2315,7 +2358,7 @@
     },
     "bushing": {
       "path": "3mf/bushing.3mf",
-      "sha256": "bc1e106b7f990c2b274aa5124c9db17296f59b5d7e24fee17e4207e9fcaec0eb"
+      "sha256": "dbb77fcc6e1581263331af6922d17b0b7eda07955e255c586de896cc911bb09e"
     },
     "carrier_alta": {
       "path": "3mf/carrier_alta.3mf",
@@ -2351,7 +2394,7 @@
     },
     "control_enclosure_body": {
       "path": "3mf/control_enclosure_body.3mf",
-      "sha256": "d8a5ef370cd962dffcc0fd693b0733dd54113840e4de68245ed862240ebff4d5"
+      "sha256": "bc54c0d97ccc6fdd5f1e2db0c6875ffe01dd37d05ef4e971f71cab122bf2f45f"
     },
     "control_enclosure_lid": {
       "path": "3mf/control_enclosure_lid.3mf",
@@ -2367,7 +2410,7 @@
     },
     "hinge_pin": {
       "path": "3mf/hinge_pin.3mf",
-      "sha256": "c6fc4402118f24de1670f0afe769e4265d277d8c263125feabff5067ee201241"
+      "sha256": "236410c70b654e69becfdb458c2b85dc3d836c3d59251b0f7743a18889de041e"
     },
     "keyed_spigot": {
       "path": "3mf/keyed_spigot.3mf",
@@ -2387,11 +2430,11 @@
     },
     "lock_nut": {
       "path": "3mf/lock_nut.3mf",
-      "sha256": "dbfc4db29b9238e3d4c157320902e482c59bb2a376368fc01cbc0f67e09d893b"
+      "sha256": "42a17e9e1095cfd1ecb1e8c23ef815eace4c0ecee3e38be42cdb7e7982a73d63"
     },
     "lock_screw": {
       "path": "3mf/lock_screw.3mf",
-      "sha256": "f958d5e5531aaef8f3dd3ea794b6fb7d9192e76de52079ef2aee1ee9566cb375"
+      "sha256": "fb73fdc96f5c40cefa3adb72208a245e180a06931d2807a1fe614124805eb31d"
     },
     "lock_wedge_body": {
       "path": "3mf/lock_wedge_body.3mf",
@@ -2399,7 +2442,7 @@
     },
     "lock_wedge_cam": {
       "path": "3mf/lock_wedge_cam.3mf",
-      "sha256": "c283f15f84b55f441d5ff0cceff8a6ff9e5eee6f66a2b7f8cd885c4daa187078"
+      "sha256": "85f4abae33d9b808640915198bbad117673963c3d46749493480c4a8e5e953bc"
     },
     "mg995_lug_gauge": {
       "path": "3mf/mg995_lug_gauge.3mf",
@@ -2445,29 +2488,33 @@
       "path": "3mf/splice_wedge.3mf",
       "sha256": "35330b0a7ca9ce0719733811c0d9f3b7772fba3dfd15c9dd3e5f7cfa18ee9a91"
     },
+    "throttle_arm_head": {
+      "path": "3mf/throttle_arm_head.3mf",
+      "sha256": "62ceb7aad2d4700f13ccd602826904e9288fa0fde4fa4556dc40a3d2f8aca324"
+    },
     "throttle_u_body": {
       "path": "3mf/throttle_u_body.3mf",
       "sha256": "887065f00efaaa4ff4dfb964d43c7d89e3c4a49b7f503f54aea10a35738b8ed0"
     },
     "throttle_u_gauge": {
       "path": "3mf/throttle_u_gauge.3mf",
-      "sha256": "accad3a1c94b31d662d55d3bb434dee9a1fcbf47b8de475437bb139a9da6aef6"
+      "sha256": "ffabc1c09fde951c4f9b42484f20d699237f1270d576504490e47e6b2e279163"
     },
     "throttle_u_neck": {
       "path": "3mf/throttle_u_neck.3mf",
-      "sha256": "789d37abff668d77515aade91211fc486d65855cb68252035eab87431d25b47c"
+      "sha256": "4ccb6b2a2adf4f18782b2e51f23a140db70817498261890c78a273b986ad741c"
     },
     "throttle_u_pin": {
       "path": "3mf/throttle_u_pin.3mf",
-      "sha256": "d44708146e2e73e9fc4df9f6d636471b972b43f9cd12161b705bbc11cd79026a"
+      "sha256": "dd3d7d12d1ac345f5e8253e830f6fee763b675b205e9c913592f5b8d60b1169e"
     },
     "throttle_u_retainer": {
       "path": "3mf/throttle_u_retainer.3mf",
-      "sha256": "351024748c8bcb91162499e1bac7d27a06e3a0d66712ee1398dc05c53972ccb4"
+      "sha256": "004b72ece81448641f65c5fdc29499e548f43304d94724c278f6fd52e45695d1"
     },
     "trim_screw": {
       "path": "3mf/trim_screw.3mf",
-      "sha256": "3fc9038ba85bf0705c3b8ff2c1c6eb70e54393e31da7875b61c5359510e90ad5"
+      "sha256": "93ecd59cb6ac62b0adb483e898764dffff3689a0a63c324c22a358aefe9826c4"
     },
     "variant_a_eye": {
       "path": "3mf/variant_a_eye.3mf",
@@ -2479,11 +2526,11 @@
     },
     "variant_b_shell_a": {
       "path": "3mf/variant_b_shell_a.3mf",
-      "sha256": "a9a8c5c1f697115a037a66f03e29bc5c81e5f335ea357cce14c7b1021c69a965"
+      "sha256": "56b69cafadcb3f546cd5cf8ae02d84240ed19839e0d0f6c9b7987ab9033e6f45"
     },
     "variant_b_shell_b": {
       "path": "3mf/variant_b_shell_b.3mf",
-      "sha256": "1ef15322e6ba73e0077401229f77dce14054a9159c3d62bbb8521215cf65a362"
+      "sha256": "7baf00a50cef57bbe325650424745461ab0c73389fbeb7ee95713e8c86c49655"
     },
     "variant_c_carriage": {
       "path": "3mf/variant_c_carriage.3mf",
@@ -2495,15 +2542,15 @@
     },
     "variant_d_ball_stem": {
       "path": "3mf/variant_d_ball_stem.3mf",
-      "sha256": "68b7d3b739a9441a0d8ef1e34e7b5a42b6db33828b802cb109ee3d2e0a5f6c27"
+      "sha256": "7768f530f0ff8fa05c3da9db761c671a65edd718917eaaa9cc4200e7303395cc"
     },
     "variant_d_cage": {
       "path": "3mf/variant_d_cage.3mf",
-      "sha256": "7733c30af89b6c35dda973df04b18beeb7be2aef1df963f513fb2358e7e38638"
+      "sha256": "7b7b7b85a54a8e9ca784658032b2f3cc70a6de223f18cf086e7553b86c414b63"
     },
     "variant_d_closure": {
       "path": "3mf/variant_d_closure.3mf",
-      "sha256": "09885815ea9e47ede89be66e582977c14a991a0c853101c79dfc3f1ac1c01f7e"
+      "sha256": "76f27e948f08b95fb496b629e2e6fd83cb7cd9a8ccfe338c4c3590f6673f4928"
     },
     "variant_e_clevis": {
       "path": "3mf/variant_e_clevis.3mf",
@@ -2511,7 +2558,7 @@
     },
     "wear_socket": {
       "path": "3mf/wear_socket.3mf",
-      "sha256": "df50051d64e850d577f958e1e639a16ae2edeae12ef1f5eba0f55b2b86e9cd7e"
+      "sha256": "70c75b4d5780a76d1d7c4728650138637e49e4c69a494e2d3302d166e3b1a430"
     }
   },
   "probes": [
@@ -2711,5 +2758,19 @@
     "PLA": "EXCLUDED for engine-bay service",
     "wall_layers_infill": "untested print parameters; record actual slicer settings per piece",
     "no_gcode": true
+  },
+  "artifact_layout": {
+    "stl": "<mounts>/<part>.stl",
+    "3mf": "<mounts>/3mf/<part>.3mf",
+    "views": "<mounts>/view_<scene>.png",
+    "drawings": "<mounts>/generated_77603/drawings/<scene>.svg",
+    "note": "Printed artifacts are published beside the legacy exports, matching the repository convention, so a slicer sees one part list. The drawings and this manifest stay in generated_77603 because the legacy tree has no 2D drawings."
+  },
+  "arm_head_derivative": {
+    "source": "hardware/mounts/throttle_77603/throttle_arm_head.scad",
+    "derived_from": "hardware/mounts/hitch_arm_layer.scad: arm_head() / arm_head_right()",
+    "preserves": "joint flange, rib, servo-face land with its six-slot pattern, spigot pocket, M6 bolt holes; the original 150 kg servo bolts to the same land",
+    "adds": "reinforcement web at the rib/land junction, gusseted column and cradle arm",
+    "verified": "one bed-zero solid; volume 373,691 mm3 vs 299,589 mm3 for the original head (+24.7% material), measured from both exports"
   }
 }

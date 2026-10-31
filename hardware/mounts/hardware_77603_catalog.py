@@ -90,6 +90,16 @@ def _variant(letter: str, part: str, **extra: object) -> dict[str, object]:
 
 # ---- Printable pieces ---------------------------------------------------------------
 MOUNT_PIECES = (
+    # Derivative of the existing RIGHT arm head: the original head plus the throttle column.
+    # This is the piece the requirement asks for ("vertically extend and structurally
+    # reinforce the existing right steering servo bracket"), not a bracket beside the design.
+    Piece(
+        "throttle_arm_head",
+        f"{THROTTLE}/throttle_arm_head.scad",
+        {},
+        orientation="mating face down, as the legacy arm head prints",
+        note="superset of arm_head_right: +24.7% material, original servo land and holes kept",
+    ),
     Piece(
         "riser_lower",
         f"{THROTTLE}/mg995_throttle_mount.scad",
