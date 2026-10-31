@@ -1,19 +1,19 @@
 <?xml version="1.0" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg width="109mm" height="90.0mm" viewBox="-53.0 -14.0 109.0 90.0" xmlns="http://www.w3.org/2000/svg" version="1.1">
-<rect x="-53.00" y="-14.00" width="109.00" height="90.00" fill="white"/>
+<svg width="112mm" height="106.0mm" viewBox="-56.0 -18.0 112.0 106.0" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<rect x="-56.00" y="-18.00" width="112.00" height="106.00" fill="white"/>
 <title>OpenSCAD Model</title>
 <path d="
-M -39.1669,8.45906 L -38.3417,8.33667 L -37.5326,8.13399 L -36.7472,7.85297 L -35.9931,7.49632 L -35.2777,7.06749
- L -34.6077,6.57059 L -33.9896,6.01041 L -33.4294,5.39233 L -32.9325,4.72234 L -32.5037,4.00687 L -32.147,3.25281
- L -31.866,2.46741 L -31.6633,1.65826 L -31.5409,0.833145 L -31.5,-0 L -31.5409,-0.833145 L -31.6633,-1.65826
- L -31.866,-2.46741 L -32.147,-3.25281 L -32.5037,-4.00687 L -32.9325,-4.72234 L -33.4294,-5.39233 L -33.9896,-6.01041
- L -34.6077,-6.57059 L -35,-6.86156 L -35,-10 L -33.5,-10 L -33.5,-14 L -46.5,-14
- L -46.5,-10 L -45,-10 L -45,-6.86156 L -45.3923,-6.57059 L -46.0104,-6.01041 L -46.5706,-5.39233
- L -47.0675,-4.72234 L -47.4963,-4.00687 L -47.853,-3.25281 L -48.134,-2.46741 L -48.3367,-1.65826 L -48.4591,-0.833145
- L -48.5,-0 L -48.4591,0.833145 L -48.3367,1.65826 L -48.134,2.46741 L -47.853,3.25281 L -47.4963,4.00687
- L -47.0675,4.72234 L -46.5706,5.39233 L -46.0104,6.01041 L -45.3923,6.57059 L -44.7223,7.06749 L -44.0069,7.49632
- L -43.2528,7.85297 L -42.4674,8.13399 L -41.6583,8.33667 L -40.8331,8.45906 L -40,8.5 z
+M -40.8916,10.1821 L -40.2663,10.0984 L -39.6092,9.95937 L -38.9266,9.76616 L -38.225,9.52069 L -37.5113,9.22534
+ L -36.7923,8.88292 L -36.0749,8.49677 L -35.366,8.07056 L -34.6725,7.60843 L -34.0011,7.11482 L -33.3581,6.59448
+ L -32.7499,6.05243 L -32.1822,5.49387 L -31.6606,4.92421 L -31.19,4.34892 L -30.7749,3.77353 L -30.4195,3.20358
+ L -30.127,2.64459 L -29.9004,2.10191 L -29.7418,1.58081 L -29.6527,1.08626 L -29.634,0.623032 L -29.6859,0.195602
+ L -29.8078,-0.191895 L -29.9986,-0.535782 L -33.0372,-4.8754 L -33.2951,-5.17232 L -33.6175,-5.41943 L -34.0014,-5.61435
+ L -34.4431,-5.7552 L -34.9383,-5.84062 L -35.4823,-5.8698 L -36.0697,-5.84245 L -36.1485,-5.83191 L -38.5331,-9.23744
+ L -37.3044,-10.0978 L -42.2811,-17.2052 L -55.3875,-8.02803 L -50.4108,-0.920578 L -49.1821,-1.78094 L -46.7975,1.62456
+ L -46.8343,1.69501 L -47.061,2.23767 L -47.2196,2.75879 L -47.3087,3.25334 L -47.3274,3.71657 L -47.2755,4.144
+ L -47.1536,4.53151 L -46.9628,4.8754 L -43.9242,9.215 L -43.6663,9.51192 L -43.3438,9.75903 L -42.9599,9.95395
+ L -42.5182,10.0948 L -42.023,10.1802 L -41.4791,10.2094 z
 M 49.875,-10.35 L 10.125,-10.35 L 10.125,10.35 L 49.875,10.35 z
 M 14.125,6.34999 L 14.125,-6.34999 L 45.875,-6.34999 L 45.875,6.34999 z
 M 55.875,6.14999 L 54.225,6.14999 L 54.225,4.01668 L 54.475,2.34999 L 54.225,2.34999 L 54.225,-2.34999
@@ -24,18 +24,18 @@ M 14.325,14.38 L 18.125,14.95 L 18.125,14.35 L 41.875,14.35 L 41.875,14.95 L 45.
  L 45.675,16.35 L 46.075,16.35 L 46.075,12.35 L 45.675,12.35 L 45.675,14 L 43.5417,14
  L 41.875,13.75 L 41.875,14 L 18.125,14 L 18.125,13.75 L 16.4583,14 L 14.325,14
  L 14.325,12.35 L 13.925,12.35 L 13.925,16.35 L 14.325,16.35 z
-M -51.8,38.03 L -48,38.6 L -48,38 L -14,38 L -14,38.6 L -10.2,38.03
- L -10.2,40 L -9.79999,40 L -9.79999,36 L -10.2,36 L -10.2,37.65 L -12.3334,37.65
- L -14,37.4 L -14,37.65 L -48,37.65 L -48,37.4 L -49.6666,37.65 L -51.8,37.65
- L -51.8,36 L -52.2,36 L -52.2,40 L -51.8,40 z
+M -51.8,50.03 L -48,50.6 L -48,50 L -14,50 L -14,50.6 L -10.2,50.03
+ L -10.2,52 L -9.79999,52 L -9.79999,48 L -10.2,48 L -10.2,49.65 L -12.3334,49.65
+ L -14,49.4 L -14,49.65 L -48,49.65 L -48,49.4 L -49.6666,49.65 L -51.8,49.65
+ L -51.8,48 L -52.2,48 L -52.2,52 L -51.8,52 z
 " stroke="black" fill="lightgray" stroke-width="0.5"/>
 <g font-family="Helvetica, Arial, sans-serif" fill="black">
-<text x="-51.00" y="45.00" font-size="2.6" font-weight="bold">Throttle horn interface, variant A - section through pin plane</text>
-<text x="-51.00" y="49.50" font-size="2.1" font-weight="bold">PROTOTYPE - FIT / LOAD / ELECTRICAL VALIDATION REQUIRED</text>
-<text x="-51.00" y="53.50" font-size="1.9" font-weight="normal">Units: millimetres. Section cut through the rod-pin plane.</text>
-<text x="-51.00" y="58.00" font-size="1.9" font-weight="normal">Horn radius band: 12.0-30.0 mm (variant C adjusts continuously in this range)</text>
-<text x="-51.00" y="62.50" font-size="1.9" font-weight="normal">Lever capture, inside opening: 31.75 mm left-right x 12.70 mm front-back (owner-selected)</text>
-<text x="-51.00" y="67.00" font-size="1.9" font-weight="normal">All fits are PROTOTYPE geometry: horn holes, shaft position and lever cross-section are unmeasured</text>
-<text x="-51.00" y="71.50" font-size="1.9" font-weight="normal">Scale is not 1:1 unless printed at the stated sheet size</text>
+<text x="-54.00" y="57.00" font-size="2.6" font-weight="bold">Throttle horn interface, variant A - axonometric view</text>
+<text x="-54.00" y="61.50" font-size="2.1" font-weight="bold">PROTOTYPE - FIT / LOAD / ELECTRICAL VALIDATION REQUIRED</text>
+<text x="-54.00" y="65.50" font-size="1.9" font-weight="normal">Units: millimetres. Axonometric projection; scale is not 1:1.</text>
+<text x="-54.00" y="70.00" font-size="1.9" font-weight="normal">Horn radius band: 12.0-30.0 mm (variant C adjusts continuously in this range)</text>
+<text x="-54.00" y="74.50" font-size="1.9" font-weight="normal">Lever capture, inside opening: 31.75 mm left-right x 12.70 mm front-back (owner-selected)</text>
+<text x="-54.00" y="79.00" font-size="1.9" font-weight="normal">All fits are PROTOTYPE geometry: horn holes, shaft position and lever cross-section are unmeasured</text>
+<text x="-54.00" y="83.50" font-size="1.9" font-weight="normal">Scale is not 1:1 unless printed at the stated sheet size</text>
 </g>
 </svg>

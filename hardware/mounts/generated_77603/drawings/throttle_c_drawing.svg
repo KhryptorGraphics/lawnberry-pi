@@ -1,42 +1,46 @@
 <?xml version="1.0" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg width="109mm" height="87.0mm" viewBox="-53.0 -11.0 109.0 87.0" xmlns="http://www.w3.org/2000/svg" version="1.1">
-<rect x="-53.00" y="-11.00" width="109.00" height="87.00" fill="white"/>
+<svg width="109mm" height="112.0mm" viewBox="-53.0 -24.0 109.0 112.0" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<rect x="-53.00" y="-24.00" width="109.00" height="112.00" fill="white"/>
 <title>OpenSCAD Model</title>
 <path d="
+M -37.5673,14.8066 L -36.3099,16.6024 L -25.6609,9.14592 L -26.9184,7.35011 L -24.0513,5.34261 L -19.0512,12.4835
+ L -4.30644,2.15916 L -9.84514,-5.75092 L -3.29193,-10.3395 L -12.6647,-23.7253 L -32.3244,-9.95946 L -32.863,-10.7286
+ L -39.4162,-6.13998 L -40.7749,-8.08044 L -40.8962,-8.22017 L -41.048,-8.33646 L -41.2287,-8.42819 L -41.4365,-8.49448
+ L -41.6695,-8.53467 L -41.9255,-8.5484 L -42.202,-8.53554 L -42.4962,-8.49619 L -42.8055,-8.43074 L -42.8437,-8.41991
+ L -43.1892,-8.91333 L -43.166,-8.9456 L -42.9987,-9.21381 L -42.8611,-9.47687 L -42.7544,-9.73224 L -42.6798,-9.97748
+ L -42.6379,-10.2102 L -42.6291,-10.4282 L -42.6535,-10.6293 L -42.7108,-10.8117 L -42.8006,-10.9735 L -44.8264,-13.8666
+ L -44.9477,-14.0063 L -45.0995,-14.1226 L -45.2802,-14.2143 L -45.488,-14.2806 L -45.721,-14.3208 L -45.977,-14.3345
+ L -46.2535,-14.3217 L -46.5477,-14.2823 L -46.857,-14.2169 L -47.1782,-14.126 L -47.2,-14.1183 L -48.4551,-15.9107
+ L -52.0594,-13.387 L -50.8043,-11.5946 L -50.819,-11.5767 L -51.0143,-11.3059 L -51.1815,-11.0377 L -51.3192,-10.7746
+ L -51.4258,-10.5193 L -51.5005,-10.274 L -51.5424,-10.0413 L -51.5512,-9.8233 L -51.5268,-9.62216 L -51.4694,-9.4398
+ L -51.3796,-9.27798 L -49.3539,-6.3849 L -49.2325,-6.24518 L -49.0808,-6.12889 L -48.9001,-6.03716 L -48.6922,-5.97089
+ L -48.4592,-5.93068 L -48.2032,-5.91695 L -47.9268,-5.92982 L -47.6325,-5.96918 L -47.3233,-6.03462 L -47.285,-6.04546
+ L -46.9395,-5.55202 L -46.9628,-5.51974 L -47.13,-5.25154 L -47.2677,-4.98849 L -47.3743,-4.73311 L -47.449,-4.48788
+ L -47.4909,-4.25514 L -47.4997,-4.03717 L -47.4753,-3.83601 L -47.4179,-3.65366 L -47.3281,-3.49184 L -45.9694,-1.55138
+ L -52.5226,3.03723 L -42.0727,17.9613 z
 M 49.875,-10.35 L 10.125,-10.35 L 10.125,10.35 L 49.875,10.35 z
 M 14.125,6.34999 L 14.125,-6.34999 L 45.875,-6.34999 L 45.875,6.34999 z
-M -44.2426,-4.24263 L -43.8064,-4.63806 L -43.3334,-4.98882 L -42.8284,-5.29152 L -42.2961,-5.54327 L -41.7417,-5.74164
- L -41.1705,-5.8847 L -40.5881,-5.9711 L -40,-6 L -39.4119,-5.9711 L -38.8295,-5.8847 L -38.2583,-5.74164
- L -37.7039,-5.54327 L -37.1716,-5.29152 L -36.6666,-4.98882 L -36.1936,-4.63806 L -35.7574,-4.24263 L -35.7187,-4.2
- L -4,-4.2 L -4,-8 L -28,-8 L -28,-10 L -52,-10 L -52,-4.2
- L -44.2813,-4.2 z
 M 55.875,6.14999 L 54.225,6.14999 L 54.225,4.01668 L 54.475,2.34999 L 54.225,2.34999 L 54.225,-2.34999
  L 54.475,-2.34999 L 54.225,-4.01668 L 54.225,-6.14999 L 55.875,-6.14999 L 55.875,-6.54999 L 51.875,-6.54999
  L 51.875,-6.14999 L 53.845,-6.14999 L 53.275,-2.34999 L 53.875,-2.34999 L 53.875,2.34999 L 53.275,2.34999
  L 53.845,6.14999 L 51.875,6.14999 L 51.875,6.54999 L 55.875,6.54999 z
-M -31,-3.79999 L -49,-3.79999 L -49,3.79999 L -31,3.79999 z
-M -28,8 L -4,8 L -4,4.2 L -35.7187,4.2 L -35.7574,4.24263 L -36.1936,4.63806
- L -36.6666,4.98882 L -37.1716,5.29152 L -37.7039,5.54327 L -38.2583,5.74164 L -38.8295,5.8847 L -39.4119,5.9711
- L -40,6 L -40.5881,5.9711 L -41.1705,5.8847 L -41.7417,5.74164 L -42.2961,5.54327 L -42.8284,5.29152
- L -43.3334,4.98882 L -43.8064,4.63806 L -44.2426,4.24263 L -44.2813,4.2 L -52,4.2 L -52,10
- L -28,10 z
 M 14.325,14.38 L 18.125,14.95 L 18.125,14.35 L 41.875,14.35 L 41.875,14.95 L 45.675,14.38
  L 45.675,16.35 L 46.075,16.35 L 46.075,12.35 L 45.675,12.35 L 45.675,14 L 43.5417,14
  L 41.875,13.75 L 41.875,14 L 18.125,14 L 18.125,13.75 L 16.4583,14 L 14.325,14
  L 14.325,12.35 L 13.925,12.35 L 13.925,16.35 L 14.325,16.35 z
-M -51.8,38.03 L -48,38.6 L -48,38 L -14,38 L -14,38.6 L -10.2,38.03
- L -10.2,40 L -9.79999,40 L -9.79999,36 L -10.2,36 L -10.2,37.65 L -12.3334,37.65
- L -14,37.4 L -14,37.65 L -48,37.65 L -48,37.4 L -49.6666,37.65 L -51.8,37.65
- L -51.8,36 L -52.2,36 L -52.2,40 L -51.8,40 z
+M -51.8,50.03 L -48,50.6 L -48,50 L -14,50 L -14,50.6 L -10.2,50.03
+ L -10.2,52 L -9.79999,52 L -9.79999,48 L -10.2,48 L -10.2,49.65 L -12.3334,49.65
+ L -14,49.4 L -14,49.65 L -48,49.65 L -48,49.4 L -49.6666,49.65 L -51.8,49.65
+ L -51.8,48 L -52.2,48 L -52.2,52 L -51.8,52 z
 " stroke="black" fill="lightgray" stroke-width="0.5"/>
 <g font-family="Helvetica, Arial, sans-serif" fill="black">
-<text x="-51.00" y="45.00" font-size="2.6" font-weight="bold">Throttle horn interface, variant C - section through pin plane</text>
-<text x="-51.00" y="49.50" font-size="2.1" font-weight="bold">PROTOTYPE - FIT / LOAD / ELECTRICAL VALIDATION REQUIRED</text>
-<text x="-51.00" y="53.50" font-size="1.9" font-weight="normal">Units: millimetres. Section cut through the rod-pin plane.</text>
-<text x="-51.00" y="58.00" font-size="1.9" font-weight="normal">Horn radius band: 12.0-30.0 mm (variant C adjusts continuously in this range)</text>
-<text x="-51.00" y="62.50" font-size="1.9" font-weight="normal">Lever capture, inside opening: 31.75 mm left-right x 12.70 mm front-back (owner-selected)</text>
-<text x="-51.00" y="67.00" font-size="1.9" font-weight="normal">All fits are PROTOTYPE geometry: horn holes, shaft position and lever cross-section are unmeasured</text>
-<text x="-51.00" y="71.50" font-size="1.9" font-weight="normal">Scale is not 1:1 unless printed at the stated sheet size</text>
+<text x="-51.00" y="57.00" font-size="2.6" font-weight="bold">Throttle horn interface, variant C - axonometric view</text>
+<text x="-51.00" y="61.50" font-size="2.1" font-weight="bold">PROTOTYPE - FIT / LOAD / ELECTRICAL VALIDATION REQUIRED</text>
+<text x="-51.00" y="65.50" font-size="1.9" font-weight="normal">Units: millimetres. Axonometric projection; scale is not 1:1.</text>
+<text x="-51.00" y="70.00" font-size="1.9" font-weight="normal">Horn radius band: 12.0-30.0 mm (variant C adjusts continuously in this range)</text>
+<text x="-51.00" y="74.50" font-size="1.9" font-weight="normal">Lever capture, inside opening: 31.75 mm left-right x 12.70 mm front-back (owner-selected)</text>
+<text x="-51.00" y="79.00" font-size="1.9" font-weight="normal">All fits are PROTOTYPE geometry: horn holes, shaft position and lever cross-section are unmeasured</text>
+<text x="-51.00" y="83.50" font-size="1.9" font-weight="normal">Scale is not 1:1 unless printed at the stated sheet size</text>
 </g>
 </svg>

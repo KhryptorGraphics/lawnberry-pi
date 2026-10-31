@@ -645,9 +645,9 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
             variant = str(scene.parameters.get("horn_variant", "?"))
             annotate_svg(
                 target,
-                title=f"Throttle horn interface, variant {variant} - section through pin plane",
+                title=f"Throttle horn interface, variant {variant} - axonometric view",
                 notes=[
-                    "Units: millimetres. Section cut through the rod-pin plane.",
+                    "Units: millimetres. Axonometric projection; scale is not 1:1.",
                     f"Horn radius band: {HORN_RADIUS_MIN_MM}-{HORN_RADIUS_MAX_MM} mm (variant C adjusts "
                     "continuously in this range)",
                     "Lever capture, inside opening: 31.75 mm left-right x 12.70 mm "

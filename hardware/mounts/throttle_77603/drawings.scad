@@ -35,12 +35,18 @@ module dim_v(y0, y1, x) {
     translate([x - 2, y1 - 0.2]) square([4, 0.4]);
 }
 
-// ---- Variant cross-sections --------------------------------------------------------
-// The horn interface is carried on the MG995 shaft; sections are taken through the pin plane
-// so the retained features (eye bore, carriage slot, cage, clevis gap) are all visible.
+// ---- Variant axonometric views -----------------------------------------------------
+// Two earlier projections were wrong instruments:
+//   * projection(cut = true) sliced at z=0, so a variant whose parts sit elsewhere (D) cut
+//     through empty space;
+//   * a plain top view showed E's clevis as a featureless square, since a clevis seen from
+//     above is only its spine.
+// An axonometric projection (rotate, then project along Z) shows the actual three-dimensional
+// form of each interface, which is what distinguishes the five variants on paper.
 module variant_section(letter = horn_variant) {
-    projection(cut = true) rotate([0, 0, 0])
-        throttle_horn_variant(letter, "assembly", radius_mm = radius_mm);
+    projection(cut = false)
+        rotate([62, 0, 35])
+            throttle_horn_variant(letter, "assembly", radius_mm = radius_mm);
 }
 
 // ---- Owner-specified opening, for reference on every sheet -------------------------
@@ -61,7 +67,7 @@ translate([-40, 0]) variant_section(horn_variant);
 
 // Overall width/height of the section are dimensioned; these are the numbers the owner needs
 // to compare against the real horn and lever.
-dim_h(-40 - horn_radius_min_mm, -40 + horn_radius_max_mm, -horn_radius_max_mm - 8);
+dim_h(-40 - horn_radius_min_mm, -40 + horn_radius_max_mm, -horn_radius_max_mm - 20);
 
 translate([30, 0]) {
     u_opening_reference();
