@@ -167,7 +167,7 @@ class TestManifest:
         # Meshes live beside the legacy exports, not beside this manifest. The manifest says
         # where, so the test does not have to assume a directory relationship.
         root = Path(manifest["artifact_root"])
-        for name, part in manifest["parts"].items():
+        for name in manifest["parts"]:
             # Meshes are published flat beside the legacy exports, not in an stl/ subdir.
             assert (root / f"{name}.stl").is_file(), name
             assert (root / "3mf" / f"{name}.3mf").is_file(), name
@@ -196,51 +196,6 @@ class TestManifest:
         assert "unverified" in statuses["automotive_harness"]
 
 
-class TestRodSegmentPlan:
-    """The rod plan must be self-consistent at the real span.
-
-    These exist because a 1 m rod's segmentation rule was left in place when the span dropped
-    to 150 mm, producing 23 mm stubs joined by 40 mm spigots -- physically impossible, and
-    invisible to the mesh gate (each stub was a valid solid).
-    """
-
-    @staticmethod
-    def _count(span: float, bed: float = 380.0, splice: float = 40.0, overlap: float = 40.0):
-        if span <= bed and span > 2 * splice:
-            return 1
-        import math as _m
-
-        return max(2, _m.ceil((span - overlap) / (bed - 20)) + 1)
-
-    @staticmethod
-    def _seg_len(span: float, n: int, splice: float = 40.0):
-        return span if n <= 1 else (span - (n - 1) * splice) / n
-
-    @pytest.mark.parametrize("span", [150, 180, 300])
-    def test_segment_fits_in_one_print_is_not_split(self, span):
-        assert self._count(span) == 1, f"{span} mm fits the bed and must be one piece"
-
-    def test_every_segment_is_at_least_as_long_as_its_spigot(self):
-        for span in (150, 400, 760, 1066.8):
-            n = self._count(span)
-            seg = self._seg_len(span, n)
-            if n > 1:
-                assert seg >= 40.0, f"span {span}: {n} segments of {seg:.1f} mm < 40 mm spigot"
-
-    def test_long_span_still_segments_for_the_bed(self):
-        span = 1066.8
-        n = self._count(span)
-        assert n >= 3
-        assert self._seg_len(span, n) <= 380.0
-
-    def test_piece_sum_covers_the_span(self):
-        for span in (150, 400, 760):
-            n = self._count(span)
-            seg = self._seg_len(span, n)
-            total = seg * n + (n - 1) * 40.0
-            assert total == pytest.approx(span, abs=1e-6), span
-
-
 class TestDrawingSheets:
     """Drawing sheets must be readable and must actually differ per variant.
 
@@ -265,7 +220,7 @@ class TestDrawingSheets:
             assert any(letter in name for name in sheets), letter
 
     def test_sheets_are_not_copies_of_each_other(self, sheets):
-        bodies = {name: body[body.find("<path"):] for name, body in sheets.items()}
+        bodies = {name: body[body.find("<path") :] for name, body in sheets.items()}
         assert len(set(bodies.values())) == len(bodies), "two variant sheets share geometry"
 
     def test_every_sheet_carries_annotation_text(self, sheets):

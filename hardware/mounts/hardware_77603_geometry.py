@@ -105,9 +105,7 @@ def euler_buckling_n(
     return math.pi**2 * modulus * inertia / (factor * span) ** 2
 
 
-def square_tube_second_moment_mm4(
-    across_flats_mm: float, wall_mm: float
-) -> float:
+def square_tube_second_moment_mm4(across_flats_mm: float, wall_mm: float) -> float:
     """Second moment of a square tube about a centroidal axis."""
     outer = _positive("across_flats_mm", across_flats_mm)
     wall = _positive("wall_mm", wall_mm)

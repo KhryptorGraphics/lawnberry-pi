@@ -533,12 +533,13 @@ def annotate_svg(path: Path, title: str, notes: list[str], watermark: str) -> No
 
 
 def build_hardware_77603(output_dir: Path | None = None) -> int:
-    """Render the Toro 77603 profile into its own output tree.
+    """Build the 77603 profile, keeping temporary geometry out of the published tree."""
+    with tempfile.TemporaryDirectory(prefix=".cad-build-77603-", dir=ROOT) as staging:
+        return _build_hardware_77603(Path(staging), output_dir)
 
-    Additive: this never writes a legacy root export, view or ``validation.json``. Geometry
-    rules are the same ones the legacy build uses (``mesh_report``), plus the usable-envelope
-    margin check and CSG probes that must be empty or non-empty as declared in the catalog.
-    """
+
+def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
+    """Stage and validate the new profile before publishing its artifacts."""
     from hardware_77603_catalog import (  # local import: legacy build must not require it
         BUILD_VOLUME_MM,
         COMPONENT_INVENTORY,
@@ -553,8 +554,8 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
     )
 
     out = (output_dir or ROOT / "generated_77603").resolve()
-    staging_root = Path(tempfile.mkdtemp(prefix=".cad-build-77603-", dir=ROOT))
-    if out.exists():
+    publish_root = ROOT if output_dir is None else out
+    if output_dir is not None and out.exists():
         raise SystemExit(f"refusing to overwrite existing output tree: {out}")
 
     def render_piece(piece) -> tuple:
@@ -648,8 +649,8 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
                 title=f"Throttle horn interface, variant {variant} - axonometric view",
                 notes=[
                     "Units: millimetres. Axonometric projection; scale is not 1:1.",
-                    f"Horn radius band: {HORN_RADIUS_MIN_MM}-{HORN_RADIUS_MAX_MM} mm (variant C adjusts "
-                    "continuously in this range)",
+                    f"Horn radius band: {HORN_RADIUS_MIN_MM}-{HORN_RADIUS_MAX_MM} mm "
+                    "(variant C adjusts continuously in this range)",
                     "Lever capture, inside opening: 31.75 mm left-right x 12.70 mm "
                     "front-back (owner-selected)",
                     "All fits are PROTOTYPE geometry: horn holes, shaft position and lever "
@@ -716,35 +717,15 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         artifacts = list(pool.map(render_view, VIEWS_77603))
 
-    # Publish only after every mesh and probe passed.
-    #
-    # Meshes, 3MFs and previews go to the repository's flat layout beside the legacy exports
-    # (<part>.stl, 3mf/<part>.3mf, prev_<part>.png, view_<scene>.png) so a slicer sees a single
-    # part list instead of two trees. Only the 2D drawings and the manifest stay in `out`,
-    # because the legacy tree carries no drawings. Publishing to both places would duplicate
-    # ~4.5 MB of binaries on every build.
-    (out / "drawings").mkdir(parents=True, exist_ok=True)
-    (ROOT / "3mf").mkdir(exist_ok=True)
+    # Prepare every 3MF in staging before changing any published model.
     print_files = {}
     for name in sorted(reports):
-        shutil.move(str(staging_root / f"{name}.stl"), str(ROOT / f"{name}.stl"))
-        target = ROOT / "3mf" / f"{name}.3mf"
-        write_3mf(ROOT / f"{name}.stl", target)
-        preview = staging_root / f"prev_{name}.png"
-        if preview.exists():
-            shutil.move(str(preview), str(ROOT / f"prev_{name}.png"))
+        target = staging_root / "3mf" / f"{name}.3mf"
+        write_3mf(staging_root / f"{name}.stl", target)
         print_files[name] = {
             "path": f"3mf/{name}.3mf",
             "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
         }
-    for artifact in artifacts:
-        # Published path already carries its own prefix, so the staging basename has to be
-        # recovered from what render_view staged rather than from the target name.
-        if artifact.startswith("drawings/"):
-            shutil.move(str(staging_root / artifact.split("/", 1)[1]),
-                        str(out / "drawings" / artifact.split("/", 1)[1]))
-        else:
-            shutil.move(str(staging_root / artifact[len("view_"):]), str(ROOT / artifact))
 
     sources = sorted(
         {
@@ -755,6 +736,10 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
             "throttle_77603/printed_joints.scad",
             "control_77603/parameters.scad",
             "control_77603/board_carriers.scad",
+            "build_printables.py",
+            "hardware_77603_catalog.py",
+            "hitch_arm_layer.scad",
+            "pushrod.scad",
             "enclosure_common.scad",
             "common.scad",
         }
@@ -763,10 +748,9 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
         "profile": "hardware_77603",
         "model": "Toro TimeCutter MAX Havoc MyRIDE 60 in, model 77603 (serial unknown)",
         "status": "geometry_generated_not_physically_qualified",
-        # Printed parts are published beside the legacy exports, not next to this manifest,
-        # so every path below is relative to this root. Without it a consumer has to guess
-        # whether "3mf/x.3mf" means here or one directory up.
-        "artifact_root": "hardware/mounts",
+        "artifact_root": (
+            "hardware/mounts" if output_dir is None else str(publish_root)
+        ),
         "watermark": DRAWING_WATERMARK,
         "tool": run(["openscad", "--version"]).strip(),
         "build_volume_mm": list(BUILD_VOLUME_MM),
@@ -779,10 +763,8 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
         "parts": reports,
         "print_files": print_files,
         "probes": probes,
-        # Paths are relative to artifact_root, which is the mounts directory: drawings live
-        # under generated_77603/drawings, renders sit beside the meshes as view_*.png.
         "artifacts": sorted(
-            f"generated_77603/{a}" if a.startswith("drawings/") else a
+            f"generated_77603/{a}" if output_dir is None and a.startswith("drawings/") else a
             for a in artifacts
         ),
         "component_inventory": [
@@ -791,7 +773,22 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
         ],
         "material_assumptions": MATERIAL_ASSUMPTIONS,
     }
-    (out / "validation.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (staging_root / "validation.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+    # A custom output directory is isolated; the default keeps the repository's flat layout.
+    (out / "drawings").mkdir(parents=True, exist_ok=True)
+    (publish_root / "3mf").mkdir(parents=True, exist_ok=True)
+    for name in sorted(reports):
+        for filename in (f"{name}.stl", f"prev_{name}.png", f"3mf/{name}.3mf"):
+            shutil.move(str(staging_root / filename), str(publish_root / filename))
+    for artifact in artifacts:
+        if artifact.startswith("drawings/"):
+            filename = artifact.split("/", 1)[1]
+            shutil.move(str(staging_root / filename), str(out / artifact))
+        else:
+            shutil.move(str(staging_root / artifact.removeprefix("view_")),
+                        str(publish_root / artifact))
+    shutil.move(str(staging_root / "validation.json"), str(out / "validation.json"))
     print(
         f"Published {len(reports)} meshes, {len(print_files)} 3MFs, "
         f"{len(artifacts)} views/drawings and {len(probes)} probes to {out}"
@@ -978,13 +975,13 @@ if __name__ == "__main__":
         "--profile",
         choices=("legacy", "hardware_77603"),
         default="legacy",
-        help="legacy rebuilds every existing part in place; hardware_77603 writes its own tree",
+        help="legacy rebuilds existing parts; hardware_77603 publishes beside them",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
-        help="hardware_77603 only: publish here instead of hardware/mounts/generated_77603",
+        help="hardware_77603 only: publish an isolated flat artifact tree here",
     )
     args = parser.parse_args()
     if args.profile == "legacy":

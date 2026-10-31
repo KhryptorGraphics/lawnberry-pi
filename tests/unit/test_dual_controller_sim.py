@@ -17,7 +17,6 @@ from hardware.control.dual_controller_sim import (
     SEL_SLAVE_US,
     ContactFault,
     ControllerState,
-    Heartbeat,
     HostRole,
     MuxSource,
     PwmCalibration,
@@ -87,9 +86,7 @@ class TestFreshnessBoundary:
         [
             pytest.param(lambda hb: replace(hb, authenticated=False), id="auth"),
             pytest.param(lambda hb: replace(hb, version=99), id="version"),
-            pytest.param(
-                lambda hb: replace(hb, peer_boot_id="other-session"), id="wrong-session"
-            ),
+            pytest.param(lambda hb: replace(hb, peer_boot_id="other-session"), id="wrong-session"),
             pytest.param(lambda hb: replace(hb, sequence=0), id="replayed-sequence"),
         ],
     )

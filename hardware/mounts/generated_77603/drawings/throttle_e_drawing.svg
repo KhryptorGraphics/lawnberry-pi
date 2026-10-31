@@ -1,17 +1,25 @@
 <?xml version="1.0" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg width="109mm" height="99.0mm" viewBox="-53.0 -11.0 109.0 99.0" xmlns="http://www.w3.org/2000/svg" version="1.1">
-<rect x="-53.00" y="-11.00" width="109.00" height="99.00" fill="white"/>
+<svg width="117mm" height="115.0mm" viewBox="-61.0 -27.0 117.0 115.0" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<rect x="-61.00" y="-27.00" width="117.00" height="115.00" fill="white"/>
 <title>OpenSCAD Model</title>
 <path d="
-M -29.1729,22.4365 L -28.0835,23.9924 L -27.9621,24.1321 L -27.8104,24.2484 L -27.6297,24.3401 L -27.4219,24.4064
- L -27.1888,24.4466 L -26.9329,24.4603 L -26.6564,24.4474 L -26.3622,24.4081 L -26.0529,24.3426 L -25.7317,24.2517
- L -25.4015,24.1362 L -25.0657,23.9972 L -24.7273,23.8361 L -24.3897,23.6544 L -24.0561,23.4538 L -23.7298,23.2363
- L -23.4138,23.004 L -23.1112,22.7592 L -22.825,22.5041 L -22.5578,22.2412 L -22.3124,21.9731 L -22.0909,21.7024
- L -21.8956,21.4317 L -21.7283,21.1635 L -21.5907,20.9004 L -21.4841,20.645 L -21.4094,20.3998 L -21.3675,20.1671
- L -21.3587,19.9491 L -21.3831,19.7479 L -21.4405,19.5656 L -21.5303,19.4037 L -22.6197,17.8478 L -16.8857,13.8328
- L -33.9514,-10.5396 L -38.8663,-7.09813 L -36.9814,-4.40614 L -39.275,-2.80014 L -40.3521,-4.33841 L -43.9563,-1.81467
- L -42.8792,-0.276398 L -45.1729,1.32961 L -47.0578,-1.36237 L -51.9727,2.07909 L -34.907,26.4515 z
+M -41.8008,19.6186 L -36.3574,10.1334 L -37.119,9.04568 L -36.9821,8.80705 L -36.4249,8.50711 L -35.5909,8.00571
+ L -34.775,7.46202 L -33.9851,6.8813 L -33.2287,6.26913 L -32.7563,5.84813 L -32.4852,5.80106 L -31.7236,6.88878
+ L -20.9487,5.01768 L -18.7487,1.18427 L -10.0195,-0.331558 L -3.02078,-12.5267 L -5.69897,-16.3516 L -1.81078,-23.1267
+ L -3.83653,-26.0198 L -34.622,-20.6738 L -34.626,-20.6668 L -37.6966,-20.1336 L -47.4171,-3.19583 L -46.2707,-1.55859
+ L -51.1526,-0.710861 L -51.5897,-1.33516 L -51.7111,-1.47488 L -51.8628,-1.59117 L -52.0435,-1.68291 L -52.2513,-1.74919
+ L -52.4844,-1.78938 L -52.7403,-1.80312 L -53.0168,-1.79024 L -53.311,-1.7509 L -53.6203,-1.68544 L -53.9415,-1.59453
+ L -54.2717,-1.47902 L -54.6075,-1.34003 L -54.9459,-1.17889 L -55.2835,-0.997162 L -55.6171,-0.7966 L -55.9434,-0.579132
+ L -56.2594,-0.346832 L -56.562,-0.101974 L -56.8482,0.153091 L -57.1153,0.415939 L -57.3608,0.684021 L -57.4545,0.798599
+ L -56.6929,1.88631 L -58.2322,2.15361 L -58.2638,2.25739 L -58.3057,2.49013 L -58.3145,2.70811 L -58.2901,2.90926
+ L -58.2327,3.09161 L -58.1429,3.25343 L -57.7058,3.87775 L -60.9498,9.53032 L -59.4305,11.7001 L -50.1401,10.0868
+ L -50.2607,10.2055 L -50.5061,10.4735 L -50.7276,10.7443 L -50.9229,11.015 L -51.0902,11.2832 L -51.2278,11.5463
+ L -51.3344,11.8017 L -51.4091,12.0469 L -51.451,12.2796 L -51.4598,12.4976 L -51.4354,12.6988 L -51.378,12.8811
+ L -51.2882,13.043 L -50.8511,13.6673 L -54.0951,19.3198 L -52.5757,21.4897 z
+M -44.3585,-1.29332 L -43.5888,-1.42697 L -43.3543,-1.09209 L -43.6987,-0.785248 L -43.9697,-0.738174 z
+M -38.9911,1.44089 L -35.9045,0.904892 L -37.4639,3.62198 L -40.5504,4.15796 z
+M -47.8779,8.47403 L -47.7622,8.45393 L -47.9055,8.5222 z
 M 49.875,-10.35 L 10.125,-10.35 L 10.125,10.35 L 49.875,10.35 z
 M 14.125,6.34999 L 14.125,-6.34999 L 45.875,-6.34999 L 45.875,6.34999 z
 M 55.875,6.14999 L 54.225,6.14999 L 54.225,4.01668 L 54.475,2.34999 L 54.225,2.34999 L 54.225,-2.34999
@@ -28,12 +36,12 @@ M -51.8,50.03 L -48,50.6 L -48,50 L -14,50 L -14,50.6 L -10.2,50.03
  L -51.8,48 L -52.2,48 L -52.2,52 L -51.8,52 z
 " stroke="black" fill="lightgray" stroke-width="0.5"/>
 <g font-family="Helvetica, Arial, sans-serif" fill="black">
-<text x="-51.00" y="57.00" font-size="2.6" font-weight="bold">Throttle horn interface, variant E - axonometric view</text>
-<text x="-51.00" y="61.50" font-size="2.1" font-weight="bold">PROTOTYPE - FIT / LOAD / ELECTRICAL VALIDATION REQUIRED</text>
-<text x="-51.00" y="65.50" font-size="1.9" font-weight="normal">Units: millimetres. Axonometric projection; scale is not 1:1.</text>
-<text x="-51.00" y="70.00" font-size="1.9" font-weight="normal">Horn radius band: 12.0-30.0 mm (variant C adjusts continuously in this range)</text>
-<text x="-51.00" y="74.50" font-size="1.9" font-weight="normal">Lever capture, inside opening: 31.75 mm left-right x 12.70 mm front-back (owner-selected)</text>
-<text x="-51.00" y="79.00" font-size="1.9" font-weight="normal">All fits are PROTOTYPE geometry: horn holes, shaft position and lever cross-section are unmeasured</text>
-<text x="-51.00" y="83.50" font-size="1.9" font-weight="normal">Scale is not 1:1 unless printed at the stated sheet size</text>
+<text x="-59.00" y="57.00" font-size="2.6" font-weight="bold">Throttle horn interface, variant E - axonometric view</text>
+<text x="-59.00" y="61.50" font-size="2.1" font-weight="bold">PROTOTYPE - FIT / LOAD / ELECTRICAL VALIDATION REQUIRED</text>
+<text x="-59.00" y="65.50" font-size="1.9" font-weight="normal">Units: millimetres. Axonometric projection; scale is not 1:1.</text>
+<text x="-59.00" y="70.00" font-size="1.9" font-weight="normal">Horn radius band: 12.0-30.0 mm (variant C adjusts continuously in this range)</text>
+<text x="-59.00" y="74.50" font-size="1.9" font-weight="normal">Lever capture, inside opening: 31.75 mm left-right x 12.70 mm front-back (owner-selected)</text>
+<text x="-59.00" y="79.00" font-size="1.9" font-weight="normal">All fits are PROTOTYPE geometry: horn holes, shaft position and lever cross-section are unmeasured</text>
+<text x="-59.00" y="83.50" font-size="1.9" font-weight="normal">Scale is not 1:1 unless printed at the stated sheet size</text>
 </g>
 </svg>

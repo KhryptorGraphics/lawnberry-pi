@@ -130,12 +130,8 @@ class PermissionContact:
 class PtoPermissionChain:
     """Two independent NO, energize-to-allow contacts in series with an OEM-authorized feed."""
 
-    pi: PermissionContact = field(
-        default_factory=lambda: PermissionContact("K_PTO_PI", "no")
-    )
-    alta: PermissionContact = field(
-        default_factory=lambda: PermissionContact("K_PTO_ALTA", "no")
-    )
+    pi: PermissionContact = field(default_factory=lambda: PermissionContact("K_PTO_PI", "no"))
+    alta: PermissionContact = field(default_factory=lambda: PermissionContact("K_PTO_ALTA", "no"))
     oem_pto_allowed: bool = False
 
     @property
@@ -151,12 +147,8 @@ class EngineStopPair:
     require both hosts to close, so one living host would defeat the other's stop.
     """
 
-    pi: PermissionContact = field(
-        default_factory=lambda: PermissionContact("K_KILL_PI", "nc")
-    )
-    alta: PermissionContact = field(
-        default_factory=lambda: PermissionContact("K_KILL_ALTA", "nc")
-    )
+    pi: PermissionContact = field(default_factory=lambda: PermissionContact("K_KILL_PI", "nc"))
+    alta: PermissionContact = field(default_factory=lambda: PermissionContact("K_KILL_ALTA", "nc"))
 
     @property
     def kill_ground_requested(self) -> bool:
@@ -638,8 +630,7 @@ class Simulation:
             "selected_pwm_us": [left, right],
             "neutral_pulse_selected": neutral_selected,
             "pto_off_requested": self.pi.requests.pto_off or self.alta.requests.pto_off,
-            "engine_off_requested": self.pi.requests.engine_off
-            or self.alta.requests.engine_off,
+            "engine_off_requested": self.pi.requests.engine_off or self.alta.requests.engine_off,
             "modeled_clutch_feed_permitted": self.pto_chain.feed_permitted,
             "modeled_kill_ground_requested": self.engine_pair.kill_ground_requested,
             "capability_failures": sorted(

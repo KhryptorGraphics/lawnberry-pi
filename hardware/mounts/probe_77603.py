@@ -35,10 +35,7 @@ def run_probe(name: str, check: str, expect: str, params: dict) -> tuple[str, bo
     except subprocess.TimeoutExpired:
         return name, False, "timeout"
     text = result.stdout + result.stderr
-    warnings = [
-        line for line in text.splitlines()
-        if "WARNING" in line or "ERROR" in line
-    ]
+    warnings = [line for line in text.splitlines() if "WARNING" in line or "ERROR" in line]
     if warnings:
         # Undefined variables make a probe meaningless even if it renders empty.
         return name, False, f"{len(warnings)} warning(s): {warnings[0][:110]}"

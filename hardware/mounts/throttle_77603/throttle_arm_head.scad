@@ -1,102 +1,120 @@
-// Toro 77603 THROTTLE arm head: a derivative of the existing right arm head.
+// Toro 77603 THROTTLE arm head: the existing right arm head plus an integral column that
+// carries the throttle MG995 directly above the steering station.
 //
-// This is not a new bracket beside the design -- it IS the right arm head with the throttle
-// station grown out of it, which is what the requirement asks for ("vertically extend and
-// structurally reinforce the existing right steering servo bracket").
+// WHAT THIS PART IS
+//   The legacy right arm head with one addition: a column that grows out of the head's own
+//   servo-face land, in the forward band that the retained steering case and moving bracket
+//   leave free, and rises to carry the throttle servo. It REPLACES arm_head_right. It is not
+//   a bracket beside the design.
 //
-// How it differs from ../hitch_arm_layer.scad's arm_head():
-//   * everything from arm_head() is kept unchanged: the joint flange, the rib, the servo-face
-//     land with its photo-derived six-hole slot pattern, the spigot pocket and the M6 bolt
-//     holes. The original 150 kg steering servo bolts to exactly the same land as before;
-//   * a buttressed column rises out of the rib itself, in the Y band clear of the steering
-//     servo case, up to the MG995 cradle at the anchor declared in parameters.scad. It is
-//     buried 2 mm into the rib, so the head is structurally reinforced rather than merely
-//     extended: the exported mesh is 141,100 mm3 (+47.1%) heavier than the original
-//     arm_head_right (440,689 vs 299,589 mm3, measured from both exports). That is ADDED
-//     MATERIAL, not a strength calculation: no load qualification exists for the extended arm,
-//     and the buttress dimensions were chosen for manufacturability, not for the bending
-//     moment of the cantilever.
+// WHAT IS PRESERVED, unchanged from ../hitch_arm_layer.scad's arm_head():
+//   * the joint flange, its four M6 passages and the spigot pocket;
+//   * the upright rib;
+//   * the servo-face land with its photo-derived six-slot pattern and rear opening, so the
+//     original steering servo bolts to exactly the same land with the same through-bolts.
+//   No steering joint is drilled and no steering datum moves.
 //
-// Unverified: the fit of the real head to the real mower (inherited 77502 datum), and whether
-// the added column loads the joint within its capacity. No load qualification exists.
+// WHY THE COLUMN IS SHAPED THIS WAY
+//   The retained steering gear, measured from the real legacy solids (not assumed):
+//     * servo case                world X 218..266, Y 108..138, Z 378..443
+//     * moving bracket at 0/45/90 deg   X 216..268, Y 94..144, Z 409..459
+//     * steering horn sweep       about X 273..303, Z 375..485
+//     * steering pushrod          world X 274..370, Z 465..505
+//   The column:
+//     * sits in the land's forward band, world Y 145..157, which is forward of the moving
+//       bracket's swept Y (144) and clear of the servo case band (138);
+//     * stays inboard of world X 234, so it never enters the horn's X band (273) or the
+//       steering pushrod's X band (274);
+//     * rises vertically, which is also how it prints: the head prints mating-face down, and
+//       a vertical column needs no support. An earlier revision grew a 190 mm horizontal
+//       cantilever out of this part, which left it floating above the bed and outside any
+//       reasonable overhang length; the reach is now short because the throttle servo sits
+//       above the steering station rather than outboard of it.
+//
+// GEOMETRY-DRIVEN, NOT LOAD-DERIVED
+//   The column's section is sized by the clearance envelope above and by printability. Its
+//   STRENGTH is not qualified: no throttle-actuation load has been stated, so nothing here is
+//   a load case, and the printed stack above it carries the same caveat.
+//
+// Unverified: fit to the real mower (inherited 77502 datum) and joint capacity under load.
 include <../enclosure_common.scad>
 use <../hitch_arm_layer.scad>   // modules only: the file has its own entry call
+use <printed_joints.scad>       // pin bore helper
 include <parameters.scad>
 
 arm_head_part = "print";
 
-// ---- Throttle column grown from the head's own rib ---------------------------------
-// Built in the head's LOCAL frame, because that is the frame throttle_arm_head() lives in and
-// the print transform is applied outside it. The rib there is
-//   translate([0, -arm_col_w/2, 0]) cube([servo_face_dx()-servo_face_t, arm_col_w, h])
-// i.e. x 0..16.25, y -35..35. Two earlier attempts used the PRINT frame instead and produced
-// two shells, because print-frame constants were then rotated a second time by the wrapper.
-rib_len = servo_face_dx() - servo_face_t;   // 16.25
-throttle_post_z = arm_head_rise() + throttle_above_servo_mm;
-post_over = 2.0;   // overlap into the rib so the solids fuse, never coplanar
-// GEOMETRY-DRIVEN, NOT LOAD-DERIVED. These two were chosen so the profile stays a simple
-// polygon that triangulates reproducibly; nothing here sized them for the bending moment of a
-// 362 mm cantilever. They are not a structural calculation and must not be cited as one.
-// Sizing this buttress properly needs a stated throttle-actuation load, which does not exist
-// yet, so any value here is provisional scaffolding around the real question.
-gusset_run_mm = 55;    // geometry-driven: buttress foot along the arm's underside
-gusset_drop_mm = 90;   // geometry-driven: buttress root down the post from the arm
+// ---- Head-local frame ---------------------------------------------------------------
+// The head's local frame: X runs outboard along the arm, Y across it, Z up the rib. The
+// rib is translate([0,-arm_col_w/2,0]) cube([rib_len,arm_col_w,h]), i.e. x 0..16.25,
+// y -35..35; the servo-face land is the last 6 mm of X, full 70 mm width.
+rib_len = servo_face_dx() - servo_face_t;
+land_top_local = arm_tip_z - arm_joint_z + servo_face_h / 2;   // 179.75
+land_face_local = servo_face_dx();                              // 22.25
 
-module throttle_column() {
-    // The post, the outboard arm and the buttress are ONE extruded profile. Modelling them as
-    // separate cubes in a union left coplanar faces wherever they met, and OpenSCAD's
-    // triangulation of those coincident faces is not reproducible: about three renders in four
-    // failed the manifold gate with edges shared by four and six triangles. A single simple
-    // polygon has no internal faces at all, so it is manifold by construction.
-    //
-    // The profile's bottom edge sits at arm_head_rise(), inside the head's rib, so the column
-    // fuses with the head instead of butting against it.
-    y_post = arm_col_w / 2 - post_w_mm - 2;   // off the shaft centreline, clear of the case
-    x_arm0 = rib_len - post_w_mm - post_over; // arm's inboard end, inside the rib
-    x_arm1 = x_arm0 + tower_offset_x;         // arm's outboard end
-    x_post0 = rib_len - post_over;            // post inboard face, inside the rib
-    x_post1 = x_post0 + post_w_mm;            // post outboard face
-    z_arm0 = arm_head_rise();                 // bottom of the profile, buried in the rib
-    z_top = throttle_post_z;
-    z_bot = z_top - foot_t_mm;                // arm underside
-    x_toe = x_post1 + gusset_run_mm;          // buttress foot, along the arm underside
-    z_toe = z_bot - gusset_drop_mm;           // buttress root, down the post
+// The column: outboard of the land's face, in the forward band, rising to the cradle seat.
+// It overlaps the rib and the land by 1 mm so the solids fuse rather than butt.
+// The column's footprint comes from the shared parameters, so the head and the mount cannot
+// drift apart: an earlier revision had the two files compute it differently and the column
+// silently lost 6 mm of its rib root.
+column_x0 = column_x0_local_mm;
+column_x1 = column_x1_local_mm;
+column_y0 = tower_offset_y - column_w_y_mm / 2;
+column_y1 = tower_offset_y + column_w_y_mm / 2;
+column_z0 = column_z0_local_mm;
+column_z1 = column_z1_local_mm;
 
-    // The profile is drawn in (X, Z) and must be extruded along Y, the head's width axis.
-    // linear_extrude() always extrudes along +Z from an XY polygon, so an unrotated call
-    // silently builds the profile in the WRONG plane: the column ended up 16 mm thick in Z
-    // with its 362 mm length lying in Y, which also pushed Y past the head's own 88 mm.
-    // rotate([90,0,0]) maps polygon-y to +Z and the extrusion height to -Y.
-    translate([0, y_post + post_w_mm / 2, 0])
-        rotate([90, 0, 0])
-            linear_extrude(height = post_w_mm)
-                polygon([
-                    [x_arm0, z_arm0],
-                    [x_arm0, z_top],
-                    [x_arm1, z_top],
-                    [x_arm1, z_bot],
-                    [x_toe,  z_bot],
-                    [x_post1, z_toe],
-                    [x_post1, z_arm0],
-                ]);
+module throttle_support_column() {
+    // ONE difference over the whole column. An earlier version built the column as a union
+    // and then appended a separate difference() block for the seat socket and the pin bore:
+    // that made the socket cut a SECOND solid rather than a subtraction, so the column was
+    // never socketed, never bored, and interfered with the cradle's tongue.
+    difference() {
+        union() {
+            // Narrow foot: rises from the land in the forward band, clear of the steering
+            // servo's moving bracket at every angle.
+            translate([column_x0, column_y0, column_z0])
+                cube([column_width_mm, column_y1 - column_y0,
+                      column_widen_local_mm - column_z0]);
+            // Wide head: above the bracket's swept band (world Z 458.8) the column carries
+            // the whole cradle instead of letting it overhang a 12 mm stem.
+            translate([column_x0 + column_overhang_mm, tower_offset_y - cradle_len_mm / 2,
+                       column_widen_local_mm])
+                cube([column_width_mm, cradle_len_mm,
+                      column_z1 - column_widen_local_mm]);
+        }
+        // The dowels locate the cradle; a transverse printed pin captures them.
+        for (dx = [-seat_dowel_x_offset_mm, seat_dowel_x_offset_mm])
+            translate([seat_x_local_mm + dx, seat_y_local_mm + seat_dowel_y_offset_mm,
+                       column_z1 - seat_dowel_depth_mm])
+                cylinder(d = seat_dowel_d_mm + 2 * seat_dowel_clearance_mm,
+                         h = seat_dowel_depth_mm + 1);
+        translate([seat_x_local_mm, seat_y_local_mm + seat_dowel_y_offset_mm,
+                   column_z1 - seat_dowel_depth_mm / 2])
+            rotate([0, 90, 0])
+                cylinder(d = seat_cross_hole_d_mm, h = seat_cross_pin_len_mm + 2,
+                         center = true);
+    }
 }
 
-// ---- Reinforced arm head -----------------------------------------------------------
+module throttle_support_gusset() {
+    // Triangular buttress on the inboard face of the column, tying it into the rib. Drawn in
+    // (X, Z) and extruded along Y; rotate([-90,0,0]) maps polygon-y to -Z, so the profile's
+    // height is negated to make the gusset rise toward the rib.
+    y0 = column_y0 + 1;
+    translate([column_x0, y0, column_z0 + column_gusset_h_mm])
+        rotate([-90, 0, 0])
+            linear_extrude(height = column_w_y_mm - 2)
+                polygon([[0, 0],
+                         [0, -column_gusset_h_mm],
+                         [-column_gusset_run_mm, 0]]);
+}
+
 module throttle_arm_head() {
-    // The ORIGINAL right arm head with the throttle column grown out of its rib.
-    //
-    // There is deliberately no "reinforcement web" here. An earlier version added a cube at
-    // x 9.25..16.25, y -35..35, z 0..159.75, which is ENTIRELY INSIDE the rib
-    // (x 0..16.25, y -35..35, z 0..179.75): it thickened nothing while sharing three large
-    // coplanar face planes with the rib's y=+/-35 sides and its z=0 bottom. Those coincident
-    // faces produced edges shared by four and six triangles, and the resulting
-    // non-reproducible triangulation failed the manifold gate in roughly three renders out of
-    // four. The reinforcement that actually exists is the column itself, which is buried
-    // post_over into the rib and, with it, makes the exported mesh 141,100 mm3 (+47.1%)
-    // heavier than arm_head_right.
     union() {
         arm_head();
-        throttle_column();
+        throttle_support_column();
+        throttle_support_gusset();
     }
 }
 

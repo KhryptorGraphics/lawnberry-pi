@@ -1,168 +1,212 @@
 // Elevated, removable MG995 throttle mount for the Toro 77603 RIGHT-hand steering assembly.
 //
-// STRUCTURE (this is the correction that matters — see README "revision note"):
-// The owner requirement is to *vertically extend and structurally reinforce the existing
-// RIGHT STEERING SERVO BRACKET* to carry an independent throttle MG995. An earlier revision
-// hung the throttle off the lower arm COLUMN (arm_root_x, world Z ~ -66..286), which put the
-// throttle cradle inside the right steering servo's own case envelope and could not be fixed
-// by lengthening the riser: the column rakes outboard as Z rises, so a taller riser drove the
-// cradle further into the servo case in X.
+// STRUCTURE
+//   The head (throttle_arm_head.scad) carries ONE integral support that rises from the
+//   servo-face land and reaches outboard above the retained steering linkage. THIS file
+//   supplies only what stands on that support: the cradle that holds the MG995 and the keeper
+//   that retains it. There is no separate foot, no riser and no second bracket: the earlier
+//   column-mounted, duplicate-foot and cantilever revisions were all rejected by geometry
+//   probes or by the print envelope.
 //
-// This revision anchors to the existing steering servo FACE instead (world X ~ servo_station_x,
-// Z ~ arm_tip_z) and extends UPWARD and OUTBOARD, so the throttle servo sits above the
-// steering servo's case top and outboard of its horn sweep.
+//   Nothing here modifies the legacy steering arm, its six-hole servo fixture, its pushrods
+//   or its steel hardware, and no purchased fastener is used: every joint below is a printed
+//   cross-pin with a separate printed keeper.
 //
-// Nothing here modifies the legacy steering arm, its six-hole servo fixture, its pushrods or
-// its steel hardware. The saddle is still a printed split wrap, but it wraps the arm HEAD
-// band around the servo face rather than the lower column.
-//
-// All dimensions derive from the legacy datum in ../enclosure_common.scad. No approximate
-// world coordinate is hard-coded except the derived clearance offsets declared in
-// parameters.scad, all of which are marked as DERIVED rather than measured.
+// All dimensions derive from the legacy datum in ../enclosure_common.scad via parameters.scad.
+// MG995 body, lug and horn dimensions remain TO MEASURE, so the cradle and keeper are
+// capacities, not verified fits, and nothing here is load-qualified.
 include <parameters.scad>
+use <printed_joints.scad>
 
-// ---- Datum -------------------------------------------------------------------------
-// Steering servo face, from the legacy measured station.
-function steering_face_x() = servo_station_x;
-function steering_face_y() = servo_shaft_y();
-function steering_face_z() = arm_tip_z;
+// ---- Datum ---------------------------------------------------------------------------
+// The cradle floor rests on the column seat in world coordinates.
+function support_top_world_z() = arm_joint_z + cradle_seat_local_mm;
+// The world functions CONVERT the head-local datum. They must not re-derive the station
+// from servo_station_x: that path crosses the land-face offset, while the seat datum does
+// not, so the socket and the tongue ended up 22.25 mm apart -- the whole seat joint
+// misaligned by exactly the land offset.
+function tower_world_x() = arm_joint_x + seat_x_local_mm;
+function tower_world_y() = assembly_arm_y + seat_y_local_mm;
 
-// Throttle servo base: above the steering servo case, outboard in X.
-function throttle_servo_base_mm() =
-    [steering_face_x() + mg995_body_width_mm / 2 + throttle_outboard_mm,
-     steering_face_y(),
-     steering_face_z() + throttle_above_servo_mm];
-
-// ---- Riser and cradle, anchored above the steering servo ---------------------------
-module riser_segment(k = 0) {
-    h = riser_z_mm / 2;
-    difference() {
-        union() {
-            difference() {
-                translate([-riser_w_mm / 2, -riser_d_mm / 2, 0])
-                    cube([riser_w_mm, riser_d_mm, h - 0.2]);
-                translate([-riser_w_mm / 2 + riser_wall_mm,
-                           -riser_d_mm / 2 + riser_wall_mm, -1])
-                    cube([riser_w_mm - 2 * riser_wall_mm, riser_d_mm - 2 * riser_wall_mm,
-                          h + 2]);
-            }
-            for (s = [-1, 1])
-                translate([0, s * riser_d_mm / 2, 0]) rotate([90, 0, 0])
-                    linear_extrude(height = 4)
-                        polygon([[-riser_w_mm / 2, 0], [riser_w_mm / 2, 0], [0, h * 0.8]]);
-        }
-        translate([-riser_w_mm / 2 - 1, 0, h * 0.75]) rotate([0, 90, 0])
-            cylinder(d = keeper_t_mm, h = riser_w_mm + 2, center = true);
-    }
-}
-
-function mg995_dovetail_w() = 8;
-
+// ---- Cradle --------------------------------------------------------------------------
+// Holds the provisional MG995 body. Lug size and shape remain TO MEASURE.
+// The underside dowels are horizontal in the bed-oriented export.
 module cradle() {
-    wall_h = mg995_body_height_mm * 0.55;
     difference() {
         union() {
             translate([-cradle_w_mm / 2, -cradle_len_mm / 2, 0])
                 cube([cradle_w_mm, cradle_len_mm, cradle_t_mm]);
+            // Both locating dowels have a common transverse pin bore.
+            for (dx = [-seat_dowel_x_offset_mm, seat_dowel_x_offset_mm])
+                translate([dx, seat_dowel_y_offset_mm, -seat_dowel_depth_mm])
+                    cylinder(d = seat_dowel_d_mm, h = seat_dowel_depth_mm + 1);
             for (s = [-1, 1]) {
-                translate([s * (cradle_w_mm / 2 - cradle_wall_mm), -cradle_len_mm / 2,
+                translate([s < 0 ? -cradle_w_mm / 2 : cradle_w_mm / 2 - cradle_wall_mm,
+                           -cradle_len_mm / 2, cradle_t_mm])
+                    cube([cradle_wall_mm, cradle_len_mm, cradle_wall_h_mm]);
+                translate([-cradle_w_mm / 2,
+                           s < 0 ? -cradle_len_mm / 2 : cradle_len_mm / 2 - cradle_wall_mm,
                            cradle_t_mm])
-                    cube([cradle_wall_mm, cradle_len_mm, wall_h]);
-                translate([-cradle_w_mm / 2, s * cradle_len_mm / 2
-                           - (s > 0 ? cradle_wall_mm : 0), cradle_t_mm])
-                    cube([cradle_w_mm, cradle_wall_mm, wall_h]);
+                    cube([cradle_w_mm, cradle_wall_mm, cradle_wall_h_mm]);
             }
         }
+        // Body recess: the servo drops into it from above.
         translate([-mg995_body_width_mm / 2 - joint_clearance_mm,
                    -mg995_body_length_mm / 2 - joint_clearance_mm, cradle_t_mm - 0.01])
             cube([mg995_body_width_mm + 2 * joint_clearance_mm,
-                  mg995_body_length_mm + 2 * joint_clearance_mm, wall_h + 1]);
-        translate([0, -cradle_len_mm / 2 - 1, cradle_t_mm + wall_h * 0.5])
-            rotate([90, 0, 0]) cylinder(d = 2 * x_horn_arm_radius_mm + 6,
-                                        h = cradle_wall_mm + 2, center = true);
+                  mg995_body_length_mm + 2 * joint_clearance_mm,
+                  cradle_wall_h_mm + 1]);
+        translate([0, seat_dowel_y_offset_mm, -seat_dowel_depth_mm / 2])
+            rotate([0, 90, 0])
+                cylinder(d = seat_cross_hole_d_mm, h = 2 * seat_cross_pin_len_mm,
+                         center = true);
+        // Transverse keeper-pin bores through both side walls, beyond the servo's ends.
         for (s = [-1, 1])
-            translate([s * (cradle_w_mm / 2 - cradle_wall_mm) - 0.01,
-                       -cradle_len_mm / 2, cradle_t_mm + wall_h - keeper_t_mm])
-                cube([cradle_wall_mm + 0.02, cradle_len_mm, keeper_t_mm + 0.4]);
+            translate([0, s * keeper_cross_pin_y_mm, keeper_cross_pin_z_mm])
+                rotate([0, 90, 0])
+                    cylinder(d = seat_cross_hole_d_mm, h = cradle_w_mm + 2,
+                             center = true);
+        // Blind holes in the side-wall tops for the keeper's vertical locating pins.
+        for (dx = [-keeper_pin_x_offset_mm, keeper_pin_x_offset_mm])
+            translate([dx, keeper_pin_y_offset_mm,
+                       cradle_t_mm + cradle_wall_h_mm - keeper_pin_depth_mm])
+                cylinder(d = keeper_pin_d_mm + 2 * keeper_pin_clearance_mm,
+                         h = keeper_pin_depth_mm + 1);
     }
 }
 
+// ---- Keeper --------------------------------------------------------------------------
+// An open frame bears on the provisional lugs from above. Its full-length legs drop
+// outside the side walls and are pinned to them by two transverse printed pins.
 module keeper_crossbar() {
     difference() {
-        translate([-cradle_w_mm / 2, -cradle_len_mm / 2, 0])
-            cube([cradle_w_mm, cradle_len_mm, keeper_t_mm]);
+        union() {
+            translate([-cradle_w_mm / 2 - joint_clearance_mm - keeper_leg_t_mm,
+                       -cradle_len_mm / 2, 0])
+                cube([cradle_w_mm + 2 * (joint_clearance_mm + keeper_leg_t_mm),
+                      cradle_len_mm, keeper_t_mm]);
+            for (dx = [-keeper_pin_x_offset_mm, keeper_pin_x_offset_mm])
+                translate([dx, keeper_pin_y_offset_mm, keeper_t_mm])
+                    cylinder(d = keeper_pin_d_mm, h = keeper_pin_depth_mm);
+            for (s = [-1, 1])
+                translate([s < 0 ? -cradle_w_mm / 2 - joint_clearance_mm - keeper_leg_t_mm
+                                 : cradle_w_mm / 2 + joint_clearance_mm,
+                           -keeper_leg_drop_mm / 2, keeper_t_mm])
+                    cube([keeper_leg_t_mm, keeper_leg_drop_mm, cradle_wall_h_mm]);
+        }
+        translate([-mg995_body_width_mm / 2 - joint_clearance_mm,
+                   -mg995_body_length_mm / 2 - joint_clearance_mm, -1])
+            cube([mg995_body_width_mm + 2 * joint_clearance_mm,
+                  mg995_body_length_mm + 2 * joint_clearance_mm, keeper_t_mm + 2]);
+        // Transverse pin bores through both legs, in the keeper's printed frame.
         for (s = [-1, 1])
-            translate([-cradle_w_mm / 2 - 1, s * (cradle_len_mm / 2 - 10) - 3,
-                       keeper_t_mm * 0.45])
-                cube([cradle_w_mm + 2, 6, keeper_t_mm + 1]);
+            translate([0, s * keeper_cross_pin_y_mm,
+                       cradle_flange_z1_mm + keeper_t_mm - keeper_cross_pin_z_mm])
+                rotate([0, 90, 0])
+                    cylinder(d = seat_cross_hole_d_mm, h = 2 * cradle_w_mm, center = true);
     }
 }
 
-module mg995_body_envelope() {
-    // Reference solid only: the purchased servo, never printed.
-    translate([-mg995_body_width_mm / 2, -mg995_body_length_mm / 2, 0])
-        cube([mg995_body_width_mm, mg995_body_length_mm, mg995_body_height_mm]);
-    translate([mg995_shaft_xy_mm[0], mg995_shaft_xy_mm[1], mg995_body_height_mm])
-        cylinder(d = 6, h = mg995_shaft_projection_mm);
+// Printed form of the cradle. The locating dowels point DOWN in the assembly frame, so the
+// exported part must be laid on its side: the rotation puts the dowels horizontal, which
+// prints cleanly, and the floor plate vertical. The assembly uses cradle() directly.
+module cradle_print() {
+    translate([0, 0, cradle_len_mm / 2]) rotate([90, 0, 0]) cradle();
 }
 
-// ---- Placement ---------------------------------------------------------------------
+// A printed cross pin and split keeper ring. The ring's bore is smaller than the shaft, so it
+// cannot pass back over it. Fit, clip retention and fatigue life are unverified.
+module cross_pin(len) {
+    union() {
+        cylinder(d = seat_cross_band_d_mm, h = seat_cross_ring_t_mm + 0.5);
+        translate([0, 0, seat_cross_ring_t_mm])
+            cylinder(d = seat_cross_pin_d_mm, h = len - seat_cross_ring_t_mm);
+        translate([0, 0, len - 2])
+            cylinder(d = seat_cross_ring_d_mm, h = 2);
+    }
+}
 
-// Printed foot: bridges from the outboard tower back to the steering-bracket servo land.
-module bracket_foot() {
-    // Foot: reaches inboard onto the head land and outboard to the tower axis, in the Y band
-    // that clears the steering servo case. A foot centred on the shaft centre would pass
-    // straight through that case (Y 108..138).
+module cross_keeper() {
     difference() {
-        // ONE narrow arm in a Y band clear of the servo case, from the arm-head flange
-        // outboard to the tower axis. A wider pad would overlap the case: the servo land and
-        // the case are both centred on the shaft, so the clear attachment band is the head
-        // flange edge (Y 138..158), not the shaft centreline.
-        translate([-foot_reach_mm, tower_offset_y - post_w_mm / 2, 0])
-            cube([foot_reach_mm + tower_offset_x + riser_w_mm / 2, post_w_mm, foot_t_mm]);
-        // Bolt passages through the arm-head flange band (photo-derived pattern family).
-        for (dx = [14, 40])
-            translate([-foot_reach_mm + dx, tower_offset_y, -1])
-                cylinder(d = servo_mount_clear_d_mm, h = foot_t_mm + 2);
+        cylinder(d = seat_cross_ring_d_mm, h = seat_cross_ring_t_mm);
+        translate([0, 0, -1])
+            cylinder(d = seat_cross_ring_bore_d_mm, h = seat_cross_ring_t_mm + 2);
+        translate([0, -0.5, -1])
+            cube([seat_cross_ring_d_mm, 1, seat_cross_ring_t_mm + 2]);
     }
 }
 
+// Installed transverse pins and rings, in the cradle frame.
+module seat_cross_pin_installed() {
+    translate([seat_cross_pin_x0_mm, seat_dowel_y_offset_mm, -seat_dowel_depth_mm / 2])
+        rotate([0, 90, 0]) {
+            cross_pin(seat_cross_pin_len_mm);
+            cross_keeper();
+        }
+}
+
+module keeper_cross_pins_installed() {
+    for (s = [-1, 1])
+        translate([keeper_cross_pin_x0_mm, s * keeper_cross_pin_y_mm, keeper_cross_pin_z_mm])
+            rotate([0, 90, 0]) {
+                cross_pin(keeper_cross_pin_len_mm);
+                cross_keeper();
+            }
+}
+
+// The keeper as installed, in the cradle frame.
+module keeper_installed() {
+    translate([0, 0, cradle_flange_z1_mm + keeper_t_mm])
+        rotate([180, 0, 0]) keeper_crossbar();
+}
+
+// ---- Public datums (used by the assembly scene) -------------------------------------
+// The printed stack's origin: the cradle floor, on the head column's seat.
+function throttle_mount_stack_origin_mm() =
+    [tower_world_x(), tower_world_y(), support_top_world_z()];
+// The MG995 body's base, sitting on the cradle floor.
+function throttle_servo_base_mm() =
+    throttle_mount_stack_origin_mm() + [0, 0, cradle_t_mm];
+// The horn's underside: the top of the servo's body.
+function throttle_horn_base_mm() =
+    throttle_servo_base_mm() + [0, 0, mg995_body_height_mm];
+
+// ---- Placement ----------------------------------------------------------------------
 module throttle_stack_installed() {
-    // Local origin = the servo land. The foot sits ON the land, the riser rises from it, and
-    // the cradle/tower is offset outboard so the MG995 clears the steering case and horn.
-    // (An earlier revision put the foot at the BOTTOM of a 240 mm stack, i.e. 120 mm below
-    // the servo face it was supposed to bolt to -- physically unbuildable.)
-    bracket_foot();
-    // Tower post sits in a Y band clear of the steering servo case (see tower_offset_y).
-    translate([tower_offset_x, tower_offset_y, 0]) {
-        translate([0, 0, foot_t_mm]) riser_segment(0);
-        translate([0, 0, foot_t_mm + riser_z_mm / 2]) riser_segment(1);
-        translate([0, 0, foot_t_mm + riser_z_mm]) cradle();
-        translate([0, 0, foot_t_mm + riser_z_mm + mg995_body_height_mm
-                   + mg995_lug_thickness_mm]) keeper_crossbar();
+    // Self-placed on the head's integral column seat, in world coordinates. The cradle sits
+    // directly on the seat; there is no riser between them.
+    translate([tower_world_x(), tower_world_y(), support_top_world_z()]) {
+        cradle();
+        seat_cross_pin_installed();
+        keeper_installed();
+        keeper_cross_pins_installed();
     }
 }
 
-// ---- Entry points ------------------------------------------------------------------
+// ---- Entry points --------------------------------------------------------------------
 mount_part = "assembly";
-riser_index = 0;
 
 module mg995_throttle_mount(part = mount_part) {
     if (part == "assembly") {
-        // Anchored ON the steering servo land, extending up and outboard from it.
-        translate([servo_station_x, servo_shaft_y(), arm_tip_z])
-            throttle_stack_installed();
-    } else if (part == "bracket_foot") {
-        bracket_foot();
-    } else if (part == "flange_hook") {
-    } else if (part == "riser_lower") {
-        riser_segment(riser_index);
-    } else if (part == "riser_upper") {
-        riser_segment(riser_index);
+        throttle_stack_installed();
     } else if (part == "cradle") {
+        cradle_print();
+    } else if (part == "cradle_assembly") {
         cradle();
     } else if (part == "keeper") {
         keeper_crossbar();
+    } else if (part == "keeper_installed") {
+        keeper_installed();
+    } else if (part == "seat_pin") {
+        cross_pin(seat_cross_pin_len_mm);
+    } else if (part == "seat_pin_installed") {
+        seat_cross_pin_installed();
+    } else if (part == "keeper_pin") {
+        cross_pin(keeper_cross_pin_len_mm);
+    } else if (part == "keeper_pins_installed") {
+        keeper_cross_pins_installed();
+    } else if (part == "pin_keeper") {
+        cross_keeper();
     } else if (part == "gauge") {
         difference() {
             translate([-30, -mg995_mount_pitch_fb_mm / 2 - 8, 0]) cube([60, 30, 3]);
