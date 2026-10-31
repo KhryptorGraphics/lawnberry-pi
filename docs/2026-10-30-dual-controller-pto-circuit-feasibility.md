@@ -1,3 +1,5 @@
+> **Scope revision, 2026-10-31:** No electronic engine start, ignition RUN or engine shutdown interfaces will be added. Engine is manually started/stopped; redundant Pi/Alta **blade PTO-OFF only** remains the electrical integration target. Historical engine and starter research is background, not an allocation/purchase requirement.
+
 # Toro 77603 — dual-computer PTO OFF feasibility, relay allocation and verification gate
 
 **Research date:** 2026-10-30.  
@@ -6,7 +8,7 @@
 
 ## The owner requirement
 
-If the Pi 5 crashes while blades are engaged, the **Libre Alta must still electrically request PTO OFF** and engine OFF without consulting the failed Pi. If the Alta fails, Pi 5 must independently request PTO OFF and engine OFF. On heartbeat link loss, each working controller revokes permission. The purchased **Pololu #2806 is steering PWM signal selection only**, never blade control. Blade release does **not** mean zero RPM immediately: blade coast-down must be measured.
+If the Pi 5 crashes while blades are engaged, the **Libre Alta must still electrically request PTO OFF** and request neutral/idle where independently controllable without consulting the failed Pi. If the Alta fails, Pi 5 must independently request PTO OFF and engine OFF. On heartbeat link loss, each working controller revokes permission. The purchased **Pololu #2806 is steering PWM signal selection only**, never blade control. Blade release does **not** mean zero RPM immediately: blade coast-down must be measured.
 
 ## Verified context versus unknown physical details
 
@@ -58,10 +60,8 @@ Logical authorization: `CLUTCH_PERMISSION = OEM_PTO_ALLOWED AND PI_PTO_ALLOWED A
 | Steering servo power enable (owner's proposed allocation) | 1 | One HiLetGo proposed; steering pulse selection remains handled by the purchased Pololu #2806. Cutting servo power does NOT guarantee neutral. |
 | Pi-controlled independent PTO permission contact | 1 | Candidate: remaining HiLetGo if coil and contact ratings verified. |
 | Alta-controlled independent PTO permission contact | 1 | **NOT confirmed in inventory**. May be supplied by an appropriately rated **installed relay** in the already purchased automotive harness; an empty socket or wire harness alone does not count. Otherwise a properly matched extra relay, driver, contact protection and wiring are conditionally required. |
-| Engine OFF / ignition kill paths | Independent Pi and Alta paths needed | **Not allocated** here. Engine kill can be *ground-to-kill* rather than interrupt +12 V; use engine/OEM schematic. Not safely inferred from PTO circuit. |
-| Starter momentary control | Separately controlled/interlocked circuit | **Not allocated** here. Do not bridge starter motor current terminals or bypass PARK/PTO interlocks. |
 
-**Preliminary verdict:** With one HiLetGo reserved for steering, **the two confirmed HiLetGo modules alone do not provide both required independent PTO contacts**, let alone separate starter and engine-kill interfaces. If the existing automotive harness includes at least one suitable **actual relay + contact + compatible coil driver**, a second PTO contact *may* already be available; the harness has **not** been verified to include one. Do not order anything until photographed and counted. A relay contact dedicated to PTO is **not automatically reusable for engine kill or starter**.
+**Preliminary verdict:** With one HiLetGo reserved for steering, **the two confirmed HiLetGo modules alone do not provide both required independent PTO contacts**, and the engine starter/kill are now deliberately outside the integration scope. If the existing automotive harness includes at least one suitable **actual relay + contact + compatible coil driver**, a second PTO contact *may* already be available; the harness has **not** been verified to include one. Do not order anything until photographed and counted. A relay contact dedicated to PTO is **not automatically reusable for engine kill or starter**.
 
 ## Implementation handoff (non-deployable until verified)
 
@@ -78,7 +78,7 @@ Logical authorization: `CLUTCH_PERMISSION = OEM_PTO_ALLOWED AND PI_PTO_ALLOWED A
 2. Get clear photos of **rear of rectangular PTO rocker** with molded terminal IDs and connected wire colors, and **existing automotive relay harness with any relay bodies and readable markings**.
 3. Record the existing **HiLetGo board labels** and controlled measurements: trigger polarity, coil supply, NO/COM contact default, and safe 3.3 V input drive; record clutch supply and inductive-load rating.
 4. Verify clutch power polarity, current (steady and transient), suppression, upstream/downstream OEM fuses/interlocks and connector wiring using the serial-matched factory schematic.
-5. Separately map **engine kill / RUN** and **starter interlock**, never assume they share PTO polarity or contacts.
+5. Leave OEM manual starter and key ignition circuits unchanged; do not integrate them into SBC outputs.
 6. Verify the Pololu/Alta can command steering neutral when Pi stops, servo motor power remains available for movement, and bars actually reach neutral. Engine stopped alone does not prove mower has stopped moving.
 
 ### Source notes
