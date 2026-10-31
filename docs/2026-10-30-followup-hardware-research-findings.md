@@ -1,3 +1,5 @@
+> **Integration-scope update (2026-10-31):** The owner cancelled all remote/automatic starting and computer-controlled engine shutdown. The OEM engine/key/kill and starter remain stock/manual. This file's electrical research is historical evidence only; do not treat its starter/engine-stop findings as outstanding integration tasks. Independent Pi/Alta blade PTO OFF remains in scope.
+
 # Lawnberry Pi — continued hardware research and practical findings
 Date: 2026-10-30. Research-only update. No purchased hardware was opened, installed, measured or tested.
 
