@@ -482,6 +482,56 @@ def defines(parameters: dict) -> list[str]:
     ]
 
 
+def annotate_svg(path: Path, title: str, notes: list[str], watermark: str) -> None:
+    """Add a text overlay to an OpenSCAD 2D projection.
+
+    OpenSCAD emits geometry only. A drawing that carries no dimension values, no part labels
+    and no qualification statement is a silhouette, not an assembly drawing, so this appends a
+    notes band below the projected geometry. The band extends the viewBox rather than
+    overlapping the section, and the transform is deterministic: the same input gives the same
+    bytes.
+    """
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r'viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"', text)
+    if not match:
+        raise ValueError(f"SVG without a viewBox: {path}")
+    vx, vy, vw, vh = (float(value) for value in match.groups())
+
+    band = 4.5 * (len(notes) + 3)
+    new_h = vh + band
+    text = text.replace(match.group(0), f'viewBox="{vx} {vy} {vw} {new_h}"')
+    text = re.sub(r'height="[\d.]+mm"', f'height="{new_h}mm"', text, count=1)
+
+    # White sheet FIRST (behind the geometry). Appending it with the text put it on top and
+    # hid the section entirely.
+    sheet = (
+        f'\n<rect x="{vx:.2f}" y="{vy:.2f}" width="{vw:.2f}" height="{new_h:.2f}" '
+        'fill="white"/>'
+    )
+    text = re.sub(r'(<svg\b[^>]*>)', r'\1' + sheet.replace("\\", "\\\\"), text, count=1)
+
+    base = vy + vh
+    rows = [
+        (base + 5.0, title, 2.6, "bold"),
+        (base + 9.5, watermark, 2.1, "bold"),
+    ]
+    for index, note in enumerate(notes):
+        rows.append((base + 13.5 + index * 4.5, note, 1.9, "normal"))
+
+    parts = ['<g font-family="Helvetica, Arial, sans-serif" fill="black">']
+    for y, label, size, weight in rows:
+        safe = (
+            label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        parts.append(
+            f'<text x="{vx + 2:.2f}" y="{y:.2f}" font-size="{size}" '
+            f'font-weight="{weight}">{safe}</text>'
+        )
+    parts.append("</g>")
+    text = text.replace("</svg>", "\n".join(parts) + "\n</svg>")
+    path.write_text(text, encoding="utf-8")
+
+
 def build_hardware_77603(output_dir: Path | None = None) -> int:
     """Render the Toro 77603 profile into its own output tree.
 
@@ -493,6 +543,8 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
         BUILD_VOLUME_MM,
         COMPONENT_INVENTORY,
         DRAWING_WATERMARK,
+        HORN_RADIUS_MAX_MM,
+        HORN_RADIUS_MIN_MM,
         MATERIAL_ASSUMPTIONS,
         PARTS_77603,
         PROBES_77603,
@@ -590,6 +642,22 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
             )
             if not target.read_bytes().lstrip().startswith(b"<"):
                 raise ValueError(f"Missing SVG drawing {scene.name}")
+            variant = str(scene.parameters.get("horn_variant", "?"))
+            annotate_svg(
+                target,
+                title=f"Throttle horn interface, variant {variant} - section through pin plane",
+                notes=[
+                    "Units: millimetres. Section cut through the rod-pin plane.",
+                    f"Horn radius band: {HORN_RADIUS_MIN_MM}-{HORN_RADIUS_MAX_MM} mm (variant C adjusts "
+                    "continuously in this range)",
+                    "Lever capture, inside opening: 31.75 mm left-right x 12.70 mm "
+                    "front-back (owner-selected)",
+                    "All fits are PROTOTYPE geometry: horn holes, shaft position and lever "
+                    "cross-section are unmeasured",
+                    "Scale is not 1:1 unless printed at the stated sheet size",
+                ],
+                watermark=DRAWING_WATERMARK,
+            )
         else:
             target = staging_root / f"{scene.name}.png"
             run(

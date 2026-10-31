@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 THROTTLE = "throttle_77603"
 CONTROL = "control_77603"
 
+HORN_RADIUS_MIN_MM = 12.0   # mirrors horn_radius_min_mm in parameters.scad
+HORN_RADIUS_MAX_MM = 30.0   # mirrors horn_radius_max_mm in parameters.scad
 BUILD_VOLUME_MM = (420, 420, 500)
 USABLE_VOLUME_MM = (400, 400, 490)
 DRAWING_WATERMARK = "PROTOTYPE - FIT / LOAD / ELECTRICAL VALIDATION REQUIRED"
@@ -270,7 +272,7 @@ def _scene_variants() -> tuple[Scene, ...]:
             Scene(
                 f"throttle_{letter.lower()}_drawing",
                 f"{THROTTLE}/drawings.scad",
-                {"assembly": f"throttle_{letter.lower()}"},
+                {"horn_variant": letter},
                 cam,
                 kind="drawing",
             )
