@@ -39,6 +39,14 @@ comparison is meaningful. **Do not select one before review.**
 
 ## Continuous length adjustment
 
+**The rod is 150 mm, not 1 m.** The first revision carried the segmentation rule from a
+metric-span rod: at the real 150 mm anchor-to-lever distance that produced three 23 mm stubs
+joined by 40 mm splice spigots — a spigot longer than the piece carrying it. Segmentation now
+exists only to fit the bed (`segment_count()` returns 1 for anything that prints in one piece),
+so this link is a single 150 mm printed rod with a 150 mm slider and a 100 mm sleeve. Splice
+wedges are only required when a longer span forces segmentation, and the BOM quantity for them
+is derived rather than fixed.
+
 Coarse stage: a keyed slider in a square sleeve with **no index holes and no detents**. Three
 interchangeable printed locks are modelled and exported:
 

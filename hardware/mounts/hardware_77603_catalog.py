@@ -88,11 +88,6 @@ def _variant(letter: str, part: str, **extra: object) -> dict[str, object]:
 
 # ---- Printable pieces ---------------------------------------------------------------
 MOUNT_PIECES = (
-    Piece("saddle_lower_a", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("saddle_left")),
-    Piece("saddle_lower_b", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("saddle_right")),
-    Piece("saddle_upper_a", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("saddle_left_upper")),
-    Piece("saddle_upper_b", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("saddle_right_upper")),
-    Piece("saddle_flange_hook", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("flange_hook")),
     Piece(
         "riser_lower",
         f"{THROTTLE}/mg995_throttle_mount.scad",
@@ -138,19 +133,17 @@ def joint_pieces() -> tuple[Piece, ...]:
     )
 
 ROD_PIECES = (
-    Piece("rod_segment_lower", f"{THROTTLE}/throttle_pushrod.scad",
-          _rod("segment_lower"), orientation="lying flat, long axis on the bed X"),
-    Piece("rod_segment_middle", f"{THROTTLE}/throttle_pushrod.scad",
-          _rod("segment_middle"), quantity=2,
-          orientation="lying flat, long axis on the bed X"),
-    Piece("rod_segment_upper", f"{THROTTLE}/throttle_pushrod.scad",
-          _rod("segment_upper"), orientation="lying flat, long axis on the bed X"),
+    # span 150 mm -> segment_count() == 1: a single printed rod piece, no splices. Longer
+    # spans segment automatically; the count is derived, not fixed here.
+    Piece("rod_segment", f"{THROTTLE}/throttle_pushrod.scad",
+          _rod("segment_lower"), orientation="lying flat, long axis on the bed X",
+          note="single piece for the 150 mm span; segmentation is automatic if the span grows"),
     Piece("rod_slider", f"{THROTTLE}/throttle_pushrod.scad", _rod("slider"),
           orientation="lying flat, long axis on the bed X"),
     Piece("rod_sleeve", f"{THROTTLE}/throttle_pushrod.scad", _rod("sleeve"),
           orientation="lying flat, long axis on the bed X"),
     Piece("splice_wedge", f"{THROTTLE}/throttle_pushrod.scad", _rod("splice_wedge"),
-          quantity=3),
+          quantity=0, note="only needed when segment_count() > 1; not used at the 150 mm span"),
     Piece("rod_fit_gauge", f"{THROTTLE}/throttle_pushrod.scad", _rod("gauge"),
           note="slider passes, bore does not: proves the sliding allowance"),
 )
@@ -227,15 +220,36 @@ PARTS_77603: tuple[Piece, ...] = (
 )
 
 # ---- Scene list ----------------------------------------------------------------------
+# Anchor of the throttle station, mirroring parameters.scad. The variant cameras aim here;
+# aiming at the origin produced ten identical 5.8 kB blank frames.
+import math as _math
+
+_SERVO_STATION_X = 209.55
+_MG_WIDTH = 12.70
+_OUTBOARD = 180.0
+_TOWER_Y_OFFSET = 26.0
+_ARM_TIP_Z = 430.24
+_FOOT_T = 8.0
+_RISER_Z = 120.0
+_CRADLE_T = 8.0
+_MG_BODY_H = 38.10
+_MG_SHAFT = 12.70
+
+
+def _anchor() -> tuple[float, float, float]:
+    """World position of the MG995 horn, shared by every variant camera."""
+    return (
+        _SERVO_STATION_X + _MG_WIDTH / 2 + _OUTBOARD,
+        123.0 + _TOWER_Y_OFFSET,
+        _ARM_TIP_Z + _FOOT_T + _RISER_Z + _CRADLE_T + _MG_BODY_H + _MG_SHAFT,
+    )
+
+
 def _scene_variants() -> tuple[Scene, ...]:
     scenes = []
-    for letter, cam in (
-        ("A", "0,0,0,60,0,35,420"),
-        ("B", "0,0,0,60,0,35,420"),
-        ("C", "0,0,0,60,0,35,420"),
-        ("D", "0,0,0,60,0,30,320"),
-        ("E", "0,0,0,60,0,35,360"),
-    ):
+    ax, ay, az = _anchor()
+    for letter, dist in (("A", 240), ("B", 240), ("C", 240), ("D", 220), ("E", 240)):
+        cam = f"{ax:.0f},{ay:.0f},{az - 40:.0f},60,0,35,{dist}"
         scenes.append(
             Scene(
                 f"throttle_{letter.lower()}_assembled",
@@ -268,7 +282,8 @@ VIEWS_77603: tuple[Scene, ...] = (
     Scene("throttle_station", f"{THROTTLE}/assemblies.scad",
           {"assembly": "throttle_station"}, "160,120,430,55,0,20,1500"),
     Scene("throttle_mount_service", f"{THROTTLE}/assemblies.scad",
-          {"assembly": "throttle_mount_service"}, "160,60,420,60,0,20,900"),
+          {"assembly": "throttle_mount_service"},
+          f"{_anchor()[0]:.0f},{_anchor()[1] - 60:.0f},{_anchor()[2] - 60:.0f},62,0,18,600"),
     Scene("lock_wedge_cam", f"{THROTTLE}/throttle_pushrod.scad",
           _rod("assembly", "wedge_cam"), "0,0,0,60,0,35,320"),
     Scene("lock_split_collet", f"{THROTTLE}/throttle_pushrod.scad",
@@ -302,7 +317,6 @@ PROBES_77603: tuple[Probe, ...] = (
     # Mount: anchored to the right steering servo bracket.
     Probe("saddle_root_land", "contact", ({"check": "saddle_root_land"},),
           note="bracket carries material at the steering-servo face it bolts to"),
-    Probe("saddle_flange_hook_contact", "contact", ({"check": "saddle_flange_hook_contact"},)),
     Probe("mount_vs_linkage", "empty", ({"check": "mount_vs_linkage"},),
           note="throttle stack stays clear of the steering pushrod sweep"),
     Probe("mount_vs_steering", "empty", ({"check": "mount_vs_steering"},),

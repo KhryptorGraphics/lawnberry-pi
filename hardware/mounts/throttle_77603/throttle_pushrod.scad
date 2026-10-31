@@ -16,13 +16,26 @@ rod_overlap = rods_min_overlap_mm;
 rod_travel = rods_coarse_travel_mm;
 
 // ---- Segment plan ------------------------------------------------------------------
-// Straight lengths are computed from the requested assembly span so no piece exceeds the
-// usable bed. Segment count is derived, never hand-chosen per length.
-function segment_count(total_len) =
-    max(3, ceil((total_len - rod_overlap) / (print_part_max_len_mm - 20)) + 1);
-function segment_len(total_len, i, n) =
-    (total_len - (n - 1) * rod_splice_len_here()) / n;
+// Segmentation ONLY exists to fit the bed. A link that fits in one print is one piece: a
+// 150 mm link split into 23 mm stubs with 40 mm spigots is incoherent (the spigot cannot be
+// longer than the segment), and it was a direct consequence of forcing a minimum of three
+// segments that only made sense for the original 1 m rod.
 function rod_splice_len_here() = 40;   // keyed spigot engagement
+function segment_fits_one_piece(total_len) =
+    total_len <= print_part_max_len_mm && total_len > 2 * rod_splice_len_here();
+
+function segment_count(total_len) =
+    segment_fits_one_piece(total_len)
+        ? 1
+        : max(2, ceil((total_len - rod_overlap) / (print_part_max_len_mm - 20)) + 1);
+
+function segment_len(total_len, i, n) =
+    n <= 1 ? total_len : (total_len - (n - 1) * rod_splice_len_here()) / n;
+
+// Assert at load time: a segment shorter than its own splice spigot is unbuildable.
+function _segment_ok(total_len) =
+    let(n = segment_count(total_len), seg = segment_len(total_len, 0, n))
+        n <= 1 || seg >= rod_splice_len_here();
 
 module square_tube(len, w = rod_w, bore = rod_bore) {
     // Extruded 2D ring. A 3D cube-minus-cube boolean left coincident faces that exported as
@@ -191,7 +204,11 @@ module throttle_pushrod(part = rod_part, length_mm = rod_len,
                         lock_kind = rod_lock_kind) {
     n = segment_count(length_mm);
     seg = segment_len(length_mm, 0, n);
-    sleeve_len = 220;
+    // Sized from the actual span: the sleeve must cover the slide plus the overlap, and the
+    // slider must be long enough to stay engaged across the whole travel.
+    sleeve_len = min(print_part_max_len_mm, max(rod_overlap + rod_travel, length_mm * 0.6));
+    slider_len = min(print_part_max_len_mm,
+                     max(rod_overlap + rod_travel + rod_overlap, length_mm));
     if (part == "assembly") {
         // Servo-end segment with a clevis eye.
         translate([0, 0, 0]) square_tube(seg);
@@ -211,9 +228,9 @@ module throttle_pushrod(part = rod_part, length_mm = rod_len,
     } else if (part == "segment_upper") {
         square_tube(min(seg, print_part_max_len_mm));
     } else if (part == "slider") {
-        solid_slider(min(rod_travel + rod_overlap * 2, print_part_max_len_mm));
+        solid_slider(slider_len);
     } else if (part == "sleeve") {
-        rod_sleeve(min(220, print_part_max_len_mm), lock_kind);
+        rod_sleeve(sleeve_len, lock_kind);
     } else if (part == "spigot") {
         keyed_spigot();
     } else if (part == "splice_wedge") {

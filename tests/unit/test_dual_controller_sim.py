@@ -7,7 +7,6 @@ reports a physical outcome as known would fail these tests by design.
 
 from __future__ import annotations
 
-import sys
 from dataclasses import replace
 
 import pytest
@@ -424,8 +423,27 @@ class TestMuxAndHonesty:
     def test_calibration_is_marked_unverified_by_default(self):
         assert PwmCalibration().physically_verified is False
 
-    def test_import_does_not_pull_live_hardware_or_backend(self):
-        assert "RPi" not in sys.modules
-        assert "smbus2" not in sys.modules
-        assert "gpiozero" not in sys.modules
-        assert not any(m.startswith("backend.") for m in sys.modules)
+    def test_module_source_imports_no_live_hardware_or_backend(self):
+        """Read the module's own imports, not global sys.modules.
+
+        Asserting on sys.modules fails when another test in the same session has already
+        imported backend.* -- which the rest of this suite legitimately does. The property
+        that matters is that THIS module imports nothing live, so inspect its source.
+        """
+        import ast
+        import inspect
+
+        from hardware.control import dual_controller_sim
+
+        tree = ast.parse(inspect.getsource(dual_controller_sim))
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module.split(".")[0])
+
+        forbidden = {"RPi", "smbus2", "gpiozero", "periphery", "backend", "serial"}
+        assert imported & forbidden == set(), f"live dependencies imported: {imported & forbidden}"
+        # It may only use the standard library.
+        assert imported <= {"dataclasses", "enum", "__future__"}, imported

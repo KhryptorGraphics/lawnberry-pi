@@ -9,7 +9,8 @@ use <mg995_throttle_mount.scad>
 use <throttle_pushrod.scad>
 use <throttle_u_fitting.scad>
 use <throttle_horn_variants.scad>
-use <../pushrod.scad>   // legacy steering rod geometry, for the linkage-clearance probe
+use <../pushrod.scad>
+use <../hitch_arm_layer.scad>   // legacy arm head, for the attachment probe   // legacy steering rod geometry, for the linkage-clearance probe
 
 check = "u_lever_passes";
 
@@ -86,21 +87,13 @@ if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
         u_lever_probe(1.0);
     }
 } else if (check == "saddle_root_land") {
-    // POSITIVE: the bracket carries real material in its own mounting band, i.e. the lowest
-    // 20 mm of the stack where it lands on the steering bracket. (Probing at an assumed
-    // absolute X/Y put the test cube outside the bracket entirely and read empty.)
+    // POSITIVE: the printed foot really contacts the legacy arm head where it bolts on.
+    // Verified band: X 187.3..209.6, Y 141..157, Z 430.2..438.2. This probe exists so the
+    // attachment cannot silently regress when placement parameters move.
     intersection() {
-        mg995_throttle_mount("assembly");
-        // The assembly is self-placed with its origin ON the servo land.
-        translate([servo_station_x - foot_reach_mm, servo_shaft_y() + tower_offset_y
-                   - foot_w_mm / 2, arm_tip_z])
-            cube([foot_reach_mm + 20, foot_w_mm, foot_t_mm + 2]);
-    }
-} else if (check == "saddle_flange_hook_contact") {
-    // POSITIVE: the printed flange hook is a real solid with its declared thickness.
-    intersection() {
-        mg995_throttle_mount("flange_hook");
-        cube([60, 40, saddle_dovetail_h_mm + 0.5], center = true);
+        translate([servo_station_x, servo_shaft_y(), arm_tip_z])
+            mg995_throttle_mount("bracket_foot");
+        arm_head_assembly();
     }
 } else if (check == "mount_vs_linkage") {
     // EMPTY: the throttle stack must not intrude on the steering pushrod sweep.

@@ -85,7 +85,10 @@ module printed_clevis(gap = clevis_gap_mm, ear_t = clevis_ear_t_mm,
             translate([-total / 2, -reach / 2, height - spine_t])
                 cube([total, reach, spine_t]);
         }
-        translate([0, -reach / 2 - 1, pin_z]) rotate([90, 0, 0])
+        // rotate([90,0,0]) maps +Z to -Y, so the cylinder must span backwards from the
+        // near face: start at +reach/2 and extrude reach+2. Without this the bore ran
+        // entirely outside the body and the clevis had no pin hole at all.
+        translate([0, reach / 2 + 1, pin_z]) rotate([90, 0, 0])
             cylinder(d = pin_d_mm + 2 * joint_clearance_mm, h = reach + 2);
     }
 }

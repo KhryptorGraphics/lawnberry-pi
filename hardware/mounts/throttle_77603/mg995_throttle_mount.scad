@@ -33,55 +33,6 @@ function throttle_servo_base_mm() =
      steering_face_y(),
      steering_face_z() + throttle_above_servo_mm];
 
-// ---- Saddle: wraps the arm head band at the servo face ------------------------------
-// The head is arm_col_d x arm_col_w at this station, so the wrap uses the same section
-// logic as before but referenced to the head, not the column.
-module saddle_profile_2d(half = 1) {
-    x_in = saddle_x_in();
-    y_out = saddle_y_out();
-    outer_x0 = -x_in;
-    outer_x1 = x_in + saddle_back_t_mm;
-    outer_y0 = -y_out - saddle_side_w_mm;
-    outer_y1 = y_out + saddle_side_w_mm;
-    difference() {
-        union() {
-            translate([outer_x0, outer_y0])
-                square([outer_x1 - outer_x0, outer_y1 - outer_y0]);
-            translate([x_in - saddle_ledge_w_mm, outer_y0])
-                square([saddle_ledge_w_mm, outer_y1 - outer_y0]);
-        }
-        square([2 * x_in, 2 * y_out], center = true);
-        translate([-x_in - 1, half > 0 ? -y_out - saddle_side_w_mm - 1 : y_out])
-            square([2 * x_in + 2, y_out + saddle_side_w_mm + 1]);
-        translate([-x_in - 1, -y_out])
-            square([2 * x_in + 2, 2 * y_out]);
-    }
-}
-
-function saddle_x_in() = arm_col_d / 2 + saddle_skin_clear_mm;
-function saddle_y_out() = arm_col_w / 2 + saddle_side_clear_mm;
-
-module saddle_segment(half = 1, seg = 0, h_seg = 50) {
-    // Printed piece: always built up from z=0 so it is bed-zero on its own.
-    difference() {
-        linear_extrude(height = h_seg - saddle_split_gap_mm)
-            saddle_profile_2d(half = half);
-        translate([0, 0, h_seg * 0.42])
-            rotate([90, 0, 0]) cylinder(d = saddle_vent_relief_d_mm,
-                                        h = arm_col_d + 2 * saddle_back_t_mm + 4,
-                                        center = true);
-        translate([arm_col_d / 2 + saddle_back_t_mm - saddle_dovetail_h_mm / 2,
-                   -saddle_dovetail_w_mm / 2, h_seg * 0.2])
-            cube([saddle_dovetail_h_mm, saddle_dovetail_w_mm, h_seg * 0.6]);
-    }
-}
-
-module saddle_flange_hook() {
-    // Printed flat on the bed.
-    cube([saddle_flange_overhang_mm + saddle_back_t_mm, saddle_dovetail_w_mm,
-          saddle_dovetail_h_mm]);
-}
-
 // ---- Riser and cradle, anchored above the steering servo ---------------------------
 module riser_segment(k = 0) {
     h = riser_z_mm / 2;
@@ -156,13 +107,6 @@ module mg995_body_envelope() {
 }
 
 // ---- Placement ---------------------------------------------------------------------
-// Installed (assembly) transforms vs printed (bed-zero) transforms are kept entirely
-// separate: reusing a print transform in the assembly silently moved parts metres.
-module throttle_saddle_installed(half = 1, segment = 0) {
-    h_seg = riser_z_mm / 2;
-    translate([0, 0, segment * h_seg]) saddle_segment(half = half, seg = segment,
-                                                      h_seg = h_seg);
-}
 
 // Printed foot: bridges from the outboard tower back to the steering-bracket servo land.
 module bracket_foot() {
@@ -208,18 +152,9 @@ module mg995_throttle_mount(part = mount_part) {
         // Anchored ON the steering servo land, extending up and outboard from it.
         translate([servo_station_x, servo_shaft_y(), arm_tip_z])
             throttle_stack_installed();
-    } else if (part == "saddle_left") {
-        saddle_segment(half = -1, seg = 0, h_seg = riser_z_mm / 2);
-    } else if (part == "saddle_right") {
-        saddle_segment(half = 1, seg = 0, h_seg = riser_z_mm / 2);
-    } else if (part == "saddle_left_upper") {
-        saddle_segment(half = -1, seg = 1, h_seg = riser_z_mm / 2);
-    } else if (part == "saddle_right_upper") {
-        saddle_segment(half = 1, seg = 1, h_seg = riser_z_mm / 2);
     } else if (part == "bracket_foot") {
         bracket_foot();
     } else if (part == "flange_hook") {
-        saddle_flange_hook();
     } else if (part == "riser_lower") {
         riser_segment(riser_index);
     } else if (part == "riser_upper") {

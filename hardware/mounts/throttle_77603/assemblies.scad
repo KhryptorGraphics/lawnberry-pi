@@ -76,42 +76,36 @@ module throttle_mount_service() {
 }
 
 module throttle_variant_scene(letter = "A", expl = 0) {
-    // A variant view must show the COMPLETE throttle station with that horn interface: mount,
-    // servo, horn adapter, adjustable rod and U fitting. Showing only the horn part would let
-    // the owner judge fit from an image that omits everything that has to fit.
+    // A variant view shows the COMPLETE throttle station with that horn interface, so the
+    // owner can judge whether it fits. `expl` separates the stack along its assembly axis:
+    // 0 renders assembled; >0 renders the same parts pulled apart (an "exploded companion"
+    // that merely drew extra duplicates looked identical to the assembled view, which is
+    // exactly the bug this replaces).
     horn_z = arm_tip_z + foot_t_mm + riser_z_mm + cradle_t_mm
              + mg995_body_height_mm + mg995_shaft_projection_mm;
+    gap = expl;
 
-    // Mount + purchased servo, as installed.
+    // Mount + servo. In exploded view the servo lifts off its cradle.
     mg995_throttle_mount("assembly");
-    mg995_reference();
+    translate([0, 0, gap * 0.5]) mg995_reference();
 
-    // Horn interface for this variant, on the servo shaft.
-    translate([servo_station_x + tower_offset_x, servo_shaft_y() + tower_offset_y, horn_z])
-        throttle_horn_variant(letter, "assembly");
+    // Horn interface, lifted further on the shaft axis.
+    translate([servo_station_x + tower_offset_x, servo_shaft_y() + tower_offset_y,
+               horn_z + gap]) throttle_horn_variant(letter, "assembly");
 
-    // Adjustable rod down to the U, and the U on the retained lever.
+    // Rod: lifted with the horn so the pin joint stays legible.
     translate([servo_station_x + tower_offset_x,
                servo_shaft_y() + tower_offset_y,
-               horn_z]) throttle_pushrod("assembly");
+               horn_z + gap * 0.6]) throttle_pushrod("assembly");
+
+    // U fitting, dropped away from the rod end.
     translate([throttle_idle_offset_x_mm, tower_offset_y,
-               horn_z - rods_nominal_span_mm])
+               horn_z - rods_nominal_span_mm - gap])
         throttle_u_fitting("body");
 
-    // Legacy steering arm head as unmodified context.
+    // Legacy steering arm head + the retained mower lever as context.
     color([0.16, 0.55, 0.60, 0.30]) arm_head_assembly();
     throttle_lever_reference();
-
-    if (expl > 0) {
-        // Exploded companion: lift the horn interface and drop the U clear of the rod.
-        color([0.75, 0.76, 0.78, 0.45])
-            translate([servo_station_x + tower_offset_x, servo_shaft_y() + tower_offset_y,
-                       horn_z + expl]) horn_reference();
-        color([0.16, 0.55, 0.60])
-            translate([throttle_idle_offset_x_mm, tower_offset_y,
-                       horn_z - rods_nominal_span_mm - expl])
-                throttle_u_fitting("body");
-    }
 }
 
 if (assembly == "throttle_station") throttle_station();

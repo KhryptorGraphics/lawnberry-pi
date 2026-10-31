@@ -61,15 +61,17 @@ rods_w_mm = 30;                    // outer square tube across flats
 rods_wall_mm = 4;
 rods_bore_mm = rods_w_mm - 2 * rods_wall_mm;      // 22
 rods_slider_mm = rods_bore_mm - 2 * sliding_clearance_mm; // 21.2
-rods_min_overlap_mm = 60;
-rods_coarse_travel_mm = 240;
-rods_fine_travel_mm = 20;
+// Re-derived for the ~150 mm anchor-to-lever span (the 60/240 pair was sized for a 1 m
+// telescoping rod and is nonsense on a 150 mm link: the overlap alone would be 40% of it).
+rods_min_overlap_mm = 40;      // 40% of a 100 mm tube, still two-diameter engagement
+rods_coarse_travel_mm = 60;    // continuous slide, under half the span
+rods_fine_travel_mm = 12;      // printed fine-trim carriage
 // Demonstration rod length: the planar horn-to-lever distance for the anchor above
 // (~150 mm), not the 1066.8 mm span that belonged to the column-mounted design. The owner's
 // 40/44-inch figures have undefined datums and are NOT used as a stroke or a rod length.
 rods_nominal_span_mm = 150;
-rods_span_min_mm = 110;
-rods_span_max_mm = 210;
+rods_span_min_mm = 120;
+rods_span_max_mm = 180;        // span + coarse travel + fine trim stays inside one sleeve
 
 // Fine-trim printed screw (fully printed; fractional turns give continuous adjustment).
 fine_screw_d_mm = 16;
@@ -149,7 +151,10 @@ saddle_flange_overhang_mm = 19; // outboard flange overhang land
 // there: world X 143.3..231.3 (arm_joint_x 187.3 +/- arm_joint_flange/2 44). The servo land
 // itself is under the servo case (Y 108..138), so it cannot be the attachment; the flange
 // band Y 141..157 is clear.
-foot_reach_mm = 253;     // tower axis -> flange inner edge (143.3), DERIVED
+// Verified by solid intersection with arm_head_assembly(): the foot contacts arm-head
+// material at X 187.3..209.6, Y 141..157, Z 430.2..438.2. The inboard end must therefore sit
+// at that band, not 44 mm past it (reach 253 ended at 142.9, overhanging nothing).
+foot_reach_mm = 209;     // tower axis (395.9) -> arm-head contact band (187.3), VERIFIED
 tower_offset_x = mg995_body_width_mm / 2 + throttle_outboard_mm;  // land -> tower axis
 // The steering servo case occupies Y 108..138 and the arm-head land is 70 mm wide
 // (Y 88..158), so the tower post is offset in Y to a band that clears the case while still
