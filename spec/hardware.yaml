@@ -118,8 +118,7 @@ tractor:
       - throttle
       - right_lever
     relay:
-      # GPIO relays; gpio numbers live in config/tractor.yaml relays.*.gpio.
-      - starter
+      # PTO permission relay only; engine starter and ignition are not software-controlled.
       - blade_pto
   pca9685:
     bus: "I2C"
