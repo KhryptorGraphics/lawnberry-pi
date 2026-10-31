@@ -678,26 +678,73 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
             if not target.read_bytes().startswith(b"\x89PNG"):
                 raise ValueError(f"Missing view {scene.name}")
         print(f"PASS {scene.kind} {scene.name}", flush=True)
-        return f"{folder}/{target.name}"
+        # Return the path the artifact will actually have after publishing, relative to
+        # the mounts root: drawings stay in generated_77603/drawings, renders become
+        # view_<name>.png beside the meshes. Recording "views/x.png" would describe a
+        # directory that is never created.
+        if folder == "drawings":
+            return f"drawings/{target.name}"
+        return f"view_{target.name}"
+
+    def render_preview(part) -> str:
+        name, source, parameters = part.name, part.source, part.parameters
+        target = staging_root / f"prev_{name}.png"
+        run(
+            [
+                "xvfb-run",
+                "-a",
+                "openscad",
+                "-o",
+                str(target),
+                "--imgsize=1000,800",
+                "--autocenter",
+                "--viewall",
+                "--render",
+                "--colorscheme=Tomorrow",
+                *defines(parameters),
+                str(ROOT / source),
+            ]
+        )
+        if not target.read_bytes().startswith(b"\x89PNG"):
+            raise ValueError(f"Missing preview {name}")
+        print(f"PASS preview {name}", flush=True)
+        return name
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(render_preview, PARTS_77603))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         artifacts = list(pool.map(render_view, VIEWS_77603))
 
     # Publish only after every mesh and probe passed.
-    for sub in ("stl", "3mf", "previews", "views", "drawings"):
-        (out / sub).mkdir(parents=True, exist_ok=True)
+    #
+    # Meshes, 3MFs and previews go to the repository's flat layout beside the legacy exports
+    # (<part>.stl, 3mf/<part>.3mf, prev_<part>.png, view_<scene>.png) so a slicer sees a single
+    # part list instead of two trees. Only the 2D drawings and the manifest stay in `out`,
+    # because the legacy tree carries no drawings. Publishing to both places would duplicate
+    # ~4.5 MB of binaries on every build.
+    (out / "drawings").mkdir(parents=True, exist_ok=True)
+    (ROOT / "3mf").mkdir(exist_ok=True)
     print_files = {}
     for name in sorted(reports):
-        shutil.move(str(staging_root / f"{name}.stl"), str(out / "stl" / f"{name}.stl"))
-        target = out / "3mf" / f"{name}.3mf"
-        write_3mf(out / "stl" / f"{name}.stl", target)
+        shutil.move(str(staging_root / f"{name}.stl"), str(ROOT / f"{name}.stl"))
+        target = ROOT / "3mf" / f"{name}.3mf"
+        write_3mf(ROOT / f"{name}.stl", target)
+        preview = staging_root / f"prev_{name}.png"
+        if preview.exists():
+            shutil.move(str(preview), str(ROOT / f"prev_{name}.png"))
         print_files[name] = {
             "path": f"3mf/{name}.3mf",
             "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
         }
     for artifact in artifacts:
-        folder, filename = artifact.split("/", 1)
-        shutil.move(str(staging_root / filename), str(out / folder / filename))
+        # Published path already carries its own prefix, so the staging basename has to be
+        # recovered from what render_view staged rather than from the target name.
+        if artifact.startswith("drawings/"):
+            shutil.move(str(staging_root / artifact.split("/", 1)[1]),
+                        str(out / "drawings" / artifact.split("/", 1)[1]))
+        else:
+            shutil.move(str(staging_root / artifact[len("view_"):]), str(ROOT / artifact))
 
     sources = sorted(
         {
@@ -716,6 +763,10 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
         "profile": "hardware_77603",
         "model": "Toro TimeCutter MAX Havoc MyRIDE 60 in, model 77603 (serial unknown)",
         "status": "geometry_generated_not_physically_qualified",
+        # Printed parts are published beside the legacy exports, not next to this manifest,
+        # so every path below is relative to this root. Without it a consumer has to guess
+        # whether "3mf/x.3mf" means here or one directory up.
+        "artifact_root": "hardware/mounts",
         "watermark": DRAWING_WATERMARK,
         "tool": run(["openscad", "--version"]).strip(),
         "build_volume_mm": list(BUILD_VOLUME_MM),
@@ -728,7 +779,12 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
         "parts": reports,
         "print_files": print_files,
         "probes": probes,
-        "artifacts": sorted(artifacts),
+        # Paths are relative to artifact_root, which is the mounts directory: drawings live
+        # under generated_77603/drawings, renders sit beside the meshes as view_*.png.
+        "artifacts": sorted(
+            f"generated_77603/{a}" if a.startswith("drawings/") else a
+            for a in artifacts
+        ),
         "component_inventory": [
             {"name": n, "quantity": q, "status": s, "role": r}
             for n, q, s, r in COMPONENT_INVENTORY

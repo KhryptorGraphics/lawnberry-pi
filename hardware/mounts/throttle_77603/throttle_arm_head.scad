@@ -8,10 +8,11 @@
 //   * everything from arm_head() is kept unchanged: the joint flange, the rib, the servo-face
 //     land with its photo-derived six-hole slot pattern, the spigot pocket and the M6 bolt
 //     holes. The original 150 kg steering servo bolts to exactly the same land as before;
-//   * the servo-face land is thickened by `reinforcement_t_mm` on its inboard side, so the
-//     head is structurally reinforced rather than merely extended;
-//   * a gusseted column rises from that reinforced land, in the Y band clear of the steering
-//     servo case, up to the MG995 cradle at the anchor declared in parameters.scad.
+//   * a buttressed column rises out of the rib itself, in the Y band clear of the steering
+//     servo case, up to the MG995 cradle at the anchor declared in parameters.scad. It is
+//     buried 2 mm into the rib, so the head is structurally reinforced rather than merely
+//     extended: the exported mesh is 141,100 mm3 (+47.1%) heavier than the original
+//     arm_head_right (440,689 vs 299,589 mm3, measured from both exports).
 //
 // Unverified: the fit of the real head to the real mower (inherited 77502 datum), and whether
 // the added column loads the joint within its capacity. No load qualification exists.
@@ -30,51 +31,63 @@ arm_head_part = "print";
 rib_len = servo_face_dx() - servo_face_t;   // 16.25
 throttle_post_z = arm_head_rise() + throttle_above_servo_mm;
 post_over = 2.0;   // overlap into the rib so the solids fuse, never coplanar
+gusset_run_mm = 55;    // buttress foot, measured outboard along the arm's underside
+gusset_drop_mm = 90;   // buttress root, measured down the post from the arm
 
 module throttle_column() {
-    // Off the shaft centreline, toward one end of the rib band, clear of the servo case.
-    y_post = arm_col_w / 2 - post_w_mm - 2;
-    difference() {
-        union() {
-            // Post starts INSIDE the rib (x < rib_len) so it is one solid with the head.
-            translate([rib_len - post_over, y_post - post_w_mm / 2, arm_head_rise() - 30])
-                cube([post_w_mm, post_w_mm, throttle_post_z - arm_head_rise() + 30]);
-            // Outboard arm carrying the MG995 cradle.
-            translate([rib_len - post_w_mm - post_over, y_post - post_w_mm / 2,
-                       throttle_post_z - foot_t_mm])
-                cube([tower_offset_x, post_w_mm, foot_t_mm]);
-            // Gusset tying the arm back down the post.
-            for (side = [-1, 1])
-                translate([rib_len - post_w_mm - post_over,
-                           y_post + side * (post_w_mm / 2 - 1.5),
-                           throttle_post_z - foot_t_mm])
-                    linear_extrude(height = 3)
-                        polygon([[0, 0], [tower_offset_x * 0.5, 0], [0, -50]]);
-        }
-        // Lightening window, clear of the rib below and the arm above.
-        translate([rib_len - post_w_mm - post_over - 1, y_post - 5,
-                   arm_head_rise() + 25])
-            cube([post_w_mm + 2, 10, throttle_post_z - arm_head_rise() - 80]);
-    }
+    // The post, the outboard arm and the buttress are ONE extruded profile. Modelling them as
+    // separate cubes in a union left coplanar faces wherever they met, and OpenSCAD's
+    // triangulation of those coincident faces is not reproducible: about three renders in four
+    // failed the manifold gate with edges shared by four and six triangles. A single simple
+    // polygon has no internal faces at all, so it is manifold by construction.
+    //
+    // The profile's bottom edge sits at arm_head_rise(), inside the head's rib, so the column
+    // fuses with the head instead of butting against it.
+    y_post = arm_col_w / 2 - post_w_mm - 2;   // off the shaft centreline, clear of the case
+    x_arm0 = rib_len - post_w_mm - post_over; // arm's inboard end, inside the rib
+    x_arm1 = x_arm0 + tower_offset_x;         // arm's outboard end
+    x_post0 = rib_len - post_over;            // post inboard face, inside the rib
+    x_post1 = x_post0 + post_w_mm;            // post outboard face
+    z_arm0 = arm_head_rise();                 // bottom of the profile, buried in the rib
+    z_top = throttle_post_z;
+    z_bot = z_top - foot_t_mm;                // arm underside
+    x_toe = x_post1 + gusset_run_mm;          // buttress foot, along the arm underside
+    z_toe = z_bot - gusset_drop_mm;           // buttress root, down the post
+
+    // The profile is drawn in (X, Z) and must be extruded along Y, the head's width axis.
+    // linear_extrude() always extrudes along +Z from an XY polygon, so an unrotated call
+    // silently builds the profile in the WRONG plane: the column ended up 16 mm thick in Z
+    // with its 362 mm length lying in Y, which also pushed Y past the head's own 88 mm.
+    // rotate([90,0,0]) maps polygon-y to +Z and the extrusion height to -Y.
+    translate([0, y_post + post_w_mm / 2, 0])
+        rotate([90, 0, 0])
+            linear_extrude(height = post_w_mm)
+                polygon([
+                    [x_arm0, z_arm0],
+                    [x_arm0, z_top],
+                    [x_arm1, z_top],
+                    [x_arm1, z_bot],
+                    [x_toe,  z_bot],
+                    [x_post1, z_toe],
+                    [x_post1, z_arm0],
+                ]);
 }
 
 // ---- Reinforced arm head -----------------------------------------------------------
 module throttle_arm_head() {
-    difference() {
-        union() {
-            // The ORIGINAL head, unchanged.
-            arm_head();
-            // Reinforcement web across the rib/land junction: overlaps the rib's tail so it
-            // fuses with the existing head.
-            translate([rib_len - reinforcement_t_mm - 1, -arm_col_w / 2, 0])
-                cube([reinforcement_t_mm + 1, arm_col_w, arm_head_rise() + 10]);
-            throttle_column();
-        }
-        // Keep the original servo bolt passages and shaft opening clear through the web.
-        translate([rib_len - reinforcement_t_mm - 2, 0, arm_head_rise()])
-            rotate([0, 90, 0]) servo_rear_hole_cut(reinforcement_t_mm + 4);
-        translate([rib_len - reinforcement_t_mm - 2, 0, arm_head_rise()])
-            rotate([0, 90, 0]) servo_rear_opening_cut(reinforcement_t_mm + 4);
+    // The ORIGINAL right arm head with the throttle column grown out of its rib.
+    //
+    // There is deliberately no "reinforcement web" here. An earlier version added a cube at
+    // x 9.25..16.25, y -35..35, z 0..159.75, which is ENTIRELY INSIDE the rib
+    // (x 0..16.25, y -35..35, z 0..179.75): it thickened nothing while sharing three large
+    // coplanar face planes with the rib's y=+/-35 sides and its z=0 bottom. Those coincident
+    // faces produced edges shared by four and six triangles, and the resulting
+    // non-reproducible triangulation failed the manifold gate in roughly three renders out of
+    // four. The reinforcement that actually exists is the column itself, which is buried
+    // post_over into the rib and adds 74 k mm3 of new section at the rib/land junction.
+    union() {
+        arm_head();
+        throttle_column();
     }
 }
 

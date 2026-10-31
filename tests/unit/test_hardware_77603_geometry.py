@@ -164,15 +164,18 @@ class TestManifest:
             assert lock in names, lock
 
     def test_stl_and_3mf_exist_for_every_part(self, manifest):
-        root = MANIFEST.parent
+        # Meshes live beside the legacy exports, not beside this manifest. The manifest says
+        # where, so the test does not have to assume a directory relationship.
+        root = Path(manifest["artifact_root"])
         for name, part in manifest["parts"].items():
-            assert (root / "stl" / f"{name}.stl").is_file(), name
+            # Meshes are published flat beside the legacy exports, not in an stl/ subdir.
+            assert (root / f"{name}.stl").is_file(), name
             assert (root / "3mf" / f"{name}.3mf").is_file(), name
 
     def test_declared_3mf_hashes_match_the_files(self, manifest):
         import hashlib
 
-        root = MANIFEST.parent
+        root = Path(manifest["artifact_root"])
         for name, entry in manifest["print_files"].items():
             actual = hashlib.sha256((root / entry["path"]).read_bytes()).hexdigest()
             assert actual == entry["sha256"], name

@@ -98,7 +98,7 @@ MOUNT_PIECES = (
         f"{THROTTLE}/throttle_arm_head.scad",
         {},
         orientation="mating face down, as the legacy arm head prints",
-        note="superset of arm_head_right: +24.7% material, original servo land and holes kept",
+        note="superset of arm_head_right: +141,100 mm3 (+47.1%) material, original servo land and holes kept",
     ),
     Piece(
         "riser_lower",
