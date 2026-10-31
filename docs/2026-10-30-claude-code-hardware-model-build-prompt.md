@@ -26,10 +26,11 @@ Read in order:
 9. `docs/2026-10-30-toro-77603-pto-switch-research.md`
 10. `docs/2026-10-30-dual-controller-pto-circuit-feasibility.md`
 10a. `docs/2026-10-30-followup-hardware-research-findings.md` (**mandatory new manufacturer-verified corrections: Kawasaki ground-to-kill, 1-643275 OEM relay not spare, Pololu selector fallback, Seeed SPI-only Mini PCIe, Quectel RTK option, four JSN-SR04T sensors and Raspberry Pi physical pin 17 correction**)
+10b. `docs/2026-10-31-simple-lockable-pushrod-joints-spec.md` (**latest owner steering-linkage requirement: attached manual PARK swing, two-axis end joints, lateral lock without locking fore/aft steering**)
 11. `hardware/mounts/README.md`, `INSTALL.md`, `assemblies.scad`, `enclosure_common.scad`, other relevant `*.scad`, and `build_printables.py`.
 
 These documents contain corrections and supersede legacy model **77502** assumptions. **Actual mower is Toro TimeCutter MAX Havoc MyRIDE 60-inch, model 77603**; serial unknown. The existing 77502 CAD is useful as a baseline **only**, not proven to fit the 77603. Do not reinstate deleted obsolete acceptance/safety documents.
-**Highest-precedence owner update, 2026-10-31:** manual key start and manual key stop ONLY; blade PTO-OFF remains dual-computer independent; no new park-swing hardware, starter GPIO/relay, engine kill interface, or remote ignition dashboard controls. Treat earlier engine stop/start instructions in referenced historical documents as superseded.
+**Highest-precedence owner update, 2026-10-31:** manual key start and manual key stop ONLY; blade PTO-OFF remains dual-computer independent; no powered PARK-swing actuator, starter GPIO/relay, engine kill interface, or remote ignition dashboard controls. Treat earlier engine stop/start instructions in referenced historical documents as superseded.
 
 ## Owned hardware — don't order duplicates
 
@@ -38,6 +39,10 @@ These documents contain corrections and supersede legacy model **77502** assumpt
 - **ONE purchased, assembled Pololu 4-channel RC Servo Multiplexer, SKU 2806**: use channels 1 and 2 to select between Pi and Alta steering PWM for both servos. Do NOT buy a second Pololu, and do not confuse it with engine/PTO control. Its SEL is an **RC pulse input**, not a static digital GPIO input. Follow manufacturer guide: https://www.pololu.com/docs/0J60/all . Engineer an explicit default/boot/host-failure source-selection truth table and separate validated logic supply. Do not route high-current 150 kg servo power through mux board VM traces.
 - Two purchased HiLetGo 5 V, 30 A **single-channel** relay boards, provisionally one intended for steering-servo power; one purchased automotive relay harness with unverified relay/sockets/contacts. Two steering-servo power converters, two SBC USB-C converters, MG995 throttle servo and X horn also owned.
 - Do not connect two SBC GPIO outputs together or assume two single-channel relays suffice for independent PTO permissions and steering-power needs.
+
+## Latest steering-end-joint handoff (SPECIFICATION ONLY for this request)
+
+Per 2026-10-31 owner direction, **do not generate CAD solely because the owner requested the specification**. When a separate future instruction authorizes CAD, execute `docs/2026-10-31-simple-lockable-pushrod-joints-spec.md` as the highest-precedence steering-pushrod-joint requirement: one minimal two-axis, four-joint family, an independent lockable lateral axis at either end of each rod, unrestricted steering fore/aft axis, manual outboard PARK while connected. First verify measured endpoint distance and no binding. The earlier instruction not to add a powered PARK actuator is unchanged.
 
 ## Workstream A — produce genuine parametric 3D CAD
 
