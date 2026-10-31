@@ -581,7 +581,7 @@ def build_hardware_77603(output_dir: Path | None = None) -> int:
                 f"{piece.name} exceeds the usable {USABLE_VOLUME_MM} mm envelope: {size}"
             )
         report.update(
-            source=f"{piece.source}.scad",
+            source=piece.source,
             parameters=piece.parameters,
             quantity=piece.quantity,
             print_orientation=piece.orientation,

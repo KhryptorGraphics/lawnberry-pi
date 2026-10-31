@@ -12,7 +12,10 @@
 //     servo case, up to the MG995 cradle at the anchor declared in parameters.scad. It is
 //     buried 2 mm into the rib, so the head is structurally reinforced rather than merely
 //     extended: the exported mesh is 141,100 mm3 (+47.1%) heavier than the original
-//     arm_head_right (440,689 vs 299,589 mm3, measured from both exports).
+//     arm_head_right (440,689 vs 299,589 mm3, measured from both exports). That is ADDED
+//     MATERIAL, not a strength calculation: no load qualification exists for the extended arm,
+//     and the buttress dimensions were chosen for manufacturability, not for the bending
+//     moment of the cantilever.
 //
 // Unverified: the fit of the real head to the real mower (inherited 77502 datum), and whether
 // the added column loads the joint within its capacity. No load qualification exists.
@@ -31,8 +34,13 @@ arm_head_part = "print";
 rib_len = servo_face_dx() - servo_face_t;   // 16.25
 throttle_post_z = arm_head_rise() + throttle_above_servo_mm;
 post_over = 2.0;   // overlap into the rib so the solids fuse, never coplanar
-gusset_run_mm = 55;    // buttress foot, measured outboard along the arm's underside
-gusset_drop_mm = 90;   // buttress root, measured down the post from the arm
+// GEOMETRY-DRIVEN, NOT LOAD-DERIVED. These two were chosen so the profile stays a simple
+// polygon that triangulates reproducibly; nothing here sized them for the bending moment of a
+// 362 mm cantilever. They are not a structural calculation and must not be cited as one.
+// Sizing this buttress properly needs a stated throttle-actuation load, which does not exist
+// yet, so any value here is provisional scaffolding around the real question.
+gusset_run_mm = 55;    // geometry-driven: buttress foot along the arm's underside
+gusset_drop_mm = 90;   // geometry-driven: buttress root down the post from the arm
 
 module throttle_column() {
     // The post, the outboard arm and the buttress are ONE extruded profile. Modelling them as
@@ -84,7 +92,8 @@ module throttle_arm_head() {
     // faces produced edges shared by four and six triangles, and the resulting
     // non-reproducible triangulation failed the manifold gate in roughly three renders out of
     // four. The reinforcement that actually exists is the column itself, which is buried
-    // post_over into the rib and adds 74 k mm3 of new section at the rib/land junction.
+    // post_over into the rib and, with it, makes the exported mesh 141,100 mm3 (+47.1%)
+    // heavier than arm_head_right.
     union() {
         arm_head();
         throttle_column();
