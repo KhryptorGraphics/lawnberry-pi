@@ -1,5 +1,8 @@
 # Toro conversion — printable mounts and fit fixtures
 
+> **2026-10-31 future redesign specification (not implemented in these CAD files):** The current 77502-derived rod-end clevis/eye geometry **cannot follow manual outboard PARK swing with pins installed**. The owner wants **both pushrod ends captured during PARK travel**, and lateral yaw lockable independently of normal fore/aft steering. See [Toro 77603 simplest lockable pushrod joint specification](../../docs/2026-10-31-simple-lockable-pushrod-joints-spec.md). Do not mistake this requirement for a completed model or tested fit.
+
+
 Parametric OpenSCAD sources, binary STL exports, PNG previews and reproducible geometry checks.
 Dimensions are millimetres. **These files are not a machine-fit, structural or ingress certification.**
 The mower's engine and hydrostatic transaxles stay stock; the servos move the existing controls.
