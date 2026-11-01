@@ -263,7 +263,12 @@ def run(command: list[str], *, empty: bool = False) -> str:
     return text
 
 
-def mesh_report(path: Path) -> dict:
+def mesh_report(path: Path, bodies: int = 1) -> dict:
+    """Prove an STL is ``bodies`` closed, positive solids that fit the printer.
+
+    ``bodies`` > 1 is a print-in-place piece: one print that leaves the bed as several
+    captive bodies. Those are additionally checked by ``pip_gate.pip_report``.
+    """
     data = path.read_bytes()
     if len(data) < 84:
         raise ValueError(f"Missing binary STL: {path}")
@@ -273,7 +278,8 @@ def mesh_report(path: Path) -> dict:
     vertices: dict[tuple, int] = {}
     edges: dict[tuple[int, int], list] = {}
     parent = list(range(count))
-    volume = 0.0
+    signed: list[float] = []
+    corners: list[tuple] = []
 
     def root(index: int) -> int:
         while parent[index] != index:
@@ -297,28 +303,38 @@ def mesh_report(path: Path) -> dict:
         )
         if sum(value * value for value in cross) < 1e-16:
             raise ValueError(f"Degenerate triangle: {path}, {index}")
-        volume += (
-            a[0] * (b[1] * c[2] - b[2] * c[1])
-            + a[1] * (b[2] * c[0] - b[0] * c[2])
-            + a[2] * (b[0] * c[1] - b[1] * c[0])
-        ) / 6
+        signed.append(
+            (
+                a[0] * (b[1] * c[2] - b[2] * c[1])
+                + a[1] * (b[2] * c[0] - b[0] * c[2])
+                + a[2] * (b[0] * c[1] - b[1] * c[0])
+            )
+            / 6
+        )
+        corners.append((a, b, c))
         for u, v in zip(ids, ids[1:] + ids[:1], strict=True):
             edge = (min(u, v), max(u, v))
             state = edges.setdefault(edge, [0, 0, index])
             state[0] += 1
             state[1] += 1 if u < v else -1
             parent[root(index)] = root(state[2])
-    components = len({root(index) for index in range(count)})
     if any(uses != 2 or balance != 0 for uses, balance, _ in edges.values()):
         raise ValueError(f"Nonmanifold edge or inconsistent winding: {path}")
-    if components != 1 or volume <= 0:
-        raise ValueError(f"Expected one positive connected solid: {path}, {components=}, {volume=}")
+    labels = [root(index) for index in range(count)]
+    body_volume: dict[int, float] = {}
+    for label, part in zip(labels, signed, strict=True):
+        body_volume[label] = body_volume.get(label, 0.0) + part
+    components = len(body_volume)
+    volume = sum(body_volume.values())
+    if components != bodies or any(value <= 0 for value in body_volume.values()):
+        noun = "positive connected solid" if bodies == 1 else "positive captive bodies"
+        raise ValueError(f"Expected {bodies} {noun}: {path}, {components=}, {volume=}")
     low = [min(point[k] for point in vertices) for k in range(3)]
     high = [max(point[k] for point in vertices) for k in range(3)]
     size = [high[k] - low[k] for k in range(3)]
     if abs(low[2]) > 0.001 or max(size[:2]) > 420.001 or size[2] > 500.001:
         raise ValueError(f"Not bed-zero or exceeds 420x420x500 printer: {path}, {low=}, {size=}")
-    return {
+    report = {
         "triangles": count,
         "connected_solids": components,
         "watertight": True,
@@ -331,6 +347,39 @@ def mesh_report(path: Path) -> dict:
         "stl_sha256": hashlib.sha256(data).hexdigest(),
         "mesh_sha256": canonical_mesh_digest(path),
     }
+    if bodies > 1:
+        import numpy as np  # local import: the legacy build stays standard-library only
+        from pip_gate import pip_report
+
+        report.update(pip_report(np.array(corners, dtype=float), np.array(labels)))
+    return report
+
+
+def _remove_stale_profile_exports(
+    previous_names: set[str],
+    current_names: set[str],
+    legacy_names: set[str],
+    publish_root: Path,
+) -> list[str]:
+    """Remove old profile-only part files no longer declared by the catalog."""
+    stale_names = previous_names - current_names - legacy_names
+    removed = []
+    for name in sorted(stale_names):
+        if Path(name).name != name:
+            raise ValueError(f"Invalid prior profile part name: {name!r}")
+        files = (
+            publish_root / f"{name}.stl",
+            publish_root / f"prev_{name}.png",
+            publish_root / "3mf" / f"{name}.3mf",
+        )
+        found = False
+        for path in files:
+            if path.is_file() or path.is_symlink():
+                path.unlink()
+                found = True
+        if found:
+            removed.append(name)
+    return removed
 
 
 def read_stl_triangles(path: Path) -> list[tuple]:
@@ -558,6 +607,14 @@ def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
     if output_dir is not None and out.exists():
         raise SystemExit(f"refusing to overwrite existing output tree: {out}")
 
+    previous_names = set()
+    if output_dir is None:
+        old_manifest_path = out / "validation.json"
+        if old_manifest_path.is_file():
+            old_manifest = json.loads(old_manifest_path.read_text())
+            previous_names = set(old_manifest.get("parts", {}))
+            previous_names.update(old_manifest.get("print_files", {}))
+
     def render_piece(piece) -> tuple:
         target = staging_root / f"{piece.name}.stl"
         run(
@@ -571,7 +628,7 @@ def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
                 str(ROOT / piece.source),
             ]
         )
-        report = mesh_report(target)
+        report = mesh_report(target, piece.bodies)
         size = report["size_mm"]
         if (
             size[0] > USABLE_VOLUME_MM[0]
@@ -737,6 +794,7 @@ def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
             "control_77603/parameters.scad",
             "control_77603/board_carriers.scad",
             "build_printables.py",
+            "pip_gate.py",
             "hardware_77603_catalog.py",
             "hitch_arm_layer.scad",
             "pushrod.scad",
@@ -788,6 +846,14 @@ def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
         else:
             shutil.move(str(staging_root / artifact.removeprefix("view_")),
                         str(publish_root / artifact))
+    removed = _remove_stale_profile_exports(
+        previous_names,
+        set(reports),
+        {name for name, _, _ in PARTS},
+        publish_root,
+    )
+    for name in removed:
+        print(f"Removed obsolete profile export: {name}", flush=True)
     shutil.move(str(staging_root / "validation.json"), str(out / "validation.json"))
     print(
         f"Published {len(reports)} meshes, {len(print_files)} 3MFs, "

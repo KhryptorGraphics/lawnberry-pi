@@ -17,26 +17,27 @@
   ],
   "step_status": "UNAVAILABLE: OpenSCAD 2021.01 has no STEP writer; no BREP exported",
   "sources_sha256": {
-    "build_printables.py": "65d0a2b55992afccb93b9f705432b102fef5176c3c0f65025f3e37a8a7823438",
+    "build_printables.py": "ba1d4e0ad3056a387571827d9e54d0d868c0e83d9a8afd71aeb6d04016393fc3",
     "common.scad": "2a0f359d5644435f41328f5b137b85b175e604646dc85bec6dcc45a2b0322648",
     "control_77603/assemblies.scad": "77cc227da191ccb003f8703e6e2fda2a455d79f991d134fe8a1fc4f414e081b4",
     "control_77603/board_carriers.scad": "9e7d7bbed08a74dbc6039ccd839ecbc6c961a7f1479979bf0aed892ddb0281d7",
     "control_77603/electronics_enclosure.scad": "467a71d6db30332eecee8ba4f7642079d0dfdda26fdd2a3015492e6cab35face",
     "control_77603/parameters.scad": "e31bae3e26fa0c9191a8167c5b7352e8c7bb7ccf86080b3230bf07ec00256be0",
     "enclosure_common.scad": "2e4c25f435c7838e396fe0fba5ba5aca2844848d04fda98fc3d88c156d4ef0eb",
-    "hardware_77603_catalog.py": "faf898f0f89a011f1a71d45934164a8f0c8854e2a0f8a3bfb45796596ecf173e",
+    "hardware_77603_catalog.py": "0aa2c426a77a02ff34c81ef8e3a1543bf90f2bbcaaa2b1d4032c227a661b73c4",
     "hitch_arm_layer.scad": "20b3247669f095e9346de6bcd74de36d2fb1e0c7d2dcb70729aef2decdaa6557",
+    "pip_gate.py": "7e902783b8579ecc3bf5c042033865f6784636485ddb1f5ce16689259af00413",
     "pushrod.scad": "56417f873c82e302a9b715e2e372c6cc43b53f683309c15855cea9d8d4e0ea7e",
     "throttle_77603/assemblies.scad": "92c02766fa48444baded9a8ef56e0caddf3b6b4e3a7a74f8d714721a1ee85c12",
     "throttle_77603/drawings.scad": "383aa92fc0b1db6b87d7b0b003481d3dcbf4c46e54339b1e67656261e778aee5",
-    "throttle_77603/fit_checks.scad": "f047c949b40a61fa498cfc0c379e843637d34a316943d8051f70f75944077e65",
+    "throttle_77603/fit_checks.scad": "514a6bcd91ac8c249aef37c7cc7e71afddf4af26600307e63845821d1be86c55",
     "throttle_77603/mg995_throttle_mount.scad": "a14e6800866a13f613c133cef15022ec79f6c58c51a8e8788cbbf430c2c265ca",
     "throttle_77603/parameters.scad": "b9a8516fe0a160ab43e375e172b805c4efb96e7f215296ecc53a0828d2f80a9e",
-    "throttle_77603/printed_joints.scad": "4287c63f43f50cdbedc4068daea4d5b5fe6b5b75dfa201504789ba5b48250bda",
+    "throttle_77603/printed_joints.scad": "f6b842e46cf52ab319410c8548d9055c09c04572c750e9562a02b08473f2d439",
     "throttle_77603/throttle_arm_head.scad": "6a3f2dd56126de1314801f499fe5a6a91d887bc8684005f50758eb06837547fb",
-    "throttle_77603/throttle_horn_variants.scad": "569d0e8138f645acc72fca95a8e9093ddb07b8052e1f6a4dcb13883142379329",
-    "throttle_77603/throttle_pushrod.scad": "810f657256df646820bd88f8e8f5ddbf437478801217a653515cf184dab57e16",
-    "throttle_77603/throttle_u_fitting.scad": "d30e14ca0f406d46b522967e562e4caad4214976688fc62555487ba923c9f938"
+    "throttle_77603/throttle_horn_variants.scad": "dd55df41f731bbe8c76a884774b3c6a7d8fd0f7832641940f298ec790ea28d89",
+    "throttle_77603/throttle_pushrod.scad": "c1c9e81ef7ced4e7f74f6ace6e62d804434f875f8c448b077dab883c48ceb1a4",
+    "throttle_77603/throttle_u_fitting.scad": "c81bc08b44ca54f657b07fa418c93be7267ef24a4785907b05449678d87c1d3c"
   },
   "parts": {
     "throttle_arm_head": {
@@ -62,7 +63,7 @@
         244.857
       ],
       "volume_mm3": 435008.475,
-      "stl_sha256": "4b907bd681aab8713d207f9146dd8397c988d744e89427e7c702e7767c05e3ac",
+      "stl_sha256": "4581e2c721ae61a683f1d0aa1f9ccd581dad153e4adb0e20971b584793d93e74",
       "mesh_sha256": "c788879f8d7f496a3f3174e9a16403108b5e464ac84be3f2ebf01ea04bdeb79a",
       "source": "throttle_77603/throttle_arm_head.scad",
       "parameters": {},
@@ -104,7 +105,7 @@
         68.0
       ],
       "volume_mm3": 36017.53,
-      "stl_sha256": "10368a3f624e1854b50ab99817b51436c516ba47f3a6882436fed3af26fe1601",
+      "stl_sha256": "a2fa74044fc9c36a09b3b843aba63dababb1fbe39020d7d50479f24da50427a0",
       "mesh_sha256": "d3cc6d5d06ec3cbaf90a49d4a4ab056bceaefef38257e1553a9479d7b1556d70",
       "source": "throttle_77603/mg995_throttle_mount.scad",
       "parameters": {
@@ -148,7 +149,7 @@
         32.575
       ],
       "volume_mm3": 13438.655,
-      "stl_sha256": "0b8d0365a1052c3c4d83f9dab26987c5bb2e5b8a216742df74c5176703fe8c96",
+      "stl_sha256": "f29ed850b3adb76a40572892545d108062849cb4bd363f7d0e9731bb346faf36",
       "mesh_sha256": "901f9f17132219bf2c0cb8ede51ef24f5f3383d578ce63a5bdb2fc04e832fae4",
       "source": "throttle_77603/mg995_throttle_mount.scad",
       "parameters": {
@@ -192,7 +193,7 @@
         39.5
       ],
       "volume_mm3": 347.542,
-      "stl_sha256": "f80dad065d73b30ea4939fa6163022e647fd56a0e09983d62333c24a4a811d83",
+      "stl_sha256": "3f16f4f81900b16c68c6382365fa9a73701b613e2ab0d068e29069496ae14bc1",
       "mesh_sha256": "434d8d6ea0ea4dc023820e98bf54033d77d68b3841034c8f4e3128cd0a56af2c",
       "source": "throttle_77603/mg995_throttle_mount.scad",
       "parameters": {
@@ -236,7 +237,7 @@
         33.1
       ],
       "volume_mm3": 296.153,
-      "stl_sha256": "13e3165e712a2a2e86afdede3994973ee9737b64d35dac9e203253a649481f99",
+      "stl_sha256": "4a9e60e2a9df241247d04367721f003f9ff0926a254ac86d97f64ac9fda18b4f",
       "mesh_sha256": "13a68d4e96a2982d270ddcdf16a5f2abcef6b77de3e699837886a502dc4501d0",
       "source": "throttle_77603/mg995_throttle_mount.scad",
       "parameters": {
@@ -280,7 +281,7 @@
         1.8
       ],
       "volume_mm3": 35.029,
-      "stl_sha256": "fb89398bb2d25b68ed181a5ec5ab51d90c620aec4a7c61db07f01771909c5b57",
+      "stl_sha256": "c3f07afae85041558c0b655d1a66a277a48189ed710dcd9aedb2fac91453bf74",
       "mesh_sha256": "58e9cbff53b062538447bdf75b51be562696ea7824f64d657e6e866e1d15870f",
       "source": "throttle_77603/mg995_throttle_mount.scad",
       "parameters": {
@@ -345,534 +346,6 @@
         490
       ]
     },
-    "hinge_pin": {
-      "triangles": 764,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.0,
-          -4.0,
-          0.0
-        ],
-        [
-          4.0,
-          4.0,
-          24.0
-        ]
-      ],
-      "size_mm": [
-        8.0,
-        8.0,
-        24.0
-      ],
-      "volume_mm3": 575.117,
-      "stl_sha256": "4183dee31b75f0a16e4e99d93c3fd90405569a880fecd93a833f360817508a49",
-      "mesh_sha256": "4640d8e3a888e4e2b6b0f200cb0dc31967791080cf1147a6c56908ebb9d3e534",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "pin"
-      },
-      "quantity": 6,
-      "print_orientation": "upright on its head flange",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "captive printed hinge pin for the U-neck and U-body joints; the rod's clevis pin and the five horn variants' index pins are their own parts",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "clevis": {
-      "triangles": 548,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -11.0,
-          -11.0,
-          0.0
-        ],
-        [
-          11.0,
-          11.0,
-          22.0
-        ]
-      ],
-      "size_mm": [
-        22.0,
-        22.0,
-        22.0
-      ],
-      "volume_mm3": 6811.46,
-      "stl_sha256": "df4f99333b13c3968af1a2f17b73cc3f6d871f54104ad53f1dcd358ed99455ed",
-      "mesh_sha256": "816bfb150d28ed82bfb577790068d15100ae39da6629c1aa4d1b75d64d3b8d93",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "clevis"
-      },
-      "quantity": 2,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "bushing": {
-      "triangles": 660,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.5,
-          -4.5,
-          0.0
-        ],
-        [
-          4.5,
-          4.5,
-          8.0
-        ]
-      ],
-      "size_mm": [
-        9.0,
-        9.0,
-        8.0
-      ],
-      "volume_mm3": 322.976,
-      "stl_sha256": "ef3b323b999e0191639e4073860b73861729f3b2adbf6bb5ff22d08b87d9dc64",
-      "mesh_sha256": "aca968d6837311b39833aff5c4e316da130e222326e69e0e366f505e096c69d4",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "bushing"
-      },
-      "quantity": 4,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "wear_socket": {
-      "triangles": 544,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -9.0,
-          -9.0,
-          0.0
-        ],
-        [
-          9.0,
-          9.0,
-          9.0
-        ]
-      ],
-      "size_mm": [
-        18.0,
-        18.0,
-        9.0
-      ],
-      "volume_mm3": 1446.171,
-      "stl_sha256": "cf9943df39c6eecaf8c88e3d1ab24c215a18ef24219fa197d2a97bd933023ee3",
-      "mesh_sha256": "017035241183b1a30072a9cea713496208713d945240fd60f277d4c1521e1c39",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "wear_socket"
-      },
-      "quantity": 2,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "endstop_collar": {
-      "triangles": 72,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -18.0,
-          -18.0,
-          0.0
-        ],
-        [
-          18.0,
-          18.0,
-          6.0
-        ]
-      ],
-      "size_mm": [
-        36.0,
-        36.0,
-        6.0
-      ],
-      "volume_mm3": 2000.96,
-      "stl_sha256": "9a4159fe7b8324a7718b05a27f0c7440e139dea3770fc6a913acbeb63f268109",
-      "mesh_sha256": "32ac849c3b034c391ca19233076355cd514ef764887149c830d7eb67d4d98ee3",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "endstop_collar"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "joint_lock_nut": {
-      "triangles": 6274,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -13.0,
-          -13.0,
-          0.0
-        ],
-        [
-          13.0,
-          13.0,
-          10.0
-        ]
-      ],
-      "size_mm": [
-        26.0,
-        26.0,
-        10.0
-      ],
-      "volume_mm3": 3840.306,
-      "stl_sha256": "4719f421ca20b657bfbeb2ac96a752754dc2a558ba9e785e5f4cf18b92357b07",
-      "mesh_sha256": "d8b62e226675b0c597bbd95bb5ef556be54bdf3e72d83e85450d03be2ecfce27",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "nut"
-      },
-      "quantity": 1,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "keyed_spigot": {
-      "triangles": 48,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -10.799999237060547,
-          -10.799999237060547,
-          0.0
-        ],
-        [
-          10.799999237060547,
-          10.799999237060547,
-          40.0
-        ]
-      ],
-      "size_mm": [
-        21.6,
-        21.6,
-        40.0
-      ],
-      "volume_mm3": 18270.717,
-      "stl_sha256": "c3cdddce1b4a3022625e9362e013445a72c97b1798475b7ef652d3903d3c9c7e",
-      "mesh_sha256": "fd02c35f9bcb3e3221598b1beae386d8557a96856139ee03326836b8a9b6f384",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "keyed_spigot"
-      },
-      "quantity": 3,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "trim_screw": {
-      "triangles": 21146,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -10.0,
-          -10.0,
-          0.0
-        ],
-        [
-          10.0,
-          10.0,
-          60.0099983215332
-        ]
-      ],
-      "size_mm": [
-        20.0,
-        20.0,
-        60.01
-      ],
-      "volume_mm3": 8555.714,
-      "stl_sha256": "b40c26fc65528e43507549d978f763034029ac5d237870d1a684b2169b8846e7",
-      "mesh_sha256": "a9560b743e6c958099f5e2efd45e10c119d62a1f987a9b92402c193d7a131f66",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "screw"
-      },
-      "quantity": 1,
-      "print_orientation": "upright, flange on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "anti_backdrive_lip": {
-      "triangles": 32,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.0,
-          0.0,
-          0.0
-        ],
-        [
-          4.0,
-          2.1999998092651367,
-          7.5
-        ]
-      ],
-      "size_mm": [
-        8.0,
-        2.2,
-        7.5
-      ],
-      "volume_mm3": 125.033,
-      "stl_sha256": "2c46d9a48e6f9a46045bfe0ef4dd37f2cb31e2feb582f05b27cc125d10e418a0",
-      "mesh_sha256": "a44e568e8ab18df5410e704f2ad50e1359238a191359ad65ffdc13f089b34140",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "anti_backdrive"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "retainer_keeper": {
-      "triangles": 476,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -6.0,
-          -6.0,
-          0.0
-        ],
-        [
-          5.910008430480957,
-          6.0,
-          2.0
-        ]
-      ],
-      "size_mm": [
-        11.91,
-        12.0,
-        2.0
-      ],
-      "volume_mm3": 177.672,
-      "stl_sha256": "78e05a48e4ce1f4977fc642d9fb65d3ef0e658e8da38ebf44e82570f1aadc58f",
-      "mesh_sha256": "8597e13d3d853a506b759dd68f21ee0542951490db80f4fe897377c71e704f23",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "keeper"
-      },
-      "quantity": 8,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "alignment_yoke": {
-      "triangles": 548,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -11.0,
-          -9.0,
-          0.0
-        ],
-        [
-          11.0,
-          9.0,
-          22.0
-        ]
-      ],
-      "size_mm": [
-        22.0,
-        18.0,
-        22.0
-      ],
-      "volume_mm3": 5515.46,
-      "stl_sha256": "e232010cca3936de30de73200265c52f33cce08e566cadae10c6b2f095685a76",
-      "mesh_sha256": "59252a141a10c1d61aeb15d740cc003a6c848a3b19526a593b4f7e26075da146",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "alignment_yoke"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "alignment_cross_block": {
-      "triangles": 584,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -8.0,
-          -11.0,
-          0.0
-        ],
-        [
-          8.0,
-          11.0,
-          28.0
-        ]
-      ],
-      "size_mm": [
-        16.0,
-        22.0,
-        28.0
-      ],
-      "volume_mm3": 6293.059,
-      "stl_sha256": "7bdd64031e0c650aa4706928c7ba323638e02aa95a4042bd6494c833194c06e3",
-      "mesh_sha256": "e8e8f39aa49f8a9f5f75dcda800ec7be46f40e95ebe8aafb49fc127a7971840f",
-      "source": "throttle_77603/printed_joints.scad",
-      "parameters": {
-        "joint_part": "alignment_cross"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
     "rod_segment_lower": {
       "triangles": 352,
       "connected_solids": 1,
@@ -887,17 +360,17 @@
         [
           15.0,
           15.0,
-          314.0
+          266.0
         ]
       ],
       "size_mm": [
         33.0,
         30.0,
-        314.0
+        266.0
       ],
-      "volume_mm3": 121798.04,
-      "stl_sha256": "15ae68cf7c630bf00fe9eb13a6d7fe5abe882834b0f60ad71f99b09153702ff2",
-      "mesh_sha256": "8c7889b5047176a5d50ae32c5458359785792efbad452dbadd896d8e890d69ec",
+      "volume_mm3": 101824.112,
+      "stl_sha256": "6f8c98c16c3f6c26cc6d52cd9ec48dec98a8c13508b7851aa8c852920f3cf3ca",
+      "mesh_sha256": "973879698fcfe45b8c1c2e96a4b17c2f30eb32cb10f2f4419f54ccd490fed0b7",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
         "rod_part": "segment_lower",
@@ -932,17 +405,17 @@
         [
           18.0,
           18.0,
-          292.0
+          256.0
         ]
       ],
       "size_mm": [
         36.0,
         36.0,
-        292.0
+        256.0
       ],
-      "volume_mm3": 119456.297,
-      "stl_sha256": "84cd72cb160f59965a3ae15b09e6c5a7fb74787f232f0dae07ba2b285a8cc727",
-      "mesh_sha256": "2ccd3493541ba9509449c9ce03b34054509048c6ac909cb7e78ef4e357b3f728",
+      "volume_mm3": 104470.313,
+      "stl_sha256": "781f866f6039c88daf312d863ec4e8bb5961086c82826f1cba9edd4d765dbcf6",
+      "mesh_sha256": "2db9b97c20866b1935e6d18661a28cebd23ce5cbf7c2c4401513aa4965cec3b1",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
         "rod_part": "segment_middle",
@@ -977,17 +450,17 @@
         [
           18.0,
           18.0,
-          282.0
+          256.0
         ]
       ],
       "size_mm": [
         36.0,
         36.0,
-        282.0
+        256.0
       ],
-      "volume_mm3": 115296.297,
-      "stl_sha256": "53e681bae43a647cb728df0812a5a0ddfdb4005839acc76ccb97522aad79be16",
-      "mesh_sha256": "0742b90a558358c1b1415bcb025e44bf2f51cc3605fc0277b6aa2cee41e41dd6",
+      "volume_mm3": 104470.313,
+      "stl_sha256": "781f866f6039c88daf312d863ec4e8bb5961086c82826f1cba9edd4d765dbcf6",
+      "mesh_sha256": "2db9b97c20866b1935e6d18661a28cebd23ce5cbf7c2c4401513aa4965cec3b1",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
         "rod_part": "segment_upper",
@@ -1008,220 +481,43 @@
         490
       ]
     },
-    "rod_slider": {
-      "triangles": 592,
-      "connected_solids": 1,
+    "rod_capture_assembly": {
+      "triangles": 728,
+      "connected_solids": 2,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
-          -10.59999942779541,
-          -15.0,
+          -18.0,
+          -18.0,
           0.0
         ],
         [
           58.0,
-          15.0,
+          18.0,
           360.0
         ]
       ],
       "size_mm": [
-        68.6,
-        30.0,
+        76.0,
+        36.0,
         360.0
       ],
-      "volume_mm3": 182540.237,
-      "stl_sha256": "3ab09ad73f6292c4673b579305f1e5afb30c392b6c5acc4f3a10e3cee0b33fbd",
-      "mesh_sha256": "301097e3e00aec070b251278e5c61066ab6fcc97d87fc7578f8a2efbc6423063",
+      "volume_mm3": 265872.665,
+      "stl_sha256": "c3a64dacfd89336a483024f77e0a3dd4cb4ae4fee1eb5a9ef6560ee18e23530b",
+      "mesh_sha256": "ee7e6a6e4769c40df56308eb9d3fc586300c2cdfb4a8bc2fe53a5a5da0945eed",
+      "pip_bodies": 2,
+      "pip_min_gap_mm": 0.4,
+      "pip_droop_area_mm2": 0.0,
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
-        "rod_part": "slider",
+        "rod_part": "capture_assembly",
         "rod_lock_kind": "lead_screw"
       },
       "quantity": 1,
-      "print_orientation": "lying flat, long axis on the bed X",
+      "print_orientation": "upright, slider and sleeve co-printed at z = 0",
       "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_sleeve": {
-      "triangles": 380,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -18.0,
-          -18.0,
-          0.0
-        ],
-        [
-          18.0,
-          18.0,
-          216.0
-        ]
-      ],
-      "size_mm": [
-        36.0,
-        36.0,
-        216.0
-      ],
-      "volume_mm3": 83135.266,
-      "stl_sha256": "e686ad4ee83f0b5d35becfcaed3c9fb05a104d7a9192828a4af45bc9a4a84d52",
-      "mesh_sha256": "dc825c2fbb29cf05450a2fc4c1c4d7b0c512873212b62c3134d8ccefa0f46a8d",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "sleeve",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "lying flat, long axis on the bed X",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_capture_pin": {
-      "triangles": 1020,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.0,
-          -4.0,
-          0.0
-        ],
-        [
-          4.0,
-          4.0,
-          17.0
-        ]
-      ],
-      "size_mm": [
-        8.0,
-        8.0,
-        17.0
-      ],
-      "volume_mm3": 440.246,
-      "stl_sha256": "53c94147be6bafde0689af5b810b8b93e877d5d1aa0bcd52e69fa4fc2d68cceb",
-      "mesh_sha256": "a8f9340119a87732aea69c901f813cc0a3c8aa8225c58a137176894cb0dc1ffc",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "capture_pin",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "upright on its head flange",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_capture_keeper": {
-      "triangles": 476,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -5.5,
-          -5.5,
-          0.0
-        ],
-        [
-          5.405146598815918,
-          5.5,
-          4.0
-        ]
-      ],
-      "size_mm": [
-        10.905,
-        11.0,
-        4.0
-      ],
-      "volume_mm3": 284.717,
-      "stl_sha256": "3f2a751acd1001561ce33986052a285b57883f05410396cedea05944ef4f4093",
-      "mesh_sha256": "84f1c4d71d23a3a87b583a200111783a3117ecb56f3530901c0c394eb2cf2b4e",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "capture_keeper",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_spigot": {
-      "triangles": 32,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -14.79998779296875,
-          -14.79998779296875,
-          0.0
-        ],
-        [
-          14.79998779296875,
-          14.79998779296875,
-          40.0
-        ]
-      ],
-      "size_mm": [
-        29.6,
-        29.6,
-        40.0
-      ],
-      "volume_mm3": 15686.342,
-      "stl_sha256": "bacecf4a80d2a2c915a753198d968aaa7cd83115af485b4fdc8a75f9d95e343f",
-      "mesh_sha256": "215f9cfa376dc86b118a7b5b9fe5bc0e520450a4967c0ac182e6a33126c8b80c",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "spigot",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
+      "note": "print-in-place pair: integral 45-degree sleeve lug rides in the slider groove; no capture pin or keeper",
       "build_envelope_mm": [
         420,
         420,
@@ -1263,10 +559,10 @@
         "rod_part": "splice_wedge",
         "rod_lock_kind": "lead_screw"
       },
-      "quantity": 0,
+      "quantity": 3,
       "print_orientation": "flat, largest face on the bed",
       "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "only needed when the span segments; count follows the span",
+      "note": "one bar per section joint: servo section, two chain sections, sleeve",
       "build_envelope_mm": [
         420,
         420,
@@ -1308,10 +604,10 @@
         "rod_part": "splice_keeper",
         "rod_lock_kind": "lead_screw"
       },
-      "quantity": 0,
+      "quantity": 3,
       "print_orientation": "flat, largest face on the bed",
       "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "only needed when the span segments; count follows the span",
+      "note": "one keeper per section joint, traps that joint's transverse bar",
       "build_envelope_mm": [
         420,
         420,
@@ -1346,7 +642,7 @@
         85.01
       ],
       "volume_mm3": 11815.124,
-      "stl_sha256": "04b5bdf0e344b1e19384fb8d73d319d3111f9ea54e134ceeefa40ab7ad3a4688",
+      "stl_sha256": "d926a27f7652dcec0ca5457c5ef7f17a365c1922e7f8d234df69f4569a83149b",
       "mesh_sha256": "9f39f05dfa658d386d6989d1e5dc75f69ce747d6f74204a17c85d831c5033244",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -1391,7 +687,7 @@
         10.0
       ],
       "volume_mm3": 3840.306,
-      "stl_sha256": "e08e86bbc3ae78e512f3c913a03d13d2fc599dd1b489232de223647cac2e5dcd",
+      "stl_sha256": "41b30be3032dc7a0d61d912dea18dc1e09404be179b3e3f071f4b31440f984bf",
       "mesh_sha256": "d8b62e226675b0c597bbd95bb5ef556be54bdf3e72d83e85450d03be2ecfce27",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -1481,7 +777,7 @@
         43.0
       ],
       "volume_mm3": 48111.886,
-      "stl_sha256": "b8249533c5f906ba7c5155c24064196e996cc46d7b20f4a48c2ff2176f2daada",
+      "stl_sha256": "3feec5fd6da837dd240c4bd24006489da9159d775d4bcb366068279de889fce7",
       "mesh_sha256": "fcef3a85c4bca31aba433961efff9def5111f09778ab2708cfc624761c1b3140",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -1492,276 +788,6 @@
       "print_orientation": "flat, largest face on the bed",
       "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
       "note": "throttle eye plate, side web, fine-nut lug; the eye drops over the U post",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_endstop": {
-      "triangles": 12,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -10.600000381469727,
-          -10.600000381469727,
-          0.0
-        ],
-        [
-          10.600000381469727,
-          10.600000381469727,
-          15.0
-        ]
-      ],
-      "size_mm": [
-        21.2,
-        21.2,
-        15.0
-      ],
-      "volume_mm3": 6741.6,
-      "stl_sha256": "afdd872e3df56153b0ceb5d6e2c2c20516893a9050d3fb3c83997f79a4ab5322",
-      "mesh_sha256": "97a6d29b80e268cb93c0171014b40cc128f830a831fdd3abffb4cdcae1965ee5",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "endstop",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_overstop_lug": {
-      "triangles": 12,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -10.600000381469727,
-          -10.600000381469727,
-          0.0
-        ],
-        [
-          10.600000381469727,
-          10.600000381469727,
-          15.0
-        ]
-      ],
-      "size_mm": [
-        21.2,
-        21.2,
-        15.0
-      ],
-      "volume_mm3": 6741.6,
-      "stl_sha256": "afdd872e3df56153b0ceb5d6e2c2c20516893a9050d3fb3c83997f79a4ab5322",
-      "mesh_sha256": "97a6d29b80e268cb93c0171014b40cc128f830a831fdd3abffb4cdcae1965ee5",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "overstop_lug",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_overstop_stop": {
-      "triangles": 1020,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.0,
-          -4.0,
-          0.0
-        ],
-        [
-          4.0,
-          4.0,
-          17.0
-        ]
-      ],
-      "size_mm": [
-        8.0,
-        8.0,
-        17.0
-      ],
-      "volume_mm3": 440.246,
-      "stl_sha256": "8659e658001d746ab8b0487029173f93399e2e23a556a89bf0418a8325450bdb",
-      "mesh_sha256": "a8f9340119a87732aea69c901f813cc0a3c8aa8225c58a137176894cb0dc1ffc",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "overstop_stop",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_clevis": {
-      "triangles": 548,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -11.0,
-          -11.0,
-          0.0
-        ],
-        [
-          11.0,
-          11.0,
-          22.0
-        ]
-      ],
-      "size_mm": [
-        22.0,
-        22.0,
-        22.0
-      ],
-      "volume_mm3": 6811.46,
-      "stl_sha256": "4e62bafc585a855f5a3c6814699e80becc45a8b36c67e9fa003ff51a3d1bc9d3",
-      "mesh_sha256": "816bfb150d28ed82bfb577790068d15100ae39da6629c1aa4d1b75d64d3b8d93",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "clevis",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_clevis_bushing": {
-      "triangles": 660,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.5,
-          -4.5,
-          0.0
-        ],
-        [
-          4.5,
-          4.5,
-          8.0
-        ]
-      ],
-      "size_mm": [
-        9.0,
-        9.0,
-        8.0
-      ],
-      "volume_mm3": 322.976,
-      "stl_sha256": "52b51d47682cda2c83c857db2ac110966363353c5370c555c51a637aae74dfc6",
-      "mesh_sha256": "aca968d6837311b39833aff5c4e316da130e222326e69e0e366f505e096c69d4",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "clevis_bushing",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "rod_clevis_pin": {
-      "triangles": 764,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.0,
-          -4.0,
-          0.0
-        ],
-        [
-          4.0,
-          4.0,
-          30.0
-        ]
-      ],
-      "size_mm": [
-        8.0,
-        8.0,
-        30.0
-      ],
-      "volume_mm3": 692.738,
-      "stl_sha256": "6eb0b37776888d77f223318f1b7b9172756c8a29203f4def1cb5e23bee59f877",
-      "mesh_sha256": "d5c3234e0acf819367d69e44b24282a3b093cbf31a3e245fcc6c74fa5ac69606",
-      "source": "throttle_77603/throttle_pushrod.scad",
-      "parameters": {
-        "rod_part": "clevis_pin",
-        "rod_lock_kind": "lead_screw"
-      },
-      "quantity": 1,
-      "print_orientation": "upright on its head flange",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
       "build_envelope_mm": [
         420,
         420,
@@ -1841,7 +867,7 @@
         55.0
       ],
       "volume_mm3": 27184.042,
-      "stl_sha256": "48a9937f21f33d95d101c86ec596f77e4bc2ddaf494d6b350730a3760b975aef",
+      "stl_sha256": "f8406fcf4e1148f7e6bd5519acac50bcc5d857a7738907d44afbc8059aba9a3c",
       "mesh_sha256": "eaac1fe8a2ce6f8f059d08d59023be0d120d151ee3c52b0050d8bccc38962bcc",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -1931,7 +957,7 @@
         14.0
       ],
       "volume_mm3": 1445.707,
-      "stl_sha256": "5e6e2dff8e4c91ac7abcf9b90a8f2366a77018e81bc75b9c9b1a7b5aa952d0f7",
+      "stl_sha256": "3b69de93e88a5b1e397e520fdbbd15dce117b99a5ea390ca4209aaae63d0bc2f",
       "mesh_sha256": "c8ef16e28a3e8b24b78f54a882ad820efa365b13ac7f089343dcb43f70e5cbc9",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -1976,7 +1002,7 @@
         2.0
       ],
       "volume_mm3": 177.672,
-      "stl_sha256": "3f78ae477137d6687aaedf43e30a889605c6856cd3c62aebcc8568d85c7543d6",
+      "stl_sha256": "885ba895dcba56afff9cdf051d9f3450e02f6c5701fb331a91b64ce847f60cad",
       "mesh_sha256": "8597e13d3d853a506b759dd68f21ee0542951490db80f4fe897377c71e704f23",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -2111,7 +1137,7 @@
         2.0
       ],
       "volume_mm3": 177.672,
-      "stl_sha256": "4eded963be5a417e06b1298734b11949c318f45ab86b942a95dafcc3af0ab769",
+      "stl_sha256": "f151f2e40ce041b5bab246ac234f4fdfbbe24c9e377da3373461cae758091237",
       "mesh_sha256": "8597e13d3d853a506b759dd68f21ee0542951490db80f4fe897377c71e704f23",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -2156,7 +1182,7 @@
         54.01
       ],
       "volume_mm3": 7773.455,
-      "stl_sha256": "417bbdba4c60d5dc145705314ca35ee6ecbf220ede5dfca0209218a9d2975647",
+      "stl_sha256": "66757c16b993ae20ffdcef55a74377302674c21fccc4fdff8204604496d3ec7a",
       "mesh_sha256": "9979f97ca44baf2f84f00d732d097be8cfef049b57ce7e3b545cb927f2ec8004",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -2201,7 +1227,7 @@
         10.0
       ],
       "volume_mm3": 3840.306,
-      "stl_sha256": "bcb9f39cd58f1f9be203cb7538dd0dfeaa2d430b29cae177413fc9ec29f81b8e",
+      "stl_sha256": "24aee6f826b1fe427ad47ec569c9b5fbef1c5ae414628da06668c78853e7cb0c",
       "mesh_sha256": "d8b62e226675b0c597bbd95bb5ef556be54bdf3e72d83e85450d03be2ecfce27",
       "source": "throttle_77603/throttle_pushrod.scad",
       "parameters": {
@@ -2313,83 +1339,42 @@
         490
       ]
     },
-    "throttle_u_body": {
-      "triangles": 304,
-      "connected_solids": 1,
+    "throttle_u_fitting": {
+      "triangles": 1908,
+      "connected_solids": 2,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
         [
           -19.875,
-          -10.34999942779541,
+          -15.75,
           0.0
         ],
         [
           19.875,
-          10.34999942779541,
-          39.400001525878906
+          15.75,
+          49.501220703125
         ]
       ],
       "size_mm": [
         39.75,
-        20.7,
-        39.4
+        31.5,
+        49.501
       ],
-      "volume_mm3": 12842.539,
-      "stl_sha256": "bbde99c6fbe86c9e171767fabf135892018e28e3574d283a4288bddf6b07e9ba",
-      "mesh_sha256": "8d618c21fb77f06242158f251a67946e91abaf895cf42763c336826f59b82d9b",
+      "volume_mm3": 20207.279,
+      "stl_sha256": "2a6e2329c16b4f629b9ce80bdd5ace417cb1aa1b3b39a996a844d1f3e6907aaf",
+      "mesh_sha256": "9972b3c3bf461028a7c97dee0b5255c35d4d8e5890512f633e560a7c27538438",
+      "pip_bodies": 2,
+      "pip_min_gap_mm": 0.399,
+      "pip_droop_area_mm2": 0.0,
       "source": "throttle_77603/throttle_u_fitting.scad",
       "parameters": {
-        "u_part": "body"
+        "u_part": "fitting"
       },
       "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
+      "print_orientation": "as exported: mouth on the bed, yoke legs on the bed beside it",
       "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "throttle_u_neck": {
-      "triangles": 1572,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -8.0,
-          -11.0,
-          0.0
-        ],
-        [
-          8.0,
-          11.0,
-          39.400001525878906
-        ]
-      ],
-      "size_mm": [
-        16.0,
-        22.0,
-        39.4
-      ],
-      "volume_mm3": 6477.879,
-      "stl_sha256": "559ffb861f7d20afc51a5423c4477d55d30d5001181563b5dfdb5edc409e98ef",
-      "mesh_sha256": "fa858a39a7ba7ea3a18d9de7ef28e9229b53201aaa0f9266c4ed6f98e4e95105",
-      "source": "throttle_77603/throttle_u_fitting.scad",
-      "parameters": {
-        "u_part": "neck"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
+      "note": "print-in-place: body and pitch yoke leave the bed as two captive bodies; no pin or keeper",
       "build_envelope_mm": [
         420,
         420,
@@ -2445,50 +1430,6 @@
         490
       ]
     },
-    "throttle_u_pin": {
-      "triangles": 764,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.0,
-          -4.0,
-          0.0
-        ],
-        [
-          4.0,
-          4.0,
-          30.0
-        ]
-      ],
-      "size_mm": [
-        8.0,
-        8.0,
-        30.0
-      ],
-      "volume_mm3": 692.738,
-      "stl_sha256": "87905ad9ae6841c14b21e95e63fd4c33dca728fc808a683101a5b95f0bc1ba57",
-      "mesh_sha256": "d5c3234e0acf819367d69e44b24282a3b093cbf31a3e245fcc6c74fa5ac69606",
-      "source": "throttle_77603/throttle_u_fitting.scad",
-      "parameters": {
-        "u_part": "pin"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "the neck's lower Y-axis pin",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
     "throttle_u_cap": {
       "triangles": 512,
       "connected_solids": 1,
@@ -2512,7 +1453,7 @@
         4.0
       ],
       "volume_mm3": 127.689,
-      "stl_sha256": "97839d09f5609df2d97ad79429a943f31c7de57fe158060880f52691319b6b4a",
+      "stl_sha256": "c515fadd573f8f431ba8c856b55b1ddb6ccdcb64848c3f0da638e8bd3eb1b9d4",
       "mesh_sha256": "9e751242d908982643f9e36d624263e442f5abaa65b1d2529a17d49063fe0426",
       "source": "throttle_77603/throttle_u_fitting.scad",
       "parameters": {
@@ -2521,51 +1462,7 @@
       "quantity": 1,
       "print_orientation": "flat",
       "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "traps the rod's throttle eye on the neck's pivot post",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "throttle_u_retainer": {
-      "triangles": 476,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -6.0,
-          -6.0,
-          0.0
-        ],
-        [
-          5.910008430480957,
-          6.0,
-          2.0
-        ]
-      ],
-      "size_mm": [
-        11.91,
-        12.0,
-        2.0
-      ],
-      "volume_mm3": 177.672,
-      "stl_sha256": "452b0c70a1e9211c0b71ff3b474107ca06d23b14ff36203c572a2904dfe4eec2",
-      "mesh_sha256": "8597e13d3d853a506b759dd68f21ee0542951490db80f4fe897377c71e704f23",
-      "source": "throttle_77603/throttle_u_fitting.scad",
-      "parameters": {
-        "u_part": "retainer"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
+      "note": "traps the rod's throttle eye on the yoke's pivot post",
       "build_envelope_mm": [
         420,
         420,
@@ -2600,7 +1497,7 @@
         15.4
       ],
       "volume_mm3": 475.795,
-      "stl_sha256": "d34d2285c0e7bbe54cf2195c4be78858182d70c889a4ed409628f70cd3a86f85",
+      "stl_sha256": "40f8f18dd55515ab30a2da511f09fcef9754c00109bbd3d13eafd31a96d7255a",
       "mesh_sha256": "e413e0d6f4fe74e42667d27c2c27d5230e86365aa6bb2e54bc21e18a1b45508a",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -2690,7 +1587,7 @@
         2.0
       ],
       "volume_mm3": 81.72,
-      "stl_sha256": "2b964100cc7d2c1c0d75896efcf77cb605fa92de9176d5f466174c5458364d30",
+      "stl_sha256": "463274e211146c8b9971bd5728298ca935698f2ea38e5727f9991393b760bf12",
       "mesh_sha256": "16df843eafe37195867c3220e28c6755638e0ed2e486d4d2734097172f508727",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -2735,7 +1632,7 @@
         4.0
       ],
       "volume_mm3": 1980.085,
-      "stl_sha256": "a0b08afe59b51d98e69a891a37037182f63de7862a14b8f84d24b8b13b1b8e0f",
+      "stl_sha256": "4ed72e788d3db18675bd1628b25d7b375f523288ed4104b4b5651aa53d3d65ef",
       "mesh_sha256": "db8f89ac77b7a7d02513583f1ed89cc64d1961cbce7b799f01e59d03fc865f00",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -2780,7 +1677,7 @@
         5.0
       ],
       "volume_mm3": 3462.086,
-      "stl_sha256": "69b32b2803a343432fd81569bc7434895d46c4609176c1fdf6383d76cfe2c083",
+      "stl_sha256": "12d3cd481555d5814197d9b445623b9f459b79a7384e1dbdd91ac24ff8ff064b",
       "mesh_sha256": "06f2052cade74ca75816b1a9944c22643cb9aa8c6be2b4aef9faf03b8779dab4",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -2825,7 +1722,7 @@
         15.9
       ],
       "volume_mm3": 703.869,
-      "stl_sha256": "e7bb0bc417eb45cb4b802d19468a6de25ba851e35ab9acd70c1a59bac5ba4879",
+      "stl_sha256": "e38849269ebe0606c89dd4d59b02dd794583d7de0cf9644ade5eb7f99988dd94",
       "mesh_sha256": "a5b4765212cd46c660c2c57fde8184b8b2af0a1ef4fc261626d27591e41f80ac",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -2870,7 +1767,7 @@
         4.0
       ],
       "volume_mm3": 127.689,
-      "stl_sha256": "f18b718a95b91ea2a3fbfce1578b3e1bf6378f6e8638b3a2fc4fa025697f7441",
+      "stl_sha256": "c515fadd573f8f431ba8c856b55b1ddb6ccdcb64848c3f0da638e8bd3eb1b9d4",
       "mesh_sha256": "9e751242d908982643f9e36d624263e442f5abaa65b1d2529a17d49063fe0426",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -2915,7 +1812,7 @@
         7.0
       ],
       "volume_mm3": 43.924,
-      "stl_sha256": "d106bda165b9d09ef10d952399f8a5863e72d7d930a58999a5c7f38715c2bceb",
+      "stl_sha256": "58cbfc5285f31acb4c0d3d139f7a672fd56a1f5eaaab2a26ff9a8e7df32881ca",
       "mesh_sha256": "ae581f5cbc79abb22e22b69359838020bfb43dda2a24bc9f1e203efd6333d849",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -2960,7 +1857,7 @@
         2.0
       ],
       "volume_mm3": 81.72,
-      "stl_sha256": "2b964100cc7d2c1c0d75896efcf77cb605fa92de9176d5f466174c5458364d30",
+      "stl_sha256": "41e8a271aa54a1a36c90dad438eda5ec6a272740a798ef8d108670a30989e263",
       "mesh_sha256": "16df843eafe37195867c3220e28c6755638e0ed2e486d4d2734097172f508727",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -2982,9 +1879,9 @@
         490
       ]
     },
-    "variant_c_carrier": {
-      "triangles": 1348,
-      "connected_solids": 1,
+    "variant_c_pip": {
+      "triangles": 2600,
+      "connected_solids": 2,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
@@ -2996,71 +1893,30 @@
         [
           38.5,
           25.0,
-          11.0
+          28.799999237060547
         ]
       ],
       "size_mm": [
         63.5,
         50.0,
-        11.0
+        28.8
       ],
-      "volume_mm3": 4328.096,
-      "stl_sha256": "b8504f03fb15f94b4c9bcb26305b3c74c4bd56cfdaee1f142d0393ccbaf8b638",
-      "mesh_sha256": "81e33c8dad4396179db3a32b1c0b54d31dfa2f86240592e94591d123a8a6f706",
+      "volume_mm3": 7955.519,
+      "stl_sha256": "ceed9e985827ea9329e1222da00934188b311b3437cca1efc7d136e76761c79a",
+      "mesh_sha256": "0e468b68bd312880f8bc4dc7e2653e6c96e52bd535d48f4630cf18ee249fa506",
+      "pip_bodies": 2,
+      "pip_min_gap_mm": 0.442,
+      "pip_droop_area_mm2": 0.0,
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
         "horn_variant": "C",
-        "horn_part": "carrier"
+        "horn_part": "pip",
+        "radius_mm": 18.0
       },
       "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
+      "print_orientation": "flat, carrier and continuous-radius shoe co-printed at z = 0",
       "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "variant_c_shoe": {
-      "triangles": 1324,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          9.0,
-          -9.0,
-          0.0
-        ],
-        [
-          27.0,
-          9.0,
-          23.399999618530273
-        ]
-      ],
-      "size_mm": [
-        18.0,
-        18.0,
-        23.4
-      ],
-      "volume_mm3": 2538.305,
-      "stl_sha256": "a8a8e216a0189788790500bbc66fb962c3351fec283f67fd451eb9f98e6f5ba4",
-      "mesh_sha256": "fa5546a1eeef91e910981d1d93481a94661866ac64c7a8a5dc41610aff9ef55d",
-      "source": "throttle_77603/throttle_horn_variants.scad",
-      "parameters": {
-        "horn_variant": "C",
-        "horn_part": "shoe"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
+      "note": "print-in-place pair: opposing 45-degree dovetail flanks capture the shoe; closed rail ends retain it at both travel limits; horn contact remains provisional",
       "build_envelope_mm": [
         420,
         420,
@@ -3095,7 +1951,7 @@
         10.0
       ],
       "volume_mm3": 51.0,
-      "stl_sha256": "f71f42f1c284d4985a61422aec231c5dad31c517e2e80252a8bdd2112a4c1f2d",
+      "stl_sha256": "bf4bb2225b9b97b89f91ae2fda18a295b76097d361ec7e315e94d516dafff003",
       "mesh_sha256": "46c00f8bf354aa662380fc8ee617a189b3c1080cfd8629f346ba0029c45f52aa",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3185,7 +2041,7 @@
         4.0
       ],
       "volume_mm3": 127.689,
-      "stl_sha256": "72b5350588e16703a6160aeb7367b573559e5d152114c0607a5b90757643d508",
+      "stl_sha256": "ad92bfe09936a2232e1fb89d3215352842b868f07cf6aac9c131ab697d18cc50",
       "mesh_sha256": "9e751242d908982643f9e36d624263e442f5abaa65b1d2529a17d49063fe0426",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3230,7 +2086,7 @@
         7.0
       ],
       "volume_mm3": 43.924,
-      "stl_sha256": "061da6894cbfd87fc3fb6742020fdac4184b9d5f7b91a2a13e2b1e6712bbd9f3",
+      "stl_sha256": "30d1057600a1d2b64af42e938ae9a87467caddd338a1ce5e6e6e9f774bbbbaee",
       "mesh_sha256": "ae581f5cbc79abb22e22b69359838020bfb43dda2a24bc9f1e203efd6333d849",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3275,7 +2131,7 @@
         2.0
       ],
       "volume_mm3": 81.72,
-      "stl_sha256": "2b964100cc7d2c1c0d75896efcf77cb605fa92de9176d5f466174c5458364d30",
+      "stl_sha256": "463274e211146c8b9971bd5728298ca935698f2ea38e5727f9991393b760bf12",
       "mesh_sha256": "16df843eafe37195867c3220e28c6755638e0ed2e486d4d2734097172f508727",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3297,9 +2153,9 @@
         490
       ]
     },
-    "variant_d_carrier": {
-      "triangles": 1520,
-      "connected_solids": 1,
+    "variant_d_pip": {
+      "triangles": 13584,
+      "connected_solids": 2,
       "watertight": true,
       "consistent_winding": true,
       "bounds_mm": [
@@ -3309,208 +2165,31 @@
           0.0
         ],
         [
+          27.0,
           25.0,
-          25.0,
-          15.5
+          27.399999618530273
         ]
       ],
       "size_mm": [
+        52.0,
         50.0,
-        50.0,
-        15.5
+        27.4
       ],
-      "volume_mm3": 3844.59,
-      "stl_sha256": "0f469b695d8beb506004c53d8313aee03d0de2f5bfaa2d12aeab6a046f5c4d87",
-      "mesh_sha256": "1671e9e2b008870ca50b63c7e1d56bd3617078f8242ec33afa59158f9a09d244",
+      "volume_mm3": 5931.938,
+      "stl_sha256": "94e4f51eae261b2c9b2e8f0339ce781c1aa9afbd87196ef74a4f28aa5bfee4d3",
+      "mesh_sha256": "701421de21576b63fa04cdc28e49f52b6f7cacd39cb66ac897a93ed3485eae30",
+      "pip_bodies": 2,
+      "pip_min_gap_mm": 0.599,
+      "pip_droop_area_mm2": 0.0,
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
         "horn_variant": "D",
-        "horn_part": "carrier"
+        "horn_part": "pip"
       },
       "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
+      "print_orientation": "upright, carrier and truncated ball co-printed at z = 0",
       "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "variant_d_ball_stem": {
-      "triangles": 3452,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -4.989128112792969,
-          -4.989128112792969,
-          0.0
-        ],
-        [
-          4.989128112792969,
-          4.989128112792969,
-          10.243976593017578
-        ]
-      ],
-      "size_mm": [
-        9.978,
-        9.978,
-        10.244
-      ],
-      "volume_mm3": 580.303,
-      "stl_sha256": "81153f041bd43e238e0d602deeb5ddede8e08f301629af5520f55fd28483ed04",
-      "mesh_sha256": "2694fc514bd021a5c117cb706992a8d98e4666d9cd88e509e25de78df0cc8b75",
-      "source": "throttle_77603/throttle_horn_variants.scad",
-      "parameters": {
-        "horn_variant": "D",
-        "horn_part": "ball_stem"
-      },
-      "quantity": 1,
-      "print_orientation": "upright on its base",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "variant_d_cage": {
-      "triangles": 1808,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -9.0,
-          -24.0,
-          0.0
-        ],
-        [
-          9.0,
-          9.0,
-          15.399999618530273
-        ]
-      ],
-      "size_mm": [
-        18.0,
-        33.0,
-        15.4
-      ],
-      "volume_mm3": 2879.264,
-      "stl_sha256": "8d980a5f75664df7afe5be65be80fc4fd5a664b52c3c4e91154f0bf0ef2158d9",
-      "mesh_sha256": "77e6d14ea281534a8d8fb367eb606046fcaff78e67e7660b59ec24c32eb6ceae",
-      "source": "throttle_77603/throttle_horn_variants.scad",
-      "parameters": {
-        "horn_variant": "D",
-        "horn_part": "cage"
-      },
-      "quantity": 1,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "variant_d_wear_socket": {
-      "triangles": 544,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -6.5,
-          -6.5,
-          0.0
-        ],
-        [
-          6.5,
-          6.5,
-          7.0
-        ]
-      ],
-      "size_mm": [
-        13.0,
-        13.0,
-        7.0
-      ],
-      "volume_mm3": 339.685,
-      "stl_sha256": "39444b14233bd4ff6906c913cfb98242d2d769a3a57905371b95d98a9b52f1ea",
-      "mesh_sha256": "f55895a8eb3817b39bdab02ffac6d60c501fefb0d0f05cd4685d124ca46ac390",
-      "source": "throttle_77603/throttle_horn_variants.scad",
-      "parameters": {
-        "horn_variant": "D",
-        "horn_part": "wear_socket"
-      },
-      "quantity": 1,
-      "print_orientation": "upright",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
-      "build_envelope_mm": [
-        420,
-        420,
-        500
-      ],
-      "usable_envelope_mm": [
-        400,
-        400,
-        490
-      ]
-    },
-    "variant_d_closure": {
-      "triangles": 768,
-      "connected_solids": 1,
-      "watertight": true,
-      "consistent_winding": true,
-      "bounds_mm": [
-        [
-          -10.0,
-          -10.0,
-          0.0
-        ],
-        [
-          10.0,
-          10.0,
-          4.0
-        ]
-      ],
-      "size_mm": [
-        20.0,
-        20.0,
-        4.0
-      ],
-      "volume_mm3": 846.868,
-      "stl_sha256": "c0a8808925f5c7eb9f4ce7137f07cc166ed9366b39e57b3b1cbb5d1fc4d568eb",
-      "mesh_sha256": "478ea97a229d114e800771fe28c311601920071c4437afe5516033e54f6ef52e",
-      "source": "throttle_77603/throttle_horn_variants.scad",
-      "parameters": {
-        "horn_variant": "D",
-        "horn_part": "closure"
-      },
-      "quantity": 1,
-      "print_orientation": "flat, largest face on the bed",
-      "material_hypothesis": "PETG (prototype; ASA unqualified pending printer/enclosure check)",
-      "note": "",
+      "note": "print-in-place pair: carrier-integral spherical socket captures the truncated ball and its output post",
       "build_envelope_mm": [
         420,
         420,
@@ -3545,7 +2224,7 @@
         4.0
       ],
       "volume_mm3": 127.689,
-      "stl_sha256": "72b5350588e16703a6160aeb7367b573559e5d152114c0607a5b90757643d508",
+      "stl_sha256": "15b13634831559865c3d3073d14deb00898b5fb9f052835d3c1800ca0fac476b",
       "mesh_sha256": "9e751242d908982643f9e36d624263e442f5abaa65b1d2529a17d49063fe0426",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3590,7 +2269,7 @@
         7.0
       ],
       "volume_mm3": 43.924,
-      "stl_sha256": "b5c59592c15791284ded6e69a88ff1b406cfc76d47c769b28bf73fda0824f584",
+      "stl_sha256": "efdaee19f4257a8f2b31a6ef46f03e042a6bb37cfea62c085187b446e2e4e785",
       "mesh_sha256": "ae581f5cbc79abb22e22b69359838020bfb43dda2a24bc9f1e203efd6333d849",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3635,7 +2314,7 @@
         2.0
       ],
       "volume_mm3": 81.72,
-      "stl_sha256": "2b964100cc7d2c1c0d75896efcf77cb605fa92de9176d5f466174c5458364d30",
+      "stl_sha256": "41e8a271aa54a1a36c90dad438eda5ec6a272740a798ef8d108670a30989e263",
       "mesh_sha256": "16df843eafe37195867c3220e28c6755638e0ed2e486d4d2734097172f508727",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3680,7 +2359,7 @@
         6.0
       ],
       "volume_mm3": 4702.889,
-      "stl_sha256": "84a8d8bc21a55e688705f804b6bd490d4ea33c8117ac63ef010db423d867e35e",
+      "stl_sha256": "5cdf9a743e4fcd8c61b7d957bf50537e615e84c8f49243713c5cb65d1ea68f59",
       "mesh_sha256": "bf7e2cd9725066fc80fe346166928166b594f2ba9524aad03404e0cb4fedb7a4",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3725,7 +2404,7 @@
         16.8
       ],
       "volume_mm3": 6441.128,
-      "stl_sha256": "ad2cef6db144ad2a1d44261966a6323b3962ed7f2df9e0062f6b8116ad9e7103",
+      "stl_sha256": "934dc23ad38e8e63524e724ef3a26ebce5d090296dc459133684bffa6d02e300",
       "mesh_sha256": "b5d5c04f9dff304d7b85cae7146e2e16e9655f67e4e998cbaa09979b0998181c",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3770,7 +2449,7 @@
         2.5
       ],
       "volume_mm3": 99.403,
-      "stl_sha256": "98999e0e1f6419c74c6f616a8a635dd2b5a4c0a50c8a33fc8694d477dc6b7631",
+      "stl_sha256": "821d90f4b048d94742e6a68d3e9c96fc481e9c7713fd9bcc03531274732acc37",
       "mesh_sha256": "6496441c62cbd5490c065ee87619584a583f77694df4bbb09ea6afd37467f45e",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3815,7 +2494,7 @@
         4.0
       ],
       "volume_mm3": 41.057,
-      "stl_sha256": "6ce2377f0ffbf96a759a5c654f3f4e4f887cd61116b3a363843fa35c0bd7d611",
+      "stl_sha256": "ded1df85e797821fda6d4ad182abe1f71b0c61d1ecc0d7216749dbe790d49eb9",
       "mesh_sha256": "1fe00640e7e3695168005151caf7c203b7f2dacf40f65a9f76e5828f6c7c4ca7",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3860,7 +2539,7 @@
         17.8
       ],
       "volume_mm3": 408.551,
-      "stl_sha256": "6b40f1b757bb1cae04a8e12be64ed47ab3288253e2ebe25a7367949a1e22a1f9",
+      "stl_sha256": "30d079c75ccca647d99b1d58ea22aaf6fa2464266e10a81ec4014664e79147e1",
       "mesh_sha256": "80a136f0c88d37ab69479c081454467407c3d82ba1b9c937cc4d700ee496564a",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3950,7 +2629,7 @@
         7.0
       ],
       "volume_mm3": 43.924,
-      "stl_sha256": "47b8e398492e07e9dad923d338430ac7582213a0fa9d5d5535d5923cef1519fd",
+      "stl_sha256": "5a1a3e985b63bbef590ca30e6ecefce325731ec289a4ad0b6f1cede67a3d51e4",
       "mesh_sha256": "ae581f5cbc79abb22e22b69359838020bfb43dda2a24bc9f1e203efd6333d849",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -3995,7 +2674,7 @@
         2.0
       ],
       "volume_mm3": 81.72,
-      "stl_sha256": "08e41e92cb5f3fee006af8a2e4f899bdafc6aeb469f05d8cdcb239c5c6d07f38",
+      "stl_sha256": "a8d4e0d6d5261eb33d71443acf78af6a047644d3ea738e2811882304f8a7b383",
       "mesh_sha256": "16df843eafe37195867c3220e28c6755638e0ed2e486d4d2734097172f508727",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -4040,7 +2719,7 @@
         260.0
       ],
       "volume_mm3": 2002026.719,
-      "stl_sha256": "95adb440199b166a2a5b0279cba1b02692d8a01234fbf6b0172adaf35f8d49e8",
+      "stl_sha256": "41bc41751539c720deda580478d9b5fda329bc5ba4d35956b8fd245c237caa7b",
       "mesh_sha256": "d4d43b301436382f6ad856cfe2a90668b25de91b72b52d9b48bdc57f6bf67faf",
       "source": "control_77603/electronics_enclosure.scad",
       "parameters": {
@@ -4084,7 +2763,7 @@
         11.0
       ],
       "volume_mm3": 430197.857,
-      "stl_sha256": "25f4dff257984af025c9bae50dfd6c29c063516a7defce8f0757f0c34f3a3342",
+      "stl_sha256": "fffe63951a80063aa8143d6cd25523e69e2755587c1d7fbc89005496c3846864",
       "mesh_sha256": "bd25515a4b650241844ede582871184a4eacf9c0e31da5b8da43706ec228c4b4",
       "source": "control_77603/electronics_enclosure.scad",
       "parameters": {
@@ -4172,7 +2851,7 @@
         4.0
       ],
       "volume_mm3": 34344.2,
-      "stl_sha256": "104f1921cdd96d4b77867c8fcdecde1269a09c183716882918283c01425954b5",
+      "stl_sha256": "c2251ee1051b62c4993353ed60130db6ff309eb7aca677f04791ca9be5a8eaa9",
       "mesh_sha256": "3db76c9f8f70d496972cd5522d9e1c1d1ea603c4f1b5f5390ccb91c7df8e3a9b",
       "source": "control_77603/board_carriers.scad",
       "parameters": {
@@ -4466,22 +3145,6 @@
     }
   },
   "print_files": {
-    "alignment_cross_block": {
-      "path": "3mf/alignment_cross_block.3mf",
-      "sha256": "4ec560e21a0f96584aa51cd4cdba014644831224c90fd905323e465e0cc67375"
-    },
-    "alignment_yoke": {
-      "path": "3mf/alignment_yoke.3mf",
-      "sha256": "951f71879a80e3b1ed6658b8369ddd57077214c0ac965f04d9fc3bfcd6bc3b27"
-    },
-    "anti_backdrive_lip": {
-      "path": "3mf/anti_backdrive_lip.3mf",
-      "sha256": "abafb6337280f7b93e9ccbe03aa8e5700561e2e9072bbb90aa8d51fcf5cc48b1"
-    },
-    "bushing": {
-      "path": "3mf/bushing.3mf",
-      "sha256": "c9cc665734f68e3b120da9df17b4585601e4a01f27aaf2c75ff5856397903832"
-    },
     "carrier_alta": {
       "path": "3mf/carrier_alta.3mf",
       "sha256": "7de513f1ee56dd54641b9e5520d002e446ba21a799833528a5fd608dcf483768"
@@ -4504,43 +3167,23 @@
     },
     "carrier_pi5": {
       "path": "3mf/carrier_pi5.3mf",
-      "sha256": "8a421c72f95eb7006031ad66f9ae2e744b06fcca3985bd17595648d08e990d3b"
+      "sha256": "d3c28da3ab077eb6ddaa5902c668c6a0dc192814f2c8f6699714d90e7145ebdb"
     },
     "carrier_pololu_2806": {
       "path": "3mf/carrier_pololu_2806.3mf",
       "sha256": "7570199df48ee242888ae4885ed426617ce328d3aee50bdeb06ca9a2ad7e5553"
     },
-    "clevis": {
-      "path": "3mf/clevis.3mf",
-      "sha256": "5a7d47501620e5abbea19615a69eb0a97e8bce66068685fb8e2dfa7469ee581d"
-    },
     "control_enclosure_body": {
       "path": "3mf/control_enclosure_body.3mf",
-      "sha256": "f5cc1f4af742c55b169dd18db6197c5739f86942adeb9bef689b655866e633f8"
+      "sha256": "ca5b4a610ebe06cbaff58d36fcbf9fd84f1505ebb058532de7aea382dfae9d28"
     },
     "control_enclosure_lid": {
       "path": "3mf/control_enclosure_lid.3mf",
-      "sha256": "26e2d35dcc35b04d911aab75093a8f90d7c5a94a735f4f6c0a9f41e56a3444ed"
+      "sha256": "0ef9c444fdb290b29c0bb5d5336da23105ce4642bcd1515a68107726acc82cff"
     },
     "control_gasket": {
       "path": "3mf/control_gasket.3mf",
       "sha256": "ce81ff91c48c5cabc6408d2fdc74b195df1a8e4eba1a1a14bac01e62082de8bf"
-    },
-    "endstop_collar": {
-      "path": "3mf/endstop_collar.3mf",
-      "sha256": "58cf32b0cecc2104710d1745c4dba6a549d3134fdbb355c068dc146010d47031"
-    },
-    "hinge_pin": {
-      "path": "3mf/hinge_pin.3mf",
-      "sha256": "87fd89a878a710f94cea74b6e77bb97e6c7ad331e117dd1e911a32595a8c8f62"
-    },
-    "joint_lock_nut": {
-      "path": "3mf/joint_lock_nut.3mf",
-      "sha256": "703fd392f39448fb822c3afd0f466e2a11003b5b68e222c601d5edfd7cd31aad"
-    },
-    "keyed_spigot": {
-      "path": "3mf/keyed_spigot.3mf",
-      "sha256": "512ecd0f913ddd6188d497ac17195f5140ee6e19284bc049d2dcc70ed2de04ab"
     },
     "lock_anti_backdrive": {
       "path": "3mf/lock_anti_backdrive.3mf",
@@ -4556,7 +3199,7 @@
     },
     "lock_collet_keeper": {
       "path": "3mf/lock_collet_keeper.3mf",
-      "sha256": "373fe64576dbe0baf1ffb0709fa2a3c735b943e6e9337a0693cbcd8d89b20b59"
+      "sha256": "17fc7da3c21ccbf27fa497c3a37921567f17f2a99f447cc9cd6828b316437573"
     },
     "lock_jam_collar": {
       "path": "3mf/lock_jam_collar.3mf",
@@ -4564,11 +3207,11 @@
     },
     "lock_nut": {
       "path": "3mf/lock_nut.3mf",
-      "sha256": "3bb88a95ac9e8fda6d8d387676e374fbafc400fe806705dc7a9604415489adb3"
+      "sha256": "b1d4b91febfd73e8a4a58d91c78c4fa04fa97d6db57526d8d7616c9441630e0b"
     },
     "lock_screw": {
       "path": "3mf/lock_screw.3mf",
-      "sha256": "4a700804a41012147fdf2f27a76e06eb262f8c287a39e3b558482fc5530201e0"
+      "sha256": "0e69c213c77588f465e3239c9286e48b458e750002a823fbc179ae434ce0d5e8"
     },
     "lock_wedge": {
       "path": "3mf/lock_wedge.3mf",
@@ -4576,51 +3219,27 @@
     },
     "lock_wedge_body": {
       "path": "3mf/lock_wedge_body.3mf",
-      "sha256": "30e1d9c4bab6a269fe93c4490c22745f72e6d9436eb673baecb13b638bbac2a5"
+      "sha256": "34e414913599b3e2584088af7dfcbfe936d5d0554e8d2831bbf9273887faca98"
     },
     "lock_wedge_cam": {
       "path": "3mf/lock_wedge_cam.3mf",
-      "sha256": "320ac3f6b643b83e35ed399d3f4133ab8c7be0bfa53a91fc7d4e96392af0c701"
+      "sha256": "a6842dcfa8e7eba9c66143920ad85ac9c663269869959dd53eee42b07c01e44e"
     },
     "lock_wedge_keeper": {
       "path": "3mf/lock_wedge_keeper.3mf",
-      "sha256": "6d1099da0d49c5543da89ff5bb83f45c959d73279e017c0d3dc3a527e82e45ac"
+      "sha256": "909ee71764505d95dc99f041bd639d4d1e0c0476e0611234ec4d587682da5184"
     },
     "mg995_lug_gauge": {
       "path": "3mf/mg995_lug_gauge.3mf",
       "sha256": "19837497faeda90df08c04194bbb836acd448da6538a6d85cffa7df5e155a5f6"
     },
-    "retainer_keeper": {
-      "path": "3mf/retainer_keeper.3mf",
-      "sha256": "819c71d6615a37b8faec0fe4f457cf4aad1b5deeb3205320f1ed56af9878616f"
-    },
-    "rod_capture_keeper": {
-      "path": "3mf/rod_capture_keeper.3mf",
-      "sha256": "6793aed52c14ea27cc8474af63755a8ebc2007fb226e30dbfe6dd3b5d072e2a8"
-    },
-    "rod_capture_pin": {
-      "path": "3mf/rod_capture_pin.3mf",
-      "sha256": "f89761803811e30744993b45ba0472c91c4607e33f9a6e0e8639725f5da20f9e"
-    },
-    "rod_clevis": {
-      "path": "3mf/rod_clevis.3mf",
-      "sha256": "00c2108c2834eea0d134449468828ab33dc90d3681df0c2a08ca40443ff9ae6b"
-    },
-    "rod_clevis_bushing": {
-      "path": "3mf/rod_clevis_bushing.3mf",
-      "sha256": "fa92cdcf1f244a33120608e56bf8f0707799b37259b42a1c83bddefbb91c21a8"
-    },
-    "rod_clevis_pin": {
-      "path": "3mf/rod_clevis_pin.3mf",
-      "sha256": "4104200304dd669021c14058b1ac2e89f4a466d5b26f6e4a2acc9cdcfcf8d131"
-    },
-    "rod_endstop": {
-      "path": "3mf/rod_endstop.3mf",
-      "sha256": "100f09c92f1b3a5ec790079e3b9a032be58f18efcd70d2f9a751c9a601375773"
+    "rod_capture_assembly": {
+      "path": "3mf/rod_capture_assembly.3mf",
+      "sha256": "290541173e598c80ceb39cbc0f5054818983b22727b6f99d3abf1d7bf92ff273"
     },
     "rod_fine_carriage_nut": {
       "path": "3mf/rod_fine_carriage_nut.3mf",
-      "sha256": "ece3824653c6834901aba3d6999c840bd6ee68cbaacda4c6ed0cfd058a0774bc"
+      "sha256": "faa180347aadbfedb1a430b7e8f1c56d4f2efabb95911ee036b5c0a3545cde23"
     },
     "rod_fine_jam_collar": {
       "path": "3mf/rod_fine_jam_collar.3mf",
@@ -4628,67 +3247,47 @@
     },
     "rod_fine_screw": {
       "path": "3mf/rod_fine_screw.3mf",
-      "sha256": "18c1e3c62a19c67902c07fe608be68765e2d075319e14cb051f8c8565da0179a"
+      "sha256": "8abcb51b5d6f5c17accba3ca347461b7da13e61bbed85674f1adbf3c7bd66149"
     },
     "rod_fit_gauge": {
       "path": "3mf/rod_fit_gauge.3mf",
       "sha256": "5c145b32e9fa44237dab603dbb7b30da4f77dab0ac32a25c930575e2417c8045"
     },
-    "rod_overstop_lug": {
-      "path": "3mf/rod_overstop_lug.3mf",
-      "sha256": "72662136b9322eaa09736489723ffb5ecfd8950d381c995ae9a71b52485477f0"
-    },
-    "rod_overstop_stop": {
-      "path": "3mf/rod_overstop_stop.3mf",
-      "sha256": "c339317ab30f61acaf1315340c8e8e2facdfe0bd0b65da9f2a4c30ade7b6ff71"
-    },
     "rod_segment_lower": {
       "path": "3mf/rod_segment_lower.3mf",
-      "sha256": "bc24a83c8e0d1b65468ec278171af00c9fbbcc26b8fc5f34e6f6450a9c47ec45"
+      "sha256": "ac250025092977f3cbe8fe9500f93f160a586f0eda388aaaa7ae12a921664978"
     },
     "rod_segment_middle": {
       "path": "3mf/rod_segment_middle.3mf",
-      "sha256": "e88d3a06a05b003db8691615709866c1c0ae791a9c7fc77b30d7af2d7531678b"
+      "sha256": "f44cf475c1803bfbae10ddaea872bc883aaab38bf9b2b1dde2fee5eb65b3ffa0"
     },
     "rod_segment_upper": {
       "path": "3mf/rod_segment_upper.3mf",
-      "sha256": "015ff880fe262bc21d769b644294993b3027524637d9fc39942b098bdfa079ae"
-    },
-    "rod_sleeve": {
-      "path": "3mf/rod_sleeve.3mf",
-      "sha256": "99af28032491741b7afc53bcd2407246631e84f3f175fafe0d9457e4ab284b59"
-    },
-    "rod_slider": {
-      "path": "3mf/rod_slider.3mf",
-      "sha256": "927094317e6260fa4ef0facd40e702c0b7897631a27a2820e866e8db33c4562e"
-    },
-    "rod_spigot": {
-      "path": "3mf/rod_spigot.3mf",
-      "sha256": "3ff38a1c0aab39343dbfb1e7abd5a0520f9c3053b8020fb690a3098881aa19b1"
+      "sha256": "42384c9aeb01884f2d23c38fa3f00c6c86ae5c378fd0cc8868b740d924350590"
     },
     "rod_throttle_fork": {
       "path": "3mf/rod_throttle_fork.3mf",
-      "sha256": "7944c2562310a5423acfbe1924528daf89c19a613051a34de6ce465ebaf89212"
+      "sha256": "2de5a2f004d3549661017d7e2c2174a8ba21189f0f729181c947ab62a2faf6e6"
     },
     "servo_cradle": {
       "path": "3mf/servo_cradle.3mf",
-      "sha256": "2d2ddcff722c1715a4106963ff34d5377d56e0d60da61b50b304617f29e3e1f4"
+      "sha256": "9532e1fa3f6293fae9e660871bd70df4a3ee209ccb273dd89ded43b7a6e9f441"
     },
     "servo_keeper": {
       "path": "3mf/servo_keeper.3mf",
-      "sha256": "32682ea8fa25b57adf1d0b775fc1ba2ccb3b0c366caab2b11cf5079344e31cc4"
+      "sha256": "41f7b0bf15e121d1f95b49d986d69f73cfd6db5b8fa463baacefab51731dee00"
     },
     "servo_keeper_pin": {
       "path": "3mf/servo_keeper_pin.3mf",
-      "sha256": "6331bbe54b07d7828798dc4f0e4efddd0851e4a932156ce50eabbe946ca090ba"
+      "sha256": "c2373577cb129f9dd105b7d7f34d8d953d869f561dbd1673b33e7db02810ff3b"
     },
     "servo_pin_keeper": {
       "path": "3mf/servo_pin_keeper.3mf",
-      "sha256": "f025cd4d81af1954d8f6b3359a01dfc2c507426724205876d62a4d872d92cd17"
+      "sha256": "55bc6e399f9148dd5cc06e6f939b88e482b2d2b275a3cc7f23ac294e183cfbb9"
     },
     "servo_seat_pin": {
       "path": "3mf/servo_seat_pin.3mf",
-      "sha256": "a0f6391bca23a574cfe7ac09009dd2cd18d1a301716f4696ef01516aa108f621"
+      "sha256": "8d55c87d7d81b107c3604a1df25adb537c06ba2d0c86a34a624db065d4bcfd00"
     },
     "splice_keeper": {
       "path": "3mf/splice_keeper.3mf",
@@ -4700,35 +3299,19 @@
     },
     "throttle_arm_head": {
       "path": "3mf/throttle_arm_head.3mf",
-      "sha256": "553405d4f23e3efd9e3fc2aa812fe51a0e49e5d4d8b38228364541e43e635e2d"
-    },
-    "throttle_u_body": {
-      "path": "3mf/throttle_u_body.3mf",
-      "sha256": "ded02e5ff214ea81af4521d9967e621bb2558c8d9ee6ba9783ae29e7a92bc98d"
+      "sha256": "c651da642ff6947d3628354b435d7846f187173fbd52eeb5995d0002ebb8968f"
     },
     "throttle_u_cap": {
       "path": "3mf/throttle_u_cap.3mf",
-      "sha256": "63fcafefb5919ad8d597b88be97cd27ca7ebb91b0d5d5f3099ed801823083ddd"
+      "sha256": "3d8f823f598e7f4761e352fb94eb11e53f4a833e921a3dcbbbe4c8891f03099e"
+    },
+    "throttle_u_fitting": {
+      "path": "3mf/throttle_u_fitting.3mf",
+      "sha256": "658e90c3c37ae19b944fe274c8a5e43bdff72e91602e8e79340cb8d18503eb8c"
     },
     "throttle_u_gauge": {
       "path": "3mf/throttle_u_gauge.3mf",
       "sha256": "81d8bcd472a90a5a43dd675e13003ae31cd9f63889de05a53a9e4d429dfda1f6"
-    },
-    "throttle_u_neck": {
-      "path": "3mf/throttle_u_neck.3mf",
-      "sha256": "ae0874869f2a873c33d77d811cb7b4c04ec88b88f270a346033d72349f0dfce1"
-    },
-    "throttle_u_pin": {
-      "path": "3mf/throttle_u_pin.3mf",
-      "sha256": "1c0f71f3c7dc652073cf620d056af9bb57180072faf44f08c0f08cf02f2bc1ab"
-    },
-    "throttle_u_retainer": {
-      "path": "3mf/throttle_u_retainer.3mf",
-      "sha256": "521486594296873d8a7a20885a004e57b6e84d2594e992d8ef0bc0a528f42ebe"
-    },
-    "trim_screw": {
-      "path": "3mf/trim_screw.3mf",
-      "sha256": "80c5c2dcdb59bd6015a71ffc9473b1b10ffd0372db903ccc3f304709fc821af2"
     },
     "variant_a_cap": {
       "path": "3mf/variant_a_cap.3mf",
@@ -4736,55 +3319,51 @@
     },
     "variant_a_keeper": {
       "path": "3mf/variant_a_keeper.3mf",
-      "sha256": "d62901c925bd843a82e05f9383935fa128c29ad0163379525707323bb4dc2f49"
+      "sha256": "08208d5e42c51d182afb79eb46c140be6702e0e2ff12e903bb3f853d1237ff5e"
     },
     "variant_a_post": {
       "path": "3mf/variant_a_post.3mf",
-      "sha256": "659a2091814956eafedcab4cfe1ee5ccc840508ed0028885fcaa974d152ee9bb"
+      "sha256": "4823ad3d7264a590d26f52566ddde3e1836d5043546cb0c4a06b388ed541e3a3"
     },
     "variant_b_cap": {
       "path": "3mf/variant_b_cap.3mf",
-      "sha256": "917b51b3492b291be9580ac79e3bc3649904439bae5d83f793297b18c49d45f8"
+      "sha256": "73bdebb9e1308be44777c9e2c02e64bb64e007169ac453506d4c9a3df1e8956e"
     },
     "variant_b_keeper": {
       "path": "3mf/variant_b_keeper.3mf",
-      "sha256": "3dfc284a4dee3a6d662b92b4163ce1113bdf6c25a6726a8e94ba81d6ee02b97d"
+      "sha256": "6d191d7973962e612346fe36fc4894e301391525e33a73033e3ba033690421ed"
     },
     "variant_b_lug": {
       "path": "3mf/variant_b_lug.3mf",
-      "sha256": "408de7927e6d406f49605dc13b6301817f49d0c95f75d3acc550318bf2adb468"
+      "sha256": "4e66613229c899fd9e9732859507889ebf2115b5277f9a93ff6191f115cc9698"
     },
     "variant_b_pin": {
       "path": "3mf/variant_b_pin.3mf",
-      "sha256": "c70bc946e1cd7d570b1a202689cc98e48aca06316cfa384c96a998c847eb75d1"
+      "sha256": "68f7fbb14cf595b6d7efe47dc131860c90b75a65805d137ca11efff3231dd779"
     },
     "variant_b_shell_a": {
       "path": "3mf/variant_b_shell_a.3mf",
-      "sha256": "f9c448941056bdaf194da3484e66c3a973469790ddd2fe1fb904e892f093f222"
+      "sha256": "28af6b797043d1462eb15454dbe738b3a58c9e61ac5608c1a313c1820de1df46"
     },
     "variant_b_shell_b": {
       "path": "3mf/variant_b_shell_b.3mf",
-      "sha256": "473b65382131ef5363b3479b64e1a0837be19bb8a4b40349f54725ae5d0fa0ea"
+      "sha256": "88f5afcc5f05a1e422c29f253fd5beb3e647611efc3a76e5714ef849a6d27793"
     },
     "variant_c_cap": {
       "path": "3mf/variant_c_cap.3mf",
-      "sha256": "2a2dbd1f477463afbc099753c7d62be2c74e6c980984d3573df084a36f924c17"
-    },
-    "variant_c_carrier": {
-      "path": "3mf/variant_c_carrier.3mf",
-      "sha256": "fe5305473820a71dd51c55eb1c3438c7e421e38c42ba9a9896afa67c37897b0c"
+      "sha256": "3d9e63888113833d2303268cf70afe52dc72467a39636e5528014f43ff05b88d"
     },
     "variant_c_keeper": {
       "path": "3mf/variant_c_keeper.3mf",
-      "sha256": "d6f56300181a822dabe31aa08573eafc84f7f02fd3c2fd146fe61468e5ac99ec"
+      "sha256": "f4ac7e98694ca34f624ad7524e0d4831defc6fdd7b385bf0ffd06aec50c4a4b5"
     },
     "variant_c_pin": {
       "path": "3mf/variant_c_pin.3mf",
-      "sha256": "512d71fee021b753cfbf56f058686590d01d65a8e461da5040d640eb8654819e"
+      "sha256": "8fecc925524caaf8c867bdeb262a0aea500d51053aaf70fe4f179c74e2f96368"
     },
-    "variant_c_shoe": {
-      "path": "3mf/variant_c_shoe.3mf",
-      "sha256": "15b0b7ef80040f7d05b277c5cac950f7158dd31b685efdac584bd18a334859c9"
+    "variant_c_pip": {
+      "path": "3mf/variant_c_pip.3mf",
+      "sha256": "d8394cb48194de8781478bd0eaa189e0fb81a805e1f8a6b1b7429c721f1828f3"
     },
     "variant_c_wedge_keeper": {
       "path": "3mf/variant_c_wedge_keeper.3mf",
@@ -4792,63 +3371,47 @@
     },
     "variant_c_wedge_key": {
       "path": "3mf/variant_c_wedge_key.3mf",
-      "sha256": "106dd0a23be757095c37ce178e208805606dcf0be060c00ab69febe050f12dc3"
-    },
-    "variant_d_ball_stem": {
-      "path": "3mf/variant_d_ball_stem.3mf",
-      "sha256": "fefe6e0373649110e22d53aa0a2c8cfed90a26a9ea018aadb803c79b65380a51"
-    },
-    "variant_d_cage": {
-      "path": "3mf/variant_d_cage.3mf",
-      "sha256": "ad58d61e9893d289873d4b41753a478a05988bb4b30797cac03d45b264ecf0b7"
+      "sha256": "493e760df6137a63237c5f666aa3df3593549b5e94e5e980b0ed5e589d52c750"
     },
     "variant_d_cap": {
       "path": "3mf/variant_d_cap.3mf",
-      "sha256": "4b983f0800eb370eacee09f63ec1f000ada521be81def4161abc67b0f94512de"
-    },
-    "variant_d_carrier": {
-      "path": "3mf/variant_d_carrier.3mf",
-      "sha256": "d12ef1a6edd68b6034117c80ec545343b7886769aaee203eb83843ab64db4a62"
-    },
-    "variant_d_closure": {
-      "path": "3mf/variant_d_closure.3mf",
-      "sha256": "61e36463a7e935c8b2917f63d86eba2ed1a11ad1e047fb0f20f59890250fef93"
+      "sha256": "d7b32845e778593313ddee12fb84ac46e54db424d2feb6b334da8e888012f240"
     },
     "variant_d_keeper": {
       "path": "3mf/variant_d_keeper.3mf",
-      "sha256": "17b0ea82d293ba7e2d3ba2dab07a5612d0297aa74784e73cf9145458aa703609"
+      "sha256": "a1cc35b8e5e20e2b5c8a9205d0ffd8252ae84e414ca30ec4535f2326a0dad284"
     },
     "variant_d_pin": {
       "path": "3mf/variant_d_pin.3mf",
-      "sha256": "ec4caa90a2d61caa6147814378bd91508a42a921170a161d83f5d494d2585e0a"
+      "sha256": "11b7d985e0bad00ab535e2b5ed8aa6d770617becc3b56d8bf103b6299e11744c"
     },
-    "variant_d_wear_socket": {
-      "path": "3mf/variant_d_wear_socket.3mf",
-      "sha256": "0979e0bf3a2960d5586100a4bac2bd7cf85032bfe179e1f48b20c37dad122ea0"
+    "variant_d_pip": {
+      "path": "3mf/variant_d_pip.3mf",
+      "sha256": "eb5bb108ec859b20056ed469ed6b9907e2f1e01991994420ecfd79e1d6c4170d"
     },
     "variant_e_bushing": {
       "path": "3mf/variant_e_bushing.3mf",
-      "sha256": "1964e21c8e2598cf6d3eb6f6c9f5428d6154d501bfa811ce003165206d6dc719"
+      "sha256": "773eaa1ba189a5187a01ce0d703e4c8f3413bb1463ccedc64804ac06e4daf9f8"
     },
     "variant_e_carrier": {
       "path": "3mf/variant_e_carrier.3mf",
-      "sha256": "3e32740b4994d0dbc6e6fc8474acaa6a797b240a7c19d691b534a496707626a8"
+      "sha256": "29e8ae1b3087561fdaf4b0582d44d90165e1215648857e4db4f8e8f8f92856df"
     },
     "variant_e_clevis": {
       "path": "3mf/variant_e_clevis.3mf",
-      "sha256": "d8d126b03dc7adf62cdcb39e07f8dab4c32ce72d6859cb2d4d793c7ac1d7d7be"
+      "sha256": "3a481e60f98515bb36f5d06aefb595a3139a81de430814a7711d453b09be3890"
     },
     "variant_e_eye_bushing": {
       "path": "3mf/variant_e_eye_bushing.3mf",
-      "sha256": "cfa6a165196be31ccf753460eec4b93e3e544c20731e2ad5765710acdd8cb8fb"
+      "sha256": "eaae8b8792c21f1b99a9352658d20ba1ee8eec66c2544302d1843b82d44b2557"
     },
     "variant_e_index_keeper": {
       "path": "3mf/variant_e_index_keeper.3mf",
-      "sha256": "33e9dd24b20847040de0b68efe0417e818c1cf2d9e9c2ca442de81f65266001a"
+      "sha256": "4b367e4802beb656f27c10d7542a027070fe1ca50bfc7f93c0fb62a41c3ce835"
     },
     "variant_e_index_pin": {
       "path": "3mf/variant_e_index_pin.3mf",
-      "sha256": "b76a0dea30b91a56aa3bbd4ce018c15faec06b2039307320944fcf1cedc16c6e"
+      "sha256": "001885f2056e45a34b962980b0f1cc8cc9a6dbf3fdae9bc9a760796e53d745b3"
     },
     "variant_e_keeper": {
       "path": "3mf/variant_e_keeper.3mf",
@@ -4856,11 +3419,7 @@
     },
     "variant_e_pin": {
       "path": "3mf/variant_e_pin.3mf",
-      "sha256": "2f0914403610ef610ca0487248d55126f5e8c961b284ff3929be218fb768dd5e"
-    },
-    "wear_socket": {
-      "path": "3mf/wear_socket.3mf",
-      "sha256": "d06f4aed75d2295900ca0feb4cce20062f35608db328ecf5992058e515b34a89"
+      "sha256": "dcfb554686aba02274ef03f047bc295fd23d6017765d2fcd6cdd83eeb4db3850"
     }
   },
   "probes": [
@@ -4888,6 +3447,61 @@
       "check": "u_clearance_applied",
       "expect": "empty",
       "empty": true
+    },
+    {
+      "check": "u_yoke_fit",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "u_yoke_pitch_range",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "u_yoke_pitch_range",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "u_yoke_pitch_range",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "u_yoke_pitch_range",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "u_yoke_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "u_yoke_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "u_yoke_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "u_yoke_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "u_yoke_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "u_yoke_captive",
+      "expect": "contact",
+      "empty": false
     },
     {
       "check": "support_bears_on_land",
@@ -4975,6 +3589,26 @@
       "empty": false
     },
     {
+      "check": "rod_capture_pip_fit",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "rod_capture_range_clear",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "rod_capture_range_clear",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "rod_capture_range_clear",
+      "expect": "empty",
+      "empty": true
+    },
+    {
       "check": "rod_capture_clear",
       "expect": "empty",
       "empty": true
@@ -5001,6 +3635,11 @@
     },
     {
       "check": "rod_overlap_capture",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "rod_overlap_capture_reverse",
       "expect": "contact",
       "empty": false
     },
@@ -5020,7 +3659,7 @@
       "empty": false
     },
     {
-      "check": "endstop_capture",
+      "check": "clevis_double_shear",
       "expect": "contact",
       "empty": false
     },
@@ -5030,12 +3669,187 @@
       "empty": false
     },
     {
-      "check": "ball_cage_capture",
+      "check": "splice_bars_fit",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "splice_bar_holds_joint",
       "expect": "contact",
       "empty": false
     },
     {
-      "check": "c_radius_slide",
+      "check": "splice_bar_holds_joint",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "splice_bar_holds_joint",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "splice_bar_holds_joint",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "splice_bar_holds_joint",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "splice_bar_holds_joint",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "splice_keeper_stops_inward",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "splice_keeper_stops_inward",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "splice_keeper_stops_inward",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "d_ball_pip_fit",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "d_ball_range_clear",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "d_ball_range_clear",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "d_ball_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "d_ball_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "d_ball_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "d_ball_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "d_ball_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "d_ball_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_pip_fit",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "c_shoe_range_clear",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "c_shoe_range_clear",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "c_shoe_range_clear",
+      "expect": "empty",
+      "empty": true
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_captive",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_end_stop",
+      "expect": "contact",
+      "empty": false
+    },
+    {
+      "check": "c_shoe_end_stop",
       "expect": "contact",
       "empty": false
     },

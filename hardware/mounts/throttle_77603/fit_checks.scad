@@ -20,6 +20,15 @@ check = "u_lever_passes";
 rod_capture_length_mm = rods_nominal_span_mm;
 link_variant = "E";
 link_sweep_deg = 0;
+clevis_ear_side = 1;     // clevis_double_shear: +1 upper ear, -1 lower ear
+splice_joint = 0;        // splice probes: 0 servo/chain, 1 chain/chain, 2 chain/sleeve
+splice_shift_mm = 1;     // splice_bar_holds_joint: displacement along the rod axis
+u_yoke_angle = 30;       // u_yoke_pitch_range: yoke pitch about the hinge axis, degrees
+u_yoke_shift = [0, 0, 1];  // u_yoke_captive: displacement of the yoke, mm
+d_ball_angle_deg = 10;      // d_ball_range_clear: prototype articulation angle
+d_ball_shift_mm = [0, 0, 3]; // d_ball_captive: forced translation of the ball
+c_radius_mm = horn_radius_default_mm;  // c_shoe_*: tested continuous radius
+c_shoe_shift_mm = [0, 0, 1];           // c_shoe_*: forced movement of the shoe
 // Plan unit vector of the rod's run for the selected variant.
 function link_run_mm() =
     [cos(run_angle_deg(link_variant)), sin(run_angle_deg(link_variant)), 0];
@@ -85,6 +94,25 @@ if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
     intersection() {
         throttle_u_fitting("body");
         u_lever_probe(1.0);
+    }
+} else if (check == "u_yoke_fit") {
+    // EMPTY: the print-in-place yoke clears the body as printed.
+    intersection() {
+        u_body();
+        u_yoke();
+    }
+} else if (check == "u_yoke_pitch_range") {
+    // EMPTY, run at several angles: the yoke pitches about the hinge axis without contact.
+    intersection() {
+        u_body();
+        u_yoke_pitched(u_yoke_angle);
+    }
+} else if (check == "u_yoke_captive") {
+    // CONTACT, run for +/-1 mm along each axis: wherever the yoke is pushed, the stub pins,
+    // bores, legs and boss stop it, so it cannot leave the body.
+    intersection() {
+        u_body();
+        translate(u_yoke_shift) u_yoke();
     }
 } else if (check == "support_bears_on_land") {
     // POSITIVE: the integral column really grows out of the arm head's servo-face land, so
@@ -277,19 +305,46 @@ if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
         translate(-link_run_mm()) rod_throttle_end_placed(link_variant);
         throttle_end(link_variant);
     }
+} else if (check == "rod_capture_pip_fit") {
+    // The slider and sleeve leave the printer as two separate bodies; the 0.4 mm gap
+    // is measured by the catalogue's print-in-place mesh gate.
+    intersection() {
+        rod_receiver_sleeve();
+        rod_slider();
+    }
+} else if (check == "rod_capture_range_clear") {
+    // The sleeve lug must remain inside the slider's groove at all three span settings.
+    intersection() {
+        rod_receiver_sleeve();
+        translate([0, 0, rod_slider_start_in_sleeve_mm(rod_capture_length_mm)])
+            rod_slider();
+    }
 } else if (check == "rod_capture_clear") {
-    // At the selected setting, the actual shoulder and capture pin must not overlap.
+    // At the selected setting, the closed groove shoulder clears the sleeve's integral lug.
     intersection() {
         rod_overstop_lug(rod_capture_length_mm);
         rod_overstop_stop();
     }
 } else if (check == "rod_overlap_capture") {
-    // Push the actual closed-groove shoulder beyond the fixed capture pin.
-    // Contact demonstrates a geometric stop, not strength or vibration resistance.
+    // Slide the slider along the rod until its closed groove end reaches the sleeve's
+    // integral lug and 1 mm past it. The lug sits INSIDE the groove at the declared
+    // settings, so the closed ends are overtravel catches, not length stops: contact
+    // needs about 277 mm of extension at the 940 mm setting and about 37 mm at the
+    // 1200 mm setting. Contact proves the catch exists, not that it holds load or that
+    // the fitted coarse lock holds length.
     intersection() {
-        translate([0, 0, rod_capture_pin_z()
+        translate([0, 0, rod_capture_lug_z()
                    - rod_capture_shoulder_end_z(rod_capture_length_mm) + 1])
             rod_overstop_lug(rod_capture_length_mm);
+        rod_overstop_stop();
+    }
+} else if (check == "rod_overlap_capture_reverse") {
+    // CONTACT: the same catch in reverse, reached after about 53 mm of reverse travel at
+    // the 940 mm setting, plus 1 mm past it.
+    intersection() {
+        translate([0, 0, rod_capture_lug_z()
+                   - rod_capture_upper_shoulder_z(rod_capture_length_mm) - 1])
+            rod_overstop_reverse_shoulder(rod_capture_length_mm);
         rod_overstop_stop();
     }
 } else if (check == "lock_wedge_grip") {
@@ -312,34 +367,82 @@ if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
         throttle_pushrod("lock_screw");
         translate([0, 0, 10]) cylinder(d = fine_screw_d_mm + 4, h = fine_nut_height_mm);
     }
-} else if (check == "endstop_capture") {
-    intersection() {
-        throttle_pushrod("endstop");
-        cube([rods_w_mm + 8, rods_w_mm + 8, 2], center = true);
-    }
 } else if (check == "clevis_double_shear") {
-    // Positive: BOTH ears carry material around the pin axis (double shear).
+    // CONTACT, run once per ear: variant E's own clevis has material in a ring around the
+    // hinge pin's axis inside that ear, so the eye between the ears is in double shear.
+    // Frame: the clevis frame, bore centre at the origin.
+    gap = eye_fork_gap();
+    ear = e_ear_t_mm();
+    z0 = clevis_ear_side > 0 ? gap / 2 + 0.3 : -gap / 2 - ear + 0.3;
     intersection() {
-        printed_clevis();
-        for (s = [-1, 1])
-            translate([s * (clevis_gap_mm / 2 + clevis_ear_t_mm / 2), 0,
-                       clevis_ear_t_mm + clevis_gap_mm / 2])
-                cube([clevis_ear_t_mm, clevis_gap_mm, clevis_gap_mm]);
+        e_clevis();
+        translate([0, 0, z0])
+            difference() {
+                cylinder(d = bushing_od_mm + 3, h = ear - 0.6);
+                translate([0, 0, -1]) cylinder(d = bushing_od_mm + 0.6, h = ear + 1);
+            }
     }
-} else if (check == "ball_cage_capture") {
-    // Positive: the cage is real material at its own mid-height band around the ball axis.
+} else if (check == "splice_bars_fit") {
+    // EMPTY: every joint's bar and keeper clear the installed fixed chain.
     intersection() {
-        variant_d("cage");
-        difference() {
-            cylinder(d = ball_d_mm + 2 * ball_socket_wall_mm + 6, h = ball_d_mm * 0.4);
-            cylinder(d = ball_d_mm + 2 * ball_socket_wall_mm, h = ball_d_mm * 0.4 + 1);
-        }
+        rod_fixed_chain();
+        rod_splices();
     }
-} else if (check == "c_radius_slide") {
-    // Positive: the shoe must be able to sit at a non-default continuous radius.
+} else if (check == "splice_bar_holds_joint") {
+    // CONTACT, per joint and direction: moving that joint's bar 1 mm along the rod meets
+    // the slot faces in the boss and spigot, so the bar holds the two sections together.
     intersection() {
-        variant_c("carriage", radius_mm = 23.7);
-        translate([23.7, 0, 5]) cube([18, 8, 20], center = true);
+        rod_fixed_chain();
+        translate([0, 0, splice_shift_mm]) rod_splice(rod_splice_bases()[splice_joint]);
+    }
+} else if (check == "splice_keeper_stops_inward") {
+    // CONTACT, per joint: pushing that joint's bar 1 mm toward the slider drives its keeper
+    // into the boss face before the bar can reach the slider passage.
+    intersection() {
+        rod_fixed_chain();
+        translate([0, -1, 0]) rod_splice(rod_splice_bases()[splice_joint]);
+    }
+} else if (check == "d_ball_pip_fit") {
+    // EMPTY: the truncated ball and carrier-integral socket print as separate bodies.
+    intersection() {
+        d_carrier();
+        translate([x_horn_arm_radius_mm, 0, 0]) d_ball_stem();
+    }
+} else if (check == "d_ball_range_clear") {
+    // EMPTY: the stem/post clears the carrier-integral socket through the tested angle.
+    intersection() {
+        d_carrier();
+        translate([x_horn_arm_radius_mm, 0, 0]) d_ball_stem_pitched(d_ball_angle_deg);
+    }
+} else if (check == "d_ball_captive") {
+    // CONTACT: the socket prevents the ball leaving through either narrowed mouth.
+    intersection() {
+        d_carrier();
+        translate([x_horn_arm_radius_mm, 0, 0])
+            translate(d_ball_shift_mm) d_ball_stem();
+    }
+} else if (check == "c_shoe_pip_fit") {
+    intersection() {
+        c_carrier();
+        c_shoe(c_radius_mm);
+    }
+} else if (check == "c_shoe_range_clear") {
+    // The shoe slides continuously at the requested radius without rail interference.
+    intersection() {
+        c_carrier();
+        c_shoe(c_radius_mm);
+    }
+} else if (check == "c_shoe_captive") {
+    // CONTACT: upper/lower dovetail flanks stop vertical and transverse displacement.
+    intersection() {
+        c_carrier();
+        translate(c_shoe_shift_mm) c_shoe(c_radius_mm);
+    }
+} else if (check == "c_shoe_end_stop") {
+    // CONTACT: the closed inboard/outboard track ends retain the shoe at the travel limits.
+    intersection() {
+        c_carrier();
+        translate(c_shoe_shift_mm) c_shoe(c_radius_mm);
     }
 } else {
     assert(false, str("unknown check: ", check));

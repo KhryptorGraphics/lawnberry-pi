@@ -38,9 +38,6 @@ keeper_ring_bore_d_mm = 4.6;   // the ring rides ON the band with 0.1 mm of clea
 keeper_ring_od_mm = 12;
 keeper_ring_t_mm = 2;          // the ring's own thickness
 
-// Z of the keeper band's centre, for a pin of length `len`.
-function printed_pin_groove_z(len) = keeper_band_t_mm / 2;
-
 /// Relief that turns a pin's OUTSIDE down to `band_d` over `band_t`.
 ///
 /// Subtract this annulus from a solid shaft to leave a central band of `band_d`.
@@ -79,7 +76,7 @@ module printed_pin(len, d = pin_d_mm, head_d = pin_head_d_mm, keeper = true) {
 /// their index pins.
 ///
 /// The ring's axis is its own +Z, so it is placed on the pin with the SAME orientation as
-/// the pin and at the band's centre: printed_pin_groove_z(len).
+/// the pin and at the band's centre.
 module printed_keeper(od = keeper_ring_od_mm, bore = keeper_ring_bore_d_mm,
                       h = keeper_ring_t_mm) {
     assert(is_num(od) && is_num(bore) && is_num(h), "keeper dimensions must all be numbers");
@@ -95,22 +92,6 @@ module printed_keeper(od = keeper_ring_od_mm, bore = keeper_ring_bore_d_mm,
     }
 }
 
-// ---- Printed cross-pin bore ---------------------------------------------------------
-// A bore along the Y axis through a member's walls. rotate([90,0,0]) sends the extrusion
-// toward -Y, so the cylinder must be CENTRED on the member and given the full length
-// rather than started at one face: an off-centre bore ran off the part entirely and cut
-// nothing. That polarity trap has recurred repeatedly, so it is expressed once here.
-module pin_bore_y(len, d = pin_d_mm + 2 * joint_clearance_mm) {
-    translate([0, 0, 0]) rotate([90, 0, 0])
-        cylinder(d = d, h = len, center = true);
-}
-
-// A bore along the X axis, centred on the part it passes through. rotate([0,90,0]) sends
-// the extrusion toward +X, so the cylinder must be centred rather than started at a face.
-module pin_bore_x(len, d = pin_d_mm + 2 * joint_clearance_mm) {
-    rotate([0, 90, 0]) cylinder(d = d, h = len, center = true);
-}
-
 // ---- Replaceable bushing -----------------------------------------------------------
 // Sacrificial wear part: pressed into the ear, replaced when clearance grows.
 module printed_bushing(od = bushing_od_mm, id = bushing_id_mm, len = bushing_len_mm) {
@@ -121,81 +102,6 @@ module printed_bushing(od = bushing_od_mm, id = bushing_id_mm, len = bushing_len
         // Anti-rotation key so the bushing cannot spin its wear surface.
         translate([od / 2 - 0.01, -1, len / 2]) rotate([90, 0, 0])
             cylinder(d = 2.4, h = 2.2);
-    }
-}
-
-/// Split wear shoe for the ball socket: replaceable, retained by the cage, not by glue.
-module printed_wear_socket(ball_d = ball_d_mm, wall = ball_socket_wall_mm,
-                           split = 1.6) {
-    od = ball_d + 2 * wall;
-    difference() {
-        // Straight sleeve. A spherical cavity combined with a half-width split cut produced
-        // coincident faces and a degenerate triangle, which the mesh gate correctly rejects.
-        cylinder(d = od, h = ball_d * 0.9);
-        translate([0, 0, -1]) cylinder(d = ball_d + 0.6, h = ball_d * 0.9 + 2);
-        // Split slot cut PART WAY through the wall region only, never spanning the full bore
-        // height: a through-slit severs the sleeve into two shells and a coincident-face cut
-        // produces degenerate triangles, both of which the mesh gate correctly rejects.
-        translate([-split / 2, -od / 2 - 1, ball_d * 0.9 - wall])
-            cube([split, od + 2, wall + 0.5]);
-    }
-}
-
-// ---- Double-shear clevis -----------------------------------------------------------
-// Two printed ears with a gap sized for the rod eye; the pin and bushing pass through all
-// three parts, so the eye is loaded in double shear and cannot lever the joint open.
-module printed_clevis(gap = clevis_gap_mm, ear_t = clevis_ear_t_mm,
-                      reach = 22, keeper = true) {
-    // Ears are SEPARATED IN X by `gap`, so the rod eye physically sits between them and the
-    // pin carries it in double shear. A single full-width block would have no gap at all.
-    // The spine across the top ties both ears into one connected printable solid.
-    total = gap + 2 * ear_t;
-    height = ear_t + gap + ear_t;
-    spine_t = ear_t;
-    pin_z = ear_t + gap / 2;
-    difference() {
-        union() {
-            translate([-total / 2, -reach / 2, 0]) cube([ear_t, reach, height]);
-            translate([gap / 2, -reach / 2, 0]) cube([ear_t, reach, height]);
-            translate([-total / 2, -reach / 2, height - spine_t])
-                cube([total, reach, spine_t]);
-        }
-        // The ears are separated along X, so the pin bore MUST also run along X. The
-        // previous Y-axis bore passed through the empty centre gap and missed both ears.
-        translate([-total / 2 - 1, 0, pin_z]) rotate([0, 90, 0])
-            cylinder(d = pin_d_mm + 2 * joint_clearance_mm, h = total + 2);
-    }
-}
-
-// ---- Keyed segment splice ----------------------------------------------------------
-// Fixed segment join: a spigot enters the next tube and a printed cross-wedge locks it.
-// This is assembly retention only -- never a length adjustment.
-module keyed_spigot(len = 40, w = rods_bore_mm - 0.4, wedge = true) {
-    difference() {
-        translate([-w / 2, -w / 2, 0]) cube([w, w, len]);
-        if (wedge)
-            translate([-w / 2 - 1, -keeper_t_mm / 2, len * 0.55])
-                cube([w + 2, keeper_t_mm, keeper_t_mm]);
-        // Anti-rotation key rib so the joint cannot clock under load.
-        translate([-1.6, -w / 2 - 1.2, len * 0.15]) cube([3.2, 2.4, len * 0.3]);
-    }
-}
-
-module splice_wedge(w = keeper_t_mm, h = 12) { printed_keeper(h = h, t = w); }
-
-// ---- End-stop capture collar -------------------------------------------------------
-// Clamps onto the sliding member as a hard stop. If the adjustment lock slips, this stops
-// separation. It does NOT prevent unwanted throttle motion -- report that separately.
-module endstop_collar(w = rods_w_mm + 6, t = 6) {
-    difference() {
-        translate([-w / 2, -w / 2, 0]) cube([w, w, t]);
-        translate([-rods_w_mm / 2 - joint_clearance_mm,
-                   -rods_w_mm / 2 - joint_clearance_mm, -1])
-            cube([rods_w_mm + 2 * joint_clearance_mm,
-                  rods_w_mm + 2 * joint_clearance_mm, t + 2]);
-        // Printed wedge slot instead of a bought bolt.
-        translate([-w / 2 - 1, -keeper_t_mm / 2, t / 2 - keeper_t_mm / 2])
-            cube([w + 2, keeper_t_mm, keeper_t_mm]);
     }
 }
 
@@ -273,41 +179,3 @@ module anti_backdrive_lip() {
             cube([leadscrew_anti_backdrive_lip_mm, 2, 2], center = true);
     }
 }
-
-// ---- Two-axis alignment neck -------------------------------------------------------
-// Positively captured printed articulation for the throttle-end fitting. Declared
-// +/-joint_articulation_deg capacity, not a measured mower requirement.
-module alignment_yoke(gap = clevis_gap_mm) {
-    printed_clevis(gap = gap, ear_t = clevis_ear_t_mm, reach = 18);
-}
-
-module alignment_cross_block(gap = clevis_gap_mm) {
-    union() {
-        translate([-gap / 2 - joint_clearance_mm, -6, -6])
-            cube([gap + 2 * joint_clearance_mm, 12, 12]);
-        rotate([0, 0, 90]) printed_clevis(gap = gap, ear_t = clevis_ear_t_mm, reach = 16);
-    }
-}
-
-// ---- Entry point -------------------------------------------------------------------
-// The catalog drives individual primitives through this selector. Names index the module
-// list so a typo fails loudly instead of silently rendering the wrong part.
-joint_part = "pin";
-
-module printed_joint_part(kind = joint_part) {
-    if (kind == "pin") printed_pin(24);
-    else if (kind == "clevis") printed_clevis();
-    else if (kind == "bushing") printed_bushing();
-    else if (kind == "wear_socket") printed_wear_socket();
-    else if (kind == "endstop_collar") endstop_collar();
-    else if (kind == "nut") printed_nut();
-    else if (kind == "keyed_spigot") keyed_spigot();
-    else if (kind == "screw") printed_screw(60);
-    else if (kind == "anti_backdrive") anti_backdrive_lip();
-    else if (kind == "keeper") printed_keeper();
-    else if (kind == "alignment_yoke") alignment_yoke();
-    else if (kind == "alignment_cross") translate([0, 0, 6]) alignment_cross_block();
-    else assert(false, str("unknown joint part: ", kind));
-}
-
-printed_joint_part(joint_part);

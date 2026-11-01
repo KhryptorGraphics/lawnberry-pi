@@ -2,9 +2,9 @@
 
 **PROTOTYPE — FIT / LOAD / ELECTRICAL VALIDATION REQUIRED.**
 **Geometry generated, not physically qualified.** The published STL/3MF files, previews, views,
-drawings and `generated_77603/validation.json` are regenerated from the current sources: all 99
-catalogued pieces pass the mesh and print-envelope gate, and all 65 CSG probe runs (37 probes;
-each linkage probe runs once per variant A-E) match their expected result. A probe proves
+drawings and `generated_77603/validation.json` are regenerated from the current sources: all 69
+catalogued pieces pass the mesh and print-envelope gate, and all 116 CSG probe runs (50 named
+checks; each linkage probe runs once per variant A-E) match their expected result. A probe proves
 geometric clearance or material presence at the demonstration pose only. Keeper retention,
 joint strength and wear, assembly alignment on a real mower, and the linkage's mechanical
 behaviour over the lever's real arc remain unverified.
@@ -38,72 +38,66 @@ Never copy a legacy `.scad` in here; that would silently fork the dimensional co
 | --- | --- | --- |
 | A | Direct pivot post through an existing X-horn arm hole | `post`, `cap`, `keeper` |
 | B | Printed X reinforcement shell spreading reaction over all four horn arms | `shell_a`, `shell_b`, `lug`, `cap`, `pin`, `keeper` |
-| C | Continuously variable effective horn radius on a captive radial carriage | `carrier`, `shoe`, `wedge_key`, `wedge_keeper`, `cap`, `pin`, `keeper` |
-| D | Printed ball with a replaceable split wear socket in a structural cage | `carrier`, `ball_stem`, `cage`, `wear_socket`, `closure`, `cap`, `pin`, `keeper` |
+| C | Continuous-radius shoe in a captured, 45-degree dovetail track | `pip` (carrier + shoe), `wedge_key`, `wedge_keeper`, `cap`, `pin`, `keeper` |
+| D | Truncated ball/post captive in a carrier-integral spherical socket | `pip` (carrier socket + ball/post), `cap`, `pin`, `keeper` |
 | E | Double-shear clevis with replaceable bushings and a captive printed pin | `carrier`, `clevis`, `bushing`, `eye_bushing`, `pin`, `keeper`, `index_pin`, `index_keeper` |
 
-All five share the same mount, the same adjustable rod and the same throttle-end fitting, so their
+All five share the same mount, the adjustable rod and the throttle-end fitting, so their
 comparison is meaningful. **Do not select one before review.**
 
 ## Continuous length adjustment
 
 **The rod length is an illustrative assembly span, not a measured mower dimension.** The modelled
-range is **940–1200 mm** with a default of **1066.8 mm**, expressed as the servo-side clevis pin
-centre to the throttle-side clevis pin centre. The owner's 40 in / 44 in separations and the
-38–41 in / 43–46 in adjustment bands have **undefined datums**: they are not a rod length, not a
-straight-line stroke and not a servo travel. The source rejects lengths outside the declared
-range rather than silently clamping them.
+range is **940–1200 mm** with a default of **1066.8 mm**, expressed as the servo-side pin centre
+to the throttle-side pin centre. The owner's 40 in / 44 in separations and the 38–41 in /
+43–46 in adjustment bands have **undefined datums**: they are not a rod length, a straight-line
+stroke or a servo travel. The source rejects lengths outside the declared range.
 
-The member is **segmented** so every printed segment stays inside the bed: keyed spigots join
-fixed-length tube sections, and a printed splice wedge plus a printed secondary keeper retains
-each splice. The adjustable portion is a continuously sliding coarse carriage plus a separate
-fine-trim stage. There are **no holes, notches, detents or indexed lengths** anywhere in the
-adjustment path.
+The fixed member is segmented so every printed segment stays inside the bed. Keyed spigots join
+the sections; a separately printed transverse bar and keeper retain each splice.
 
-Coarse stage: a keyed slider in a square sleeve with **no index holes and no detents**. Three
-interchangeable printed locks are modelled and exported:
+The continuously adjustable slider and receiver sleeve are one **print-in-place part**:
+`rod_capture_assembly`. Its two bodies print upright together from z = 0. The 45-degree
+integral sleeve lug rides in the closed-ended slider groove; the bodies have a mesh-checked gap.
+The groove spans the declared 940–1200 mm settings and provides secondary anti-separation stops
+after overtravel, not hard limits at the selected spans; the chosen coarse lock must hold length.
+No capture pin or keeper is installed afterward. The profile retains 240 mm of coarse travel plus
+the separate 20 mm fine stage; load capacity and wear life remain unqualified.
 
-1. `wedge_cam` — captured tapered wedge, over-centre cam, separate keeper.
-2. `split_collet` — replaceable split shoe, large printed threaded collar, anti-unwind keeper.
-3. `lead_screw` — printed fine-pitch screw/travelling nut with a smooth anti-backdrive lip.
+Three interchangeable printed coarse locks remain available:
 
-**These three are ALTERNATIVES: fit ONE family, not all three.** The catalog exports all of them so
-each concept is independently manufacturable and so the builder can choose; the build notes must
-record which family was fitted.
+1. `wedge_cam` — tapered wedge and over-centre cam with a separate keeper.
+2. `split_collet` — slotted shoes, compression collar and separate keeper.
+3. `lead_screw` — printed screw/nut with a smooth anti-backdrive lip.
 
-Fine stage: a printed screw/nut gives fractional-turn trim. Printed thread accuracy is **not**
-claimed. Every configuration has an internal end-stop collar so the members cannot separate even
-with the lock fully released. That prevents separation, **not** unwanted throttle motion — report that
-distinction honestly.
+**These three locks are alternatives: fit one family, not all three.** The fine stage uses a
+printed screw/nut and jam collar. Printed thread accuracy and anti-backdrive life are not claimed.
+The length path has no indexed holes, notches or detents.
 
-Every distinct printed part the rod composes is exported by name in
-`hardware/mounts/hardware_77603_catalog.py`: the three chain sections (`rod_segment_lower`,
-`rod_segment_middle`, `rod_segment_upper`), `rod_slider`, `rod_sleeve`, the capture hardware
-(`rod_capture_pin`, `rod_capture_keeper`), `rod_spigot`, the splice wedge and keeper, the fine
-stage (`rod_fine_screw`, `rod_fine_carriage_nut`, `rod_fine_jam_collar`), the throttle end
-(`rod_throttle_fork`), the anti-separation end stop (`rod_endstop`, `rod_overstop_lug`,
-`rod_overstop_stop`) and the rod's own clevis joint (`rod_clevis`, `rod_clevis_bushing`,
-`rod_clevis_pin`). The rod's `endstop` and the shared `endstop_collar` are **different parts** and
-both are exported. The three coarse locks each export with their own keeper
-(`lock_wedge_keeper`, `lock_collet_keeper`, `lock_anti_backdrive`).
+The catalog exports the segmented rod members, `rod_capture_assembly`, the splice wedges and
+keepers, the fine-stage parts, the throttle fork, the fit gauge, and each alternative lock's
+components. The slider and sleeve are deliberately not exported as independent pieces: the
+capture lug and groove must be printed together.
 
-Both rod ends are **horizontal eye plates** (4 mm thick, 6.6 mm cut bore, vertical axis) in one
-plane; the 30 mm tube is cranked `rod_eye_crank_mm` above that plane so it clears the servo,
-keeper and horn hardware. The servo eye is integral to `rod_segment_lower`; variants A-D drop it
-over a printed pivot post and trap it with a printed cap, and variant E holds it in double shear.
-The throttle eye is integral to `rod_throttle_fork` and drops over the U neck's pivot post,
-retained by `throttle_u_cap`. The `linkage_*` probes in `fit_checks.scad` check clearance and
-1 mm lift/pull capture for every variant at its demonstration pose only.
+Both rod ends are horizontal eye plates with vertical bores. The servo eye is integral to the
+lower rod section; variants A–D use a printed post and a separate cap, while variant E holds the
+eye in double shear. The throttle eye is integral to `rod_throttle_fork` and fits over the U
+fitting's yaw post, retained by a separate cap. The `linkage_*` probes check clearance and
+1 mm eye lift/pull at each variant's demonstration pose.
 
 ## Throttle-end fitting
 
-Open-bottom inverted box. Internal opening is the owner-selected **12.70 mm front/back × 31.75 mm
-left/right**, with refinement clearances defaulting to zero so the allowance is not doubled. The whole
-cavity is oriented by `throttle_lean_right_deg` / yaw / pitch — the lean angle is **unmeasured**, so the
-default is a demonstration pose, not a claim that the lever is vertical. A captured printed two-axis
-neck joint absorbs lateral drift; the fitting is a clearance capture, never a clamp.
+Open-bottom inverted box with the owner's **12.70 mm front/back × 31.75 mm left/right** inside
+opening. The whole cavity is oriented by lean/yaw/pitch; the lean angle is unmeasured, so the
+default is a demonstration pose, not a claim that the lever is vertical.
 
-Print `throttle_u_gauge` first to confirm the opening before committing a full linkage.
+The body and pitch yoke are a two-body print-in-place pair: the yoke legs stand on the bed, and
+its V-profile stub pins run in blind teardrop bores. It pitches through the tested ±30° CAD range.
+The yaw post, rod eye and cap are assembled separately; the cap must be fitted after the eye is
+placed on the post. The U is a clearance capture, never a clamp.
+
+Print `throttle_u_gauge` first to check the opening. Coupon testing is still required to confirm
+the printed joints release and move.
 
 ## Print envelope
 
@@ -118,53 +112,81 @@ qualify ASA. PLA is excluded for engine-bay service. Wall count, infill and laye
 
 ### Manufacturing notes
 
-- Every new linkage part is intended to be **printed as modelled**. Nothing in this directory is
-  meant to be drilled, reamed, tapped, heat-staked or otherwise machined, and no print is meant to
-  be finished to a press fit.
-- The printed pins, keepers, wedge slots and capture lands are **as-printed fits**. Print the
-  fit coupons (`mg995_lug_gauge`, `throttle_u_gauge`, `rod_fit_gauge`) before committing to the
-  full-size stack; the nominal FDM allowances in `parameters.scad` are placeholders, not
-  qualified production tolerances.
-- Printed threads are a coarse trapezoidal approximation for continuous trim only. They are **not**
-  a load-bearing fastener thread and are not a substitute for a moulded or machined thread.
-- Captive printed features can wear, creep and crack. The retainer parts are designed to be
-  replaced, but their service life is **unmeasured**.
-- Print orientation per piece is recorded in `hardware/mounts/hardware_77603_catalog.py`. The
-  derivative head prints mating-face down like the legacy head; the cradle, keeper,
-  pins and keepers print in their catalogued orientations so the load paths stay away from
-  layer-separation planes.
+- All PIP parts are single exports with multiple closed bodies. `pip_gate.py` checks body count,
+  bed contact, a measured minimum gap and droop-risk overhangs; those mesh checks do not prove a
+  particular printer will release the joint.
+- The rod slider/sleeve, C carrier/shoe and D carrier socket/ball are print-in-place pairs. Do not
+  split them into separate prints: their moving clearance and retention depend on co-printing.
+- Automated probes check U pitch through +/-30 degrees and six +/-1 mm translations; rod slider
+  clearance at 940, 1066.8 and 1200 mm with overtravel contacts; C sliding/capture at 12/18/30
+  mm radii plus both rail ends; and D articulation at +/-10 degrees with +/-3 mm translations
+  on X, Y and Z. These prove modeled clearance/contact only, not load or service life.
+- The printed pins, keepers, wedge slots and as-printed fits still need coupons. PETG/ASA and
+  slicer settings are assumptions, not qualified production tolerances.
+- Printed threads are coarse trapezoidal approximations for continuous trim only. They are not
+  load-bearing fastener threads or substitutes for moulded/machined threads.
+- Captive printed surfaces can wear, creep and crack. Service life remains unmeasured.
+- Print orientation per piece is recorded in `hardware/mounts/hardware_77603_catalog.py`.
+  The derivative head prints mating-face down; other pieces follow their catalogued orientation.
+
+### Joints intentionally assembled after printing
+
+Only four interfaces are exported as PIP pairs: the U body/yoke, rod slider/sleeve, C
+carrier/shoe, and D carrier/socket/ball. The following joints remain separate by design because
+they fit around retained mower/servo parts, require a post-print retainer, or must remain
+adjustable and serviceable:
+
+- The U yaw joint: place the rod eye over the yoke post, then fit `throttle_u_cap`. The PIP yoke
+  pivot is independent of this eye retainer.
+- Horn interfaces A–D: place each post or carrier on the retained X horn; fit the catalogued
+  index pins/keepers and rod-eye cap where that variant uses them. C also uses a separate
+  wedge key and keeper to lock the continuous shoe after setting its radius.
+- Variant E: install the carrier and bushings around the horn/rod eye, then insert the hinge pin
+  and keeper. These are separate service parts in the double-shear joint.
+- Rod section splices: butt the keyed sections together, insert each transverse bar, then fit its
+  keeper. The coarse lock parts and fine screw, nut and jam collar also remain separate so the
+  span can be adjusted and serviced.
+- The cradle, MG995, keeper crossbar and locating/retaining pins are assembled around the
+  retained servo and derivative head; they are not part of a co-printed interface.
+
+These are assembly choices for the current design, not a claim that no alternative PIP geometry
+could exist. Do not merge these separate pieces into the four PIP exports.
+
 
 ## Assembly order
 
-1. Print `throttle_arm_head` (the derivative head), the cradle, the keeper
-   crossbar and the printed pins / secondary keepers. There is **no separate bracket foot**,
-   **no riser** and **no new purchased fastener**: the column that seats the cradle is integral to
-   the derivative head, in the free Y band beside the steering-servo case.
+1. Print the derivative head, cradle, keeper crossbar and the catalogued printed pins/keepers.
+   The column carrying the cradle is integral to the derivative head; there is no separate foot
+   or riser.
 2. Fit the derivative head in place of `arm_head_right`, keeping the legacy joint, servo land,
    six slots and rear opening unchanged. Do not print both heads.
-3. Drop the cradle onto the head's column seat: its floor rests on the seat face and its two
-   printed dowels plug into the blind holes in that face. The dowels locate the cradle; they do
-   **not** lock it, so vertical lift-off under vibration is **UNVERIFIED** and is a bench-test
-   item.
-4. Seat the MG995 in the cradle recess, close the keeper crossbar (its legs bear on the servo's
-   mounting ears) and confirm the horn clears the horn window through its full sweep.
-5. Choose a horn interface (A–E), fit it to the retained X horn without enlarging any horn hole.
-6. Assemble the rod segments with keyed spigots, printed splice wedges and printed splice keepers;
-   insert the slider.
-7. Fit the chosen lock, then the fine-trim screw and jam collar, then the end-stop collar.
-8. Fit the U fitting to the retained throttle lever and connect the neck joint.
-9. Adjust length continuously, verify return-to-idle by hand, and only then consider powered testing.
+3. Drop the cradle onto the head's column seat. The dowels locate it but do not lock it against
+   lift-off; that remains unverified.
+4. Seat the MG995 and close the keeper crossbar. Check the horn clears the window through its
+   full sweep.
+5. Choose one horn interface (A–E) and fit the matching carrier/retainers to the retained X horn.
+6. Print `rod_capture_assembly` as one PIP pair. Join the fixed rod sections with their keyed
+   spigots, transverse bars and keepers; install one coarse lock family and the fine-stage parts.
+7. Fit the U fitting over the retained throttle lever. Place the rod eye over its yaw post and
+   install the separate cap.
+8. Set the continuous length, check the selected lock, and verify return-to-idle by hand before
+   considering powered testing.
 
 ## What is NOT established
 
-- No lever cross-section, lean angle, engagement depth or travel is measured.
-- The 40/44 in separations and 38–41 / 43–46 in bands have undefined datums; no 4 in stroke is assumed.
-- No MG995 shaft XY, horn radius, lug thickness or hole diameter is measured.
+- C's shoe is retained by the dovetail flanks and closed rail ends. The horn arm width, sliding
+  contact and clearance below the carrier remain provisional and need measurement.
+- D's ball/socket clearance and ±10° CAD sweep are unqualified. The truncated ball/post is
+  captive geometrically; friction, wear and print release still need a coupon and physical test.
+- Rod groove ends are secondary overtravel catches, not stops at the declared length limits:
+  the current dimensions leave about 37 mm of further extension at 1200 mm and 53 mm of
+  reverse travel at 940 mm before shoulder contact. The selected coarse lock must hold length;
+  its force capacity and retention under vibration are unqualified.
 - No load, creep, fatigue, heat, UV, water or vibration qualification exists.
 - A valid mesh and a clean hand fit prove geometry only.
-- The printed throttle actuator is a **mechanism proposal**. Safe service needs the independent engine
-  kill, the OEM interlocks and a mechanical return-to-idle path that does not depend on printed-linkage
-  integrity. None of those is established by this CAD.
+- The printed throttle actuator is a mechanism proposal. Safe service needs the independent
+  engine kill, OEM interlocks and a mechanical return-to-idle path that does not depend on printed
+  linkage integrity. None is established by this CAD.
 
 ## Regenerating artifacts
 
@@ -173,7 +195,10 @@ PYTHONPATH="$PWD" python hardware/mounts/build_printables.py --profile hardware_
 PYTHONPATH="$PWD" python hardware/mounts/preflight_77603.py      # diagnose all pieces in one pass
 ```
 
-The profile writes only `hardware/mounts/generated_77603/`; the default (no-argument) build still
+The profile publishes `<part>.stl`, `3mf/<part>.3mf`, `prev_<part>.png` and `view_<scene>.png`
+into `hardware/mounts/` beside the legacy exports, so one slicer sees one part list; only
+`generated_77603/drawings/` and `generated_77603/validation.json` stay in the generated tree, and
+obsolete profile-only exports are deleted at publish time. The default (no-argument) build still
 regenerates every legacy export in place and must be left unchanged.
 
 **STEP export is unavailable**: OpenSCAD 2021.01 has no STEP writer and no FreeCAD/CadQuery is

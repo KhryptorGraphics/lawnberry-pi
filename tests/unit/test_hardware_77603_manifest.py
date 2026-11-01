@@ -141,11 +141,12 @@ def test_derivative_keeps_servo_passages_open(tmp_path):
 
 @pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
 def test_printable_u_fitting_has_open_nominal_cavity(tmp_path):
-    """Test the exported STL: an included joint used to block its cavity."""
+    """Test the exported print: neither the body nor its printed-in-place yoke may block
+    the lever cavity."""
     src = tmp_path / "u_cavity.scad"
     src.write_text(
         "intersection() {\n"
-        f'    import("{MOUNTS / "throttle_u_body.stl"}");\n'
+        f'    import("{MOUNTS / "throttle_u_fitting.stl"}");\n'
         "    translate([-15.865, -6.34, 0.1]) cube([31.73, 12.68, 17.8]);\n"
         "}\n"
     )
@@ -162,13 +163,14 @@ def test_printable_u_fitting_has_open_nominal_cavity(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
-def test_printed_u_body_has_an_integral_hinge_eye(tmp_path):
-    """The cavity alone is not enough: the neck must have material to pin to."""
+def test_printed_u_fitting_has_a_solid_hinge_boss(tmp_path):
+    """The cavity alone is not enough: the boss between the blind bores must be material,
+    or the yoke's stub pins would bear on nothing."""
     src = tmp_path / "u_eye.scad"
     src.write_text(
         f"include <{MOUNTS / 'throttle_77603/parameters.scad'}>\n"
         "intersection() {\n"
-        f'    import("{MOUNTS / "throttle_u_body.stl"}");\n'
+        f'    import("{MOUNTS / "throttle_u_fitting.stl"}");\n'
         "    translate([-6, -3, throttle_u_engagement_mm + throttle_u_wall_mm + 1])\n"
         "        cube([12, 6, 2]);\n"
         "}\n"
@@ -186,124 +188,6 @@ def test_printed_u_body_has_an_integral_hinge_eye(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
-@pytest.mark.parametrize("check", ["body_bore", "neck_lower", "mating", "lower_pin"])
-def test_printed_u_joint_clearances(tmp_path, check):
-    """Actual exported parts must have aligned, open pin paths and fit together."""
-    body = MOUNTS / "throttle_u_body.stl"
-    neck = MOUNTS / "throttle_u_neck.stl"
-    pin = MOUNTS / "throttle_u_pin.stl"
-    cases = {
-        "body_bore": (
-            f'import("{body}"); '
-            "translate([0, 20, first_pin]) rotate([90, 0, 0]) "
-            "cylinder(d=pin_d_mm, h=40, $fn=32);"
-        ),
-        "neck_lower": (
-            f'import("{neck}"); '
-            "translate([0, 20, clevis_ear_t_mm + clevis_gap_mm / 2]) "
-            "rotate([90, 0, 0]) cylinder(d=pin_d_mm, h=40, $fn=32);"
-        ),
-        "mating": (f'import("{body}"); translate([0, 0, neck_base]) import("{neck}");'),
-        # The pin's head is designed to bear on the neck ear's outer face; at the nominal
-        # station the two faces are coplanar and OpenSCAD reports a zero-volume, non-manifold
-        # intersection. Back the pin 0.1 mm off its seat to test only the shaft's path;
-        # test_u_pin_head_seats_on_the_neck_ear covers the seat itself.
-        "lower_pin": (
-            f'union() {{ import("{body}"); translate([0, 0, neck_base]) import("{neck}"); }} '
-            "translate([0, (clevis_gap_mm + 2 * clevis_ear_t_mm) / 2 + keeper_t_mm - 0.1, "
-            "first_pin]) rotate([90, 0, 0]) "
-            f'import("{pin}");'
-        ),
-    }
-    src = tmp_path / f"{check}.scad"
-    src.write_text(
-        f"include <{MOUNTS / 'throttle_77603/parameters.scad'}>\n"
-        f"use <{MOUNTS / 'throttle_77603/throttle_u_fitting.scad'}>\n"
-        "neck_base = throttle_u_engagement_mm + throttle_u_wall_mm + joint_clearance_mm;\n"
-        "first_pin = neck_base + clevis_ear_t_mm + clevis_gap_mm / 2;\n"
-        "neck_height = 2 * clevis_ear_t_mm + clevis_gap_mm + 6;\n"
-        f"intersection() {{ {cases[check]} }}\n"
-    )
-    result = subprocess.run(
-        ["openscad", "-o", str(tmp_path / "interference.stl"), str(src)],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-    output = result.stdout + result.stderr
-    assert "WARNING:" not in output and "ERROR:" not in output, output
-    assert result.returncode == 1 and "Current top level object is empty" in output, output
-
-
-@pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
-def test_u_pin_head_seats_on_the_neck_ear(tmp_path):
-    """Driving the exported pin 0.1 mm past its station must meet the neck ear: the head
-    reaches its bearing face rather than floating clear of the joint."""
-    src = tmp_path / "seat.scad"
-    src.write_text(
-        f"include <{MOUNTS / 'throttle_77603/parameters.scad'}>\n"
-        "neck_base = throttle_u_engagement_mm + throttle_u_wall_mm + joint_clearance_mm;\n"
-        "first_pin = neck_base + clevis_ear_t_mm + clevis_gap_mm / 2;\n"
-        "intersection() {\n"
-        f'  translate([0, 0, neck_base]) import("{MOUNTS / "throttle_u_neck.stl"}");\n'
-        "  translate([0, (clevis_gap_mm + 2 * clevis_ear_t_mm) / 2 + keeper_t_mm + 0.1,\n"
-        "             first_pin])\n"
-        f'    rotate([90, 0, 0]) import("{MOUNTS / "throttle_u_pin.stl"}");\n'
-        "}\n"
-    )
-    result = subprocess.run(
-        ["openscad", "-o", str(tmp_path / "seat.stl"), str(src)],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-    output = result.stdout + result.stderr
-    assert "ERROR:" not in output, output
-    assert result.returncode == 0 and "Current top level object is empty" not in output, output
-
-
-@pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
-@pytest.mark.parametrize("side", [-1, 1])
-def test_printed_clevis_has_two_bored_ears(tmp_path, side):
-    """Each actual exported ear must carry material surrounding an open X-axis bore."""
-    header = (
-        f"include <{MOUNTS / 'throttle_77603/parameters.scad'}>\n"
-        f'part = "{MOUNTS / "clevis.stl"}";\n'
-        "pin_z = clevis_ear_t_mm + clevis_gap_mm / 2;\n"
-    )
-    probes = {
-        "bore": (
-            "intersection() { import(part); "
-            "translate([-30, 0, pin_z]) rotate([0, 90, 0]) "
-            "cylinder(d=pin_d_mm, h=60, $fn=32); }\n"
-        ),
-        "ear": (
-            "intersection() { import(part); "
-            f"translate([{side} * (clevis_gap_mm / 2 + clevis_ear_t_mm / 2) - 1,"
-            " -2, pin_z + pin_d_mm / 2 + 0.6]) cube([2, 4, 1]); }\n"
-        ),
-    }
-    for label, probe in probes.items():
-        src = tmp_path / f"{label}.scad"
-        src.write_text(header + probe)
-        result = subprocess.run(
-            ["openscad", "-o", str(tmp_path / f"{label}.stl"), str(src)],
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
-        )
-        output = result.stdout + result.stderr
-        assert "WARNING:" not in output and "ERROR:" not in output, output
-        if label == "bore":
-            assert result.returncode == 1 and "Current top level object is empty" in output, output
-        else:
-            assert result.returncode == 0, output
-
-
-@pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
 def test_leaned_fitting_keeps_print_flat_and_tilts_the_cavity(tmp_path):
     """A nonzero lever lean applies to the assembled fitting, not its print bed."""
     body = tmp_path / "body.stl"
@@ -315,7 +199,7 @@ def test_leaned_fitting_keeps_print_flat_and_tilts_the_cavity(tmp_path):
             "-o",
             str(body),
             "-D",
-            'u_part="body"',
+            'u_part="fitting"',
             "-D",
             "throttle_lean_right_deg=12",
             str(MOUNTS / "throttle_77603/throttle_u_fitting.scad"),
@@ -368,14 +252,14 @@ def test_leaned_fitting_keeps_print_flat_and_tilts_the_cavity(tmp_path):
 @pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
 @pytest.mark.parametrize("misalignment", [0, 2])
 def test_tilted_u_post_datum_matches_the_actual_post(tmp_path, misalignment):
-    """The rod eye's swept annulus at the published datum clears the tilted post; a
+    """The rod eye's swept annulus at the published datum clears the tilted yoke's post; a
     2 mm displacement must hit the actual spigot."""
     src = tmp_path / "tilted_post.scad"
     src.write_text(
         f"include <{MOUNTS / 'throttle_77603/parameters.scad'}>\n"
         f"use <{MOUNTS / 'throttle_77603/throttle_u_fitting.scad'}>\n"
         "intersection() {\n"
-        "  u_oriented() translate([0, 0, u_neck_base_z()]) u_neck();\n"
+        "  u_oriented() u_yoke();\n"
         "  translate(u_post_offset_mm())\n"
         "    rotate([throttle_pitch_deg, 0, 0])\n"
         "    rotate([0, 0, throttle_yaw_deg])\n"
@@ -442,3 +326,88 @@ def test_printed_pin_has_captured_keeper_band(tmp_path, region, expect_empty):
         assert result.returncode == 1 and "Current top level object is empty" in output, output
     else:
         assert result.returncode == 0, output
+
+
+def test_manifest_pip_pairs_meet_mesh_release_gates(manifest):
+    """The four co-printed joints must publish two bodies within the PIP limits."""
+    expected = {
+        "rod_capture_assembly",
+        "throttle_u_fitting",
+        "variant_c_pip",
+        "variant_d_pip",
+    }
+    parts = manifest["parts"]
+    actual = {
+        name for name, part in parts.items() if part.get("pip_bodies", 1) > 1
+    }
+    assert actual == expected
+
+    for name in expected:
+        part = parts[name]
+        assert part["connected_solids"] == 2, name
+        assert part["pip_bodies"] == 2, name
+        assert part["pip_min_gap_mm"] >= 0.35, name
+        assert part["pip_droop_area_mm2"] <= 0.5, name
+
+
+def test_readme_quoted_counts_match_the_catalog_and_manifest(manifest):
+    """The README's headline counts are generated numbers, so they cannot drift."""
+    from hardware.mounts.hardware_77603_catalog import PROBES_77603
+
+    readme = (MOUNTS / "throttle_77603" / "README.md").read_text()
+    piece_count = len(manifest["parts"])
+    probe_runs = sum(len(probe.parameter_sets) for probe in PROBES_77603)
+    named_checks = len({probe.check for probe in PROBES_77603})
+
+    assert f"all {piece_count}\ncatalogued pieces" in readme
+    assert f"all {probe_runs} CSG probe runs ({named_checks} named\nchecks" in readme
+
+
+def test_stale_profile_exports_are_removed_without_touching_current_or_legacy(tmp_path):
+    from hardware.mounts.build_printables import _remove_stale_profile_exports
+
+    names = ("obsolete", "current", "legacy")
+    for name in names:
+        paths = (
+            tmp_path / f"{name}.stl",
+            tmp_path / f"prev_{name}.png",
+            tmp_path / "3mf" / f"{name}.3mf",
+        )
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"artifact")
+
+    removed = _remove_stale_profile_exports(
+        {"obsolete", "current", "legacy"},
+        {"current"},
+        {"legacy"},
+        tmp_path,
+    )
+    assert removed == ["obsolete"]
+    assert not any(
+        path.exists()
+        for path in (
+            tmp_path / "obsolete.stl",
+            tmp_path / "prev_obsolete.png",
+            tmp_path / "3mf" / "obsolete.3mf",
+        )
+    )
+    for name in ("current", "legacy"):
+        assert (tmp_path / f"{name}.stl").is_file()
+        assert (tmp_path / f"prev_{name}.png").is_file()
+        assert (tmp_path / "3mf" / f"{name}.3mf").is_file()
+
+
+def test_published_flat_exports_match_both_catalogs(manifest):
+    """The slicer-facing inventory has no missing or orphaned STL/3MF/preview files."""
+    from hardware.mounts.build_printables import PARTS as LEGACY_PARTS
+    from hardware.mounts.hardware_77603_catalog import PARTS_77603
+
+    profile_names = {piece.name for piece in PARTS_77603}
+    expected = profile_names | {name for name, _, _ in LEGACY_PARTS}
+    assert set(manifest["parts"]) == profile_names
+    assert {path.stem for path in MOUNTS.glob("*.stl")} == expected
+    assert {path.stem for path in (MOUNTS / "3mf").glob("*.3mf")} == expected
+    assert {
+        path.stem.removeprefix("prev_") for path in MOUNTS.glob("prev_*.png")
+    } == expected

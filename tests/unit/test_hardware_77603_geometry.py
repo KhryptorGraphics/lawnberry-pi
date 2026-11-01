@@ -141,9 +141,10 @@ class TestManifest:
         assert manifest["profile"] == "hardware_77603"
         assert manifest["status"] == "geometry_generated_not_physically_qualified"
 
-    def test_every_part_is_one_watertight_bed_zero_solid(self, manifest):
+    def test_every_part_is_watertight_bed_zero_bodies(self, manifest):
         for name, part in manifest["parts"].items():
-            assert part["connected_solids"] == 1, name
+            # A print-in-place piece is several captive bodies; every other part is one.
+            assert part["connected_solids"] == part.get("pip_bodies", 1), name
             assert part["watertight"] is True, name
             assert part["consistent_winding"] is True, name
             assert abs(part["bounds_mm"][0][2]) < 0.01, name

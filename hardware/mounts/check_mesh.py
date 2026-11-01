@@ -1,6 +1,6 @@
 """Check one rendered STL against the builder's mesh gate.
 
-Usage: python check_mesh.py <file.stl> [label]
+Usage: python check_mesh.py <file.stl> [label] [bodies]
 
 Prints OK/FAIL with size, solid count and bed-zero offset. Used during geometry bring-up so
 shell quoting can never corrupt the check.
@@ -19,12 +19,13 @@ from hardware_77603_catalog import USABLE_VOLUME_MM  # noqa: E402
 
 def main(argv: list[str]) -> int:
     if not argv:
-        print("usage: check_mesh.py <file.stl> [label]")
+        print("usage: check_mesh.py <file.stl> [label] [bodies]")
         return 2
     path = Path(argv[0])
     label = argv[1] if len(argv) > 1 else path.stem
+    bodies = int(argv[2]) if len(argv) > 2 else 1
     try:
-        report = mesh_report(path)
+        report = mesh_report(path, bodies)
     except Exception as error:  # noqa: BLE001 - diagnostic tool
         print(f"FAIL {label}: {error}")
         return 1
@@ -37,9 +38,14 @@ def main(argv: list[str]) -> int:
     if over:
         print(f"FAIL {label}: size {size} exceeds usable {USABLE_VOLUME_MM}")
         return 1
+    pip = (
+        f" pip_gap={report['pip_min_gap_mm']} droop={report['pip_droop_area_mm2']}"
+        if "pip_min_gap_mm" in report
+        else ""
+    )
     print(
         f"OK {label}: size={size} solids={report['connected_solids']} "
-        f"zmin={report['bounds_mm'][0][2]:.3f} vol={report['volume_mm3']:.0f}"
+        f"zmin={report['bounds_mm'][0][2]:.3f} vol={report['volume_mm3']:.0f}{pip}"
     )
     return 0
 

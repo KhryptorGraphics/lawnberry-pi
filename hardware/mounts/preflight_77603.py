@@ -54,7 +54,7 @@ def render(piece, staging: Path) -> tuple[str, str]:
         )
         return piece.name, f"FAIL render: {first}"
     try:
-        report = mesh_report(target)
+        report = mesh_report(target, piece.bodies)
     except ValueError as error:
         return piece.name, f"FAIL gate: {error}"
     size = report["size_mm"]

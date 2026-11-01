@@ -87,19 +87,15 @@
 //     0.2 mm axial play. The cap on the post's 7.6 mm seat, the bushing in the clevis
 //     ear and the ball boss on the carrier's post carry about 0.1 mm interference.
 //     All are geometry to be coupon-tested, not verified joints.
-//   * D's ball is retained in BOTH directions by GEOMETRY, not by preload: the
-//     cage's seat bore is 8.6 mm across, narrower than the 10 mm ball, so the
-//     ball cannot pass downwards; and the independent closure's roof hole is
-//     8 mm across, also narrower than the ball, so it cannot pass upwards.  The
-//     wear socket between them is a separate split shell that carries the wear
-//     surface and can lose its grip without the ball escaping.  The articulation
-//     is limited by the socket's split and the printed ball's elasticity, both
-//     TO MEASURE.
-//   * C's wedge key is a self-locking tapered pin in the shoe's tongue; the shoe
-//     is held against the groove wall by friction, and the slot that admits the
-//     key runs the whole length of the rail, so the radius is continuous and not
-//     indexed.  The holding torque is TO MEASURE; a printed wedge in plastic is
-//     weak in shear.
+//   * D's truncated Ø10 ball is captive in a carrier-integral spherical socket with
+//     Ø9.6 mm mouths. The ball and its output post print as a second bed-zero body;
+//     both openings are narrower than the ball, so retention is geometric rather than
+//     friction-dependent. The modeled ±10 degree sweep and as-printed clearance are
+//     prototype capacities, not measured articulation or wear life.
+//   * C's continuous-radius shoe slides in a 45-degree dovetail and is locked by a
+//     separate printed wedge key. The carrier's bed-through track is backed by the
+//     retained horn arm after installation; the horn width and backing fit are TO MEASURE.
+//     The key's holding torque is also unqualified.
 //   * No retention, load, wear life or servo-fit claim is made from overlap alone.
 //
 // =============================================================================
@@ -114,8 +110,8 @@
 // =============================================================================
 //   A: post, cap, keeper
 //   B: shell_a, shell_b, lug, cap, pin, keeper
-//   C: carrier, shoe, wedge_key, wedge_keeper, cap, pin, keeper
-//   D: carrier, ball_stem, cage, wear_socket, closure, cap, pin, keeper
+//   C: pip (carrier + shoe), wedge_key, wedge_keeper, cap, pin, keeper
+//   D: pip (carrier socket + truncated ball/post), cap, pin, keeper
 //   E: carrier, clevis, bushing, eye_bushing, pin, keeper, index_pin,
 //      index_keeper
 //
@@ -490,96 +486,128 @@ module variant_b(part = "assembly") {
 // =============================================================================
 // C - continuously variable effective horn radius on a captive carriage
 // =============================================================================
-// Mechanism: an X-shaped carrier lies on the horn's arms and is held down by two
-// index pins in two of the horn's provisional holes.  It carries a radial rail
-// running outboard along the first arm.  The rail has a T groove: a wide chamber
-// at its base and a narrower neck above it, so the shoe's tongue is captive
-// vertically and can only slide ALONG the rail.  The adjustment is CONTINUOUS:
-// there is no hole, notch or detent anywhere in it.
+// Mechanism: an X-shaped carrier holds a radial rail. The shoe is a PIP slider in a
+// continuous 45-degree dovetail, locked at its chosen radius by a separate printed wedge.
+// A narrow bed throat and a wider internal foot channel capture the tongue from below;
+// the upper dovetail prevents lift-out. The continuous rail has closed end stops.
 //
-// The shoe is locked by a printed wedge key, a self-locking tapered pin driven
-// transversely through a CONTINUOUS longitudinal slot in the rail's neck wall
-// and into a blind hole in the shoe's tongue.  The key's taper presses the
-// tongue against the opposite groove wall, so the shoe is held by friction and
-// cannot creep along the rail.  Because the slot runs the whole length of the
-// rail, the radius is not indexed: the key is simply driven at the radius wanted.
-//
-// World stack above the horn underside plane: carrier 2..5, rail 5..13, groove
-// chamber 5..8.5, groove neck 8.5..13, shoe tongue 5..13, shoe body 13..17,
-// post flange 17..18.5, eye 18.5..22.5, cap 22.5..26.5, post lip 26.5..28.
-//
-// LIMITATION: the rail's outboard end is a capacity; it needs a real horn arm
-// that reaches at least horn_radius_max_mm from the axis.  The carrier must clear
-// the servo body below the horn.  The wedge key's holding torque is TO MEASURE.
+// The carrier's arm is widened around the through-track. The horn's arm width, the
+// backing/contact at the shoe foot, and the rail's outboard reach are provisional and
+// require measurement. The wedge key's holding torque is also unqualified.
 c_tongue_len = 16;
 c_rail_x0 = horn_radius_min_mm - c_tongue_len / 2 - 0.5;
 c_rail_x1 = horn_radius_max_mm + c_tongue_len / 2 + 0.5;
-c_rail_w = 12;                      // rail width across
-c_rail_h = 8;                       // rail height above the carrier
-c_chamber_w = 8.4;                  // the groove's wide chamber
-c_chamber_h = 3.5;                  // chamber height
-c_neck_w = 5.6;                     // the groove's narrow neck
-c_tongue_base_w = 8.0;              // shoe tongue in the chamber (0.2 per side)
-c_tongue_neck_w = 5.0;              // shoe tongue in the neck (0.3 per side)
-c_key_tip_d = 2.4;                  // the wedge key's leading taper
-c_key_shaft_d = 3.0;                // its shaft
-c_key_taper_len = 8;                // taper length, from the tip to the shaft
-c_key_groove_d = 1.8;               // its groove, for the keeper ring
-c_key_len = 10;                     // total length
-c_key_axis_z = 10.5;                // world height of the key's axis
-c_key_tip_y = -0.7;                 // world Y of the key's tip
-c_slot_h = 3.1;                     // the rail slot's height
+c_track_x0 = 10.5;                    // beyond the hub; forms an inboard travel stop
+c_track_x1 = c_rail_x1 - 1;          // closed outboard end stop
+c_rail_w = 12;
+c_rail_h = 8;
+ c_neck_w = 5.6;                       // dovetail mouth and straight neck
+ c_bottom_slot_w = 2.4;                // narrow throat below the captured shoe foot
+ c_dovetail_base_w = c_bottom_slot_w + 2 * carrier_t; // 45-degree lower flare: 8.4
+ c_dovetail_depth = (c_dovetail_base_w - c_neck_w) / 2; // 45-degree upper undercut: 1.4
+ c_pip_gap_mm = sliding_clearance_mm + 0.2; // facet reserve above the shared 0.4 mm gap
+ c_dovetail_fit_gap = c_pip_gap_mm * sqrt(2); // normal clearance on 45-degree faces
+ c_tongue_bottom_w = c_bottom_slot_w - 2 * c_pip_gap_mm;
+ c_tongue_base_w = c_dovetail_base_w - 2 * c_dovetail_fit_gap;
+ c_tongue_ramp_top_w = c_neck_w - 2 * c_dovetail_fit_gap;
+ c_tongue_neck_w = c_neck_w - 2 * c_pip_gap_mm;
+ c_tongue_neck_top_z = carrier_t + c_rail_h + c_pip_gap_mm;
+c_shoe_platform_w = 15;
+c_shoe_platform_x_len = 10;
+c_shoe_transition_h = (c_shoe_platform_w - c_tongue_neck_w) / 2;
+c_shoe_platform_z0 = c_tongue_neck_top_z + c_shoe_transition_h;
+c_shoe_platform_t = 0.5;
+c_shoe_post_z0 = c_shoe_platform_z0 + c_shoe_platform_t;
+c_key_tip_d = 2.4;                    // printed wedge key's leading taper
+c_key_shaft_d = 3.0;
+c_key_taper_len = 8;
+c_key_groove_d = 1.8;
+c_key_len = 10;
+c_key_x_offset_mm = 1.5;             // keeps the key bore clear of the inboard end stop
+c_key_axis_z = 10.5;                 // world height of the key's axis
+c_key_tip_y = -0.7;                  // world Y of the key's tip
+c_slot_h = 3.1;
 
 module c_carrier() {
     difference() {
         union() {
-            horn_carrier(t = carrier_t, pin_arms = [1, 2]);
-            // Radial rail running outboard along the first arm.
+            // Widen the first arm around the bed-through carriage track.
+            horn_carrier(t = carrier_t, arm_w = 16, pin_arms = [1, 2]);
             translate([c_rail_x0, -c_rail_w / 2, carrier_t])
                 cube([c_rail_x1 - c_rail_x0, c_rail_w, c_rail_h]);
         }
-        // The T groove: a wide chamber at the rail's base and a narrow neck above
-        // it.  The shoe's tongue fills both, so it cannot lift out of the rail.
-        translate([c_rail_x0 - 1, -c_chamber_w / 2, carrier_t])
-            cube([c_rail_x1 - c_rail_x0 + 2, c_chamber_w, c_chamber_h]);
-        translate([c_rail_x0 - 1, -c_neck_w / 2, carrier_t + c_chamber_h])
-            cube([c_rail_x1 - c_rail_x0 + 2, c_neck_w, c_rail_h - c_chamber_h]);
-        // Continuous longitudinal slot through the rail's +Y neck wall, through
-        // which the wedge key is driven.  The slot runs the whole length of the
-        // rail, so the radius is not indexed.
-        translate([c_rail_x0 + 1, c_neck_w / 2 - 0.4,
+        // Bed-through base channel, 45-degree dovetail undercut, and narrow neck.
+        // The track endpoints remain solid to stop the shoe leaving the radial rail.
+        translate([c_track_x0, 0, 0]) rotate([90, 0, 90])
+            linear_extrude(height = c_track_x1 - c_track_x0)
+                polygon([
+                    [-c_bottom_slot_w / 2, -0.01],
+                    [ c_bottom_slot_w / 2, -0.01],
+                    [ c_bottom_slot_w / 2, 0],
+                    [ c_dovetail_base_w / 2, carrier_t],
+                    [ c_neck_w / 2, carrier_t + c_dovetail_depth],
+                    [ c_neck_w / 2, carrier_t + c_rail_h + 0.01],
+                    [-c_neck_w / 2, carrier_t + c_rail_h + 0.01],
+                    [-c_neck_w / 2, carrier_t + c_dovetail_depth],
+                    [-c_dovetail_base_w / 2, carrier_t],
+                ]);
+        // Continuous key slot through the +Y neck wall; the wedge clamps at any radius.
+        translate([c_track_x0, c_neck_w / 2 - 0.4,
                    c_key_axis_z - horn_t - c_slot_h / 2])
-            cube([c_rail_x1 - c_rail_x0 - 2, 4.4, c_slot_h]);
+            cube([c_track_x1 - c_track_x0, 4.4, c_slot_h]);
     }
 }
 
 module c_shoe(radius_mm = horn_radius_default_mm) {
-    // Sliding shoe: a stepped tongue in the T groove, a body above the rail, the
-    // wedge key's blind hole through the tongue, and the pivot post for the rod
-    // eye.
-    // Frame: z = 0 is the groove's chamber floor.
+    // Bed-zero slider: the narrow foot is captured in the carrier's flared lower
+    // channel; the broad tongue is trapped by the upper 45-degree dovetail.
+    tongue_x0 = max(radius_mm - c_tongue_len / 2,
+                    c_track_x0 + c_pip_gap_mm);
+    tongue_x1 = min(radius_mm + c_tongue_len / 2,
+                    c_track_x1 - c_pip_gap_mm);
+    assert(tongue_x1 > tongue_x0, "C shoe tongue must overlap its captive rail");
     difference() {
         union() {
-            // Tongue: wide base in the chamber, narrow neck above it.
-            translate([radius_mm - c_tongue_len / 2, -c_tongue_base_w / 2, 0])
-                cube([c_tongue_len, c_tongue_base_w, c_chamber_h]);
-            translate([radius_mm - c_tongue_len / 2, -c_tongue_neck_w / 2, c_chamber_h])
-                cube([c_tongue_len, c_tongue_neck_w, c_rail_h - c_chamber_h]);
-            // Shoe body above the rail.
-            translate([radius_mm - 9, -9, c_rail_h]) cube([18, 18, 4]);
-            // Pivot post on the shoe's top face.
-            translate([radius_mm, 0, c_rail_h + 4]) cylinder(d = post_flange_d,
-                                                           h = post_flange_t);
-            translate([radius_mm, 0, c_rail_h + 4 + post_flange_t])
+            translate([tongue_x0, 0, 0]) rotate([90, 0, 90])
+                linear_extrude(height = tongue_x1 - tongue_x0)
+                    polygon([
+                        [-c_tongue_bottom_w / 2, 0],
+                        [ c_tongue_bottom_w / 2, 0],
+                        [ c_tongue_base_w / 2, carrier_t],
+                        [ c_tongue_ramp_top_w / 2, carrier_t + c_dovetail_depth],
+                        [ c_tongue_neck_w / 2, carrier_t + c_dovetail_depth],
+                        [ c_tongue_neck_w / 2, c_tongue_neck_top_z],
+                        [-c_tongue_neck_w / 2, c_tongue_neck_top_z],
+                        [-c_tongue_neck_w / 2, carrier_t + c_dovetail_depth],
+                        [-c_tongue_ramp_top_w / 2, carrier_t + c_dovetail_depth],
+                        [-c_tongue_base_w / 2, carrier_t],
+                    ]);
+            // Self-supporting 45-degree transition from the narrow rail neck to the
+            // post platform. The platform carries the rod eye's vertical load.
+            hull() {
+                translate([tongue_x0, -c_tongue_neck_w / 2,
+                           c_tongue_neck_top_z - sliding_clearance_mm])
+                    cube([tongue_x1 - tongue_x0, c_tongue_neck_w,
+                          sliding_clearance_mm + 0.01]);
+                translate([radius_mm - c_shoe_platform_x_len / 2,
+                           -c_shoe_platform_w / 2, c_shoe_platform_z0])
+                    cube([c_shoe_platform_x_len, c_shoe_platform_w, 0.01]);
+            }
+            translate([radius_mm - c_shoe_platform_x_len / 2,
+                       -c_shoe_platform_w / 2, c_shoe_platform_z0])
+                cube([c_shoe_platform_x_len, c_shoe_platform_w, c_shoe_platform_t]);
+            translate([radius_mm, 0, c_shoe_post_z0])
+                cylinder(d = post_flange_d, h = post_flange_t);
+            translate([radius_mm, 0, c_shoe_post_z0 + post_flange_t])
                 cylinder(d = post_spigot_d, h = post_spigot_len);
-            translate([radius_mm, 0, c_rail_h + 4 + post_flange_t + post_spigot_len])
+            translate([radius_mm, 0, c_shoe_post_z0 + post_flange_t + post_spigot_len])
                 cylinder(d = post_cap_seat_d, h = post_cap_seat_len);
-            translate([radius_mm, 0, c_rail_h + 4 + post_flange_t + post_spigot_len
+            translate([radius_mm, 0, c_shoe_post_z0 + post_flange_t + post_spigot_len
                                      + post_cap_seat_len])
                 cylinder(d = post_lip_d, h = post_lip_t);
         }
-        // The wedge key's blind hole, entered from the tongue's +Y side.
-        translate([radius_mm, 0.9, c_key_axis_z - horn_t - carrier_t])
+        // The separate wedge key enters through the rail's +Y side.
+        translate([radius_mm + c_key_x_offset_mm, 0.9, c_key_axis_z - horn_t])
             rotate([90, 0, 0]) cylinder(d = c_key_shaft_d + 0.1, h = 3.2,
                                          center = true);
     }
@@ -634,28 +662,22 @@ module variant_c(part = "assembly", radius_mm = horn_radius_default_mm) {
     if (part == "assembly") {
         rotate([0, 0, horn_arm_angle_deg]) {
             translate([0, 0, horn_t]) c_carrier();
-            // c_shoe() already builds its post at x = radius_mm in its own frame; an extra
-            // radius translation here put the post at twice the radius, off the eye datum.
-            translate([0, 0, horn_t + carrier_t]) c_shoe(radius_mm);
-            // Wedge key, driven from the rail's +Y side into the shoe's tongue.
-            translate([radius_mm, c_key_tip_y, c_key_axis_z])
+            translate([0, 0, horn_t]) c_shoe(radius_mm);
+            // Wedge key locks the continuously adjustable shoe after print/assembly.
+            translate([radius_mm + c_key_x_offset_mm, c_key_tip_y, c_key_axis_z])
                 rotate([-90, 0, 0]) c_wedge_key();
-            translate([radius_mm, c_key_tip_y + c_key_len - keeper_t2, c_key_axis_z])
+            translate([radius_mm + c_key_x_offset_mm,
+                       c_key_tip_y + c_key_len - keeper_t2, c_key_axis_z])
                 rotate([-90, 0, 0]) c_wedge_keeper();
             for (k = [1, 2]) rotate([0, 0, 90 * k]) {
                 translate([horn_r, 0, carrier_top - index_pin_len]) c_pin();
                 translate([horn_r, 0, -keeper_t2]) c_keeper();
             }
-            translate([radius_mm, 0,
-                       horn_t + carrier_t + c_rail_h + 4 + post_flange_t
-                       + post_spigot_len]) c_cap();
+            translate([radius_mm, 0, horn_t + c_shoe_post_z0 + post_flange_t
+                                      + post_spigot_len]) c_cap();
         }
-    } else if (part == "carrier" || part == "carriage") {
-        // "carriage" is accepted as an alias: fit_checks.scad probes the carriage by
-        // that name, and an unmatched selector would render nothing and report a
-        // false pass.
+    } else if (part == "pip") {
         c_carrier();
-    } else if (part == "shoe") {
         c_shoe(radius_mm);
     } else if (part == "wedge_key") {
         c_wedge_key();
@@ -673,153 +695,73 @@ module variant_c(part = "assembly", radius_mm = horn_radius_default_mm) {
 }
 
 // =============================================================================
-// D - horn-supported printed ball in a structural cage with a replaceable liner
+// D - truncated ball printed captive in a carrier-integral socket
 // =============================================================================
-// Mechanism: the carrier's first arm carries a post that rises above the horn
-// to carry the printed ball, whose flat boss stands on the post's top.  The CAGE
-// is the structural socket: a tube with a seat at its bottom whose bore is
-// 8.6 mm across, NARROWER than the 10 mm ball, so the ball cannot pass
-// downwards; a side bridge off the cage carries the pivot post for the rod eye,
-// clear of the ball's swing.  The WEAR SOCKET is a separate split shell pressed
-// over the ball's upper flank inside the cage's bore: it carries the wear and
-// can be replaced.  An INDEPENDENT printed closure caps the cage and its own roof
-// hole is 8 mm across, also narrower than the ball, so the ball cannot pass
-// upwards.  The ball is therefore retained in both directions by GEOMETRY alone:
-// losing the wear socket's grip cannot let it escape.
-//
-// World stack above the horn underside plane: carrier 2..5, post 2..17.5,
-// ball boss 17.5..22.5, ball 17.5..27.5, cage 14..27 (seat top 17.5),
-// wear socket 17.5..24.5, closure 27..31, pivot bridge 14..18,
-// pivot post flange 18..19.5, eye 19.5..23.5, cap 23.5..27.5.
-//
-// LIMITATION: the ball is captured between an 8.6 mm seat and an 8 mm roof
-// hole, so the articulation is limited to the wear socket's split and the
-// printed ball's own elasticity.  The ball's stiffness, the socket's wear life
-// and the closure's retention are all TO MEASURE.
-d_ball_z = 22.5;      // ball centre above the horn underside plane
-d_ball_d = ball_d_mm; // 10
-d_boss_d = 8;         // the ball's flat boss, which stands on the carrier's post.
-                      // It is NARROWER than the cage's seat bore (8.6), so the boss
-                      // passes through the seat's bore with real clearance instead of
-                      // sharing a coincident cylindrical face with it.
-d_post_h = 15.5;      // the carrier's post height above the carrier's underside
-d_cage_bottom = 14;   // the cage's bottom face
-d_cage_seat_z = 17.5;  // the seat's top face, where the ball rests
-d_cage_seat_bore_d = 8.6;   // narrower than the ball: it cannot pass downwards
-d_cage_top = 27;      // the cage's top face
-d_cage_od = 18;
-d_cage_bore_d = 13.2; // the cage's upper bore, which takes the wear socket
-d_socket_od = 13.0;  // the wear socket's outside, nominally a slip fit in that bore
-d_socket_id = 10.1;   // the wear socket's bore, 0.1 clearance on the ball
-d_socket_h = 7;
-d_closure_od = 20;
-d_closure_cavity_d = 14;
-d_closure_cavity_h = 2;
-d_closure_roof_t = 2;
-d_closure_hole_d = 8; // narrower than the ball: it cannot pass upwards
-// The pivot station, offset from the ball station. The rod eye plate (z 19.7..23.7) lies
-// inside the cage's height band, and the plate's 6 mm tail behind the bore reaches 8.49 mm
-// from the bore at its corners. At 14 that tail swung into the 18 mm cage; at 19 the tail
-// clears the cage at any swing angle by 1.5 mm. The plate's forward run toward the tube is
-// NOT covered by that bound: linkage_servo_end_fit checks it at the demonstration pose.
-d_pivot_offset = 19;
+// The carrier includes a spherical socket around a bed-zero truncated Ø10 ball.
+// Its naturally formed bottom mouth and top mouth are narrower than the ball, so
+// the ball and its output post print together as two captive bodies. The spherical
+// running clearance is 0.6 mm per side (the shared 0.4 mm sliding allowance plus
+// 0.2 mm facet/fit reserve); coupon fit, wear and load life remain unqualified.
+// The mouth/neck geometry permits a declared +/-10 degree CAD sweep, not a
+// measured mower articulation.
+d_ball_center_z = 3;
+d_ball_d = ball_d_mm;
+d_socket_clearance = sliding_clearance_mm + 0.2;
+d_socket_inner_d = d_ball_d + 2 * d_socket_clearance;
+d_socket_outer_d = 18;
+d_socket_top_mouth_d = 9.2;
+d_socket_height = d_ball_center_z
+                  + sqrt(d_socket_inner_d * d_socket_inner_d / 4
+                         - d_socket_top_mouth_d * d_socket_top_mouth_d / 4);
+d_socket_arm_w = horn_arm_width_provisional_mm + 6;
+d_ball_post_start_z = d_ball_center_z + d_ball_d / 2 - 0.2;
+d_post_flange_z = 16;
+d_ball_articulation_deg = 10;
 
 module d_carrier() {
     difference() {
-     union() {
-        horn_carrier(t = carrier_t, pin_arms = [1, 2]);
-        // Post at the first arm carrying the ball.  It is offset by half the boss's
-        // diameter in Y so that the post's top circle and the boss's bottom circle
-        // OVERLAP substantially rather than meeting on a shared plane: two solids
-        // that merely touch on a coincident face do not union into a valid
-        // 2-manifold, and this variant rendered as "not a valid 2-manifold" with the
-        // post coaxial with the boss.
-        translate([horn_r, -d_boss_d / 2, 0])
-            cylinder(d = d_boss_d, h = d_post_h);
-     }
+        union() {
+            // Widen the unpinned first arm around the socket passage.
+            horn_carrier(t = carrier_t, arm_w = d_socket_arm_w, pin_arms = [1, 2]);
+            translate([horn_r, 0, 0])
+                cylinder(d = d_socket_outer_d, h = d_socket_height, $fn = 96);
+        }
+        // The spherical cavity itself opens through the carrier-integral socket's
+        // top and bottom mouths. Its continuous surface avoids a faceted cutter seam.
+        translate([horn_r, 0, d_ball_center_z])
+            sphere(d = d_socket_inner_d, $fn = 96);
     }
 }
 
 module d_ball_stem() {
-    // Printed ball with a flat boss that stands on the carrier's post.
-    // Frame: the boss's lower end at z = 0, so the part exports bed-zero.
-    //
-    // The boss meets the carrier's post with a 0.1 mm press interference, because the
-    // post is 0.1 mm taller than the gap to the ball's equator (see d_post_h).  Two
-    // solids that merely touch on a shared plane do not union into a valid 2-manifold:
-    // the coincident faces produced a "not a valid 2-manifold" mesh for this variant.
     union() {
-        cylinder(d = d_boss_d, h = d_ball_z - d_cage_seat_z);
-        translate([0, 0, d_ball_z - d_cage_seat_z + 0.25])
-            rotate([0, 0, 3.1]) sphere(d = d_ball_d);
-    }
-}
-
-module d_cage() {
-    // Structural socket: the tube, its bottom seat whose bore is narrower than the
-    // ball, and the side bridge that carries the pivot post.
-    // Frame: z = 0 is the cage's bottom face.
-    seat = d_cage_seat_z - d_cage_bottom;   // the seat's height above the bottom
-    difference() {
-        union() {
-            cylinder(d = d_cage_od, h = d_cage_top - d_cage_bottom);
-            // Side bridge out to the pivot station, clear of the ball's swing.
-            translate([-5, -d_pivot_offset - 5, 0]) cube([10, d_pivot_offset + 5, 4]);
-            // Pivot post for the rod eye, standing on the bridge.
-            translate([0, -d_pivot_offset, 4]) cylinder(d = post_flange_d,
-                                                        h = post_flange_t);
-            translate([0, -d_pivot_offset, 4 + post_flange_t])
-                cylinder(d = post_spigot_d, h = post_spigot_len);
-            translate([0, -d_pivot_offset, 4 + post_flange_t + post_spigot_len])
-                cylinder(d = post_cap_seat_d, h = post_cap_seat_len);
-            translate([0, -d_pivot_offset, 4 + post_flange_t + post_spigot_len
-                                     + post_cap_seat_len])
-                cylinder(d = post_lip_d, h = post_lip_t);
+        // Truncate the bottom of the sphere at z=0. This flat face prints on the
+        // bed and grows at a self-supporting slope into the spherical surface.
+        intersection() {
+            translate([0, 0, d_ball_center_z]) sphere(d = d_ball_d, $fn = 96);
+            translate([-d_ball_d, -d_ball_d, 0])
+                cube([2 * d_ball_d, 2 * d_ball_d, d_ball_center_z + d_ball_d]);
         }
-        // The seat's bore.  It is narrower than the ball (8.6 against 10), so the ball
-        // cannot pass downwards, and it is wider than the ball's Ø6 boss, so the boss
-        // passes through it with 1.3 mm of clearance per side: the two do not share a
-        // cylindrical face, which would make the union non-manifold.
-        translate([0, 0, -1]) cylinder(d = d_cage_seat_bore_d, h = seat + 1);
-        // The upper bore, which takes the wear socket.
-        translate([0, 0, seat - 0.01]) cylinder(d = d_cage_bore_d,
-                                                h = d_cage_top - d_cage_bottom - seat + 1);
+        // The output stem starts inside the sphere to avoid a coincident-face joint.
+        translate([0, 0, d_ball_post_start_z])
+            cylinder(d = post_spigot_d,
+                     h = d_post_flange_z - d_ball_post_start_z + 0.2);
+        translate([0, 0, d_post_flange_z])
+            cylinder(d = post_flange_d, h = post_flange_t);
+        translate([0, 0, d_post_flange_z + post_flange_t - 0.1])
+            cylinder(d = post_spigot_d, h = post_spigot_len + 0.1);
+        translate([0, 0, d_post_flange_z + post_flange_t + post_spigot_len - 0.1])
+            cylinder(d = post_cap_seat_d, h = post_cap_seat_len + 0.1);
+        translate([0, 0, d_post_flange_z + post_flange_t + post_spigot_len
+                                  + post_cap_seat_len - 0.1])
+            cylinder(d = post_lip_d, h = post_lip_t + 0.1);
     }
 }
 
-module d_wear_socket() {
-    // Replaceable split wear socket: a shell pressed over the ball's upper flank
-    // and into the cage's bore.  It is the sacrificial wear part: it is replaced
-    // when the clearance grows.
-    // Frame: z = 0 is the socket's bottom face, which rests on the cage's seat.
-    difference() {
-        cylinder(d = d_socket_od, h = d_socket_h);
-        // The ball's clearance bore.
-        translate([0, 0, -1]) cylinder(d = d_socket_id, h = d_socket_h + 2);
-        // Split slot, cut part way through the wall only, so the socket can be
-        // pressed sideways over the ball.
-        translate([-1.2, -8, 0]) cube([2.4, 16, 4]);
-    }
-}
-
-module d_closure() {
-    // Independent captive closure: it caps the cage's bore and its own roof hole
-    // is 8 mm across, narrower than the 10 mm ball, so the ball cannot escape
-    // upwards even if the wear socket lost its grip entirely.
-    // Frame: z = 0 is the closure's bottom face, which lands on the cage's top.
-    difference() {
-        union() {
-            cylinder(d = d_closure_od, h = d_closure_cavity_h + d_closure_roof_t);
-            translate([0, 0, d_closure_cavity_h]) cylinder(d = d_closure_od,
-                                                            h = d_closure_roof_t);
-        }
-        // The cavity the ball sits in.
-        translate([0, 0, -1]) cylinder(d = d_closure_cavity_d,
-                                       h = d_closure_cavity_h + 1);
-        // The roof's hole, narrower than the ball.
-        translate([0, 0, d_closure_cavity_h - 0.01])
-            cylinder(d = d_closure_hole_d, h = d_closure_roof_t + 0.02);
-    }
+module d_ball_stem_pitched(angle) {
+    translate([0, 0, d_ball_center_z])
+        rotate([0, angle, 0])
+            translate([0, 0, -d_ball_center_z]) d_ball_stem();
 }
 
 module d_cap() {
@@ -838,33 +780,20 @@ module variant_d(part = "assembly") {
     if (part == "assembly") {
         rotate([0, 0, horn_arm_angle_deg]) {
             translate([0, 0, horn_t]) d_carrier();
-            // Ball standing on the carrier's post.
-            translate([horn_r, 0, d_cage_seat_z]) d_ball_stem();
-            // Cage around the ball, with its own pivot post.
-            translate([horn_r, 0, d_cage_bottom]) d_cage();
-            // Wear socket pressed over the ball, inside the cage's bore.
-            translate([horn_r, 0, d_cage_seat_z]) d_wear_socket();
-            // Closure capping the cage.
-            translate([horn_r, 0, d_cage_top]) d_closure();
+            translate([horn_r, 0, horn_t]) d_ball_stem();
             for (k = [1, 2]) rotate([0, 0, 90 * k]) {
                 translate([horn_r, 0, carrier_top - index_pin_len]) d_pin();
                 translate([horn_r, 0, carrier_top - index_pin_len + index_groove_len / 2])
                     d_keeper();
             }
-            // Cap over the rod eye, on the cage's pivot post.
-            translate([horn_r, -d_pivot_offset, d_cage_bottom + 4 + post_flange_t
-                       + post_spigot_len]) d_cap();
+            // Cap over the rod eye on the ball's output post.
+            translate([horn_r, 0, horn_t + d_post_flange_z + post_flange_t
+                                  + post_spigot_len]) d_cap();
         }
-    } else if (part == "carrier") {
+    } else if (part == "pip") {
+        // The print frame keeps both socket and truncated ball on the bed.
         d_carrier();
-    } else if (part == "ball_stem") {
-        d_ball_stem();
-    } else if (part == "cage") {
-        d_cage();
-    } else if (part == "wear_socket") {
-        d_wear_socket();
-    } else if (part == "closure") {
-        d_closure();
+        translate([horn_r, 0, 0]) d_ball_stem();
     } else if (part == "cap") {
         d_cap();
     } else if (part == "pin") {
@@ -918,6 +847,8 @@ e_bore_z = e_rail_top + e_plate_t + eye_fork_gap() / 2 + cheek_t;   // 16.9
 e_pin_len = 17.8;      // hinge pin length, from its lower end to its head's top
 // The hinge pin's lower end: its head lands on the upper ear's top face.
 e_pin_z0 = e_bore_z + eye_fork_gap() / 2 + cheek_t + 2 - e_pin_len;  // 6
+// For fit_checks, which `use`s this file and so cannot see its variables.
+function e_ear_t_mm() = cheek_t;
 e_keeper_bore_d = 4.95; // rides on the hinge pin's 4.9 mm band with 0.025 mm of
                           // clearance per side, and is still smaller than the 5 mm
                           // shaft, so the keeper cannot be pushed back over it
@@ -1078,7 +1009,7 @@ function variant_rod_eye_local(variant = horn_variant,
                                radius_mm = horn_radius_default_mm) =
     variant == "C" ? [radius_mm, 0] :
     variant == "B" ? [horn_r, -b_lug_offset] :
-    variant == "D" ? [horn_r, -d_pivot_offset] :
+    variant == "D" ? [horn_r, 0] :
     variant == "E" ? [e_radius, 0] :
     [horn_r, 0];
 
@@ -1086,9 +1017,9 @@ function variant_rod_eye_local(variant = horn_variant,
 function variant_rod_eye_z(variant = horn_variant) =
     variant == "A" ? horn_t + post_flange_t + post_spigot_len / 2 :
     variant == "B" ? horn_t + carrier_t + post_flange_t + b_lug_rise + post_spigot_len / 2 :
-    variant == "C" ? horn_t + carrier_t + c_rail_h + 4 + post_flange_t
+    variant == "C" ? horn_t + c_shoe_post_z0 + post_flange_t
                     + post_spigot_len / 2 :
-    variant == "D" ? d_cage_bottom + 4 + post_flange_t + post_spigot_len / 2 :
+    variant == "D" ? horn_t + d_post_flange_z + post_flange_t + post_spigot_len / 2 :
     e_bore_z;
 
 // World plan position of the rod eye's bore centre.
@@ -1114,7 +1045,6 @@ function variant_joint_radius(variant = horn_variant,
     variant == "C" ? radius_mm :
     variant == "E" ? e_radius :
     variant == "B" ? sqrt(horn_r * horn_r + b_lug_offset * b_lug_offset) :
-    variant == "D" ? sqrt(horn_r * horn_r + d_pivot_offset * d_pivot_offset) :
     horn_r;
 
 // =============================================================================

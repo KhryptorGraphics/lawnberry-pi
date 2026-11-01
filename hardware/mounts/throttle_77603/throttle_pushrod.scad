@@ -10,13 +10,14 @@
 // * A fixed chain of printed square-tube sections is joined by keyed ring spigots.  Each
 //   joint is retained by a separately printed transverse bar and a separately printed
 //   keeper, so a joint cannot open by friction alone.
-// * A fixed receiver sleeve surrounds a 21.2 mm square slider.  A printed capture pin
-//   passes through the sleeve wall into a LONGITUDINAL, closed-ended groove in the
-//   slider.  The pin may travel along that groove for continuous coarse adjustment, but
-//   it cannot leave the groove, and the groove's closed ends stop the slider from
-//   separating.  If every adjustment clamp is released or slips, the linkage remains
-//   positively connected.  The end capture prevents separation; it does NOT guarantee
-//   return-to-idle.
+// * A receiver sleeve surrounds the 21.2 mm slider. Its integral, 45-degree capture lug
+//   rides in the slider's closed-ended longitudinal groove. The two bodies print together
+//   on the bed with a 0.4 mm FDM gap; the groove permits continuous coarse travel. At the
+//   declared 940-1200 mm settings the lug sits INSIDE the groove, so the closed ends catch
+//   only after gross overtravel: about 37 mm of further extension at the 1200 mm setting,
+//   and at the 940 mm setting about 277 mm of extension or 53 mm of reverse travel. They
+//   are NOT length stops; the fitted coarse lock is what holds the length. The groove
+//   catches do not guarantee return-to-idle.
 // * Each coarse clamp has an independent secondary keeper.  Wedge/cam, split collet, and
 //   printed lead screw are distinct alternatives on the same sleeve/slider skeleton; none
 //   is silently selected by this file.
@@ -47,9 +48,9 @@
 //
 // Installation assumptions
 // -----------------------
-// * Assemble the slider into the receiver sleeve from the chain end BEFORE fitting the
-//   sleeve to the fixed chain.  The slider's capture groove then receives the printed
-//   capture pin, and the keeper is fitted last.
+// * Print the slider and receiver sleeve together as `rod_capture_assembly`. Their integral
+//   lug engages the closed-ended groove; no capture pin, keeper or post-print assembly is
+//   required.
 // * Printed pins, bars, keepers, and the lead screw are assembly/adjustment retainers,
 //   not indexed length selectors.  There are no holes, notches, or detents in the length
 //   adjustment path.
@@ -73,8 +74,17 @@ rod_fine_travel = rods_fine_travel_mm;       // requested 20 mm
 rod_fixed_chain_len = 664;   // servo section + two chain sections, to the sleeve boss
 rod_receiver_len = 216;      // receiver sleeve
 rod_sleeve_end_z = rod_fixed_chain_len + rod_receiver_len;   // 880
-rod_segment_lens = [278, 256, 246];  // printed section heights (eye section first)
-rod_segment_offsets = [0, 232, 448];
+// Printed section heights, eye section first. Each section's receiver boss butts against
+// the end of the previous section's tube, with the previous section's male spigot in the
+// boss socket; the transverse-bar slots then line up 15 mm above the butt face. The
+// heights are chosen so the chain still ends at rod_fixed_chain_len.
+rod_segment_lens = [230, 220, 220];
+// Placement of each section along the rod. The servo section is drawn 6 mm low so its eye
+// bore lands on the rod-local origin, and every later section starts where the previous
+// one ends. An earlier revision started each boss rod_receiver_boss_len (40 mm) early, so
+// every joint ran the previous tube and spigot through the next section's tube wall.
+rod_segment_offsets = [0, rod_segment_lens[0] - 6,
+                       rod_segment_lens[0] + rod_segment_lens[1] - 6];
 rod_slider_len = 360;
 rod_min_pin_to_pin = 940;    // illustrative shortest servo-pin to throttle-pin distance
 rod_slider_start_min = rod_min_pin_to_pin - rod_slider_len - 8;   // 572
@@ -88,7 +98,7 @@ rod_spigot_id = rod_bore;
 rod_receiver_socket_od = 30.8;
 rod_receiver_boss_od = 36;
 
-rod_capture_pin_d = 5;
+rod_cam_pivot_d = 5.6; // pivot bore for wedge and overcentre cam mechanisms
 rod_capture_groove_w = 6;
 rod_capture_groove_depth = 4.6;
 rod_capture_groove_z0 = 15;
@@ -198,10 +208,15 @@ function rod_slider_tip_z(length_mm) =
 function rod_throttle_pin_z(length_mm) =
     rod_slider_tip_z(length_mm) + rod_fork_offset + rod_fine_extension_mm(length_mm);
 
-// Axial stations used to test real capture-pin and closed-groove geometry.
-function rod_capture_pin_z() = rod_fixed_chain_len + rod_capture_z;
+// Axial stations used to test the integral sleeve lug and closed slider groove.
+function rod_capture_lug_z() = rod_fixed_chain_len + rod_capture_z;
+function rod_slider_start_in_sleeve_mm(length_mm) =
+    rod_slider_start_z(length_mm) - rod_fixed_chain_len;
 function rod_capture_shoulder_end_z(length_mm) =
     rod_slider_start_z(length_mm) + rod_capture_groove_z0;
+
+function rod_capture_upper_shoulder_z(length_mm) =
+    rod_slider_start_z(length_mm) + rod_capture_groove_z1;
 
 assert(rod_min_pin_to_pin == 940, "Illustrative shortest span must remain 940 mm");
 assert(rod_coarse_travel + rod_fine_travel == 260,
@@ -221,6 +236,8 @@ assert(rod_receiver_len <= print_part_max_len_mm,
        "Receiver must fit the declared print envelope");
 assert(max(rod_segment_lens) <= print_part_max_len_mm,
        "A fixed-chain section must fit the declared print envelope");
+assert(rod_segment_offsets[2] + rod_segment_lens[2] == rod_fixed_chain_len,
+       "The fixed chain must end exactly at the receiver sleeve");
 assert(rod_overlap >= 60, "The requested minimum overlap must remain at least 60 mm");
 assert(rod_capture_groove_z1 - rod_capture_groove_z0 > rod_coarse_travel,
        "The capture groove must cover the whole coarse adjustment range");
@@ -263,6 +280,36 @@ module rod_bar_keeper() {
         }
 }
 
+// ---- Section splice ---------------------------------------------------------------------------
+// Each section joint is retained by one transverse bar through aligned slots in the boss and
+// in the previous section's spigot, trapped by a keeper clipped onto the bar's outer end.
+// The slot is 0.3 mm taller than the 4 mm bar, so the bar can be pushed home; that is the
+// joint's axial play. The keeper stops the bar walking inward toward the slider; nothing
+// but its grip stops it walking outward, so the joint's retention under vibration is a
+// bench-test item.
+rod_splice_slot_z = 15;                       // slot floor above the joint's butt face
+rod_splice_slot_h = keeper_t_mm + 0.3;
+rod_splice_bar_len = 34;
+
+// Slot through the +Y wall only, from just outside the slider passage outward. `base` is
+// the butt face's z in the cutting part's frame, `reach` how far out the slot runs.
+module rod_splice_slot(base, reach) {
+    translate([-keeper_t_mm / 2 - 0.6, rod_spigot_id / 2 - 0.2,
+               base + rod_splice_slot_z - (rod_splice_slot_h - keeper_t_mm) / 2])
+        cube([keeper_t_mm + 1.2, reach, rod_splice_slot_h]);
+}
+
+// Bar and keeper installed at a joint whose butt face is at z = `base` (tube-axis frame).
+// The bar's inner end stops at the bore wall, 0.4 mm clear of the slider; its tapered end
+// leaves the boss on +Y and the keeper sits 0.2 mm off the boss face.
+module rod_splice(base) {
+    bar_z = base + rod_splice_slot_z + keeper_t_mm / 2;
+    translate([keeper_t_mm / 2, rod_bore / 2 + rod_splice_bar_len / 2, bar_z])
+        rotate([0, 0, 90]) rod_cross_bar(len = rod_splice_bar_len);
+    translate([0, rod_receiver_boss_od / 2 + 0.2 + keeper_t_mm / 2, bar_z])
+        rotate([-90, 0, 0]) rod_bar_keeper();
+}
+
 // ---- Fixed-chain sections ---------------------------------------------------------------
 module rod_receiver_boss() {
     // The enlarged socket accepts the outside of the previous section's ring spigot while
@@ -294,11 +341,9 @@ module rod_chain_section(len, receiver = true) {
         }
         // Transverse-bar slot in this section's bottom boss.
         if (receiver)
-            translate([-keeper_t_mm / 2 - 0.6, rod_spigot_id / 2 - 0.2, 15])
-                cube([keeper_t_mm + 1.2, rod_receiver_boss_od, keeper_t_mm]);
+            rod_splice_slot(0, rod_receiver_boss_od);
         // Transverse-bar slot in this section's male ring.
-        translate([-keeper_t_mm / 2 - 0.6, rod_spigot_id / 2 - 0.2, len + 15])
-            cube([keeper_t_mm + 1.2, rod_spigot_od, keeper_t_mm]);
+        rod_splice_slot(len, rod_spigot_od);
     }
 }
 
@@ -321,9 +366,7 @@ module rod_servo_section() {
             cylinder(d = rod_eye_bore_d + 2 * joint_clearance_mm,
                      h = rod_eye_plate_t + 2);
         // Slot in this section's male ring for the next section's bar.
-        translate([-keeper_t_mm / 2 - 0.6, rod_spigot_id / 2 - 0.2,
-                   rod_segment_lens[0] + 15])
-            cube([keeper_t_mm + 1.2, rod_spigot_od, keeper_t_mm]);
+        rod_splice_slot(rod_segment_lens[0], rod_spigot_od);
     }
 }
 
@@ -332,78 +375,48 @@ module rod_servo_eye() {
     translate([rod_eye_crank_mm, 0, -6]) rod_servo_section();
 }
 
+// A 45-degree, self-supporting lug rooted 0.4 mm into the sleeve's -X wall. It engages
+// the slider groove with the specified per-side clearance and remains in the groove over
+// the full adjustment range.
+module rod_capture_lug(z = rod_capture_z) {
+    width = rod_capture_groove_w - 2 * sliding_clearance_mm;
+    depth = rod_capture_groove_depth + sliding_clearance_mm;
+    translate([-rod_bore / 2 - sliding_clearance_mm, width / 2, z])
+        rotate([90, 0, 0])
+            linear_extrude(height = width)
+                polygon([[0, 0], [depth, depth], [depth, depth + 2], [0, depth + 2]]);
+}
+
 // ---- Receiver sleeve ------------------------------------------------------------------------
 module rod_receiver_sleeve() {
     assert(rod_receiver_len > rod_receiver_boss_len + 20,
            "Receiver sleeve must have a socket and a usable slider passage");
-    difference() {
-        union() {
-            rod_receiver_boss();
-            // Bridge the socket's larger bore to the smaller receiver tube.
-            translate([0, 0, rod_receiver_boss_len - 2])
-                rod_square_ring(4, rod_receiver_boss_od, rod_bore);
-            translate([0, 0, rod_receiver_boss_len])
-                rod_square_ring(rod_receiver_len - rod_receiver_boss_len,
-                                rod_w, rod_bore);
-        }
-        // Transverse-bar slot through the receiver boss.
-        translate([-keeper_t_mm / 2 - 0.6, rod_spigot_id / 2 - 0.2, 15])
-            cube([keeper_t_mm + 1.2, rod_receiver_boss_od, keeper_t_mm]);
-        // Side service window for the three interchangeable coarse clamp bodies.  It
-        // reaches through the +X wall so the clamp can press the slider's +X flat.
-        translate([rod_slider / 2, -16, rod_lock_z0])
-            cube([12, 32, rod_lock_z1 - rod_lock_z0]);
-        // Printed capture-pin bore through the -X wall.
-        translate([-rod_w / 2 - 4, 0, rod_capture_z]) rotate([0, 90, 0])
-            cylinder(d = rod_capture_pin_d + 0.6, h = 12);
-    }
-}
-
-// The capture pin's keeper geometry.  The keeper is a SEPARATE printed ring that is
-// clipped onto the pin's turned-down neck, so the pin is captive without friction.
-// The neck's outside diameter is below the keeper's bore, and the keeper's bore is
-// below the shaft's diameter, so the ring sits on the neck and cannot pass the shaft.
-rod_capture_neck_d = 4.4;
-rod_keeper_bore_d = 4.7;
-rod_keeper_od = 11;
-
-module rod_capture_pin() {
-    // One-head printed pin with a keeper BAND behind the head.  The head cannot pass
-    // the sleeve wall; the keeper ring fills the gap between the head and the sleeve's
-    // outer face, so the pin cannot back out of the slider's groove.
-    //
-    // An annular cut turns down the shaft's outside while leaving a solid core.
-    difference() {
-        union() {
-            translate([-19, 0, 0]) rotate([0, 90, 0])
-                cylinder(d = rod_capture_pin_d, h = 13);
-            translate([-23, 0, 0]) rotate([0, 90, 0])
-                cylinder(d = pin_head_d_mm, h = 4.2);
-        }
-        // Keeper band: the shaft's outside is turned down over this band.
-        translate([-19, 0, 0]) rotate([0, 90, 0])
-            pin_band_relief(d = rod_capture_pin_d, band_d = rod_capture_neck_d,
-                            band_t = 4);
-    }
-}
-
-module rod_capture_keeper() {
-    // Split keeper ring, printed separately.  It is clipped onto the pin's neck and
-    // bears on the sleeve's outer face, so the pin cannot travel inward and leave the
-    // slider groove.  Its bore is smaller than the shaft, so it cannot pass over the
-    // shaft and cannot be pushed off the pin.
-    translate([-17, 0, 0]) rotate([0, 90, 0])
+    union() {
         difference() {
-            cylinder(d = rod_keeper_od, h = 4, center = true);
-            translate([0, 0, -3]) cylinder(d = rod_keeper_bore_d, h = 6);
-            translate([0, -1.0, -3]) cube([rod_keeper_od, 2.0, 6]);
+            union() {
+                rod_receiver_boss();
+                // Bridge the socket's larger bore to the smaller receiver tube.
+                translate([0, 0, rod_receiver_boss_len - 2])
+                    rod_square_ring(4, rod_receiver_boss_od, rod_bore);
+                translate([0, 0, rod_receiver_boss_len])
+                    rod_square_ring(rod_receiver_len - rod_receiver_boss_len,
+                                    rod_w, rod_bore);
+            }
+            // Transverse-bar slot through the receiver boss.
+            rod_splice_slot(0, rod_receiver_boss_od);
+            // Side service window for the interchangeable coarse clamp bodies.
+            translate([rod_slider / 2, -16, rod_lock_z0])
+                cube([12, 32, rod_lock_z1 - rod_lock_z0]);
         }
+        rod_capture_lug();
+    }
 }
+
 
 // ---- Slider ---------------------------------------------------------------------------------
 module rod_slider_shoulder() {
-    // The closed lower end of the longitudinal capture groove.  This is the moving
-    // material that a forced overtravel would drive into the fixed capture pin.
+    // The closed lower end of the longitudinal groove drives into the sleeve's
+    // integral capture lug at the long-span stop.
     translate([-rod_slider / 2, -rod_slider / 2, 0])
         cube([rod_slider, rod_slider, rod_capture_groove_z0]);
 }
@@ -437,6 +450,13 @@ module rod_slider(len = rod_slider_len) {
             cylinder(d = rod_fine_screw_bore_d,
                      h = rod_fine_boss_z1 - rod_fine_boss_z0 + 2);
     }
+}
+// Printable PIP pair: the sleeve and slider share a bed-zero frame at the shortest
+// assembly pose. The moving slider extends above the sleeve and remains clear at every
+// travel setting.
+module rod_capture_assembly() {
+    rod_receiver_sleeve();
+    rod_slider();
 }
 
 // ---- Interchangeable coarse clamp bodies --------------------------------------------------------
@@ -481,8 +501,8 @@ module rod_lock_wedge_body() {
         // Tapered wedge channel, open toward the slider flat.
         translate([rod_slider / 2 - 1, -5, 24]) cube([20, 10, 8]);
         // Over-centre cam pivot bore, axis Y.
-        translate([rod_w / 2 + 2.5, 14, 34]) rotate([90, 0, 0])
-            cylinder(d = rod_capture_pin_d + 0.6, h = 28);
+ translate([rod_w / 2 + 2.5, 14, 34]) rotate([90, 0, 0])
+ cylinder(d = rod_cam_pivot_d, h = 28);
     }
 }
 
@@ -499,8 +519,8 @@ module rod_lock_overcentre_cam() {
             linear_extrude(height = 4, center = true)
                 polygon([[0, -3], [28, -1], [28, 6], [0, 5]]);
         }
-        rotate([90, 0, 0])
-            cylinder(d = rod_capture_pin_d + 0.6, h = 8, center = true);
+ rotate([90, 0, 0])
+ cylinder(d = rod_cam_pivot_d, h = 8, center = true);
     }
 }
 
@@ -645,19 +665,29 @@ module rod_throttle_end(length_mm = rod_len) {
     }
 }
 
-// ---- Named anti-separation / overtravel geometry ------------------------------------------------
-// These are actual parts of the model, not numerical claims.  The moving lug is the
-// slider's closed lower groove shoulder; the fixed stop is the receiver's capture pin.
-// Translating the lug in +Z (the separation direction) drives it into the pin: installed
-// clearance is empty, forced overtravel is blocked.
+// ---- Named anti-separation/overtravel geometry --------------------------------------
+// The moving shoulder is the closed lower end of the slider's groove; the fixed stop is
+// the receiver sleeve's integral capture lug. At the declared 940-1200 mm settings the
+// lug sits INSIDE the groove, so the groove ends act as overtravel catches rather than
+// length stops: the installed clearance is empty and a forced overtravel drives the
+// shoulder into the lug. The fitted coarse lock is what must hold the length.
 module rod_overstop_lug(length_mm = rod_len) {
     translate([0, 0, rod_slider_start_z(length_mm)]) rod_slider_shoulder();
 }
 
 module rod_overstop_stop() {
-    translate([0, 0, rod_fixed_chain_len + rod_capture_z]) rod_capture_pin();
+    translate([0, 0, rod_fixed_chain_len]) rod_capture_lug();
 }
 
+// Upper closed groove end, clipped from the actual slider, blocks reverse overtravel.
+module rod_overstop_reverse_shoulder(length_mm = rod_len) {
+    translate([0, 0, rod_slider_start_z(length_mm)])
+        intersection() {
+            rod_slider();
+            translate([-rod_slider / 2, -rod_slider / 2, rod_capture_groove_z1])
+                cube([rod_slider, rod_slider, rod_slider_len - rod_capture_groove_z1]);
+        }
+}
 // ---- Three distinct, interchangeable coarse clamps ------------------------------------------------
 module lock_wedge_cam(part = "assembly") {
     if (part == "assembly") {
@@ -723,6 +753,24 @@ module throttle_lock(kind = "wedge_cam", part = "assembly") {
     else assert(false, str("unknown lock kind: ", kind));
 }
 
+// The fixed chain as installed, about the tube axis: servo section, two chain sections and
+// the receiver sleeve, each butted against the previous one.
+module rod_fixed_chain() {
+    translate([0, 0, rod_segment_offsets[0] - 6]) rod_servo_section();
+    translate([0, 0, rod_segment_offsets[1]]) rod_chain_section(rod_segment_lens[1]);
+    translate([0, 0, rod_segment_offsets[2]]) rod_chain_section(rod_segment_lens[2]);
+    translate([0, 0, rod_fixed_chain_len]) rod_receiver_sleeve();
+}
+
+// Butt-face z of the three section joints, about the tube axis.
+function rod_splice_bases() = [rod_segment_offsets[1], rod_segment_offsets[2],
+                               rod_fixed_chain_len];
+
+// The three section joints' bars and keepers, about the tube axis.
+module rod_splices() {
+    for (base = rod_splice_bases()) rod_splice(base);
+}
+
 // ---- Public assembly and printable selectors --------------------------------------------------------
 rod_part = "assembly";
 rod_len = 1066.8;   // illustrative default within the requested 940-1200 mm range
@@ -737,16 +785,9 @@ module throttle_pushrod(part = rod_part, length_mm = rod_len,
         // Every member is drawn about the tube axis, which is cranked rod_eye_crank_mm
         // above the eye plane; the servo eye's bore then lands on the rod-local origin.
         translate([rod_eye_crank_mm, 0, 0]) {
-            translate([0, 0, rod_segment_offsets[0] - 6]) rod_servo_section();
-            translate([0, 0, rod_segment_offsets[1]])
-                rod_chain_section(rod_segment_lens[1]);
-            translate([0, 0, rod_segment_offsets[2]])
-                rod_chain_section(rod_segment_lens[2]);
-            translate([0, 0, rod_fixed_chain_len]) rod_receiver_sleeve();
-            // Positive capture pin and its separate keeper; the closed groove keeps the
-            // sleeve pin captured over the whole coarse range.
-            translate([0, 0, rod_fixed_chain_len + rod_capture_z]) rod_capture_pin();
-            translate([0, 0, rod_fixed_chain_len + rod_capture_z]) rod_capture_keeper();
+            rod_fixed_chain();
+            rod_splices();
+            // The sleeve's integral lug remains engaged with the slider groove.
             // Selected coarse clamp, in the sleeve's service window.
             translate([0, 0, rod_fixed_chain_len + rod_lock_z0])
                 throttle_lock(kind = lock_kind, part = "assembly");
@@ -762,16 +803,8 @@ module throttle_pushrod(part = rod_part, length_mm = rod_len,
         rod_chain_section(rod_segment_lens[1]);
     } else if (part == "segment_upper") {
         rod_chain_section(rod_segment_lens[2]);
-    } else if (part == "slider") {
-        rod_slider();
-    } else if (part == "sleeve") {
-        rod_receiver_sleeve();
-    } else if (part == "capture_pin") {
-        translate([0, 0, -6]) rotate([0, 90, 0]) rod_capture_pin();
-    } else if (part == "capture_keeper") {
-        translate([0, 0, 19]) rotate([0, -90, 0]) rod_capture_keeper();
-    } else if (part == "spigot") {
-        rod_male_ring_spigot();
+    } else if (part == "capture_assembly") {
+        rod_capture_assembly();
     } else if (part == "splice_wedge") {
         translate([0, 0, keeper_t_mm / 2]) rod_cross_bar();
     } else if (part == "splice_keeper") {
@@ -786,12 +819,6 @@ module throttle_pushrod(part = rod_part, length_mm = rod_len,
         printed_nut(h = rod_fine_nut_h);
     } else if (part == "fine_jam_collar") {
         rod_fine_jam_collar();
-    } else if (part == "endstop") {
-        rod_slider_shoulder();
-    } else if (part == "overstop_lug") {
-        rod_slider_shoulder();
-    } else if (part == "overstop_stop") {
-        translate([0, 0, -6]) rotate([0, 90, 0]) rod_capture_pin();
     } else if (part == "lock_wedge_body") {
         lock_wedge_cam("body");
     } else if (part == "lock_wedge") {
@@ -814,12 +841,6 @@ module throttle_pushrod(part = rod_part, length_mm = rod_len,
         lock_lead_screw("anti_backdrive");
     } else if (part == "lock_jam_collar") {
         lock_lead_screw("jam");
-    } else if (part == "clevis") {
-        printed_clevis();
-    } else if (part == "clevis_bushing") {
-        printed_bushing();
-    } else if (part == "clevis_pin") {
-        printed_pin(2 * clevis_ear_t_mm + clevis_gap_mm + 2 * keeper_t_mm);
     } else if (part == "gauge") {
         // Sliding-fit coupon: a plate with a closed square passage.
         linear_extrude(height = 14)

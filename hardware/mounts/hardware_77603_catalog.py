@@ -17,6 +17,7 @@ THROTTLE = "throttle_77603"
 CONTROL = "control_77603"
 
 HORN_RADIUS_MIN_MM = 12.0  # mirrors horn_radius_min_mm in parameters.scad
+HORN_RADIUS_DEFAULT_MM = 18.0  # mirrors horn_radius_default_mm in parameters.scad
 HORN_RADIUS_MAX_MM = 30.0  # mirrors horn_radius_max_mm in parameters.scad
 BUILD_VOLUME_MM = (420, 420, 500)
 USABLE_VOLUME_MM = (400, 400, 490)
@@ -34,6 +35,8 @@ class Piece:
     orientation: str = "flat, largest face on the bed"
     material: str = "PETG (prototype; ASA unqualified pending printer/enclosure check)"
     note: str = ""
+    # >1 marks a print-in-place piece: one print, this many captive bodies (pip_gate.py).
+    bodies: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,75 +142,10 @@ MOUNT_PIECES = (
 )
 
 
-def _joint(kind: str) -> dict[str, object]:
-    # printed_joints.scad reads the global `joint_part`.
-    return {"joint_part": kind}
-
-
-def joint_pieces() -> tuple[Piece, ...]:
-    return (
-        Piece(
-            "hinge_pin",
-            f"{THROTTLE}/printed_joints.scad",
-            _joint("pin"),
-            quantity=6,
-            orientation="upright on its head flange",
-            note="captive printed hinge pin for the U-neck and U-body joints; the rod's "
-            "clevis pin and the five horn variants' index pins are their own parts",
-        ),
-        Piece("clevis", f"{THROTTLE}/printed_joints.scad", _joint("clevis"), quantity=2),
-        Piece(
-            "bushing",
-            f"{THROTTLE}/printed_joints.scad",
-            _joint("bushing"),
-            quantity=4,
-            orientation="upright",
-        ),
-        Piece(
-            "wear_socket",
-            f"{THROTTLE}/printed_joints.scad",
-            _joint("wear_socket"),
-            quantity=2,
-            orientation="upright",
-        ),
-        Piece("endstop_collar", f"{THROTTLE}/printed_joints.scad", _joint("endstop_collar")),
-        # Named for the shared joint library, not the rod's own lead-screw nut below:
-        # both are printed nuts, and the flat export needs distinct names.
-        Piece(
-            "joint_lock_nut",
-            f"{THROTTLE}/printed_joints.scad",
-            _joint("nut"),
-            orientation="upright",
-        ),
-        Piece(
-            "keyed_spigot",
-            f"{THROTTLE}/printed_joints.scad",
-            _joint("keyed_spigot"),
-            quantity=3,
-            orientation="upright",
-        ),
-        Piece(
-            "trim_screw",
-            f"{THROTTLE}/printed_joints.scad",
-            _joint("screw"),
-            orientation="upright, flange on the bed",
-        ),
-        Piece("anti_backdrive_lip", f"{THROTTLE}/printed_joints.scad", _joint("anti_backdrive")),
-        Piece("retainer_keeper", f"{THROTTLE}/printed_joints.scad", _joint("keeper"), quantity=8),
-        # The shared printed_joints nut is exported as joint_lock_nut so the flat export
-        # does not collide with the rod's own lead-screw lock_nut below.
-        Piece("alignment_yoke", f"{THROTTLE}/printed_joints.scad", _joint("alignment_yoke")),
-        Piece(
-            "alignment_cross_block", f"{THROTTLE}/printed_joints.scad", _joint("alignment_cross")
-        ),
-    )
-
-
 ROD_PIECES = (
-    # Selector names match throttle_pushrod.scad's dispatcher exactly. The rod's own
-    # "assembly" composes the sections, slider, capture hardware, fine stage and throttle
-    # end; EVERY distinct printed part it composes is exported here, so the owner can
-    # print the linkage from this catalog alone.
+    # Selector names match throttle_pushrod.scad's dispatcher. The slider and receiver
+    # sleeve are one print-in-place export with two captive bodies; all other rod parts
+    # are separately printed components required by the assembly.
     Piece(
         "rod_segment_lower",
         f"{THROTTLE}/throttle_pushrod.scad",
@@ -229,43 +167,27 @@ ROD_PIECES = (
         orientation="lying flat, long axis on the bed X",
     ),
     Piece(
-        "rod_slider",
+        "rod_capture_assembly",
         f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("slider"),
-        orientation="lying flat, long axis on the bed X",
+        _rod("capture_assembly"),
+        orientation="upright, slider and sleeve co-printed at z = 0",
+        note="print-in-place pair: integral 45-degree sleeve lug rides in the slider "
+        "groove; no capture pin or keeper",
+        bodies=2,
     ),
-    Piece(
-        "rod_sleeve",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("sleeve"),
-        orientation="lying flat, long axis on the bed X",
-    ),
-    Piece(
-        "rod_capture_pin",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("capture_pin"),
-        orientation="upright on its head flange",
-    ),
-    Piece(
-        "rod_capture_keeper",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("capture_keeper"),
-        orientation="upright",
-    ),
-    Piece("rod_spigot", f"{THROTTLE}/throttle_pushrod.scad", _rod("spigot"), orientation="upright"),
     Piece(
         "splice_wedge",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("splice_wedge"),
-        quantity=0,
-        note="only needed when the span segments; count follows the span",
+        quantity=3,
+        note="one bar per section joint: servo section, two chain sections, sleeve",
     ),
     Piece(
         "splice_keeper",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("splice_keeper"),
-        quantity=0,
-        note="only needed when the span segments; count follows the span",
+        quantity=3,
+        note="one keeper per section joint, traps that joint's transverse bar",
     ),
     Piece(
         "rod_fine_screw",
@@ -290,28 +212,6 @@ ROD_PIECES = (
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("throttle_fork"),
         note="throttle eye plate, side web, fine-nut lug; the eye drops over the U post",
-    ),
-    # The rod's own anti-separation end stop. This is NOT printed_joints' endstop_collar:
-    # that is the collar that clamps onto the sliding member, and both are exported.
-    Piece(
-        "rod_endstop", f"{THROTTLE}/throttle_pushrod.scad", _rod("endstop"), orientation="upright"
-    ),
-    Piece("rod_overstop_lug", f"{THROTTLE}/throttle_pushrod.scad", _rod("overstop_lug")),
-    Piece("rod_overstop_stop", f"{THROTTLE}/throttle_pushrod.scad", _rod("overstop_stop")),
-    # The rod's own clevis joint at the throttle end: ear pair, its bushing and its pin.
-    # These are the rod's SELECTORS, distinct from the shared printed_joints pieces.
-    Piece("rod_clevis", f"{THROTTLE}/throttle_pushrod.scad", _rod("clevis")),
-    Piece(
-        "rod_clevis_bushing",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("clevis_bushing"),
-        orientation="upright",
-    ),
-    Piece(
-        "rod_clevis_pin",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("clevis_pin"),
-        orientation="upright on its head flange",
     ),
     Piece(
         "rod_fit_gauge",
@@ -373,23 +273,23 @@ LOCK_PIECES = (
 )
 
 U_PIECES = (
-    Piece("throttle_u_body", f"{THROTTLE}/throttle_u_fitting.scad", _u("body")),
-    Piece("throttle_u_neck", f"{THROTTLE}/throttle_u_fitting.scad", _u("neck")),
-    Piece("throttle_u_gauge", f"{THROTTLE}/throttle_u_fitting.scad", _u("gauge")),
     Piece(
-        "throttle_u_pin",
+        "throttle_u_fitting",
         f"{THROTTLE}/throttle_u_fitting.scad",
-        _u("pin"),
-        note="the neck's lower Y-axis pin",
+        _u("fitting"),
+        orientation="as exported: mouth on the bed, yoke legs on the bed beside it",
+        note="print-in-place: body and pitch yoke leave the bed as two captive bodies; "
+        "no pin or keeper",
+        bodies=2,
     ),
+    Piece("throttle_u_gauge", f"{THROTTLE}/throttle_u_fitting.scad", _u("gauge")),
     Piece(
         "throttle_u_cap",
         f"{THROTTLE}/throttle_u_fitting.scad",
         _u("cap"),
         orientation="flat",
-        note="traps the rod's throttle eye on the neck's pivot post",
+        note="traps the rod's throttle eye on the yoke's pivot post",
     ),
-    Piece("throttle_u_retainer", f"{THROTTLE}/throttle_u_fitting.scad", _u("retainer")),
 )
 
 VARIANT_PIECES = (
@@ -420,8 +320,15 @@ VARIANT_PIECES = (
         orientation="upright",
     ),
     Piece("variant_b_keeper", f"{THROTTLE}/throttle_horn_variants.scad", _variant("B", "keeper")),
-    Piece("variant_c_carrier", f"{THROTTLE}/throttle_horn_variants.scad", _variant("C", "carrier")),
-    Piece("variant_c_shoe", f"{THROTTLE}/throttle_horn_variants.scad", _variant("C", "shoe")),
+    Piece(
+        "variant_c_pip",
+        f"{THROTTLE}/throttle_horn_variants.scad",
+        _variant("C", "pip", radius_mm=HORN_RADIUS_DEFAULT_MM),
+        orientation="flat, carrier and continuous-radius shoe co-printed at z = 0",
+        note="print-in-place pair: opposing 45-degree dovetail flanks capture the shoe; "
+        "closed rail ends retain it at both travel limits; horn contact remains provisional",
+        bodies=2,
+    ),
     Piece(
         "variant_c_wedge_key", f"{THROTTLE}/throttle_horn_variants.scad", _variant("C", "wedge_key")
     ),
@@ -438,26 +345,15 @@ VARIANT_PIECES = (
         orientation="upright",
     ),
     Piece("variant_c_keeper", f"{THROTTLE}/throttle_horn_variants.scad", _variant("C", "keeper")),
-    Piece("variant_d_carrier", f"{THROTTLE}/throttle_horn_variants.scad", _variant("D", "carrier")),
     Piece(
-        "variant_d_ball_stem",
+        "variant_d_pip",
         f"{THROTTLE}/throttle_horn_variants.scad",
-        _variant("D", "ball_stem"),
-        orientation="upright on its base",
+        _variant("D", "pip"),
+        orientation="upright, carrier and truncated ball co-printed at z = 0",
+        note="print-in-place pair: carrier-integral spherical socket captures the "
+        "truncated ball and its output post",
+        bodies=2,
     ),
-    Piece(
-        "variant_d_cage",
-        f"{THROTTLE}/throttle_horn_variants.scad",
-        _variant("D", "cage"),
-        orientation="upright",
-    ),
-    Piece(
-        "variant_d_wear_socket",
-        f"{THROTTLE}/throttle_horn_variants.scad",
-        _variant("D", "wear_socket"),
-        orientation="upright",
-    ),
-    Piece("variant_d_closure", f"{THROTTLE}/throttle_horn_variants.scad", _variant("D", "closure")),
     Piece("variant_d_cap", f"{THROTTLE}/throttle_horn_variants.scad", _variant("D", "cap")),
     Piece(
         "variant_d_pin",
@@ -523,7 +419,6 @@ CONTROL_PIECES = (
 
 PARTS_77603: tuple[Piece, ...] = (
     MOUNT_PIECES
-    + joint_pieces()
     + ROD_PIECES
     + LOCK_PIECES
     + U_PIECES
@@ -677,6 +572,30 @@ PROBES_77603: tuple[Probe, ...] = (
         note="the whole cavity rotates with a lean; the lever still passes",
     ),
     Probe("u_clearance_applied", "empty", ({"check": "u_clearance_applied"},)),
+    # Print-in-place U yoke: free through its range, and captive in every direction.
+    Probe(
+        "u_yoke_fit",
+        "empty",
+        ({"check": "u_yoke_fit"},),
+        note="the printed-in-place yoke clears the body as printed",
+    ),
+    Probe(
+        "u_yoke_pitch_range",
+        "empty",
+        tuple({"check": "u_yoke_pitch_range", "u_yoke_angle": a} for a in (-30, -15, 15, 30)),
+        note="the yoke pitches through +/-joint_articulation_deg without contact",
+    ),
+    Probe(
+        "u_yoke_captive",
+        "contact",
+        tuple(
+            {"check": "u_yoke_captive", "u_yoke_shift": shift}
+            for shift in (
+                [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]
+            )
+        ),
+        note="pushing the yoke 1 mm along any axis meets the body: it cannot leave",
+    ),
     # Mount: anchored to the right steering servo bracket. Branch names below match
     # throttle_77603/fit_checks.scad exactly; a label that matches no branch is a false
     # pass against an empty scene, which is why saddle_root_land (a branch that no longer
@@ -789,13 +708,29 @@ PROBES_77603: tuple[Probe, ...] = (
     ),
     # Rod, locks and joints.
     Probe(
+        "rod_capture_pip_fit",
+        "empty",
+        ({"check": "rod_capture_pip_fit"},),
+        note="the bed-zero slider and sleeve leave as two bodies with the integral lug "
+        "inside the groove",
+    ),
+    Probe(
+        "rod_capture_range_clear",
+        "empty",
+        tuple(
+            {"check": "rod_capture_range_clear", "rod_capture_length_mm": length}
+            for length in (940, 1066.8, 1200)
+        ),
+        note="the integral lug clears the slider through minimum, nominal and maximum settings",
+    ),
+    Probe(
         "rod_capture_clear",
         "empty",
         tuple(
             {"check": "rod_capture_clear", "rod_capture_length_mm": length}
             for length in (940, 1066.8, 1200)
         ),
-        note="capture pin and shoulder clear at both endpoints and nominal setting",
+        note="closed groove shoulder clears the sleeve lug at minimum, nominal and maximum",
     ),
     Probe(
         "rod_overlap_capture",
@@ -804,25 +739,108 @@ PROBES_77603: tuple[Probe, ...] = (
             {"check": "rod_overlap_capture", "rod_capture_length_mm": length}
             for length in (940, 1066.8, 1200)
         ),
-        note="forced overtravel meets the capture pin at each setting",
+        note="forced overtravel drives the groove shoulder into the integral sleeve lug",
+    ),
+
+    Probe(
+        "rod_overlap_capture_reverse",
+        "contact",
+        ({"check": "rod_overlap_capture_reverse", "rod_capture_length_mm": 940},),
+        note="reverse overtravel at minimum span drives the upper closed groove end into "
+        "the sleeve's integral lug",
     ),
     Probe("lock_wedge_grip", "contact", ({"check": "lock_wedge_grip"},)),
     Probe("lock_collet_grip", "contact", ({"check": "lock_collet_grip"},)),
     Probe("lock_screw_engagement", "contact", ({"check": "lock_screw_engagement"},)),
     Probe(
-        "endstop_capture",
+        "clevis_double_shear",
         "contact",
-        ({"check": "endstop_capture"},),
-        note="end-stop collar material crosses the rod passage; anti-separation with "
-        "every lock released is the design intent, not verified behaviour",
+        tuple({"check": "clevis_double_shear", "clevis_ear_side": s} for s in (1, -1)),
+        note="variant E's clevis has material around the hinge pin in each ear separately",
     ),
-    Probe("clevis_double_shear", "contact", ({"check": "clevis_double_shear"},)),
-    Probe("ball_cage_capture", "contact", ({"check": "ball_cage_capture"},)),
+    # Section splices: the three section joints are retained by transverse bars.
     Probe(
-        "c_radius_slide",
+        "splice_bars_fit",
+        "empty",
+        ({"check": "splice_bars_fit"},),
+        note="every joint's bar and keeper clear the installed fixed chain",
+    ),
+    Probe(
+        "splice_bar_holds_joint",
         "contact",
-        ({"check": "c_radius_slide"},),
-        note="continuous horn radius: the shoe sits at a non-default radius",
+        tuple(
+            {"check": "splice_bar_holds_joint", "splice_joint": j, "splice_shift_mm": s}
+            for j in range(3)
+            for s in (1, -1)
+        ),
+        note="moving a joint's bar 1 mm along the rod meets its boss and spigot slots",
+    ),
+    Probe(
+        "splice_keeper_stops_inward",
+        "contact",
+        tuple({"check": "splice_keeper_stops_inward", "splice_joint": j} for j in range(3)),
+        note="the keeper meets the boss before the bar can reach the slider passage",
+    ),
+
+    # Variant D: co-printed ball/socket clearance, angular travel and both socket mouths.
+    Probe("d_ball_pip_fit", "empty", ({"check": "d_ball_pip_fit"},)),
+    Probe(
+        "d_ball_range_clear",
+        "empty",
+        tuple({"check": "d_ball_range_clear", "d_ball_angle_deg": a} for a in (-10, 10)),
+        note="ball stem clears the carrier-integral socket through +/-10 degrees",
+    ),
+    Probe(
+        "d_ball_captive",
+        "contact",
+        tuple(
+            {"check": "d_ball_captive", "d_ball_shift_mm": shift}
+            for shift in (
+                [-3, 0, 0],
+                [3, 0, 0],
+                [0, -3, 0],
+                [0, 3, 0],
+                [0, 0, -3],
+                [0, 0, 3],
+            )
+        ),
+        note="the narrowed top and bottom mouths retain the ball against forced "
+        "three-millimetre translation",
+    ),
+
+    Probe("c_shoe_pip_fit", "empty", ({"check": "c_shoe_pip_fit"},)),
+    Probe(
+        "c_shoe_range_clear",
+        "empty",
+        tuple({"check": "c_shoe_range_clear", "c_radius_mm": r} for r in (12, 18, 30)),
+        note="the captured shoe slides freely at minimum, default and maximum radius",
+    ),
+    Probe(
+        "c_shoe_captive",
+        "contact",
+        tuple(
+            {"check": "c_shoe_captive", "c_radius_mm": r, "c_shoe_shift_mm": shift}
+            for r in (12, 18, 30)
+            for shift in ([0, 0, -1], [0, 0, 1], [0, -1, 0], [0, 1, 0])
+        ),
+        note="lower/upper dovetail flanks stop 1 mm vertical and transverse displacement",
+    ),
+    Probe(
+        "c_shoe_end_stop",
+        "contact",
+        (
+            {
+                "check": "c_shoe_end_stop",
+                "c_radius_mm": 12,
+                "c_shoe_shift_mm": [-1, 0, 0],
+            },
+            {
+                "check": "c_shoe_end_stop",
+                "c_radius_mm": 30,
+                "c_shoe_shift_mm": [1, 0, 0],
+            },
+        ),
+        note="closed inboard and outboard rail ends block 1 mm travel past both radius limits",
     ),
     # Linkage joints, at each variant's demonstration pose. EMPTY probes prove the placed
     # parts clear; CONTACT probes prove a 1 mm displacement meets the retaining geometry.
