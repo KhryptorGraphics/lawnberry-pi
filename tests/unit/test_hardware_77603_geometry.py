@@ -157,12 +157,21 @@ class TestManifest:
                 f"{name} exceeds {usable}: {size}"
             )
 
-    def test_all_five_variants_and_three_locks_are_present(self, manifest):
+    def test_all_five_variants_the_collet_rod_and_fine_stage_are_present(self, manifest):
         names = set(manifest["parts"])
         for letter in "abcde":
             assert any(n.startswith(f"variant_{letter}_") for n in names), letter
-        for lock in ("lock_wedge_body", "lock_collet_body", "lock_screw"):
-            assert lock in names, lock
+        # The print-in-place collet replaced the three separately printed coarse locks.
+        for piece in (
+            "rod_capture_assembly",
+            "rod_throttle_body",
+            "rod_throttle_fork",
+            "rod_fine_screw",
+            "rod_fine_carriage_nut",
+            "rod_fine_jam_collar",
+        ):
+            assert piece in names, piece
+        assert not any(n.startswith("lock_") for n in names)
 
     def test_stl_and_3mf_exist_for_every_part(self, manifest):
         # Meshes live beside the legacy exports, not beside this manifest. The manifest says

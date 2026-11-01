@@ -66,6 +66,9 @@ class Probe:
     expect: str
     parameter_sets: tuple[dict[str, object], ...] = (field(default_factory=dict),)
     note: str = ""
+    # Per-run openscad cap in seconds; None keeps the runner's default. Set only for a probe
+    # whose real solids are genuinely slow to build, never to hide a hung render.
+    timeout_s: int | None = None
 
 
 def _t(part: str) -> dict[str, object]:
@@ -83,10 +86,10 @@ def _carrier(kind: str) -> dict[str, object]:
     return {"carrier_kind": kind, "carrier_part": "body"}
 
 
-def _rod(part: str, lock: str = "lead_screw") -> dict[str, object]:
-    # throttle_pushrod.scad reads the globals `rod_part` / `rod_lock_kind`. Sending `part`
-    # was silently ignored by OpenSCAD, so every rod/lock piece rendered the full assembly.
-    return {"rod_part": part, "rod_lock_kind": lock}
+def _rod(part: str) -> dict[str, object]:
+    # throttle_pushrod.scad reads the global `rod_part`. Sending `part` was silently
+    # ignored by OpenSCAD, so every rod piece rendered the full assembly.
+    return {"rod_part": part}
 
 
 def _u(part: str) -> dict[str, object]:
@@ -101,26 +104,18 @@ def _variant(letter: str, part: str, **extra: object) -> dict[str, object]:
 
 # ---- Printable pieces ---------------------------------------------------------------
 MOUNT_PIECES = (
-    # Derivative of the existing RIGHT arm head: the legacy head plus ONE integral printed
-    # support in the free Y band. It replaces arm_head_right for the throttle build.
+    # Derivative of the existing RIGHT arm head: the legacy head, raised with the left one,
+    # plus a shelf, corbel and cradle walls under the steering servo. It replaces
+    # arm_head_right for the throttle build.
     Piece(
         "throttle_arm_head",
         f"{THROTTLE}/throttle_arm_head.scad",
         {},
         orientation="mating face down, as the legacy arm head prints",
-        note="derivative of arm_head_right; integral column carries the servo cradle "
-        "directly (no riser); fit and joint strength unverified",
+        note="derivative of arm_head_right; integral shelf and cradle walls carry the "
+        "throttle MG995 below the raised steering servo; fit and joint strength unverified",
     ),
-    Piece("servo_cradle", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("cradle")),
     Piece("servo_keeper", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("keeper")),
-    Piece(
-        "servo_seat_pin",
-        f"{THROTTLE}/mg995_throttle_mount.scad",
-        _mount("seat_pin"),
-        orientation="upright on its head",
-        note="transverse pin through the column and both cradle dowels; fit, clip "
-        "retention and vibration life unverified",
-    ),
     Piece(
         "servo_keeper_pin",
         f"{THROTTLE}/mg995_throttle_mount.scad",
@@ -134,18 +129,19 @@ MOUNT_PIECES = (
         "servo_pin_keeper",
         f"{THROTTLE}/mg995_throttle_mount.scad",
         _mount("pin_keeper"),
-        quantity=3,
+        quantity=2,
         orientation="flat",
-        note="split ring for the seat pin and both keeper pins; fatigue unverified",
+        note="split ring for each keeper pin; fatigue unverified",
     ),
     Piece("mg995_lug_gauge", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("gauge")),
 )
 
 
 ROD_PIECES = (
-    # Selector names match throttle_pushrod.scad's dispatcher. The slider and receiver
-    # sleeve are one print-in-place export with two captive bodies; all other rod parts
-    # are separately printed components required by the assembly.
+    # Selector names match throttle_pushrod.scad's dispatcher. The slider, the receiver
+    # sleeve and its threaded collet nut are one print-in-place export with three captive
+    # bodies; all other rod parts are separately printed components required by the
+    # assembly.
     Piece(
         "rod_segment_lower",
         f"{THROTTLE}/throttle_pushrod.scad",
@@ -170,24 +166,35 @@ ROD_PIECES = (
         "rod_capture_assembly",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("capture_assembly"),
-        orientation="upright, slider and sleeve co-printed at z = 0",
-        note="print-in-place pair: integral 45-degree sleeve lug rides in the slider "
-        "groove; no capture pin or keeper",
-        bodies=2,
+        orientation="upright, COLLET END DOWN: finger tips, nut front face and slider tip "
+        "on the bed",
+        note="print-in-place set: integral 45-degree sleeve lug rides in the slider groove; "
+        "the captive threaded collet nut is hand-tightened to clamp the slider (no bolts, "
+        "no tools); clamp force and vibration resistance unqualified",
+        bodies=3,
     ),
     Piece(
         "splice_wedge",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("splice_wedge"),
-        quantity=3,
-        note="one bar per section joint: servo section, two chain sections, sleeve",
+        quantity=4,
+        note="one bar per section joint (servo section, two chain sections, sleeve) and "
+        "one through the throttle-end body and the slider's window",
     ),
     Piece(
         "splice_keeper",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("splice_keeper"),
-        quantity=3,
-        note="one keeper per section joint, traps that joint's transverse bar",
+        quantity=4,
+        note="one keeper per transverse bar: three section joints and the throttle-end body",
+    ),
+    Piece(
+        "rod_throttle_body",
+        f"{THROTTLE}/throttle_pushrod.scad",
+        _rod("throttle_body"),
+        orientation="upright, rear face on the bed",
+        note="sockets over the slider tip behind the fork, retained by a splice bar and "
+        "keeper; its boss journals the fine screw",
     ),
     Piece(
         "rod_fine_screw",
@@ -221,56 +228,6 @@ ROD_PIECES = (
     ),
 )
 
-LOCK_PIECES = (
-    # The three coarse locks are ALTERNATIVES: a builder fits ONE family (wedge_cam,
-    # split_collet or lead_screw), not all three. All three are exported so each concept
-    # is independently manufacturable; the build notes must say which one was fitted.
-    # Each lock's own keeper is exported with it; the shared printed_joints pieces are
-    # catalogued separately.
-    Piece("lock_wedge_body", f"{THROTTLE}/throttle_pushrod.scad", _rod("lock_wedge_body")),
-    Piece("lock_wedge", f"{THROTTLE}/throttle_pushrod.scad", _rod("lock_wedge")),
-    Piece("lock_wedge_cam", f"{THROTTLE}/throttle_pushrod.scad", _rod("lock_wedge_cam")),
-    Piece("lock_wedge_keeper", f"{THROTTLE}/throttle_pushrod.scad", _rod("lock_wedge_keeper")),
-    Piece(
-        "lock_collet_body",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("lock_collet_body"),
-        orientation="upright",
-    ),
-    Piece(
-        "lock_collet_collar",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("lock_collet_collar"),
-        orientation="upright",
-    ),
-    Piece(
-        "lock_collet_keeper",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("lock_collet_keeper"),
-        orientation="upright",
-    ),
-    Piece(
-        "lock_screw",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("lock_screw"),
-        orientation="upright, flange on the bed",
-    ),
-    Piece(
-        "lock_nut",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("lock_nut"),
-        orientation="upright",
-        note="the lead-screw lock's own nut; distinct from the "
-        "shared printed_joints nut (joint_lock_nut)",
-    ),
-    Piece("lock_anti_backdrive", f"{THROTTLE}/throttle_pushrod.scad", _rod("lock_anti_backdrive")),
-    Piece(
-        "lock_jam_collar",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("lock_jam_collar"),
-        orientation="upright",
-    ),
-)
 
 U_PIECES = (
     Piece(
@@ -326,16 +283,24 @@ VARIANT_PIECES = (
         _variant("C", "pip", radius_mm=HORN_RADIUS_DEFAULT_MM),
         orientation="flat, carrier and continuous-radius shoe co-printed at z = 0",
         note="print-in-place pair: opposing 45-degree dovetail flanks capture the shoe; "
-        "closed rail ends retain it at both travel limits; horn contact remains provisional",
+        "closed rail ends retain it at both travel limits; the shoe's neck carries the "
+        "wedge key's gable-roofed slot; horn contact remains provisional",
         bodies=2,
     ),
     Piece(
-        "variant_c_wedge_key", f"{THROTTLE}/throttle_horn_variants.scad", _variant("C", "wedge_key")
+        "variant_c_wedge_key",
+        f"{THROTTLE}/throttle_horn_variants.scad",
+        _variant("C", "wedge_key"),
+        orientation="flat, bearing underside on the bed",
+        note="1:6 through-wedge: bears on the rail seat and the shoe roof and lifts the shoe "
+        "onto the undercut; friction hold, preload retention and wear are unqualified",
     ),
     Piece(
         "variant_c_wedge_keeper",
         f"{THROTTLE}/throttle_horn_variants.scad",
         _variant("C", "wedge_keeper"),
+        note="split ring on the key's tail groove: a backstop with about 2.4 mm slack; "
+        "its 0.2 mm snap is unqualified",
     ),
     Piece("variant_c_cap", f"{THROTTLE}/throttle_horn_variants.scad", _variant("C", "cap")),
     Piece(
@@ -420,7 +385,6 @@ CONTROL_PIECES = (
 PARTS_77603: tuple[Piece, ...] = (
     MOUNT_PIECES
     + ROD_PIECES
-    + LOCK_PIECES
     + U_PIECES
     + VARIANT_PIECES
     + CONTROL_PIECES
@@ -429,25 +393,24 @@ PARTS_77603: tuple[Piece, ...] = (
 # ---- Scene list ----------------------------------------------------------------------
 # Anchor of the throttle station, mirroring the OpenSCAD derivation
 # (throttle_77603/parameters.scad + ../enclosure_common.scad). The variant cameras aim
-# here; aiming at the origin produced ten identical 5.8 kB blank frames. The station is
-# now carried by the head's integral column directly over the steering-servo land: there
-# is no riser and no outboard cantilever, so the old 180 mm outboard anchor is gone.
-#   tower_world_x  = servo_station_x + column_width / 2 - servo_face_t - 1 = 218.30
-#   tower_world_y  = assembly_arm_y + seat_y_local_mm                     = 152.00
-#   horn underside = arm_joint_z + column_seat_local_mm + cradle_t_mm
-#                    + mg995_body_height_mm (= throttle_horn_base_mm())  = 566.58
-# and the demonstration throttle end sits about a metre beyond the tower toward the
-# lap-bar estimate, so the overview camera frames the whole chain, not just the tower.
-_TOWER_X = 218.30
-_TOWER_Y = 152.00
-_HORN_BASE_Z = 566.58
+# here; aiming at the origin produced ten identical 5.8 kB blank frames. The throttle servo
+# stands on the derivative head's shelf, BELOW the raised right steering servo:
+#   servo x        = arm_joint_x + throttle_seat_x_local_mm                  = 253.30
+#   servo y        = assembly_arm_y + throttle_seat_y_local_mm               = 123.00
+#   horn underside = arm_joint_z + throttle_seat_local_mm
+#                    + mg995_body_height_mm (= throttle_horn_base_mm())      = 410.58
+# and the demonstration throttle end sits about a metre beyond the servo toward the
+# lap-bar estimate, so the overview camera frames the whole chain, not just the station.
+_SERVO_X = 253.30
+_SERVO_Y = 123.00
+_HORN_BASE_Z = 410.58
 
 
 def _anchor() -> tuple[float, float, float]:
     """World position of the retained horn's underside plane on the shaft axis
     (throttle_horn_base_mm() in mg995_throttle_mount.scad), shared by every variant
     camera. The horn variants' frame contract fixes z = 0 here."""
-    return (_TOWER_X, _TOWER_Y, _HORN_BASE_Z)
+    return (_SERVO_X, _SERVO_Y, _HORN_BASE_Z)
 
 
 def _scene_variants() -> tuple[Scene, ...]:
@@ -504,26 +467,14 @@ VIEWS_77603: tuple[Scene, ...] = (
         f"{_anchor()[0]:.0f},{_anchor()[1] - 60:.0f},{_anchor()[2] - 60:.0f},62,0,18,600",
     ),
     Scene(
-        "lock_wedge_cam",
+        "rod_collet",
         f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("assembly", "wedge_cam"),
-        "29,0,852,60,0,35,260",
+        _rod("assembly"),
+        "16,0,832,60,0,35,260",
     ),
-    Scene(
-        "lock_split_collet",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("assembly", "split_collet"),
-        "20,0,852,60,0,35,240",
-    ),
-    Scene(
-        "lock_lead_screw",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("assembly", "lead_screw"),
-        "22,0,867,60,0,35,300",
-    ),
-    # The lock cameras aim at the lock band (fixed chain 664 + sleeve-local 160..205,
-    # crank 16 in X), measured from the rendered lock assemblies; the rod's origin is
-    # the servo eye, about 850 mm away.
+    # The collet camera aims at the threaded collet station measured from the rendered
+    # assembly: tube axis at rod-local x = 16, nut and nose between z = 801 and 859 (the
+    # finger tips at 857); the rod's origin is the servo eye, about 830 mm away.
     Scene(
         "throttle_u_fitting",
         f"{THROTTLE}/throttle_u_fitting.scad",
@@ -596,34 +547,27 @@ PROBES_77603: tuple[Probe, ...] = (
         ),
         note="pushing the yoke 1 mm along any axis meets the body: it cannot leave",
     ),
-    # Mount: anchored to the right steering servo bracket. Branch names below match
-    # throttle_77603/fit_checks.scad exactly; a label that matches no branch is a false
-    # pass against an empty scene, which is why saddle_root_land (a branch that no longer
-    # exists) was removed.
+    # Station: the shelf, corbel and cradle walls of the derivative right head, under the
+    # raised steering servo. Branch names below match throttle_77603/fit_checks.scad
+    # exactly; an unknown label fails the dispatcher's final assert.
     Probe(
-        "support_bears_on_land",
+        "shelf_fuses_to_rib",
         "contact",
-        ({"check": "support_bears_on_land"},),
-        note="the integral column grows out of the arm head's servo-face land: one "
-        "printed piece, not two parts that happen to touch",
+        ({"check": "shelf_fuses_to_rib"},),
+        note="the shelf overlaps the legacy head's rib: one printed piece, not two parts "
+        "that happen to touch",
     ),
     Probe(
-        "seat_holes_are_bored",
+        "cradle_fuses_to_shelf",
         "contact",
-        ({"check": "seat_holes_are_bored"},),
-        note="the seat dowel holes are bored into real column material above the seat",
+        ({"check": "cradle_fuses_to_shelf"},),
+        note="the cradle walls root into the shelf's slab",
     ),
     Probe(
-        "seat_dowels_fit",
-        "empty",
-        ({"check": "seat_dowels_fit"},),
-        note="the cradle's locating dowels pass their holes without touching",
-    ),
-    Probe(
-        "seat_cradle_clears_column",
-        "empty",
-        ({"check": "seat_cradle_clears_column"},),
-        note="the seated cradle does not interfere with the column",
+        "shelf_supports_body",
+        "contact",
+        ({"check": "shelf_supports_body"},),
+        note="head material directly under the servo body's footprint",
     ),
     Probe(
         "support_clears_servo_passages",
@@ -632,32 +576,66 @@ PROBES_77603: tuple[Probe, ...] = (
         note="added material does not fill the steering servo's six holes or rear opening",
     ),
     Probe(
-        "mount_vs_moving_steering",
+        "joint_bolts_have_tool_room",
         "empty",
-        ({"check": "mount_vs_moving_steering"},),
-        note="throttle stack stays clear of the steering servo's moving bracket at "
-        "0/45/90 deg, not only at one pose",
-    ),
-    Probe(
-        "mount_vs_linkage",
-        "empty",
-        ({"check": "mount_vs_linkage"},),
-        note="throttle stack stays clear of the steering pushrod sweep",
+        ({"check": "joint_bolts_have_tool_room"},),
+        note="a 17 mm socket and 55 mm extension reach all four joint bolts past the shelf",
     ),
     Probe(
         "mount_vs_steering",
         "empty",
         ({"check": "mount_vs_steering"},),
-        note="throttle stack stays clear of the steering servo case and horn sweep",
+        note="head, keeper stack and servo body clear the raised steering servo's case, "
+        "moving bracket and adapter at 0/45/90 deg and its pushrod sweep",
+    ),
+    Probe(
+        "linkage_vs_steering",
+        "empty",
+        tuple(
+            {"check": "linkage_vs_steering", "link_variant": v, "link_sweep_deg": s}
+            for v in "ABCDE"
+            for s in (-30, 0, 30)
+        ),
+        note="each horn interface and rod servo section, swept +/-30 deg, clears the "
+        "steering servo, its adapter and its pushrod sweep",
+    ),
+    Probe(
+        "linkage_vs_head",
+        "empty",
+        tuple(
+            {"check": "linkage_vs_head", "link_variant": v, "link_sweep_deg": s}
+            for v in "ABCDE"
+            for s in (-30, 0, 30)
+        ),
+        note="each horn interface and rod servo section, swept +/-30 deg, clears the "
+        "head's rib, land, shelf and cradle walls",
+    ),
+    Probe(
+        "rod_vs_steering",
+        "empty",
+        tuple({"check": "rod_vs_steering", "link_variant": v} for v in "ABCDE"),
+        note="each variant's whole throttle rod, servo eye to throttle eye, clears the raised "
+        "steering servo, its adapter and the falling steering pushrod it crosses in plan",
+        # Builds the whole threaded rod and three full steering pushrods per variant: about
+        # seven minutes single-threaded, longer under the build's concurrent renders.
+        timeout_s=1800,
+    ),
+    Probe(
+        "servo_lifts_out",
+        "empty",
+        ({"check": "servo_lifts_out"},),
+        note="with its horn off, the MG995 rises out of the cradle without meeting the "
+        "head or the steering servo: serviced without removing the steering servo",
+    ),
+    Probe(
+        "keeper_lifts_out",
+        "empty",
+        ({"check": "keeper_lifts_out"},),
+        note="with its pins drawn, the keeper rises clear of the walls below the steering "
+        "servo",
     ),
     # Servo retention geometry. Contact probes prove geometric interference only: printed
     # pin strength, clip retention and vibration resistance remain bench-test items.
-    Probe(
-        "cradle_floor_supports_body",
-        "contact",
-        ({"check": "cradle_floor_supports_body"},),
-        note="floor material directly under the servo body footprint",
-    ),
     Probe(
         "keeper_bears_on_lugs",
         "contact",
@@ -668,31 +646,13 @@ PROBES_77603: tuple[Probe, ...] = (
         "keeper_fits_cradle",
         "empty",
         ({"check": "keeper_fits_cradle"},),
-        note="installed keeper does not interfere with the cradle",
-    ),
-    Probe(
-        "seat_pin_fit",
-        "empty",
-        ({"check": "seat_pin_fit"},),
-        note="installed seat pin and ring clear the column and cradle dowels",
-    ),
-    Probe(
-        "seat_pin_blocks_liftoff",
-        "contact",
-        ({"check": "seat_pin_blocks_liftoff"},),
-        note="lifting the cradle 1 mm meets the seat pin",
-    ),
-    Probe(
-        "seat_pin_engages_column",
-        "contact",
-        ({"check": "seat_pin_engages_column"},),
-        note="the seat pin bears in the column's cross bore",
+        note="installed keeper does not interfere with the head's cradle walls",
     ),
     Probe(
         "keeper_pins_fit",
         "empty",
         ({"check": "keeper_pins_fit"},),
-        note="installed keeper pins and rings clear the cradle and keeper",
+        note="installed keeper pins and rings clear the head and keeper",
     ),
     Probe(
         "keeper_pins_block_liftoff",
@@ -704,15 +664,45 @@ PROBES_77603: tuple[Probe, ...] = (
         "keeper_pins_engage_cradle",
         "contact",
         ({"check": "keeper_pins_engage_cradle"},),
-        note="the keeper pins bear in the cradle side-wall bores",
+        note="the keeper pins bear in the head's side-wall bores",
     ),
-    # Rod, locks and joints.
+    # Rod, collet, throttle-end body and joints.
     Probe(
         "rod_capture_pip_fit",
         "empty",
         ({"check": "rod_capture_pip_fit"},),
-        note="the bed-zero slider and sleeve leave as two bodies with the integral lug "
-        "inside the groove",
+        note="as printed collet end down, the slider and sleeve are separate bodies with "
+        "the integral lug inside the groove",
+    ),
+    Probe(
+        "rod_collet_nut_clear",
+        "empty",
+        ({"check": "rod_collet_nut_clear"},),
+        note="the captive collet nut clears the sleeve and the slider as printed",
+    ),
+    Probe(
+        "rod_collet_nut_captive",
+        "contact",
+        tuple({"check": "rod_collet_nut_captive", "rod_collet_shift_mm": s} for s in (1, -1)),
+        note="pushed 1 mm along the axis either way without turning, the nut meets the "
+        "band's thread flanks",
+    ),
+    Probe(
+        "rod_collet_nut_runs_free",
+        "empty",
+        tuple(
+            {"check": "rod_collet_nut_runs_free", "rod_collet_advance_mm": a}
+            for a in (1.2, -1.2)
+        ),
+        note="screwed 1.2 mm toward the tip or back, the nut still clears the sleeve: "
+        "co-helical threads, cone contact only after 1.46 mm",
+    ),
+    Probe(
+        "rod_collet_nut_drives_fingers",
+        "contact",
+        ({"check": "rod_collet_nut_drives_fingers"},),
+        note="screwed forward by the clamp advance, the nut's cone overlaps the undeflected "
+        "fingers, so it must close them onto the slider",
     ),
     Probe(
         "rod_capture_range_clear",
@@ -721,7 +711,8 @@ PROBES_77603: tuple[Probe, ...] = (
             {"check": "rod_capture_range_clear", "rod_capture_length_mm": length}
             for length in (940, 1066.8, 1200)
         ),
-        note="the integral lug clears the slider through minimum, nominal and maximum settings",
+        note="the sleeve, its lug and the collet nut clear the slider through minimum, "
+        "nominal and maximum settings",
     ),
     Probe(
         "rod_capture_clear",
@@ -741,7 +732,6 @@ PROBES_77603: tuple[Probe, ...] = (
         ),
         note="forced overtravel drives the groove shoulder into the integral sleeve lug",
     ),
-
     Probe(
         "rod_overlap_capture_reverse",
         "contact",
@@ -749,9 +739,46 @@ PROBES_77603: tuple[Probe, ...] = (
         note="reverse overtravel at minimum span drives the upper closed groove end into "
         "the sleeve's integral lug",
     ),
-    Probe("lock_wedge_grip", "contact", ({"check": "lock_wedge_grip"},)),
-    Probe("lock_collet_grip", "contact", ({"check": "lock_collet_grip"},)),
-    Probe("lock_screw_engagement", "contact", ({"check": "lock_screw_engagement"},)),
+    Probe(
+        "rod_body_fit",
+        "empty",
+        ({"check": "rod_body_fit"},),
+        note="throttle-end body, bar, keeper, fine screw, jam collar, fork and fine nut "
+        "clear the slider and each other at both ends of the fine travel",
+    ),
+    Probe(
+        "rod_body_bar_holds",
+        "contact",
+        tuple(
+            {"check": "rod_body_bar_holds", "rod_eye_target": t, "rod_eye_shift_mm": s}
+            for t in ("body", "slider")
+            for s in (1, -1)
+        ),
+        note="moving the body's bar 1 mm along the rod meets the body slot and the slider "
+        "window, so the bar ties the body to the slider",
+    ),
+    Probe(
+        "rod_body_keeper_stops_inward",
+        "contact",
+        ({"check": "rod_body_keeper_stops_inward"},),
+        note="the keeper meets the body's face before the bar can walk inward",
+    ),
+    Probe(
+        "rod_fine_screw_engages",
+        "contact",
+        ({"check": "rod_fine_screw_engages"},),
+        note="the fine screw's flange and jam collar bear on the boss's two faces",
+    ),
+    Probe(
+        "rod_body_clears_collet",
+        "empty",
+        tuple(
+            {"check": "rod_body_clears_collet", "rod_capture_length_mm": length}
+            for length in (940, 1066.8, 1200)
+        ),
+        note="the throttle-end body, fork and fine nut clear the sleeve and the fully "
+        "advanced collet nut at minimum, nominal and maximum settings",
+    ),
     Probe(
         "clevis_double_shear",
         "contact",
@@ -841,6 +868,79 @@ PROBES_77603: tuple[Probe, ...] = (
             },
         ),
         note="closed inboard and outboard rail ends block 1 mm travel past both radius limits",
+    ),
+    # Pin keepers: every split ring sits in a groove between its pin's end lip and the shaft.
+    Probe(
+        "pin_ring_seated_clear",
+        "empty",
+        tuple(
+            {"check": "pin_ring_seated_clear", "pin_ring_kind": k}
+            for k in ("shared", "index", "a_post", "e_hinge", "cross")
+        ),
+        note="each installed keeper ring clears its pin's groove, lip and shoulder",
+    ),
+    Probe(
+        "pin_ring_held_by_lip",
+        "contact",
+        tuple(
+            {"check": "pin_ring_held_by_lip", "pin_ring_kind": k}
+            for k in ("shared", "index", "a_post", "e_hinge", "cross")
+        ),
+        note="pushing each installed ring 1 mm toward its pin's free end meets the end lip",
+    ),
+    # Variant C wedge lock. Interference is modelled as 0.05 mm per bearing face; CSG proves
+    # where the faces bear, never the friction, holding force, wear or creep of the lock.
+    Probe(
+        "c_key_entry_clear",
+        "empty",
+        tuple({"check": "c_key_entry_clear", "c_radius_mm": r} for r in (12, 18, 30)),
+        note="short of first contact the key touches only the rail seat it rests on",
+    ),
+    Probe(
+        "c_key_bears_shoe",
+        "contact",
+        tuple({"check": "c_key_bears_shoe", "c_radius_mm": r} for r in (12, 18, 30)),
+        note="driven home, the key's tapered gable bears on the shoe slot's matched roof",
+    ),
+    Probe(
+        "c_key_bears_rail",
+        "contact",
+        tuple({"check": "c_key_bears_rail", "c_radius_mm": r} for r in (12, 18, 30)),
+        note="driven home, the key's flat underside bears on the rail seat",
+    ),
+    Probe(
+        "c_shoe_clamped",
+        "contact",
+        tuple({"check": "c_shoe_clamped", "c_radius_mm": r} for r in (12, 18, 30)),
+        note="the key lifts the shoe's ramps onto the rail's 45-degree undercut faces",
+    ),
+    Probe(
+        "c_lock_bearing_only",
+        "empty",
+        tuple(
+            {"check": "c_lock_bearing_only", "c_radius_mm": r, "c_lock_stage": stage}
+            for r in (12, 18, 30)
+            for stage in (0.5, 1)
+        ),
+        note="mid-drive and home, all overlap lies in the seat, roof and undercut zones",
+    ),
+    Probe(
+        "c_keeper_clear",
+        "empty",
+        tuple({"check": "c_keeper_clear", "c_radius_mm": r} for r in (12, 18, 30)),
+        note="the keeper ring against the rail clears the driven key and lifted shoe",
+    ),
+    Probe(
+        "c_keeper_stops_key",
+        "contact",
+        tuple({"check": "c_keeper_stops_key", "c_radius_mm": r} for r in (12, 18, 30)),
+        note="withdrawing the key past the keeper slack meets the ring",
+    ),
+    Probe(
+        "c_keeper_stops_on_rail",
+        "contact",
+        tuple({"check": "c_keeper_stops_on_rail", "c_radius_mm": r} for r in (12, 18, 30)),
+        note="the ring cannot follow the key through the rail's -Y face",
     ),
     # Linkage joints, at each variant's demonstration pose. EMPTY probes prove the placed
     # parts clear; CONTACT probes prove a 1 mm displacement meets the retaining geometry.

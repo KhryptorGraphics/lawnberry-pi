@@ -299,18 +299,28 @@ def test_tilted_u_post_datum_matches_the_actual_post(tmp_path, misalignment):
 
 
 @pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
-@pytest.mark.parametrize("region,expect_empty", [("band_outer", True), ("band_core", False)])
+@pytest.mark.parametrize(
+    "region,expect_empty",
+    [("band_outer", True), ("band_core", False), ("lip_outer", False), ("shoulder_outer", False)],
+)
 def test_printed_pin_has_captured_keeper_band(tmp_path, region, expect_empty):
-    """The keeper band must have a solid core and a reduced outside diameter."""
+    """The keeper groove has a solid core between a full-diameter end lip and the shaft.
+
+    printed_pin's free end is at z = 0: lip 0..1, groove 1..3.2 (4.4 core), shaft above. The
+    outer annulus (4.7..5.2) must be empty inside the groove but solid in the lip and above the
+    groove's far shoulder, so a ring in the groove is trapped both ways.
+    """
     src = tmp_path / "keeper_band.scad"
-    probe = (
-        "difference() { cylinder(d=5.2,h=2,$fn=48); cylinder(d=4.7,h=2,$fn=48); }"
-        if region == "band_outer"
-        else "cylinder(d=4,h=2,$fn=48);"
-    )
+    outer = "difference() {{ cylinder(d=5.2,h={h},$fn=48); cylinder(d=4.7,h={h},$fn=48); }}"
+    probe, z = {
+        "band_outer": (outer.format(h=1.8), 1.2),
+        "band_core": ("cylinder(d=4,h=1.8,$fn=48);", 1.2),
+        "lip_outer": (outer.format(h=0.8), 0.1),
+        "shoulder_outer": (outer.format(h=1), 3.4),
+    }[region]
     src.write_text(
         f"use <{MOUNTS / 'throttle_77603/printed_joints.scad'}>\n"
-        "intersection() { printed_pin(24); translate([0,0,1]) "
+        f"intersection() {{ printed_pin(24); translate([0,0,{z}]) "
         f"{probe} }}\n"
     )
     result = subprocess.run(
@@ -329,23 +339,24 @@ def test_printed_pin_has_captured_keeper_band(tmp_path, region, expect_empty):
 
 
 def test_manifest_pip_pairs_meet_mesh_release_gates(manifest):
-    """The four co-printed joints must publish two bodies within the PIP limits."""
+    """The four co-printed joints must publish their captive bodies within the PIP limits."""
+    # Body count per print-in-place export: the rod set is sleeve + slider + collet nut.
     expected = {
-        "rod_capture_assembly",
-        "throttle_u_fitting",
-        "variant_c_pip",
-        "variant_d_pip",
+        "rod_capture_assembly": 3,
+        "throttle_u_fitting": 2,
+        "variant_c_pip": 2,
+        "variant_d_pip": 2,
     }
     parts = manifest["parts"]
     actual = {
         name for name, part in parts.items() if part.get("pip_bodies", 1) > 1
     }
-    assert actual == expected
+    assert actual == set(expected)
 
-    for name in expected:
+    for name, bodies in expected.items():
         part = parts[name]
-        assert part["connected_solids"] == 2, name
-        assert part["pip_bodies"] == 2, name
+        assert part["connected_solids"] == bodies, name
+        assert part["pip_bodies"] == bodies, name
         assert part["pip_min_gap_mm"] >= 0.35, name
         assert part["pip_droop_area_mm2"] <= 0.5, name
 

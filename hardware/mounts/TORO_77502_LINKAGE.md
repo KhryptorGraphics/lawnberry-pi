@@ -13,11 +13,12 @@ without lap-bar or hitch coordinates. Measure the lap-bar values below before pr
 |---|---|---|
 | Hitch-hole centre → lap-bar clamp pin, fore-aft | **35 in (889 mm)** | 31–39 in |
 | Lap-bar clamp pin from mower centreline | **14 in (356 mm)** | 13–15.5 in |
-| Clamp pin height | level with the adapter's M6 pin | set by choosing the clamp height on the lever |
-| Rod pin span in the fore-and-aft plane | **934 mm (36.8 in)** | ≈ 830–1040 mm |
-| Rod pin-to-pin length | **936.4 mm (36.9 in)** | ≈ 33–41 in |
+| Clamp pin height | **101.6 mm below** the raised adapter's M6 pin, i.e. level with where that pin sat at the measured station | set by choosing the clamp height on the lever |
+| Rod pin span in the fore-and-aft plane | **939.5 mm (37.0 in)** | ≈ 830–1040 mm |
+| Rod pin-to-pin length | **941.9 mm (37.1 in)** | ≈ 33–41 in |
 | Lateral offset carried by the rod | **67.3 mm** outboard at the lap bar | follows the `lapbar_pin_x_mm` estimate; the clamp point is not measured |
-| Built rod skew | **4.12°** | follows the offset |
+| Built rod skew | **4.10°** | follows the offset |
+| Rod fall, servo to lap bar | **101.6 mm** (≈ 6.2°) | follows `servo_station_raise_mm` |
 
 The CAD default uses the estimate. The rod adjusts **210 mm in 15 mm steps** across its two
 multi-position joints, so the clamp point stays a choice inside the estimated band rather than a
@@ -26,9 +27,12 @@ reading; re-enter measured values only if the band itself turns out to be wrong.
 ## Basis
 
 - **Measured station:** the servo face is 8¼ in (209.55 mm) left/right of the ball-hole centre and
-  1 ft 6 in (457.2 mm) above the plate-top datum (`enclosure_common.scad`). The adapter's M6 pin
-  is 55 mm above the shaft at neutral face45; the rod eye plane is 78.75 mm outboard of the servo
-  face (the bracket half-span plus the printed adapter's pin local X).
+  1 ft 6 in (457.2 mm) above the plate-top datum (`enclosure_common.scad`). Both servo stations
+  are now raised a further `servo_station_raise_mm` = 101.6 mm (2026-11-01) so the throttle
+  servo fits below the right one; the lap-bar clamp estimate stays at the measured height, so
+  each rod falls 101.6 mm toward the lap bar. The adapter's M6 pin is 55 mm above the shaft at
+  neutral face45; the rod eye plane is 78.75 mm outboard of the servo face (the bracket
+  half-span plus the printed adapter's pin local X).
 - **Toro data:** [model 77502 page](https://www.toro.com/en/product/77502): assembled depth
   80 in, width 61.5 in, height 47 in, 19 in seat, 20 in rear tyres, 3 × 1.5 in tubular frame,
   standard hitch bracket. [Operator's manual 3483-555](https://www.toro.com/getpub/281676): two-axis
@@ -73,9 +77,10 @@ about Ø30 mm that the drawing does not dimension, and the **photo-derived six-h
 ## Basis
 
 - **Measured station:** the servo face is 8¼ in (209.55 mm) left/right of the ball-hole centre and
-  1 ft 6 in (457.2 mm) above the plate-top datum (`enclosure_common.scad`). The crank pin is
-  55 mm above the shaft at neutral; the rod eye plane is 71.9 mm outboard of the servo face
-  (the drawing's 61.4 mm axial envelope plus the crank and eye stack).
+  1 ft 6 in (457.2 mm) above the plate-top datum (`enclosure_common.scad`), raised 101.6 mm by
+  `servo_station_raise_mm`. The crank pin is 55 mm above the shaft at neutral; the rod eye plane
+  is 71.9 mm outboard of the servo face (the drawing's 61.4 mm axial envelope plus the crank and
+  eye stack).
 - **Toro data:** [model 77502 page](https://www.toro.com/en/product/77502): assembled depth
   80 in, width 61.5 in, height 47 in, 19 in seat, 20 in rear tyres, 3 × 1.5 in tubular frame,
   standard hitch bracket. [Operator's manual 3483-555](https://www.toro.com/getpub/281676): two-axis
@@ -121,11 +126,11 @@ about Ø30 mm that the drawing does not dimension, and the **photo-derived six-h
 
 | Problem in the 500–650 mm rod | Change |
 |---|---|
-| About 300 mm too short for this machine | 936.4 mm default pin length from the estimate above |
+| About 300 mm too short for this machine | 941.9 mm default pin length from the estimate above (936.4 mm before both servo stations were raised 101.6 mm) |
 | Stretched to ~937 mm, the 32 mm tube / 21.1 mm inner bar buckles below the 540 N stall force at a 30 mm horn (margin 0.77) | 40 mm × 5 mm square tube in **four** bolted pieces plus a 29.1 mm inner bar: Euler load ≈ 1.96 kN at E = 1.5 GPa |
-| Horn pointed along the rod at neutral, so the servo started near dead centre | Printed adapter's clevis holds the M6 pin **up** at neutral face45, square to a level rod |
+| Horn pointed along the rod at neutral, so the servo started near dead centre | Printed adapter's clevis holds the M6 pin **up** at neutral face45, within 6.2° of square to the rod (which falls 101.6 mm to the lap bar) |
 | Servo fork prongs would collide with the disc and the case | Single eye in the printed adapter's 12 mm clevis gap on an M6 pin in **double shear**; `rod_servo_sweep` sweeps the eye against case, disc and adapter over 0–90° face |
-| Planar YZ placement required the lap bar directly in front of the servo | Both pins remain global X; the eye fittings carry a 4.12° built skew |
+| Planar YZ placement required the lap bar directly in front of the servo | Both pins remain global X; the eye fittings carry a 4.10° built skew |
 
 At the 55 mm **printed adapter design radius**, the stall force is
 16.2 N·m / 0.055 m ≈ **295 N**, giving an Euler margin of about **6.7**. The buckling check
@@ -136,12 +141,14 @@ shims carry that thrust.
 ## Measure before printing
 1. Neutral: both levers centred (not PARK), seat occupied or loaded to normal riding weight. Set each
    lever's bolt-adjusted height and tilt first; changing either later invalidates these values.
-2. Choose the clamp point on each lever where a level rod from the **adapter's M6 pin height**
-   reaches it and the clamp clears grip, PARK swing, seat, fender and deck lift. Record from the
+2. Choose the clamp point on each lever where a rod from the **adapter's M6 pin** reaches it and the
+   clamp clears grip, PARK swing, seat, fender and deck lift. The CAD assumes the clamp pin sits
+   101.6 mm below the raised adapter pin (`servo_station_raise_mm`). Record from the
    **hitch-hole centre**:
    - forward distance to the clamp pin → `lapbar_pin_fwd_mm`
    - distance from the mower centreline → `lapbar_pin_x_mm`
-   - height relative to the adapter's M6 pin → `lapbar_pin_dz_mm` (0 = level rod)
+   - height relative to the MEASURED-station crank height (`arm_tip_z` + `servo_crank_r`, i.e.
+     101.6 mm below the raised adapter pin) → `lapbar_pin_dz_mm` (0 = the CAD default)
 3. On the servo's metal arm/holder, measure the pin hole radius from the output shaft →
    `servo_crank_r`; caliper the case and the disc and set `servo_disc_d` (the drawing does not
    dimension it). 55 mm is a placeholder radius. The eye and rod transition must clear the case,
@@ -153,8 +160,9 @@ shims carry that thrust.
    the forward bound is symmetric. More travel needs a longer crank and recalculated force.
 5. **MyRIDE check:** while the operator rides, measure fore-aft movement of each clamp pin relative
    to the hitch plate. Any fore-aft platform motion becomes a direct lever command because the
-   servos mount on the frame. The level rod makes vertical-only motion negligible (25 mm vertical
-   ≈ 0.3 mm span change), but fore-aft motion is not. Stop if it is more than a few millimetres.
+   servos mount on the frame. The rod falls about 6.2° from the raised crank, so vertical motion
+   now couples too: 25 mm of vertical platform travel changes the span by about 2.7 mm. Fore-aft
+   motion still couples one-for-one. Stop if either is more than a few millimetres.
 6. Enter the values, run `python3 hardware/mounts/build_printables.py`, and print only if every
    rod assert and fit check passes.
 

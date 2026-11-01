@@ -6,9 +6,11 @@
 //
 // ALL GEOMETRY IS PROTOTYPE GEOMETRY. The throttle path below is a DEMONSTRATION: the
 // lever pivot, arc, cross-section and height are unmeasured, and no scene here proves fit,
-// retention or load capacity. Nothing here modifies the legacy steering geometry.
+// retention or load capacity.
 //
 // Placement authority (the scene never re-derives the station):
+//   * throttle_arm_head.scad is the right arm head, raised with the left one, with the shelf
+//     and cradle walls under the steering servo; it is drawn at the arm joint.
 //   * mg995_throttle_mount.scad publishes the servo base and the horn underside datum;
 //     the horn frame sits on the demonstration shaft position mg995_shaft_xy_mm.
 //   * throttle_horn_variants.scad fixes the horn frame (origin on the shaft axis, z = 0 at
@@ -26,7 +28,8 @@ use <mg995_throttle_mount.scad>
 use <throttle_pushrod.scad>
 use <throttle_u_fitting.scad>
 use <throttle_horn_variants.scad>
-use <../hitch_arm_layer.scad>   // legacy arm head, as unmodified context
+use <throttle_arm_head.scad>   // the derivative right head: shelf, corbel, cradle walls
+use <../hitch_arm_layer.scad>  // the lower arm, as context
 
 assembly = "throttle_station";
 exploded_mm = 0;
@@ -38,16 +41,17 @@ exploded_mm = 0;
 lever_x_mm = throttle_idle_offset_x_mm;
 function throttle_pin_mm() =
     [lever_x_mm,
-     tower_world_y() + sqrt(max(0, pow(rods_nominal_span_mm, 2)
-                                 - pow(lever_x_mm - tower_world_x(), 2)))];
+     throttle_servo_base_mm()[1] + sqrt(max(0, pow(rods_nominal_span_mm, 2)
+                                    - pow(lever_x_mm - throttle_servo_base_mm()[0], 2)))];
 
 // The servo output shaft: horn datum plus the demonstration shaft offset in the body.
 function shaft_axis_mm() =
     throttle_horn_base_mm() + [mg995_shaft_xy_mm[0], mg995_shaft_xy_mm[1], 0];
 
-// Which side of the shaft each variant's eye sits on at neutral (+1 or -1), chosen so the
-// rod's eye plate leaves away from that variant's own hardware.
-function neck_side(letter) = letter == "D" ? -1 : 1;
+// Every variant's servo eye sits on the same side of the shaft at neutral, the side that
+// starts the rod right of the shaft. Variant D once used the other side; that put its collet
+// nut against the steering rod at full reverse (rod_vs_steering), and its servo-end probes
+// pass on this side too.
 
 function eye_radius_mm(letter) = norm(variant_rod_eye_xy(letter));
 function pin_from_shaft(letter) =
@@ -58,9 +62,9 @@ function rod_setting_mm(letter) =
 // Plan direction of the rod, from the servo eye toward the throttle eye.
 function run_angle_deg(letter) =
     atan2(pin_from_shaft(letter)[1], pin_from_shaft(letter)[0])
-    + atan2(neck_side(letter) * eye_radius_mm(letter), rod_setting_mm(letter));
+    + atan2(eye_radius_mm(letter), rod_setting_mm(letter));
 // Plan direction from the shaft to the servo eye at neutral.
-function eye_angle_deg(letter) = run_angle_deg(letter) - neck_side(letter) * 90;
+function eye_angle_deg(letter) = run_angle_deg(letter) - 90;
 // Horn mounting phase that puts the variant's eye at that direction.
 function horn_phase_deg(letter) =
     eye_angle_deg(letter)
@@ -147,13 +151,24 @@ module throttle_end(letter = "E") {
     translate(u_origin_mm(letter)) throttle_u_fitting("assembly");
 }
 
+// ---- Station context -------------------------------------------------------------
+// The derivative right head (with the cradle walls on its shelf) and the raised steering
+// servo above the throttle stack: its case and its moving bracket at neutral.
+module station_context(alpha = 0.35) {
+    color([0.16, 0.55, 0.60, alpha]) arm_vertical(arm_joint_t) throttle_arm_head();
+    color([0.30, 0.30, 0.34, alpha]) {
+        servo_body_envelope(1);
+        servo_moving_bracket(1);
+    }
+}
+
 // ---- Complete throttle station -----------------------------------------------------
 module throttle_station() {
-    // Mount is SELF-PLACED on the head's integral column seat: no extra transform.
+    // The keeper and its pins are SELF-PLACED on the head's cradle: no extra transform.
     mg995_throttle_mount("assembly");
     mg995_reference();
-    // Retained factory steering arm context (unmodified by this work).
-    color([0.16, 0.55, 0.60, 0.35]) arm_head_assembly();
+    station_context();
+    color([0.16, 0.55, 0.60, 0.20]) arm_lower_assembly();
     // Linkage: horn interface (station variant E), adjustable rod, throttle-end fitting.
     horn_interface("E");
     rod_run("E");
@@ -164,6 +179,7 @@ module throttle_station() {
 module throttle_mount_service() {
     mg995_throttle_mount("assembly");
     mg995_reference();
+    station_context(0.5);
 }
 
 module throttle_variant_scene(letter = "A", expl = 0) {
@@ -178,7 +194,7 @@ module throttle_variant_scene(letter = "A", expl = 0) {
     // The U lowers away from the rod's throttle eye; the lever stays where it is.
     translate([0, 0, -gap * 0.6]) throttle_end(letter);
     throttle_lever_reference(letter);
-    color([0.16, 0.55, 0.60, 0.30]) arm_head_assembly();
+    station_context(0.30);
 }
 
 if (assembly == "throttle_station") throttle_station();

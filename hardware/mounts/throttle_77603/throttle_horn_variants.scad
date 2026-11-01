@@ -48,10 +48,12 @@
 // placed in it.  Horn keying uses a small 2.4 mm printed index pin
 // (keeper_post_pin_d_mm, live in parameters.scad): its Ø4.8 head sits in the
 // carrier's counterbore on the carrier's top face, its shank passes down through
-// the horn's own hole, and a printed split keeper ring snaps into a groove at the
-// pin's lower end, underneath the horn.  The keeper's bore is smaller than the
-// pin's 2.4 mm shank, so the pin cannot back out of the horn; the keeper's
-// outside is wider than the horn's hole, so it cannot fall off either.
+// the horn's own hole, and a printed split keeper ring snaps into a groove just
+// above a full-diameter lip at the pin's lower end, underneath the horn.  The
+// keeper's bore is smaller than the pin's 2.4 mm shank and lip, so the ring is
+// trapped in the groove both ways (pin_ring_* probes); its outside is wider than
+// the horn's hole, so the pin cannot back out of the horn.  Snap force and ring
+// fatigue are unqualified.
 //
 // =============================================================================
 // WHAT IS STILL UNVERIFIED (stated, not hidden)
@@ -94,11 +96,18 @@
 //     modeled ±10 degree sweep and as-printed clearance are prototype capacities, not
 //     measured articulation or wear life.
 //   * C's continuous-radius shoe slides in a 45-degree dovetail and is locked by a
-//     separate printed wedge key. The carrier's bed-through track is backed by the
-//     retained horn arm after installation; the horn width and backing fit are TO MEASURE.
-//     The key's blind bore in the shoe is straight and larger than the key's widest
-//     section, so its FLANK BEARING IS UNPROVEN and the shoe can still slide radially
-//     until the key is fully home. The key's holding torque is also unqualified.
+//     separate printed through-wedge (cotter) driven across the rail. The carrier's
+//     bed-through track is backed by the retained horn arm after installation; the horn
+//     width and backing fit are TO MEASURE. PROVEN BY CSG at 12/18/30 mm (c_key_*,
+//     c_shoe_clamped, c_lock_bearing_only, c_keeper_*): driven home with 0.05 mm modelled
+//     interference per face, the key's flat underside bears on the rail seat, its gable
+//     bears on the shoe slot's matched roof, and the lifted shoe's ramps bear on the rail's
+//     45-degree undercut, with no overlap anywhere else at mid-drive or home; short of
+//     first contact it touches only the seat; the keeper ring stops withdrawal after its
+//     slack (about 2.4 mm, which relaxes the clamp). NOT PROVEN: the wedge only makes normal
+//     force, so radial holding is friction at those faces. Holding force/torque, preload
+//     retention under vibration (self-locking needs friction above the 1:6 taper), the
+//     0.2 mm keeper snap, wear and creep of the printed faces are all unqualified.
 //   * No retention, load, wear life or servo-fit claim is made from overlap alone.
 //
 // =============================================================================
@@ -159,13 +168,17 @@ assert(abs(eye_fork_gap() - 4.8) < 1e-6,
 // ---- Shared local dimensions -------------------------------------------------------
 carrier_t = 3;            // horn-side carrier thickness
 carrier_top = horn_t + carrier_t;   // 5: the carrier's top face above the horn
-index_pin_len = 7;        // shank 0..7, head 5.8..7 (in the carrier's counterbore)
-index_groove_len = 2;     // the keeper's band at the pin's lower end
-index_groove_d = 1.8;
 keeper_t2 = 2;            // keeper ring thickness
-keeper_bore_d = 1.9;      // rides on the 1.8 mm band with clearance per side,
-                           // and is still smaller than the 2.4 mm shank, so the
-                           // keeper cannot be pushed back over it
+index_lip_t = keeper_lip_t();   // full-diameter lip at the pin's free (lower) end
+index_groove_clear = 0.1; // axial clearance of the ring at each groove shoulder
+index_groove_len = keeper_t2 + 2 * index_groove_clear; // the keeper's groove: 2.2
+index_groove_d = 1.8;
+// Lip, groove, then the shank up through the horn and carrier to the head's top face at
+// carrier_top, so the ring under the horn (-keeper_t2 .. 0) sits centred in the groove.
+index_pin_len = carrier_top + keeper_t2 + index_groove_clear + index_lip_t;   // 8.1
+keeper_bore_d = 1.9;      // rides in the 1.8 mm groove with clearance per side, and is
+                           // smaller than the 2.4 mm shank and lip, so the keeper is
+                           // trapped between them
 keeper_od = 8;
 post_flange_d = pivot_flange_d_mm;        // pivot post flange
 post_flange_t = pivot_flange_t_mm;
@@ -186,31 +199,31 @@ cheek_t = 2.5;            // printed clevis ear thickness
 
 // Horn index pin: a Ø2.4 shank with a keeper BAND at its lower end and a Ø4.8 head at
 // its top (for the carrier's counterbore).
-// Frame: band 0..index_groove_len, shank 0..len, head len-1.2..len.
+// Frame: lip 0..index_lip_t, groove index_lip_t..index_lip_t + index_groove_len, shank to
+// len, head len-1.2..len.
 //
 // An annular subtraction leaves the solid reduced-diameter keeper band.
 module index_pin(len = index_pin_len) {
     difference() {
         union() {
-            cylinder(d = small_pin_d, h = len);
+            cylinder(d = small_pin_d, h = len, $fn = 48);
             translate([0, 0, len - 1.2]) cylinder(d = small_pin_head_d, h = 1.2);
         }
-        // The keeper's band at the lower end.
-        translate([0, 0, 0])
-            pin_band_relief(d = small_pin_d, band_d = index_groove_d,
-                            band_t = index_groove_len);
+        // The keeper's groove behind the lip at the lower end.
+        pin_band_relief(d = small_pin_d, band_d = index_groove_d,
+                        band_t = index_groove_len, lip_t = index_lip_t);
     }
 }
 
 // Split keeper ring that snaps into a groove, underneath the horn.  Its bore is
-// smaller than the member's shank, so the member cannot back out; its outside is
-// wider than the horn's hole, so it cannot fall off.
+// smaller than the member's shank and its end lip, so it is trapped in the groove; its
+// outside is wider than the horn's hole, so the member cannot back out.
 // `bore` must sit between the groove's diameter and the shank's diameter.
 module index_keeper(bore = keeper_bore_d, od = keeper_od) {
     difference() {
         cylinder(d = od, h = keeper_t2);
-        translate([0, 0, -1]) cylinder(d = bore, h = keeper_t2 + 2);
-        // Radial split so the ring can be opened onto the groove.
+        translate([0, 0, -1]) cylinder(d = bore, h = keeper_t2 + 2, $fn = 48);
+        // Radial split so the ring can be spread over the lip into the groove.
         translate([0, -1.0, -1]) cube([od, 2.0, keeper_t2 + 2]);
     }
 }
@@ -290,24 +303,26 @@ module pivot_cap() {
 // LIMITATION: the 2.8 mm shank in a provisional 3 mm hole carries the whole horn
 // torque by shear; that capacity is NOT calculated and is the weakest element of
 // the design.  A second post on another arm would halve the load.
+// Shank from its lower end (lip, then the keeper's groove under the horn) to the horn's top.
+a_shank_len = horn_t + keeper_t2 + index_groove_clear + index_lip_t;   // 5.1
+
 module a_post() {
     // Frame: the shank's lower end at z = 0, so the part exports bed-zero.
     difference() {
         union() {
             // Locating shank down through the horn's own hole.
-            cylinder(d = small_pin_bore_d, h = 4);
+            cylinder(d = small_pin_bore_d, h = a_shank_len, $fn = 48);
             // Flange bearing on the horn's top face, then the pivot stack.
-            translate([0, 0, 4]) cylinder(d = post_flange_d, h = post_flange_t);
-            translate([0, 0, 4 + post_flange_t]) cylinder(d = post_spigot_d, h = post_spigot_len);
-            translate([0, 0, 4 + post_flange_t + post_spigot_len])
+            translate([0, 0, a_shank_len]) cylinder(d = post_flange_d, h = post_flange_t);
+            translate([0, 0, a_shank_len + post_flange_t]) cylinder(d = post_spigot_d, h = post_spigot_len);
+            translate([0, 0, a_shank_len + post_flange_t + post_spigot_len])
                 cylinder(d = post_cap_seat_d, h = post_cap_seat_len);
-            translate([0, 0, 4 + post_flange_t + post_spigot_len + post_cap_seat_len])
+            translate([0, 0, a_shank_len + post_flange_t + post_spigot_len + post_cap_seat_len])
                 cylinder(d = post_lip_d, h = post_lip_t);
         }
-        // An annular subtraction leaves a solid, reduced-diameter keeper band.
-        translate([0, 0, 0])
-            pin_band_relief(d = small_pin_bore_d, band_d = index_groove_d,
-                            band_t = index_groove_len);
+        // The keeper's groove behind the lip at the shank's lower end.
+        pin_band_relief(d = small_pin_bore_d, band_d = index_groove_d,
+                        band_t = index_groove_len, lip_t = index_lip_t);
     }
 }
 
@@ -323,7 +338,7 @@ module variant_a(part = "assembly") {
     if (part == "assembly") {
         rotate([0, 0, horn_arm_angle_deg]) {
             // Post: flange bearing on the horn's top face at the arm hole.
-            translate([horn_r, 0, horn_t - 4]) a_post();
+            translate([horn_r, 0, horn_t - a_shank_len]) a_post();
             // Keeper ring under the horn, in the post's groove.
             // The keeper is CENTRED in the pin's band, so it has axial clearance at
                 // both ends and the band's shoulders trap it.
@@ -490,84 +505,162 @@ module variant_b(part = "assembly") {
 // C - continuously variable effective horn radius on a captive carriage
 // =============================================================================
 // Mechanism: an X-shaped carrier holds a radial rail. The shoe is a PIP slider in a
-// continuous 45-degree dovetail, locked at its chosen radius by a separate printed wedge.
-// A narrow bed throat and a wider internal foot channel capture the tongue from below;
-// the upper dovetail prevents lift-out. The continuous rail has closed end stops.
+// continuous 45-degree dovetail. A narrow bed throat and a wider internal foot channel
+// capture the tongue from below; the upper 45-degree undercut prevents lift-out. The
+// continuous track has closed end stops. The rail rises from the bed along its whole
+// length (no unsupported overhang) and its flat top face is the wedge key's SEAT.
+//
+// Lock: a separately printed through-wedge (a cotter) is driven along -Y across the rail,
+// through a slot in the shoe's neck. Its flat underside bears on the rail's top face on
+// BOTH sides of the track; its 45-degree gable bears on the matched gable roof of the
+// shoe's slot. The gable ridge rises c_key_taper per mm of drive, so driving the key lifts
+// the shoe until its dovetail ramps bear on the rail's 45-degree undercut faces. At any
+// radius this closes one force loop per rail wall: key -> wall top (down), shoe roof
+// (up) -> shoe -> undercut faces -> wall. The wedge only creates normal force; holding
+// the shoe against radial slip is FRICTION at the undercut, roof and seat faces, which
+// CSG cannot qualify. A split keeper ring in a groove at the key's tail, against the
+// rail's -Y face, is a positive backstop against the key falling out (with slack); it
+// does not maintain the clamp.
 //
 // The carrier's arm is widened around the through-track. The horn's arm width, the
 // backing/contact at the shoe foot, and the rail's outboard reach are provisional and
-// require measurement. The wedge key's holding torque is also unqualified.
+// require measurement.
 c_tongue_len = 16;
 c_rail_x0 = horn_radius_min_mm - c_tongue_len / 2 - 0.5;
 c_rail_x1 = horn_radius_max_mm + c_tongue_len / 2 + 0.5;
 c_track_x0 = 10.5;                    // beyond the hub; forms an inboard travel stop
 c_track_x1 = c_rail_x1 - 1;          // closed outboard end stop
 c_rail_w = 12;
-c_rail_h = 8;
- c_neck_w = 5.6;                       // dovetail mouth and straight neck
- c_bottom_slot_w = 2.4;                // narrow throat below the captured shoe foot
- c_dovetail_base_w = c_bottom_slot_w + 2 * carrier_t; // 45-degree lower flare: 8.4
- c_dovetail_depth = (c_dovetail_base_w - c_neck_w) / 2; // 45-degree upper undercut: 1.4
- c_pip_gap_mm = sliding_clearance_mm + 0.2; // facet reserve above the shared 0.4 mm gap
- c_dovetail_fit_gap = c_pip_gap_mm * sqrt(2); // normal clearance on 45-degree faces
- c_tongue_bottom_w = c_bottom_slot_w - 2 * c_pip_gap_mm;
- c_tongue_base_w = c_dovetail_base_w - 2 * c_dovetail_fit_gap;
- c_tongue_ramp_top_w = c_neck_w - 2 * c_dovetail_fit_gap;
- c_tongue_neck_w = c_neck_w - 2 * c_pip_gap_mm;
- c_tongue_neck_top_z = carrier_t + c_rail_h + c_pip_gap_mm;
+c_key_seat_z = 7;                     // rail top = the key's seat plane (carrier-local)
+c_neck_w = 5.6;                       // dovetail mouth and straight neck
+c_bottom_slot_w = 2.4;                // narrow throat below the captured shoe foot
+c_dovetail_base_w = c_bottom_slot_w + 2 * carrier_t; // 45-degree lower flare: 8.4
+c_dovetail_depth = (c_dovetail_base_w - c_neck_w) / 2; // 45-degree upper undercut: 1.4
+c_pip_gap_mm = sliding_clearance_mm + 0.2; // facet reserve above the shared 0.4 mm gap
+c_dovetail_fit_gap = c_pip_gap_mm * sqrt(2); // normal clearance on 45-degree faces
+c_tongue_bottom_w = c_bottom_slot_w - 2 * c_pip_gap_mm;
+c_tongue_base_w = c_dovetail_base_w - 2 * c_dovetail_fit_gap;
+c_tongue_ramp_top_w = c_neck_w - 2 * c_dovetail_fit_gap;
+c_tongue_neck_w = c_neck_w - 2 * c_pip_gap_mm;
+c_tongue_neck_top_z = 11.6;           // shoe neck top: sets the post platform / rod-eye height
 c_shoe_platform_w = 15;
 c_shoe_platform_x_len = 10;
 c_shoe_transition_h = (c_shoe_platform_w - c_tongue_neck_w) / 2;
 c_shoe_platform_z0 = c_tongue_neck_top_z + c_shoe_transition_h;
 c_shoe_platform_t = 0.5;
 c_shoe_post_z0 = c_shoe_platform_z0 + c_shoe_platform_t;
-c_key_tip_d = 2.4;                    // printed wedge key's leading taper
-c_key_shaft_d = 3.0;
-c_key_taper_len = 8;
-c_key_groove_d = 1.8;
-c_key_len = 10;
-c_key_x_offset_mm = 1.5;             // keeps the key bore clear of the inboard end stop
-c_key_axis_z = 10.5;                 // world height of the key's axis
-c_key_tip_y = -0.7;                  // world Y of the key's tip
-c_slot_h = 3.1;
+// Undercut line: carrier material lies where |y| + z >= c_undercut_line (45-degree faces).
+c_undercut_line = carrier_t + c_dovetail_base_w / 2;
+// Vertical lift that closes the 0.6 mm normal gap on the 45-degree undercut faces.
+c_lock_lift_mm = c_dovetail_fit_gap;
+// Wedge key (cotter): house section, flat bed face, 45-degree gable, ridge rising toward +Y.
+c_key_w = 3;
+c_key_taper = 1 / 6;                  // ridge rise per mm of drive (one-sided 9.5 degrees)
+c_key_side_clear_mm = sliding_clearance_mm;
+c_key_x_offset_mm = 3;                // key centre from the post; >= 2 mm tongue wall at 12/30
+c_key_roof_z = 10.2;                  // shoe-frame ridge of the slot roof at y = 0 (print pose)
+c_key_slot_hw = c_key_w / 2 + c_key_side_clear_mm;
+c_key_slot_floor_z = c_key_seat_z - c_lock_lift_mm - sliding_clearance_mm - 0.1;
+c_key_drive_mm = c_lock_lift_mm / c_key_taper;  // drive from first roof contact to clamp
+c_key_drive_reserve_mm = 1.5;         // extra taper each way for printed-fit scatter
+c_key_ridge0 = c_key_roof_z + c_lock_lift_mm - c_key_seat_z; // seated ridge height at y = 0
+c_key_groove_w = 1.8;                 // keeper groove: narrower house section
+c_key_groove_ridge = 1.8;
+c_key_groove_center_z = (c_key_groove_ridge * c_key_groove_ridge
+                         - c_key_groove_w * c_key_groove_w / 4) / (2 * c_key_groove_ridge);
+c_key_groove_y0 = -c_rail_w / 2 - keeper_t2 - c_key_drive_reserve_mm; // tail-side shoulder
+c_key_groove_y1 = -c_rail_w / 2 + c_key_drive_reserve_mm;
+c_key_y0 = c_key_groove_y0 - 1.5;     // tail end (key frame = seated arm-local Y)
+c_key_y1 = c_tongue_neck_w / 2 + c_key_drive_mm + c_key_drive_reserve_mm + 1; // head end
+c_keeper_bore_d = 2 * (c_key_groove_ridge - c_key_groove_center_z) + 0.3;
+c_keeper_split_w = 1.6;               // narrower than the 1.8 mm groove: a 0.2 mm snap
+c_lock_preload_mm = 0.05;             // modelled interference per bearing face (probes only)
+
+function c_lock_preload() = c_lock_preload_mm;
+function c_key_ridge(y) = c_key_ridge0 + c_key_taper * y;
+function c_key_roof(y) = c_key_roof_z + c_key_taper * y;
+function c_tongue_x0(radius_mm) = max(radius_mm - c_tongue_len / 2, c_track_x0 + c_pip_gap_mm);
+function c_tongue_x1(radius_mm) = min(radius_mm + c_tongue_len / 2, c_track_x1 - c_pip_gap_mm);
+// Drive position of the key relative to its zero-preload seat (+ = withdrawn toward +Y) at
+// `stage` of the dovetail lift, with `preload` of interference on each of its three bearing
+// faces (undercut, roof, seat): s * withdraw = (1 - stage) * lift - 3 * preload.
+function c_key_withdraw_mm(stage = 1, preload = 0) =
+    ((1 - stage) * c_lock_lift_mm - 3 * preload) / c_key_taper;
+// Axial slack of the keeper backstop at a pose: keeper face to the groove's tail shoulder.
+function c_keeper_slack_mm(preload = 0) =
+    (-c_rail_w / 2 - keeper_t2) - (c_key_groove_y0 + c_key_withdraw_mm(1, preload));
+
+assert(c_key_ridge(c_key_y0) - c_key_w / 2 > 0.5, "C key tail needs vertical sides");
+assert(c_key_roof(c_tongue_neck_w / 2) <= c_tongue_neck_top_z - 1,
+       "C key slot roof must leave 1 mm of shoe neck above it");
+assert(c_key_slot_floor_z >= carrier_t + c_dovetail_depth + 1,
+       "C key slot must leave 1 mm of neck above the dovetail ramps");
+assert(c_key_y1 > c_rail_w / 2 + 2, "C key head must stand proud of the rail for driving");
+assert(c_keeper_bore_d < c_key_w, "C keeper bore must not pass the key's full section");
+for (r = [horn_radius_min_mm, horn_radius_max_mm])
+    assert(r + c_key_x_offset_mm - c_key_slot_hw >= c_tongue_x0(r) + 1.9
+           && r + c_key_x_offset_mm + c_key_slot_hw <= c_tongue_x1(r) - 1.9,
+           "C key slot must leave a tongue wall at both radius limits");
+
+// Solid of half-width `hw` along Y from y0 to y1: flat floor at z0, vertical sides and a
+// 45-degree gable whose ridge runs linearly from z = top0 (at y0) to z = top1 (at y1).
+module c_house_prism(hw, y0, y1, z0, top0, top1) {
+    assert(top0 - hw > z0 && top1 - hw > z0, "the gable must stand on vertical sides");
+    polyhedron(
+        points = [
+            [-hw, y0, z0], [hw, y0, z0], [hw, y0, top0 - hw], [0, y0, top0],
+            [-hw, y0, top0 - hw],
+            [-hw, y1, z0], [hw, y1, z0], [hw, y1, top1 - hw], [0, y1, top1],
+            [-hw, y1, top1 - hw]],
+        faces = [[0, 4, 3, 2, 1], [5, 6, 7, 8, 9], [0, 1, 6, 5], [1, 2, 7, 6],
+                 [2, 3, 8, 7], [3, 4, 9, 8], [4, 0, 5, 9]]);
+}
+
+// Bed-through base channel, 45-degree dovetail undercut and narrow neck, open above the seat.
+module c_track_channel() {
+    translate([c_track_x0, 0, 0]) rotate([90, 0, 90])
+        linear_extrude(height = c_track_x1 - c_track_x0)
+            polygon([
+                [-c_bottom_slot_w / 2, -0.01],
+                [ c_bottom_slot_w / 2, -0.01],
+                [ c_bottom_slot_w / 2, 0],
+                [ c_dovetail_base_w / 2, carrier_t],
+                [ c_neck_w / 2, carrier_t + c_dovetail_depth],
+                [ c_neck_w / 2, c_key_seat_z + 0.01],
+                [-c_neck_w / 2, c_key_seat_z + 0.01],
+                [-c_neck_w / 2, carrier_t + c_dovetail_depth],
+                [-c_dovetail_base_w / 2, carrier_t],
+            ]);
+}
 
 module c_carrier() {
     difference() {
         union() {
             // Widen the first arm around the bed-through carriage track.
             horn_carrier(t = carrier_t, arm_w = 16, pin_arms = [1, 2]);
-            translate([c_rail_x0, -c_rail_w / 2, carrier_t])
-                cube([c_rail_x1 - c_rail_x0, c_rail_w, c_rail_h]);
+            // The rail stands on the bed over its whole length; its top is the key seat.
+            translate([c_rail_x0, -c_rail_w / 2, 0])
+                cube([c_rail_x1 - c_rail_x0, c_rail_w, c_key_seat_z]);
         }
-        // Bed-through base channel, 45-degree dovetail undercut, and narrow neck.
         // The track endpoints remain solid to stop the shoe leaving the radial rail.
-        translate([c_track_x0, 0, 0]) rotate([90, 0, 90])
-            linear_extrude(height = c_track_x1 - c_track_x0)
-                polygon([
-                    [-c_bottom_slot_w / 2, -0.01],
-                    [ c_bottom_slot_w / 2, -0.01],
-                    [ c_bottom_slot_w / 2, 0],
-                    [ c_dovetail_base_w / 2, carrier_t],
-                    [ c_neck_w / 2, carrier_t + c_dovetail_depth],
-                    [ c_neck_w / 2, carrier_t + c_rail_h + 0.01],
-                    [-c_neck_w / 2, carrier_t + c_rail_h + 0.01],
-                    [-c_neck_w / 2, carrier_t + c_dovetail_depth],
-                    [-c_dovetail_base_w / 2, carrier_t],
-                ]);
-        // Continuous key slot through the +Y neck wall; the wedge clamps at any radius.
-        translate([c_track_x0, c_neck_w / 2 - 0.4,
-                   c_key_axis_z - horn_t - c_slot_h / 2])
-            cube([c_track_x1 - c_track_x0, 4.4, c_slot_h]);
+        c_track_channel();
     }
+}
+
+// Through-slot for the wedge key in the shoe's neck (shoe frame, key centre at x = 0):
+// vertical sides with side clearance, a floor that stays clear of the key when locked,
+// and a 45-degree gable roof matched to the key's gable and taper.
+module c_key_slot() {
+    c_house_prism(c_key_slot_hw, -c_tongue_neck_w / 2 - 0.8, c_tongue_neck_w / 2 + 0.8,
+                  c_key_slot_floor_z, c_key_roof(-c_tongue_neck_w / 2 - 0.8),
+                  c_key_roof(c_tongue_neck_w / 2 + 0.8));
 }
 
 module c_shoe(radius_mm = horn_radius_default_mm) {
     // Bed-zero slider: the narrow foot is captured in the carrier's flared lower
     // channel; the broad tongue is trapped by the upper 45-degree dovetail.
-    tongue_x0 = max(radius_mm - c_tongue_len / 2,
-                    c_track_x0 + c_pip_gap_mm);
-    tongue_x1 = min(radius_mm + c_tongue_len / 2,
-                    c_track_x1 - c_pip_gap_mm);
+    tongue_x0 = c_tongue_x0(radius_mm);
+    tongue_x1 = c_tongue_x1(radius_mm);
     assert(tongue_x1 > tongue_x0, "C shoe tongue must overlap its captive rail");
     difference() {
         union() {
@@ -609,43 +702,88 @@ module c_shoe(radius_mm = horn_radius_default_mm) {
                                      + post_cap_seat_len])
                 cylinder(d = post_lip_d, h = post_lip_t);
         }
-        // The separate wedge key enters through the rail's +Y side. The blind bore is
-        // straight and slightly larger than the key's widest section, so the key's
-        // FLANK BEARING IS UNPROVEN: the shoe can still slide radially until the
-        // key is driven home. See the C note in README.md.
-        translate([radius_mm + c_key_x_offset_mm, 0.9, c_key_axis_z - horn_t])
-            rotate([90, 0, 0]) cylinder(d = c_key_shaft_d + 0.1, h = 3.2,
-                                         center = true);
+        translate([radius_mm + c_key_x_offset_mm, 0, 0]) c_key_slot();
     }
 }
 
 module c_wedge_key() {
-    // Printed wedge key: a self-locking tapered pin with a keeper BAND near its outer
-    // end for the keeper ring.
-    // Frame: the tip at z = 0, the shaft above it, the band at the top.
-    //
-    // An annular subtraction leaves a solid, reduced-diameter keeper band.
+    // Printed through-wedge (cotter). Part frame: flat bearing face on the bed (z = 0), width
+    // along X, drive axis along Y with the tall head at +Y; its Y coordinate equals the
+    // seated arm-local Y. The keeper groove near the tail keeps the flat bed face.
     difference() {
-        union() {
-            cylinder(d1 = c_key_tip_d, d2 = c_key_shaft_d, h = c_key_taper_len);
-            translate([0, 0, c_key_taper_len])
-                cylinder(d = c_key_shaft_d, h = c_key_len - c_key_taper_len);
+        c_house_prism(c_key_w / 2, c_key_y0, c_key_y1, 0,
+                      c_key_ridge(c_key_y0), c_key_ridge(c_key_y1));
+        difference() {
+            translate([-c_key_w, c_key_groove_y0, -1])
+                cube([2 * c_key_w, c_key_groove_y1 - c_key_groove_y0,
+                      c_key_ridge(c_key_y1) + 2]);
+            c_house_prism(c_key_groove_w / 2, c_key_groove_y0 - 1, c_key_groove_y1 + 1, -2,
+                          c_key_groove_ridge, c_key_groove_ridge);
         }
-        // The keeper ring's band.
-        translate([0, 0, c_key_len - keeper_t2])
-            pin_band_relief(d = c_key_shaft_d, band_d = c_key_groove_d,
-                            band_t = keeper_t2);
     }
 }
 
 module c_wedge_keeper() {
-    // Keeper ring for the wedge key: its bore is smaller than the key's shaft, so
-    // it cannot pass over it.
+    // Split keeper ring for the key's groove: its bore clears the groove's house section
+    // but not the key's full section, so the groove's tail shoulder cannot pass it.
     difference() {
-        cylinder(d = keeper_od, h = keeper_t2);
-        translate([0, 0, -1]) cylinder(d = c_key_groove_d + 0.1, h = keeper_t2 + 2);
-        translate([0, -1.0, -1]) cube([keeper_od, 2.0, keeper_t2 + 2]);
+        cylinder(d = keeper_od, h = keeper_t2, $fn = 48);
+        translate([0, 0, -1]) cylinder(d = c_keeper_bore_d, h = keeper_t2 + 2, $fn = 48);
+        translate([0, -c_keeper_split_w / 2, -1])
+            cube([keeper_od, c_keeper_split_w, keeper_t2 + 2]);
     }
+}
+
+// ---- Lock poses (carrier-local frame; shared by the assembly and the c_* probes) ----------
+// `stage` is the fraction of the dovetail lift the key has driven; `preload` is the modelled
+// interference on each bearing face (0 = faces exactly touching).
+module c_shoe_lifted(radius_mm, stage = 1, preload = 0) {
+    translate([0, 0, stage * c_lock_lift_mm + preload]) c_shoe(radius_mm);
+}
+
+module c_key_placed(radius_mm, stage = 1, preload = 0, withdraw = 0) {
+    translate([radius_mm + c_key_x_offset_mm, c_key_withdraw_mm(stage, preload) + withdraw,
+               c_key_seat_z - preload])
+        c_wedge_key();
+}
+
+module c_keeper_placed(radius_mm) {
+    // Against the rail's -Y face, centred on the groove's section.
+    translate([radius_mm + c_key_x_offset_mm, -c_rail_w / 2,
+               c_key_seat_z + c_key_groove_center_z])
+        rotate([90, 0, 0]) c_wedge_keeper();
+}
+
+// Probe zones that strictly contain each designed bearing face (`band` past its preload).
+module c_seat_band(preload = 0, band = 0.05) {
+    translate([c_track_x0, -c_rail_w / 2 - 1, c_key_seat_z - preload - band])
+        cube([c_track_x1 - c_track_x0, c_rail_w + 2, preload + 2 * band]);
+}
+
+module c_roof_band(radius_mm, stage = 1, preload = 0, band = 0.05) {
+    translate([radius_mm + c_key_x_offset_mm, 0, stage * c_lock_lift_mm + preload])
+        difference() {
+            c_house_prism(c_key_slot_hw + 0.2, -c_tongue_neck_w / 2 - 0.8,
+                          c_tongue_neck_w / 2 + 0.8, c_key_slot_floor_z + 0.5,
+                          c_key_roof(-c_tongue_neck_w / 2 - 0.8) + preload + band,
+                          c_key_roof(c_tongue_neck_w / 2 + 0.8) + preload + band);
+            c_house_prism(c_key_slot_hw + 1.2, -c_tongue_neck_w / 2 - 1.8,
+                          c_tongue_neck_w / 2 + 1.8, c_key_slot_floor_z,
+                          c_key_roof(-c_tongue_neck_w / 2 - 1.8) - band,
+                          c_key_roof(c_tongue_neck_w / 2 + 1.8) - band);
+        }
+}
+
+module c_undercut_band(preload = 0, band = 0.05) {
+    hi = c_undercut_line + preload + band;
+    lo = c_undercut_line - band;
+    y_in = c_neck_w / 2 - 0.2;
+    y_out = c_dovetail_base_w / 2 + 0.2;
+    translate([c_track_x0, 0, 0]) rotate([90, 0, 90])
+        linear_extrude(height = c_track_x1 - c_track_x0)
+            for (m = [1, -1]) scale([m, 1])
+                polygon([[y_in, lo - y_in], [y_out, lo - y_out],
+                         [y_out, hi - y_out], [y_in, hi - y_in]]);
 }
 
 module c_cap() {
@@ -667,19 +805,18 @@ module variant_c(part = "assembly", radius_mm = horn_radius_default_mm) {
                horn_radius_max_mm, "] mm"));
     if (part == "assembly") {
         rotate([0, 0, horn_arm_angle_deg]) {
-            translate([0, 0, horn_t]) c_carrier();
-            translate([0, 0, horn_t]) c_shoe(radius_mm);
-            // Wedge key locks the continuously adjustable shoe after print/assembly.
-            translate([radius_mm + c_key_x_offset_mm, c_key_tip_y, c_key_axis_z])
-                rotate([-90, 0, 0]) c_wedge_key();
-            translate([radius_mm + c_key_x_offset_mm,
-                       c_key_tip_y + c_key_len - keeper_t2, c_key_axis_z])
-                rotate([-90, 0, 0]) c_wedge_keeper();
+            // Locked pose: the key is driven home and the shoe lifted onto the undercut.
+            translate([0, 0, horn_t]) {
+                c_carrier();
+                c_shoe_lifted(radius_mm);
+                c_key_placed(radius_mm);
+                c_keeper_placed(radius_mm);
+            }
             for (k = [1, 2]) rotate([0, 0, 90 * k]) {
                 translate([horn_r, 0, carrier_top - index_pin_len]) c_pin();
                 translate([horn_r, 0, -keeper_t2]) c_keeper();
             }
-            translate([radius_mm, 0, horn_t + c_shoe_post_z0 + post_flange_t
+            translate([radius_mm, 0, horn_t + c_lock_lift_mm + c_shoe_post_z0 + post_flange_t
                                       + post_spigot_len]) c_cap();
         }
     } else if (part == "pip") {
@@ -789,8 +926,7 @@ module variant_d(part = "assembly") {
             translate([horn_r, 0, horn_t]) d_ball_stem();
             for (k = [1, 2]) rotate([0, 0, 90 * k]) {
                 translate([horn_r, 0, carrier_top - index_pin_len]) d_pin();
-                translate([horn_r, 0, carrier_top - index_pin_len + index_groove_len / 2])
-                    d_keeper();
+                translate([horn_r, 0, -keeper_t2]) d_keeper();
             }
             // Cap over the rod eye on the ball's output post.
             translate([horn_r, 0, horn_t + d_post_flange_z + post_flange_t
@@ -831,7 +967,8 @@ module variant_d(part = "assembly") {
 //
 // World stack above the horn underside plane: carrier 2..5, rails 5..8, clevis base plate
 // 8..12 resting on the rails, lower ear 12..14.5, eye 14.9..18.9, upper ear 19.3..21.8,
-// hinge pin 6..23.8 (head on the upper ear), keeper ring 6..8 under the base plate.
+// hinge pin 4.9..23.8 (head on the upper ear, lip 4.9..5.9), keeper ring 6..8 in its groove
+// under the base plate.
 // An earlier revision fixed the plate's underside at 4, inside the rails, and put the
 // hinge pin's head at the bore centre, inside the clevis gap where the rod eye sits.
 //
@@ -850,15 +987,18 @@ e_plate_t = 4;         // the clevis's base plate thickness
 e_rail_top = horn_t + 2 * carrier_t;   // 8: the rails' top face, under the base plate
 // The bore centre: base plate on the rails, then the lower ear, then half the gap.
 e_bore_z = e_rail_top + e_plate_t + eye_fork_gap() / 2 + cheek_t;   // 16.9
-e_pin_len = 17.8;      // hinge pin length, from its lower end to its head's top
-// The hinge pin's lower end: its head lands on the upper ear's top face.
-e_pin_z0 = e_bore_z + eye_fork_gap() / 2 + cheek_t + 2 - e_pin_len;  // 6
+// The hinge pin's head lands on the upper ear's top face; below the base plate's underside
+// it carries the keeper ring's groove (with 0.1 mm clearance each side) and the end lip.
+e_pin_head_top = e_bore_z + eye_fork_gap() / 2 + cheek_t + 2;           // 23.8
+e_pin_len = e_pin_head_top - e_rail_top + keeper_t2 + index_groove_clear + index_lip_t; // 18.9
+e_pin_z0 = e_pin_head_top - e_pin_len;                                  // 4.9: lower end
+e_keeper_z0 = e_pin_z0 + index_lip_t + index_groove_clear;              // 6: ring's lower face
 // For fit_checks, which `use`s this file and so cannot see its variables.
 function e_ear_t_mm() = cheek_t;
-e_keeper_bore_d = 4.95; // rides on the hinge pin's 4.9 mm band with 0.025 mm of
-                          // clearance per side, and is still smaller than the 5 mm
-                          // shaft, so the keeper cannot be pushed back over it
-e_keeper_groove_d = 4.9; // the band's own diameter
+e_keeper_bore_d = 4.6;  // rides in the hinge pin's 4.4 mm groove with 0.1 mm of clearance
+                          // per side, and is smaller than the 5 mm shaft and lip, so the
+                          // ring is trapped between them (printed_joints' keeper sizes)
+e_keeper_groove_d = 4.4; // the groove's core diameter
 e_keeper_od = 9;
 
 module e_carrier() {
@@ -929,8 +1069,8 @@ module e_eye_bushing() {
 }
 
 module e_hinge_pin() {
-    // Printed hinge pin: a Ø5 shaft with a Ø4.9 keeper BAND at its lower end and a Ø8
-    // head at its top, which lands on the upper ear.
+    // Printed hinge pin: a Ø5 shaft with a full-diameter lip and a Ø4.4 keeper GROOVE at its
+    // lower end and a Ø8 head at its top, which lands on the upper ear.
     // Frame: the pin's lower end at z = 0.
     //
     // An annular subtraction leaves a solid, reduced-diameter keeper band.
@@ -939,10 +1079,9 @@ module e_hinge_pin() {
             cylinder(d = joint_pin_d, h = e_pin_len);
             translate([0, 0, e_pin_len - 2]) cylinder(d = joint_pin_head_d, h = 2);
         }
-        // The keeper ring's band.
-        translate([0, 0, 0])
-            pin_band_relief(d = joint_pin_d, band_d = e_keeper_groove_d,
-                            band_t = keeper_t2);
+        // The keeper ring's groove behind the end lip.
+        pin_band_relief(d = joint_pin_d, band_d = e_keeper_groove_d,
+                        band_t = index_groove_len, lip_t = index_lip_t);
     }
 }
 
@@ -952,7 +1091,7 @@ module e_keeper() {
     // Frame: z = 0 is the ring's bottom face.
     difference() {
         cylinder(d = e_keeper_od, h = keeper_t2);
-        translate([0, 0, -1]) cylinder(d = e_keeper_bore_d, h = keeper_t2 + 2);
+        translate([0, 0, -1]) cylinder(d = e_keeper_bore_d, h = keeper_t2 + 2, $fn = 48);
         translate([0, -1.2, -1]) cube([e_keeper_od, 2.4, keeper_t2 + 2]);
     }
 }
@@ -974,7 +1113,7 @@ module variant_e(part = "assembly") {
             // Hinge pin: its lower end reaches below the base plate, where the
             // keeper ring snaps onto its groove.
             translate([e_radius, 0, e_pin_z0]) e_hinge_pin();
-            translate([e_radius, 0, e_pin_z0]) e_keeper();
+            translate([e_radius, 0, e_keeper_z0]) e_keeper();
             // Bushings pressed into both ears, flush with the ears' faces. The pin's
             // Ø8 head lands on the upper bushing; the ears' seats are wider than the head.
             translate([e_radius, 0, e_bore_z - eye_fork_gap() / 2 - cheek_t]) e_bushing();
@@ -1008,6 +1147,24 @@ module variant_e(part = "assembly") {
 }
 
 // =============================================================================
+// Installed pin/keeper pairs (horn frame), for the pin_ring_* probes
+// =============================================================================
+// `kind`: "index" (the 2.4 mm index pin of B-E), "a_post" (A's post shank) or "e_hinge"
+// (E's hinge pin). Each pin's free end points down (-Z).
+module keeper_probe_pin(kind) {
+    if (kind == "index") translate([horn_r, 0, carrier_top - index_pin_len]) index_pin();
+    else if (kind == "a_post") translate([horn_r, 0, horn_t - a_shank_len]) a_post();
+    else if (kind == "e_hinge") translate([e_radius, 0, e_pin_z0]) e_hinge_pin();
+    else assert(false, str("unknown keeper probe kind: ", kind));
+}
+
+module keeper_probe_ring(kind) {
+    if (kind == "index" || kind == "a_post") translate([horn_r, 0, -keeper_t2]) index_keeper();
+    else if (kind == "e_hinge") translate([e_radius, 0, e_keeper_z0]) e_keeper();
+    else assert(false, str("unknown keeper probe kind: ", kind));
+}
+
+// =============================================================================
 // Public placement contract
 // =============================================================================
 // Arm-local station of the rod eye's bore centre.
@@ -1023,7 +1180,7 @@ function variant_rod_eye_local(variant = horn_variant,
 function variant_rod_eye_z(variant = horn_variant) =
     variant == "A" ? horn_t + post_flange_t + post_spigot_len / 2 :
     variant == "B" ? horn_t + carrier_t + post_flange_t + b_lug_rise + post_spigot_len / 2 :
-    variant == "C" ? horn_t + c_shoe_post_z0 + post_flange_t
+    variant == "C" ? horn_t + c_lock_lift_mm + c_shoe_post_z0 + post_flange_t
                     + post_spigot_len / 2 :
     variant == "D" ? horn_t + d_post_flange_z + post_flange_t + post_spigot_len / 2 :
     e_bore_z;

@@ -16,6 +16,7 @@ import concurrent.futures
 import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import struct
@@ -248,11 +249,19 @@ CONTACT_CHECKS = [
 # the heavier probes (arm_brace_insertion's Minkowski sweep, rod_servo_sweep_band) run concurrently
 # on a 4-core Pi and their wall time inflates with contention, so a tight cap fails a good build.
 COMMAND_TIMEOUT_S = 600
+# Probe runs are independent single-threaded CGAL renders, several of them minutes long, so
+# they run concurrently. Two cores stay free for the OS; each render can hold a few GB.
+PROBE_WORKERS = max(1, min(6, (os.cpu_count() or 2) - 2))
 
 
-def run(command: list[str], *, empty: bool = False) -> str:
+def run(command: list[str], *, empty: bool = False, timeout_s: int | None = None) -> str:
     result = subprocess.run(
-        command, cwd=ROOT, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_S, check=False
+        command,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=timeout_s or COMMAND_TIMEOUT_S,
+        check=False,
     )
     text = result.stdout + result.stderr
     if empty and result.returncode == 1 and "Current top level object is empty" in text:
@@ -654,36 +663,45 @@ def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         reports = dict(pool.map(render_piece, PARTS_77603))
 
-    def run_probe(probe) -> dict:
-        results = []
-        for params in probe.parameter_sets:
-            target = staging_root / f"probe_{probe.check}.stl"
-            text = run(
-                [
-                    "openscad",
-                    "--export-format",
-                    "binstl",
-                    "-o",
-                    str(target),
-                    # The parameter set carries the implemented check name; Probe.check is
-                    # only a human-facing label, so the parameter set must win the merge.
-                    *defines({"check": probe.check, **params}),
-                    str(ROOT / "throttle_77603" / "fit_checks.scad"),
-                ],
-                empty=True,
-            )
-            empty = "Current top level object is empty" in text
-            if probe.expect == "empty" and not empty:
-                raise ValueError(f"interference in check {probe.check}: {text}")
-            if probe.expect == "contact" and empty:
-                raise ValueError(f"no retention/land in check {probe.check}")
-            results.append({"check": probe.check, "expect": probe.expect, "empty": empty})
-            print(f"PASS probe {probe.check} ({probe.expect})", flush=True)
-        return results
+    def run_probe(index: int, probe, params: dict) -> dict:
+        # One staged file per run: concurrent runs of the same check must not share a path.
+        target = staging_root / f"probe_{index:03d}_{probe.check}.stl"
+        text = run(
+            [
+                "openscad",
+                "--export-format",
+                "binstl",
+                "-o",
+                str(target),
+                # The parameter set carries the implemented check name; Probe.check is
+                # only a human-facing label, so the parameter set must win the merge.
+                *defines({"check": probe.check, **params}),
+                str(ROOT / "throttle_77603" / "fit_checks.scad"),
+            ],
+            empty=True,
+            timeout_s=probe.timeout_s,
+        )
+        empty = "Current top level object is empty" in text
+        if probe.expect == "empty" and not empty:
+            raise ValueError(f"interference in check {probe.check} {params}: {text}")
+        if probe.expect == "contact" and empty:
+            raise ValueError(f"no retention/land in check {probe.check} {params}")
+        print(f"PASS probe {probe.check} ({probe.expect}) {params}", flush=True)
+        return {"check": probe.check, "expect": probe.expect, "empty": empty}
 
-    probes = []
-    for probe in PROBES_77603:
-        probes.extend(run_probe(probe))
+    runs = [(probe, params) for probe in PROBES_77603 for params in probe.parameter_sets]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=PROBE_WORKERS) as pool:
+        futures = [
+            pool.submit(run_probe, index, probe, params)
+            for index, (probe, params) in enumerate(runs)
+        ]
+        try:
+            # Catalog order is kept; the first failure cancels the runs not yet started.
+            probes = [future.result() for future in futures]
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
 
     def render_view(scene) -> str:
         folder = "drawings" if scene.kind == "drawing" else "views"

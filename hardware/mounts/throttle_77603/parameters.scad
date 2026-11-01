@@ -9,8 +9,9 @@
 //
 // Include path note: the builder passes no -I, so legacy sources are reached as
 // <../enclosure_common.scad> (which itself includes ../common.scad). The arm constants this
-// file depends on -- arm_col_d, arm_col_w, arm_root_foot_d, arm_joint_flange, arm_joint_t,
-// arm_joint_flange_t, arm_tip_z, servo_station_x -- are defined there and are NOT copied.
+// file depends on -- arm_joint_x, arm_joint_z, arm_joint_bolt, arm_joint_flange_t,
+// servo_station_x, servo_station_z, servo_face_t and the steering case envelope -- are defined
+// there and are NOT copied.
 include <../enclosure_common.scad>
 
 geometry_evidence_verified = false;
@@ -82,25 +83,33 @@ rods_bore_mm = rods_w_mm - 2 * rods_wall_mm;      // 22
 rods_slider_mm = rods_bore_mm - 2 * sliding_clearance_mm; // 21.2
 // Illustrative only: the owner's endpoint-distance datums and the actual lever arc are unknown.
 rods_min_overlap_mm = 60;
-rods_coarse_travel_mm = 240;
-rods_fine_travel_mm = 20;
+rods_coarse_travel_mm = 240;      // continuous slide, held by the print-in-place collet
+rods_fine_travel_mm = 20;         // printed lead-screw trim on the throttle-end body
 rods_nominal_span_mm = 1066.8;
 rods_span_min_mm = 940;
 rods_span_max_mm = 1200;
+
+// Print-in-place threaded split collet at the receiver sleeve's throttle end (capacities,
+// not qualified values). 45-degree thread flanks so neither printed thread has a flat
+// overhang; every PIP gap is collet_gap_mm measured perpendicular to the surfaces.
+collet_gap_mm = 0.45;              // 0.4 nominal + 0.05 for facet chords on helices/cones
+collet_thread_pitch_mm = 4;
+collet_thread_depth_mm = 1.35;     // 45-degree flanks; leaves 0.65 mm root and crest flats
+collet_thread_root_r_mm = 18.6;    // >= 3 mm wall over the 22 mm bore's corners (r 15.56)
+collet_cone_half_angle_deg = 18;   // finger flare and nut cone
+collet_flare_len_mm = 12;
+collet_finger_len_mm = 30;         // slotted length from the tip to the unslotted band
+collet_finger_r_mm = 16.5;         // finger shank outside radius, flare root
+collet_slot_w_mm = 2;              // finger slots, centred on the bore's corners
+collet_preload_mm = 0.3;           // radial finger closure beyond the slider clearance
+collet_nut_max_advance_mm = 6;     // nut travel toward the tip that the layout reserves
 
 // Fine-trim printed screw (fully printed; fractional turns give continuous adjustment).
 fine_screw_d_mm = 16;
 fine_screw_pitch_mm = 2;
 fine_nut_height_mm = 10;
-fine_anti_backdrive_gap_mm = 2.5;
+fine_nut_window_mm = 8;           // the printed nut's four relief windows
 fine_jam_collar_h_mm = 6;
-
-// Coarse lock capacities.
-wedge_taper_deg = 8;
-wedge_len_mm = 90;
-collet_slit_mm = 3;
-collet_collar_pitch_mm = 2;
-leadscrew_anti_backdrive_lip_mm = 8;
 
 // ---- Printed-joint capacities ------------------------------------------------------
 pin_d_mm = 5;                      // captive printed hinge pin
@@ -125,57 +134,6 @@ pivot_lip_t_mm = 1.5;
 pivot_cap_od_mm = 10;
 pivot_cap_id_mm = 7.7;
 pivot_cap_h_mm = 4;
-
-// ---- Saddle section (shared: referenced by mount, drawings and fit checks) ----------
-// These live here, not in mg995_throttle_mount.scad, because the builder's other entry
-// points reach this file with `use`, which imports modules/functions but NOT variables.
-saddle_back_t_mm = 8;
-saddle_side_w_mm = 8;
-saddle_wall_mm = 6;
-saddle_dovetail_w_mm = 10;
-saddle_dovetail_h_mm = 4;
-saddle_split_gap_mm = 0.4;
-saddle_skin_clear_mm = 0.4;
-saddle_side_clear_mm = 0.4;
-saddle_vent_relief_d_mm = 12;
-
-// ---- Integral support column (part of the derivative arm head) ---------------------
-// The head prints mating-face down, which fixes its orientation: anything it grows beyond
-// the flange ends up floating high above the bed. A vertical column is therefore the only
-// shape that can be added to this part and still print.
-//
-// All values are in the head's local frame (X outboard, Y across, Z up the rib).
-column_reach_mm = 24;          // outboard of the land's face: carries the whole cradle
-column_w_y_mm = 12;            // narrow foot: forward band width
-// The column widens above the steering servo's moving bracket, whose highest swept point is
-// world Z 458.8. Below that height the column must stay in the land's narrow forward band
-// (world Y 145..157) to clear the bracket's swept Y; above it there is nothing to avoid, so
-// the column can carry the whole 68 mm cradle instead of letting it overhang.
-column_widen_world_z_mm = 470;
-column_widen_local_mm = column_widen_world_z_mm - arm_joint_z;
-column_gusset_run_mm = 14;     // geometry-driven: buttress depth into the rib
-column_gusset_h_mm = 50;       // geometry-driven: buttress height
-// The column's outboard face, in the head's local frame.
-
-// The keeper: a printed crossbar with two legs that drop beside the cradle's walls and bear
-// on the MG995's mounting ears, plus its own locating pins.
-
-
-
-// ---- Throttle station placement ------------------------------------------------------
-// The throttle MG995 stands DIRECTLY ABOVE the retained steering station, carried by the
-// integral column on the derivative arm head. There is no outboard cantilever and no riser
-// stack: an earlier revision reached 180 mm outboard to clear the steering pushrod, which
-// left the head printing a long horizontal arm above the bed and the servo unsupported.
-//
-// The clearance that decided this was measured from the real legacy solids:
-//   servo case Y 108..138, moving bracket Y 94..144 (0/45/90 deg), horn sweep X 273..303,
-//   steering pushrod X 274..370 at Z 465..505. The column sits in the land's forward band
-//   (world Y 145..157), inboard of world X 234, and rises to a seat above the horn's sweep,
-//   so it clears all of them with margin.
-//
-// These are design capacities, not mower measurements, and not a physical safety proof.
-
 
 // ---- Variant C continuous radius ---------------------------------------------------
 horn_radius_min_mm = 12;
@@ -207,156 +165,115 @@ assert(horn_radius_min_mm < horn_radius_default_mm
        && horn_radius_default_mm < horn_radius_max_mm,
        "Default horn radius must lie inside the continuous range");
 
-// ---- Station, column and seat: ONE derivation -----------------------------------------
-// Every value below is derived from a leaf constant declared above, and the whole block
-// sits at the END of the file so that OpenSCAD's top-down evaluation cannot see an
-// undefined input. Earlier revisions scattered these across the file and each reorder
-// silently produced undef geometry; the asserts at the bottom now fail loudly instead.
+// ---- Throttle station: ONE derivation ---------------------------------------------------
+// The throttle MG995 stands BELOW the right steering servo, on a shelf grown from the rib of
+// the derivative right arm head (throttle_arm_head.scad). Both steering servo stations are
+// raised by servo_station_raise_mm (../enclosure_common.scad), so the whole throttle stack --
+// cradle, servo, horn interface and the rod's servo end -- sits under the steering servo's
+// case. The left head is raised by the same amount and carries no throttle parts.
 //
-// Frame: the head's LOCAL frame. X runs outboard along the arm, Y across it, Z up the rib.
-// World X of a local X is arm_joint_x + local_x; world Z is arm_joint_z + local_z.
-
-// ---- The throttle station, in one dependency order ------------------------------------
+// Every value below derives from a leaf constant, and the block sits at the END of the file:
+// OpenSCAD evaluates top to bottom, so a value declared before its input is silently undef,
+// and undef geometry looks exactly like geometry that rendered. The asserts at the end fail
+// at parse time instead.
 //
-// 1. LEAF VALUES. Nothing below depends on these.
-// 2. THE CRADLE, the printed part that holds the MG995.
-// 3. THE SEAT, the way the cradle locates on the column.
-// 4. THE COLUMN, sized from the seat.
-// 5. THE STATION, centred on the column.
+// Frames. Head-LOCAL: X outboard from the arm joint, Y across, Z up the rib; world X is
+// arm_joint_x + x, world Y is assembly_arm_y + y, world Z is arm_joint_z + z. CRADLE: origin
+// on the servo's base plane (the shelf's top face) at the cradle's centre, same axes.
 //
-// OpenSCAD evaluates this file top to bottom, so the order above is not cosmetic: a derived
-// value declared before its input is silently undefined, and undefined geometry looks
-// exactly like geometry that rendered correctly. The asserts at the end of this file exist to
-// catch that at parse time.
+// These are design capacities, not mower measurements, and not a physical safety proof.
 
 // (1) Leaf values ---------------------------------------------------------------------
-column_seat_local_mm = 240;    // the column's top face, head-local Z
-column_foot_mm = 16;           // how far the column's root reaches down into the land
-column_overhang_mm = 2;        // the column reaches this far inboard of its seat
-seat_y_local_mm = 29;          // the forward band: world Y 145..157
+// The shaft stands far enough outboard that every horn interface swept +/-30 degrees, and
+// every rod's servo section, clears the rib's outboard face (probed, not assumed).
+throttle_seat_x_local_mm = 66;
+throttle_seat_y_local_mm = 0;   // centred under the steering servo's shaft
+// The servo's base plane, head-local Z: the lowest seat whose 45-degree corbel still roots
+// on the rib above the joint flange. The steering stations were raised to clear the stack.
+throttle_seat_local_mm = 92;
+shelf_t_mm = 4;                 // the shelf slab, at its outboard edge
+shelf_margin_mm = 2;            // shelf beyond the cradle's outboard wall
+// The corbel's root is narrower than the shelf, so the joint's two outboard M6 bolts (at
+// +/-arm_joint_bolt across the flange) keep tool room above them.
+corbel_half_w_mm = 14;
 
-// (2) The cradle ----------------------------------------------------------------------
+// (2) The cradle: walls on the shelf, which is its floor ----------------------------------
 cradle_wall_mm = 5;
 cradle_w_mm = mg995_body_width_mm + 2 * joint_clearance_mm + 2 * cradle_wall_mm;
-// The side walls stop at the provisional flange UNDERSIDE. The body base rests on the floor;
-// the keeper frame bears on the provisional lugs from above. Whether the real lugs also
-// bear on the wall tops depends on their unmeasured width.
-cradle_wall_h_mm = mg995_mount_height_mm;                         // 28.575
-// The end walls capture the case's ends and stop at the same height, so the flange passes
-// over them rather than fouling them.
-cradle_end_h_mm = mg995_mount_height_mm;                          // 28.575
+// The walls stop at the provisional flange UNDERSIDE; the keeper bears on the provisional
+// lugs from above. Whether the real lugs also bear on the wall tops depends on their
+// unmeasured width.
+cradle_wall_h_mm = mg995_mount_height_mm;                          // 28.575
 cradle_end_y0_mm = mg995_body_length_mm / 2 + joint_clearance_mm; // 19.45: the case's end
-cradle_end_y1_mm = cradle_end_y0_mm + cradle_wall_mm;              // 24.45
 cradle_len_mm = 68;           // capacity around the 50.80 mm MG995 lug pitch; TO MEASURE
-cradle_t_mm = 8;
-// The MG995's flange, in the cradle's own frame (z = 0 at the seat face).
-cradle_flange_z0_mm = cradle_t_mm + mg995_mount_height_mm;          // 36.575: underside
-cradle_flange_z1_mm = cradle_flange_z0_mm + mg995_lug_thickness_mm; // 38.575: top face
-// The notch clearance, per side, between the flange's edge and the cradle's relief.
-cradle_notch_clear_mm = 0.2;
+// The MG995's flange in the cradle frame.
+cradle_flange_z0_mm = mg995_mount_height_mm;                        // 28.575: underside
+cradle_flange_z1_mm = cradle_flange_z0_mm + mg995_lug_thickness_mm; // 30.575: top face
 
-// (3) The seat: how the cradle locates on the column ---------------------------------
-//
-// SIMPLE BY DESIGN. The cradle's floor plate rests on the column's top face, two printed
-// DOWELS on its underside plug into blind holes in that face, and the keeper -- which bears
-// on the servo's mounting ears -- retains the servo in the cradle.
-//
-// There is deliberately no socket, no skirt and no tongue. An earlier revision built a
-// socket-and-tongue joint whose mating faces were coplanar; that made the BOOLEAN
-// non-manifold and cost a long series of render cycles before the cause was found. The
-// coplanarity was an artefact of probing two touching solids, not a defect in the parts.
-//
-// A transverse printed pin captures the two dowels. Its strength, clip retention and
-// vibration resistance are unverified; this is not a safety qualification.
-seat_dowel_d_mm = 6;
-seat_dowel_depth_mm = 8;       // into the column's top face
-seat_dowel_clearance_mm = 0.2; // per side, dowel to hole
-seat_dowel_x_offset_mm = 7;      // +/- about the seat's centre, inboard of the walls
-seat_dowel_y_offset_mm = 0;
-seat_cross_pin_d_mm = 3.2;
-seat_cross_hole_d_mm = 3.6;
-seat_cross_band_d_mm = 2.4;
-seat_cross_ring_bore_d_mm = 2.6;
-seat_cross_ring_d_mm = 5.8;
-seat_cross_ring_t_mm = 1.8;
-keeper_pin_d_mm = 4;            // the keeper's own locating pins, into the cradle
+// (3) The keeper and its transverse pins ------------------------------------------------
+// The keeper is a printed crossbar bearing on the MG995's ears, with full-length legs that
+// drop beside the cradle's side walls; two transverse printed pins pass through both legs
+// and both walls beyond the servo's ends and below its lugs, so it cannot lift off. Fit,
+// clip retention and vibration life are unverified.
+cross_pin_d_mm = 3.2;
+cross_hole_d_mm = 3.6;
+cross_band_d_mm = 2.4;
+cross_ring_bore_d_mm = 2.6;
+cross_ring_d_mm = 5.8;
+cross_ring_t_mm = 1.8;
+// Pin-local layout from the ring end: a full-diameter lip, then the groove (0.1 mm clearance
+// at the lip, the ring, 0.5 mm slack toward the leg), so the ring is trapped both ways.
+cross_lip_t_mm = 1;
+cross_ring_seat_mm = cross_lip_t_mm + 0.1;   // the installed ring's face nearest the lip
+cross_groove_t_mm = 0.1 + cross_ring_t_mm + 0.5;
+keeper_pin_d_mm = 4;            // the keeper's own locating pins, into the wall tops
 keeper_pin_depth_mm = 6;
 keeper_pin_clearance_mm = 0.2;
 keeper_pin_x_offset_mm = (cradle_w_mm - cradle_wall_mm) / 2; // side-wall centres
 keeper_pin_y_offset_mm = 0;
-// The horn variants also use the provisional index-pin diameters below.
-keeper_leg_t_mm = 2;               // leg thickness, in X, beside the cradle's side walls
+keeper_leg_t_mm = 2;            // leg thickness, in X, beside the cradle's side walls
 keeper_leg_drop_mm = cradle_len_mm;   // full-length legs carry the transverse pins
-keeper_post_t_mm = 4;
-keeper_post_pin_d_mm = 2.4;        // provisional horn index pin
-keeper_post_pin_bore_d_mm = 2.8;   // provisional horn index bore
-// Two transverse printed pins pass through both keeper legs and both cradle side walls
-// beyond the servo's ends and below its lugs, so the keeper cannot lift off. They are
-// geometry only: fit, clip retention and vibration life are unverified.
+// The horn variants use these provisional index-pin diameters.
+keeper_post_pin_d_mm = 2.4;
+keeper_post_pin_bore_d_mm = 2.8;
 keeper_cross_pin_y_mm = (cradle_end_y0_mm + cradle_len_mm / 2 - cradle_wall_mm) / 2;
-keeper_cross_pin_z_mm = cradle_t_mm + 8;   // cradle frame
+keeper_cross_pin_z_mm = 8;      // cradle frame: through the walls, below the lugs
 keeper_cross_pin_x0_mm = -(cradle_w_mm / 2 + joint_clearance_mm + keeper_leg_t_mm + 0.5
-                           + seat_cross_ring_t_mm);
+                           + cross_ring_t_mm + cross_ring_seat_mm);
 keeper_cross_pin_len_mm = 2 * (cradle_w_mm / 2 + joint_clearance_mm + keeper_leg_t_mm
-                               + 0.5) + seat_cross_ring_t_mm + 2;
+                               + 0.5) + cross_ring_t_mm + cross_ring_seat_mm + 2;
 
-// (4) The column ----------------------------------------------------------------------
-// The column's root must reach back into the RIB (x 0..rib_len): that is where it fuses
-// with the head and where the load path runs. Stopping at the land's 6 mm face would hang
-// the whole servo on that thin land.
-column_x0_local_mm = servo_station_x - arm_joint_x - servo_face_t - 1;   // rib_len - 1
-column_width_mm = cradle_w_mm + 8;    // wide enough to carry the whole cradle
-column_x1_local_mm = column_x0_local_mm + column_width_mm;
-seat_cross_pin_len_mm = column_width_mm + 8;
-// Pin start in the cradle frame: the keeper ring clears the column's inboard face by
-// 2.2 mm and the head clears its outboard face by 2 mm.
-seat_cross_pin_x0_mm = column_overhang_mm - column_width_mm / 2 - 4;
-// The column's vertical extent, head-local. The root reaches into the land (local Z
-// 119.75..179.75) so the column fuses with it.
-column_z0_local_mm = arm_tip_z - arm_joint_z - servo_face_h / 2 - column_foot_mm;
-column_z1_local_mm = column_seat_local_mm;
-
-// (5) The station, centred on the column -----------------------------------------------
-seat_x_local_mm = column_x0_local_mm + column_width_mm / 2;
-throttle_servo_x_offset_mm = seat_x_local_mm;
-tower_offset_x = seat_x_local_mm;
-tower_offset_y = seat_y_local_mm;
-throttle_body_base_offset_mm = column_seat_local_mm + cradle_t_mm;
-throttle_cradle_servo_offset_x_mm = seat_x_local_mm;
-throttle_cradle_servo_offset_y_mm = 0;
-// The cradle's floor sits ON the column's top face.
-cradle_seat_local_mm = column_seat_local_mm;
+// (4) The shelf and its corbel, sized from the cradle --------------------------------------
+// The shelf reaches back 1 mm into the RIB (x 0..rib face): that is where it fuses with the
+// head and where the load path runs.
+rib_face_local_mm = servo_station_x - arm_joint_x - servo_face_t;   // 16.25
+shelf_x0_local_mm = rib_face_local_mm - 1;
+shelf_x1_local_mm = throttle_seat_x_local_mm + cradle_w_mm / 2 + shelf_margin_mm;
+shelf_y0_local_mm = throttle_seat_y_local_mm - cradle_len_mm / 2;
+shelf_y1_local_mm = throttle_seat_y_local_mm + cradle_len_mm / 2;
+// The corbel's underside rises at 45 degrees from its root on the rib's face to the shelf's
+// outboard edge, so it prints without support once the head is laid mating-face down.
+corbel_z0_local_mm = throttle_seat_local_mm - shelf_t_mm
+                     - (shelf_x1_local_mm - rib_face_local_mm);
+// Beyond the corbel's width the shelf's wings fall at 45 degrees from the shelf's edges to
+// the corbel's width, high above the joint's outboard bolts.
+shelf_wing_drop_mm = shelf_y1_local_mm - throttle_seat_y_local_mm - corbel_half_w_mm;
 
 // ---- Parse-time consistency ---------------------------------------------------------
-// OpenSCAD evaluates this file top to bottom, so a value derived from a later declaration
-// is silently undefined and only shows up as missing geometry. These asserts fail at parse
-// time, on the first render, instead of producing an undef part.
-assert(is_num(column_x0_local_mm) && is_num(column_x1_local_mm),
-       "the column's footprint must be defined");
-assert(is_num(column_width_mm) && is_num(column_z0_local_mm) && is_num(column_z1_local_mm),
-       "the column's section must be defined");
-assert(is_num(seat_x_local_mm) && is_num(seat_y_local_mm),
-       "the seat datum must be defined");
-assert(is_num(throttle_servo_x_offset_mm) && is_num(throttle_body_base_offset_mm),
-       "the station must be defined");
-assert(column_x1_local_mm - column_x0_local_mm == column_width_mm,
-       "the column's declared span must match its declared width");
-assert(column_x0_local_mm < servo_station_x - arm_joint_x,
-       "the column's root must reach into the rib, not stop at the land's face");
-assert(column_z0_local_mm < arm_tip_z - arm_joint_z + servo_face_h / 2,
-       "the column's root must reach into the land");
-assert(column_z1_local_mm == column_seat_local_mm,
-       "the column's top must be its seat");
-assert(cradle_seat_local_mm == column_seat_local_mm,
-       "the cradle must sit on the column's seat face");
-assert(throttle_servo_x_offset_mm - mg995_body_width_mm / 2 >= column_x0_local_mm
-       && throttle_servo_x_offset_mm + mg995_body_width_mm / 2 <= column_x1_local_mm,
-       "the servo must stand over the column, not off its edge");
-assert(column_width_mm >= cradle_w_mm,
-       "the column must be at least as wide as the cradle it carries");
+assert(is_num(shelf_x1_local_mm) && is_num(shelf_y0_local_mm) && is_num(shelf_y1_local_mm),
+       "the shelf's footprint must be defined");
+assert(is_num(corbel_z0_local_mm) && is_num(keeper_cross_pin_len_mm),
+       "the corbel and the keeper pins must be defined");
+assert(corbel_z0_local_mm > arm_joint_flange_t,
+       "the corbel must root on the rib above the joint flange");
+assert(throttle_seat_x_local_mm - cradle_w_mm / 2 > rib_face_local_mm,
+       "the cradle must stand outboard of the rib");
+assert(corbel_half_w_mm < arm_joint_bolt - 10,
+       "the corbel must leave tool room above the joint's outboard bolts");
 assert(cradle_w_mm > mg995_body_width_mm + 2 * cradle_wall_mm,
        "the cradle must be wider than the servo by a printable wall each side");
-assert(column_x0_local_mm + column_width_mm / 2 == seat_x_local_mm,
-       "the station must be centred on the column");
-assert(seat_dowel_x_offset_mm + seat_dowel_d_mm / 2 < cradle_w_mm / 2,
-       "the dowels must land inside the cradle's footprint");
+assert(mg995_flange_ear_out_mm < cradle_w_mm / 2,
+       "the MG995 flange must stay inside the cradle's outer wall faces");
+assert(throttle_seat_local_mm + mg995_body_height_mm < servo_station_z - arm_joint_z
+       - servo_case_axis_offset_z_mm - servo_case_l / 2,
+       "the throttle servo must stand below the steering servo's case");

@@ -114,14 +114,18 @@ arm_root_nut_af = 12;                // square slide-in pocket, across-corners c
 arm_foot_z = arm_foot_datum_z-arm_foot_h; // extrapolated arm-axis origin
 arm_seat_z = 0;                        // top of the sandwich-layer ear
 arm_tip_z = arm_foot_datum_z+arm_rise_mm;
+// Both steering servo stations stand servo_station_raise_mm ABOVE that measured datum
+// (owner direction 2026-11-01): the right head carries the throttle MG995 BELOW its
+// steering servo, so the steering servo moved up, and the left head is raised by the same
+// amount. The head's rib is upright, so the rise is vertical and the measured station X
+// is unchanged. arm_tip_z stays the measured datum: the lap-bar estimate is a point on the
+// mower and does not move with the servos.
+servo_station_raise_mm = 101.6;        // 4 in; the throttle stack fits under the case
+servo_station_z = arm_tip_z+servo_station_raise_mm;
 assembly_arm_y = 123;                  // entire foot clears box flange (y<=85)
 arm_joint_t = 355;                     // joint clears the upper pad; bed-limited
 arm_joint_z = arm_foot_z+arm_joint_t*cos(arm_rake_deg);
 arm_joint_x = arm_root_x+arm_joint_t*sin(arm_rake_deg);
-// Local arm length: the measured 1 ft 6 in is from the datum, so the modelled part is
-// that plus the foot's drop back down to the datum, measured along the raked axis.
-arm_tip_local_z = arm_len_mm+arm_foot_h/arm_cos();
-arm_head_len = arm_tip_local_z-arm_joint_t;
 arm_joint_flange_t = 12;
 arm_joint_flange = 88;
 arm_joint_bolt = 26;                   // half pitch of the four M6 joint bolts
@@ -180,13 +184,13 @@ function servo_adapter_outer_x_mm() =
     servo_adapter_ear_inner_mm+servo_adapter_gap_mm+servo_adapter_ear_t_mm;
 lapbar_pin_fwd_mm = 889;     // ESTIMATE 35 in: hitch-hole centre forward to clamp pin
 lapbar_pin_x_mm = 355.6;     // ESTIMATE 14 in: lap-bar clamp pin from mower centreline
-lapbar_pin_dz_mm = 0;        // clamp pin above crank pin at neutral; 0 keeps rod level
+lapbar_pin_dz_mm = 0;        // clamp pin above the DATUM crank height (arm_tip_z+crank)
 function servo_crank_eye_x() =
     servo_station_x+servo_bracket_outer_span_mm/2+servo_adapter_pin_local()[0];
 function servo_crank_pin_at(side, face_angle_deg, crank_r=servo_crank_r) =
     [side*servo_crank_eye_x(),
      servo_shaft_y()-crank_r*sin(face_angle_deg-servo_face_neutral_deg),
-     arm_tip_z+crank_r*cos(face_angle_deg-servo_face_neutral_deg)];
+     servo_station_z+crank_r*cos(face_angle_deg-servo_face_neutral_deg)];
 function servo_crank_pin(side, crank_r=servo_crank_r) =
     servo_crank_pin_at(side,servo_face_neutral_deg,crank_r);
 function lapbar_pin(side) =
@@ -195,7 +199,7 @@ function lapbar_pin(side) =
 // Common frame for BOTH mirrored assemblies: +Y forward, +Z up, rotation about +X.
 // Electrical command direction must be calibrated separately for left/right motors.
 module servo_adapter_pose(side,face_angle_deg=servo_face_neutral_deg) {
-    translate([side*(servo_station_x+servo_bracket_outer_span_mm/2),servo_shaft_y(),arm_tip_z])
+    translate([side*(servo_station_x+servo_bracket_outer_span_mm/2),servo_shaft_y(),servo_station_z])
         rotate([face_angle_deg,0,0]) translate([0,0,servo_moving_face_r_mm])
             if(side<0) mirror([1,0,0]) children(); else children();
 }
@@ -203,12 +207,12 @@ module servo_body_envelope(side,disc_d=servo_disc_d) {
     axial0 = (servo_bracket_outer_span_mm-servo_case_axial)/2;
     translate([side>0 ? servo_station_x+axial0 : -servo_station_x-axial0-servo_case_axial,
                servo_shaft_y()-servo_case_w/2,
-               arm_tip_z-servo_case_axis_offset_z_mm-servo_case_l/2])
+               servo_station_z-servo_case_axis_offset_z_mm-servo_case_l/2])
         cube([servo_case_axial,servo_case_w,servo_case_l]);
     for(sign=[-1,1])
         translate([side*(servo_station_x+servo_bracket_outer_span_mm/2
                         +sign*(servo_case_axial+servo_disc_t)/2)-servo_disc_t/2,
-                   servo_shaft_y(),arm_tip_z])
+                   servo_shaft_y(),servo_station_z])
             rotate([0,90,0]) cylinder(d=disc_d,h=servo_disc_t);
 }
 // The moving member: U crossplate (six passages + opening, as the adapter) and two bearing legs.

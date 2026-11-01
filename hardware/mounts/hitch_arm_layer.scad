@@ -22,9 +22,10 @@ echo(str("hitch_arm_layer: box footprint=", box_flange_l, " x ", box_flange_w,
          " mm; full center layer bbox=", box_flange_l+2*arm_layer_lug_out_mm,
          " x ", tongue_end_y()+box_flange_w/2, " x ", layer_t,
          " mm; hitch bore=", hitch_bore_d, " mm; gland pass-throughs=", gland_pass_d,
-         " mm; servo station x=+/-", servo_station_x, " mm at z=", arm_tip_z,
-         " mm; arm rake=", arm_rake_deg, " deg from vertical; lower arm=", arm_joint_t,
-         " x ", arm_col_d, " x ", arm_col_w, " mm; head=", arm_head_len, " mm"));
+         " mm; servo station x=+/-", servo_station_x, " mm at z=", servo_station_z,
+         " (", servo_station_raise_mm, " above the measured datum); arm rake=", arm_rake_deg,
+         " deg from vertical; lower arm=", arm_joint_t, " x ", arm_col_d, " x ", arm_col_w,
+         " mm; head rise=", arm_head_rise(), " mm"));
 module arm_rounded_plate(l,w,t,r) {
     hull() for(x=[-1,1],y=[-1,1])
         translate([x*(l/2-r),y*(w/2-r),0]) cylinder(r=r,h=t);
@@ -293,7 +294,7 @@ module arm_head() {
     }
 }
 function servo_face_dx() = servo_station_x-arm_joint_x;   // head's outboard reach
-function arm_head_rise() = arm_tip_z-arm_joint_z;        // head's rise, upright
+function arm_head_rise() = servo_station_z-arm_joint_z;  // head's rise, upright
 // Flat inboard X=0 face is exposed, not a nut pocket inside the rib.
 // Washer occupies X=-1..0; steel nut X=-3.5..-1; slim socket approaches from -X.
 // Capacities: washer OD6/t1, nut AF5/h2.5, tool OD8 (actual hardware must fit).

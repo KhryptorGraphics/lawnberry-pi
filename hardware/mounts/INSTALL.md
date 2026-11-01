@@ -163,8 +163,9 @@ adapter clevis pin (spans the 6 + 12 + 6 mm ear-gap-ear grip plus washers and a 
 actual stack), each with washers and a locking nut. Verify actual stacks before ordering.
 The 40 mm square tube has 5 mm walls; the 29.1 mm inner bar slides with 0.45 mm clearance per side.
 
-The default **936.4 mm** pin length is the Toro TimeCutter MAX 50 in MyRIDE estimate in
-`TORO_77502_LINKAGE.md`, not a measurement. The three lock settings give 921.4/936.4/951.4 mm.
+The default **941.9 mm** pin length is the Toro TimeCutter MAX 50 in MyRIDE estimate in
+`TORO_77502_LINKAGE.md`, not a measurement, with both servo stations raised 101.6 mm (the rod
+falls that far to the lap bar). The three lock settings give 926.9/941.9/956.9 mm.
 The rod length is set on the bench by choosing a joint position; set the clamp-pin and crank
 values in `enclosure_common.scad` only if the estimated band turns out to be wrong.
 

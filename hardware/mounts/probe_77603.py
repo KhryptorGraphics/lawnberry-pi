@@ -22,7 +22,9 @@ PROBE_SOURCE = HERE / "throttle_77603" / "fit_checks.scad"
 TIMEOUT_S = 300
 
 
-def run_probe(name: str, check: str, expect: str, params: dict) -> tuple[str, bool, str]:
+def run_probe(
+    name: str, check: str, expect: str, params: dict, timeout_s: int | None = None
+) -> tuple[str, bool, str]:
     args = ["openscad", "--export-format", "binstl", "-o", "/dev/null"]
     merged = {"check": check, **params}
     for key, value in merged.items():
@@ -30,7 +32,12 @@ def run_probe(name: str, check: str, expect: str, params: dict) -> tuple[str, bo
     args.append(str(PROBE_SOURCE))
     try:
         result = subprocess.run(
-            args, cwd=HERE, capture_output=True, text=True, timeout=TIMEOUT_S, check=False
+            args,
+            cwd=HERE,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s or TIMEOUT_S,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         return name, False, "timeout"
@@ -55,7 +62,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
         for params in probe.parameter_sets:
             total += 1
-            name, ok, detail = run_probe(probe.check, probe.check, probe.expect, params)
+            name, ok, detail = run_probe(
+                probe.check, probe.check, probe.expect, params, probe.timeout_s
+            )
             status = "PASS" if ok else "FAIL"
             if not ok:
                 failures += 1
