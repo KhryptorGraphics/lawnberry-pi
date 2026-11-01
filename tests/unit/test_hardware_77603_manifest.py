@@ -352,15 +352,22 @@ def test_manifest_pip_pairs_meet_mesh_release_gates(manifest):
 
 def test_readme_quoted_counts_match_the_catalog_and_manifest(manifest):
     """The README's headline counts are generated numbers, so they cannot drift."""
-    from hardware.mounts.hardware_77603_catalog import PROBES_77603
+    import re
 
-    readme = (MOUNTS / "throttle_77603" / "README.md").read_text()
-    piece_count = len(manifest["parts"])
+    from hardware.mounts.hardware_77603_catalog import PARTS_77603, PROBES_77603
+
+    # Whitespace-normalised so a re-wrap of the sentence cannot break the match.
+    text = " ".join((MOUNTS / "throttle_77603" / "README.md").read_text().split())
+    piece_count = len(PARTS_77603)
     probe_runs = sum(len(probe.parameter_sets) for probe in PROBES_77603)
     named_checks = len({probe.check for probe in PROBES_77603})
 
-    assert f"all {piece_count}\ncatalogued pieces" in readme
-    assert f"all {probe_runs} CSG probe runs ({named_checks} named\nchecks" in readme
+    # The published manifest and the catalog must agree before the README is checked.
+    assert len(manifest["parts"]) == piece_count
+    assert len(manifest["probes"]) == probe_runs
+
+    assert re.search(rf"all {piece_count} catalogued pieces", text)
+    assert re.search(rf"all {probe_runs} CSG probe runs \({named_checks} named checks", text)
 
 
 def test_stale_profile_exports_are_removed_without_touching_current_or_legacy(tmp_path):

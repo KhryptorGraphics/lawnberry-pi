@@ -92,9 +92,10 @@ opening. The whole cavity is oriented by lean/yaw/pitch; the lean angle is unmea
 default is a demonstration pose, not a claim that the lever is vertical.
 
 The body and pitch yoke are a two-body print-in-place pair: the yoke legs stand on the bed, and
-its V-profile stub pins run in blind teardrop bores. It pitches through the tested ±30° CAD range.
-The yaw post, rod eye and cap are assembled separately; the cap must be fitted after the eye is
-placed on the post. The U is a clearance capture, never a clamp.
+its V-profile stub pins run in blind teardrop bores. It pitches through the modelled ±30° CAD
+range (probed, not physically tested). The yaw post, rod eye and cap are assembled separately;
+the cap must be fitted after the eye is placed on the post. The U is a clearance capture, never
+a clamp.
 
 Print `throttle_u_gauge` first to check the opening. Coupon testing is still required to confirm
 the printed joints release and move.
@@ -176,12 +177,21 @@ could exist. Do not merge these separate pieces into the four PIP exports.
 
 - C's shoe is retained by the dovetail flanks and closed rail ends. The horn arm width, sliding
   contact and clearance below the carrier remain provisional and need measurement.
+- C's wedge key does not demonstrably lock the shoe: its blind bore in the shoe's tongue is
+  straight and larger than the key's widest section, so the key's flank bearing is unproven
+  and the shoe can still slide radially until the key is driven fully home. The key's holding
+  torque is likewise unqualified.
 - D's ball/socket clearance and ±10° CAD sweep are unqualified. The truncated ball/post is
   captive geometrically; friction, wear and print release still need a coupon and physical test.
 - Rod groove ends are secondary overtravel catches, not stops at the declared length limits:
-  the current dimensions leave about 37 mm of further extension at 1200 mm and 53 mm of
-  reverse travel at 940 mm before shoulder contact. The selected coarse lock must hold length;
-  its force capacity and retention under vibration are unqualified.
+  the current dimensions leave about 37 mm of further extension at the 1200 mm setting, about
+  277 mm of further extension at the 940 mm setting, and about 53 mm of reverse travel at the
+  940 mm setting before shoulder contact. The play grows as the rod is shortened, so the
+  selected coarse lock must hold length; its force capacity and retention under vibration are
+  unqualified.
+- The exploded views separate the stack only. The C and D print-in-place pairs are rendered
+  assembled, so their joint fit is evidenced by the CSG probes (`c_shoe_*`, `d_ball_*`) and the
+  `pip_gate.py` mesh report — not by the images.
 - No load, creep, fatigue, heat, UV, water or vibration qualification exists.
 - A valid mesh and a clean hand fit prove geometry only.
 - The printed throttle actuator is a mechanism proposal. Safe service needs the independent
@@ -259,3 +269,9 @@ rod piece rendering the whole 1 m assembly from a wrong `-D` key, and a vacuum-c
 `mount_vs_steering` "pass" with 255 undefined-variable warnings) all produced plausible-looking
 but meaningless output. A probe that renders empty *because variables are undefined* is a false
 pass, not evidence.
+
+The U fitting's earlier pin-path probes (`body_bore`, `neck_lower`, `mating`, `lower_pin`) were
+removed with the printed neck and pin they measured: the U is now one print-in-place piece, so
+its yoke-to-body fit is covered by the `u_yoke_fit`, `u_yoke_pitch_range` and `u_yoke_captive`
+probes plus the `pip_gate.py` mesh gap. The rod's `rod_capture_pin`/`rod_capture_keeper` probes
+were replaced the same way, by `rod_capture_pip_fit` and the `rod_overlap_capture*` pair.

@@ -108,11 +108,8 @@ pin_head_d_mm = 8;
 bushing_od_mm = 9;
 bushing_id_mm = 5.4;               // running clearance on pin_d
 bushing_len_mm = 8;
-clevis_ear_t_mm = 6;
-clevis_gap_mm = 10;                // rod eye sits in double shear inside this
 keeper_t_mm = 4;                   // secondary printed retainer
 ball_d_mm = 10;
-ball_socket_wall_mm = 4;
 joint_articulation_deg = 30;       // declared capacity, NOT a measured mower requirement
 // Pivot post shared by horn variants A-D and the U fitting's upper joint. The rod eye's
 // 6.6 mm cut bore runs on the 6.2 mm spigot, and the 4.4 mm spigot gives the 4 mm eye

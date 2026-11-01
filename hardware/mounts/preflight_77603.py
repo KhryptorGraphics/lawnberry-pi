@@ -55,7 +55,7 @@ def render(piece, staging: Path) -> tuple[str, str]:
         return piece.name, f"FAIL render: {first}"
     try:
         report = mesh_report(target, piece.bodies)
-    except ValueError as error:
+    except Exception as error:  # noqa: BLE001 - a diagnostic must report, not abort
         return piece.name, f"FAIL gate: {error}"
     size = report["size_mm"]
     if (

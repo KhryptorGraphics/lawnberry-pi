@@ -39,7 +39,7 @@
 // Unverified: fit to the real mower (inherited 77502 datum) and joint capacity under load.
 include <../enclosure_common.scad>
 use <../hitch_arm_layer.scad>   // modules only: the file has its own entry call
-use <printed_joints.scad>       // pin bore helper
+use <printed_joints.scad>       // shared printed-joint primitives
 include <parameters.scad>
 
 arm_head_part = "print";

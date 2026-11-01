@@ -10,8 +10,7 @@ include <parameters.scad>
 // A pin that passes through a clevis ear and a bushing, then locks with a SEPARATELY
 // printed keeper ring.
 //
-// Contract (the signature and the overall length are relied on by
-// throttle_u_fitting.scad, which calls printed_pin(len) and printed_keeper()):
+// Contract (the signature and the overall length are relied on by the callers):
 //   * the module signature is printed_pin(len, d, head_d, keeper);
 //   * the pin is built from z = 0 exactly, so its origin is one of its two ends;
 //   * the overall length along the pin's own +Z axis is exactly `len`;

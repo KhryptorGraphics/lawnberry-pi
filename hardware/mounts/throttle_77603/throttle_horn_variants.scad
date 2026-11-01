@@ -87,15 +87,18 @@
 //     0.2 mm axial play. The cap on the post's 7.6 mm seat, the bushing in the clevis
 //     ear and the ball boss on the carrier's post carry about 0.1 mm interference.
 //     All are geometry to be coupon-tested, not verified joints.
-//   * D's truncated Ø10 ball is captive in a carrier-integral spherical socket with
-//     Ø9.6 mm mouths. The ball and its output post print as a second bed-zero body;
-//     both openings are narrower than the ball, so retention is geometric rather than
-//     friction-dependent. The modeled ±10 degree sweep and as-printed clearance are
-//     prototype capacities, not measured articulation or wear life.
+//   * D's truncated Ø10 ball is captive in a carrier-integral spherical socket whose
+//     top mouth is Ø9.2 mm and whose bottom mouth forms naturally at Ø9.46 mm. The ball
+//     and its output post print as a second bed-zero body; both openings are narrower
+//     than the ball, so retention is geometric rather than friction-dependent. The
+//     modeled ±10 degree sweep and as-printed clearance are prototype capacities, not
+//     measured articulation or wear life.
 //   * C's continuous-radius shoe slides in a 45-degree dovetail and is locked by a
 //     separate printed wedge key. The carrier's bed-through track is backed by the
 //     retained horn arm after installation; the horn width and backing fit are TO MEASURE.
-//     The key's holding torque is also unqualified.
+//     The key's blind bore in the shoe is straight and larger than the key's widest
+//     section, so its FLANK BEARING IS UNPROVEN and the shoe can still slide radially
+//     until the key is fully home. The key's holding torque is also unqualified.
 //   * No retention, load, wear life or servo-fit claim is made from overlap alone.
 //
 // =============================================================================
@@ -606,7 +609,10 @@ module c_shoe(radius_mm = horn_radius_default_mm) {
                                      + post_cap_seat_len])
                 cylinder(d = post_lip_d, h = post_lip_t);
         }
-        // The separate wedge key enters through the rail's +Y side.
+        // The separate wedge key enters through the rail's +Y side. The blind bore is
+        // straight and slightly larger than the key's widest section, so the key's
+        // FLANK BEARING IS UNPROVEN: the shoe can still slide radially until the
+        // key is driven home. See the C note in README.md.
         translate([radius_mm + c_key_x_offset_mm, 0.9, c_key_axis_z - horn_t])
             rotate([90, 0, 0]) cylinder(d = c_key_shaft_d + 0.1, h = 3.2,
                                          center = true);
