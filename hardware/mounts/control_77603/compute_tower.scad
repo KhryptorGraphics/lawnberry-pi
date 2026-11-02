@@ -224,6 +224,11 @@ module tower_clamp(dz = 0) {
         }
 }
 
+// Accessors for ina_holder.scad (the INA3221 cradle snaps onto this frame): the frame's top
+// face (local z above the shelf top) at travel dz, and the front crossbar's u span.
+function ctw_clamp_top_w(dz = 0) = ctw_clamp_z(dz) + ctw_clamp_t;
+function ctw_front_bar_u() = ctw_front_u;
+
 // ---- Print poses -------------------------------------------------------------------------
 module tower_rack_print() { translate([0, 0, -ctw_z_sb()]) tower_rack(); }
 module tower_clamp_print() {

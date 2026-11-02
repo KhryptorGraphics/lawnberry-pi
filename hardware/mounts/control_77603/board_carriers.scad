@@ -19,6 +19,8 @@
 include <cleat_carrier.scad>
 use <compute_tower.scad>
 use <chassis.scad>
+use <ina_holder.scad>
+use <sma_clip.scad>
 
 // ---- Strap bay ---------------------------------------------------------------------------
 function bay_W(w_in) = w_in + 2 * bay_post;
@@ -132,6 +134,7 @@ function hc_steps() = 15;
 
 // ---- Printable dispatch ------------------------------------------------------------------
 // carrier_kind: strap_bay | harness_clamp | chassis | chassis_base | tower_rack | tower_clamp
+//               | ina_cradle | sma_clip
 carrier_kind = "strap_bay";
 carrier_part = "body";
 
@@ -142,6 +145,8 @@ module control_carrier_print(kind = carrier_kind) {
     else if (kind == "chassis_base") chassis_base_print();
     else if (kind == "tower_rack") tower_rack_print();
     else if (kind == "tower_clamp") tower_clamp_print();
+    else if (kind == "ina_cradle") ina_cradle_print();
+    else if (kind == "sma_clip") sma_clip_print();
     else assert(false, str("unknown carrier kind: ", kind));
 }
 

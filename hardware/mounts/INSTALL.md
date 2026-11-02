@@ -261,19 +261,29 @@ before committing to a full box or powering steering.
 **Stack and sequence:**
 
 1. Fit glands/breather in the body; confirm their locknuts clear the layer's 24 mm pass-throughs.
-   The two HaLow antenna ports and posts are on the reprinted lid (README § HaLow antenna port and
-   mount): fit the bulkheads and posts on the lid on the bench (that section's steps 1-2).
+   The two HaLow antenna ports and posts and the GNSS SMA jack are on the reprinted lid (README
+   § HaLow antenna port and mount): fit the two N-to-SMA-right-angle pigtails' bulkheads, the posts
+   and the GNSS jumper's SMA bulkhead (body hex under the lid in its counterbore, lock washer + nut
+   on the lid top) on the bench (that section's steps 1-2).
 2. Fit the four box-to-arm-layer M4 bolts through the floor bosses, head and washer clamping the
    `control_77603` `chassis_base` (3.5 mm, the legacy tray's thickness), and seal them; choose bolts
    long enough for the added 8 mm layer and check nut/thread engagement.
 3. Lower the `control_77603` chassis 6 mm +Y of its seat, push it −Y until the base detent clicks,
-   and load the boards as `control_77603/README.md` describes. No tray, sleds or stack columns remain.
+   and load the boards as `control_77603/README.md` describes: the three tower-side RF leads are
+   mated to their boards' U.FLs as the stack is built and their SMA jacks fitted in the printed
+   SMA clip, which snaps onto the tower clamp. No tray, sleds or stack columns remain.
 4. Fit the camera-tower wall flange, backing strip and foot. Its M5 foot bolts also pass the layer;
    check their grip length with the extra 8 mm.
-5. Fit the 3 mm seal cord. Hold the lid about 100 mm above the seal line, route each antenna pigtail
-   along the `control_77603` corridors to its HaLow card and plug it in, keeping at least 100 mm of
-   slack (README § HaLow antenna port and mount, step 3), then lower the lid and fit the twelve M4
-   fasteners.
+5. Fit the 3 mm seal cord. Hold the lid about 100 mm above the seal line and screw the lid's three
+   SMA-male right-angle plugs onto the SMA clip on top of the tower (by hand, then an 8 mm spanner):
+   the +X pigtail onto the Pi joint JA, the GNSS jumper onto JB, the −X pigtail onto the Alta joint
+   JC (README § HaLow antenna port and mount, step 3; cables Pi 250, GNSS jumper 150, Alta 300 mm,
+   each at least 100 mm longer than its shortest closed route). Lay the slack in its zone, then
+   lower the lid and fit the twelve M4 fasteners. Fit the antennas and the outside GNSS cable, and
+   tape the N and SMA joints with self-fusing tape (steps 4-8 there). **To open:** untape, take the
+   antennas and the GNSS cable off, remove the twelve M4, lift the lid about 100 mm, unscrew the
+   three SMA joints at the clip with an 8 mm spanner and set the lid aside; nothing else is
+   unplugged (the boards' U.FLs stay mated).
 6. Place the center layer under the box flange and integral tongue; align the ball-hole and auxiliary
    holes only if measured. Set the stack on the hitch plate and install correctly rated/length hardware
    using the mower's specified hitch-bolt torque.
@@ -419,7 +429,7 @@ For the enclosed cameras, use the bottom-loading steps and exploded views in §7
 | Part | Where | Notes |
 |---|---|---|
 | `camera_pi_housing` / `camera_stereo_housing` | Pi at the lower station; stereo above the 12-inch extension | Bottom-loaded tray/cassette/retainer/inserts, gaskets, service screws (§7). CSI for Pi; USB for stereo. |
-| `sensor_carrier` (+ `camera_foot` if tilt is appropriate) | ToF: front corners, aimed forward, apertures unobstructed. BME280: shaded, ventilated, away from exhaust. IMU: rigid on the chassis near the middle of the machine, away from servos and high-current wiring. INA3221: inside the enclosure, but the bolt-free `control_77603` chassis has no carrier for it yet (the retired utility sled held it) — add a bay before fitting it | Blank carrier: drill for the real board, board on insulating spacers, then fix the carrier |
+| `sensor_carrier` (+ `camera_foot` if tilt is appropriate) | ToF: front corners, aimed forward, apertures unobstructed. BME280: shaded, ventilated, away from exhaust. IMU: rigid on the chassis near the middle of the machine, away from servos and high-current wiring. INA3221: not on this carrier — it sits inside the enclosure in `ina_cradle`, snapped onto the compute tower's clamp frame (`control_77603/README.md`): board flat, parts up, its long edges on printed plastic lips (no drilling, no metal contact), terminals reached from above with the lid off. Adafruit #6062: terminal-block edge on the fixed jaw, header edge under the shoe, I2C through the soldered header with a plugged Dupont lead (its STEMMA QT sockets are blocked in the cradle). Sense leads enter by the −X floor gland and climb the −X box corner to the cradle; the I2C lead goes to the Pi PCA9685's free chain header; both carry enough slack to lift the cradle out over the −Y wall for tower service without unplugging (lengths, routes and disconnect order in `control_77603/README.md`) | Blank carrier: drill for the real board, board on insulating spacers, then fix the carrier |
 | `antenna_deck` | Highest practical point with a clear sky view — behind/above the seat or on a mast | Strap the antenna through the edge slots; add a ≥100 mm metal ground plane under a patch antenna. Keep the RTK antenna away from the engine ignition lead |
 
 ## 9. Cables
@@ -430,16 +440,23 @@ For the enclosed cameras, use the bottom-loading steps and exploded views in §7
   cable tie through the tunnel. No cable within reach of a tyre, belt, lever swing, or the muffler.
 - `equipment_saddle` for the Bosch relay bodies and inline fuse holders: two ties per unit, mounted
   where they can be reached to swap a fuse.
-- Servo power and signal run separately from GPS/camera cables. Servo power from the 12 V rail via the
-  watchdog-cut relay — never through the PCA9685 V+ terminal.
+- Servo power and signal run separately from GPS/camera cables. Each steering servo is powered from its
+  own converter, fused and sized separately, through the steering power relay (one owned HiLetGo; which
+  host drives it is unresolved, `docs/2026-10-30-dual-controller-electrical-model.md` §7) — never
+  through the PCA9685 V+ terminal or the Pololu VM. The owner-selected design has no watchdog relay.
 
 ## 10. Before the first powered test
 
-Work through `docs/tractor-acceptance-criteria.md`. The items this package touches directly:
+The earlier tractor acceptance checklist was retired at the owner's request
+(`docs/2026-10-30-integrated-hardware-and-control-decisions.md`); the bench procedures are in
+`docs/2026-10-30-dual-controller-electrical-model.md` §9. The items this package touches directly:
 
-- Lever return-to-neutral with the linkage fitted, unpowered (item 10). Gate for everything else.
-- OEM interlocks untouched: seat switch, PARK crank interlock, PTO (items in § Safety interlocks).
-- E-stop reachable from the ground; cuts servo power and PTO.
+- Lever return-to-neutral with the linkage fitted, unpowered (§9 step 4). Gate for everything else.
+- OEM interlocks untouched: seat switch, PARK crank interlock, PTO rocker; none is emulated or bypassed.
+- The owner-selected design (2026-10-30) adds no physical E-stop and no external watchdog. The E-stop
+  station in §5 is optional: if it is fitted, it must be reachable from the ground and cut servo power
+  and PTO. Without it, stopping relies on the OEM controls and the software stop paths, which are not
+  a proven physical shutdown.
 - Servo travel calibrated so the adapter/moving plate never drives the lever past its mechanical stops.
 
 Nothing in this folder certifies strength, weather sealing, or safety. It gets the parts in the right

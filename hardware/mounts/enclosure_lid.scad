@@ -5,7 +5,8 @@
 // antenna_mount.scad at its back (-Y) corners: a D-flat bulkhead hole through the plate inside
 // the seal line, the HEAD ribs cut back round each bulkhead, and a blind post socket in a boss
 // under the plate. The socket opens on the outside face, so its roof (the boss floor) prints
-// as a 12.4 mm bridge.
+// as a 12.4 mm bridge. antenna_lid_cut() also cuts the GNSS SMA jack's D-flat hole and the
+// under-lid counterbore that leaves its 3 mm land (antenna_mount.scad, gnss_lid_cut()).
 include <enclosure_common.scad>
 use <antenna_mount.scad>
 module enclosure_lid_ribs() {

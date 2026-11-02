@@ -31,7 +31,35 @@ module ant_station(s) {
     antenna_bulkhead_top_ref(s);
 }
 module ant_envelope() { for (s = [-1, 1]) ant_station(s); }
-module ant_under_parts() { for (s = [-1, 1]) { antenna_bulkhead_under_ref(s); antenna_pigtail_ref(s); } }
+// Every purchased part under the lid: both N bulkheads + pigtails and the GNSS SMA jack.
+module ant_under_parts() {
+    for (s = [-1, 1]) { antenna_bulkhead_under_ref(s); antenna_pigtail_ref(s); }
+    gnss_jack_under_ref();
+}
+// GNSS port room on the lid top: a 10 mm ring round the washer up to 6 mm above the nut (no
+// printed dam, nut-driver room), the mated antenna-cable plug, and 20 mm above it where the
+// cable turns away (ESTIMATE).
+function gn_ring_r() = gn_washer_d_mm() / 2 + 10;
+module gn_outside_room() {
+    translate([gn_xy_mm()[0], gn_xy_mm()[1], ant_lid_top_z() + 0.01]) {
+        cylinder(r = gn_ring_r(), h = gn_nut_top_z() - ant_lid_top_z() + 6, $fn = 72);
+        cylinder(r = 15, h = gn_top_h_mm() + 20, $fn = 48);
+    }
+    gnss_plug_ref();
+}
+// Room round each N bulkhead: the flange ring on the lid top and the rib cut-back under it.
+module ant_n_spanner_room() {
+    for (s = [-1, 1]) translate([ant_axis_xy(s)[0], ant_axis_xy(s)[1], ant_lid_top_z() + 0.01])
+        cylinder(r = ant_top_d_mm() / 2 + 10, h = ant_top_t_mm() + 6, $fn = 72);
+    antenna_lid_rib_clear();
+}
+// Annular slab dz thick at z0 (body), radii r0..r1 round the GNSS axis.
+module gn_ring(r0, r1, z0, dz) {
+    translate([gn_xy_mm()[0], gn_xy_mm()[1], z0]) difference() {
+        cylinder(r = r1, h = dz, $fn = 72);
+        translate([0, 0, -1]) cylinder(r = r0, h = dz + 2, $fn = 72);
+    }
+}
 // Steering servos and adapters over the analysed face range, both pushrods at neutral, and
 // each rod's servo-end segment carried with its crank pin (as fit_checks.scad sweeps it).
 module ant_steering_sweep() {
@@ -141,4 +169,54 @@ else if (check == "env_vs_steering") intersection() { ant_envelope(); ant_steeri
 else if (check == "env_vs_throttle") intersection() { ant_envelope(); throttle_station(); }
 else if (check == "env_vs_tower") intersection() { ant_envelope(); camera_stack_assembly(); }
 else if (check == "env_vs_hitch_plate") intersection() { ant_envelope(); ref_hitch_plate(); }
+// ---- GNSS port (SMA bulkhead jack near the compute tower) ----
+// Jack, D body, hex, heat-shrink, washer and nut fit the land and hole (0.05 samples off the
+// lid top and the land) ...
+else if (check == "gnss_jack_fit") intersection() {
+    enclosure_lid_closed();
+    union() { translate([0, 0, 0.05]) gnss_jack_top_ref(); translate([0, 0, -0.05]) gnss_jack_under_ref(); }
+}
+// ... the body hex, lifted 0.05, bears on the land (the hole is a counterbored land, not open) ...
+else if (check == "gnss_hex_bears")
+    intersection() { enclosure_lid_closed(); translate([0, 0, 0.05]) gnss_jack_under_ref(); }
+// ... and every point of the hex top face outside the hole (r 3.3..3.9) is backed by the land.
+else if (check == "gnss_land_backed")
+    difference() { gn_ring(3.3, 3.9, gn_land_z0() + 0.001, 0.1); enclosure_lid_closed(); }
+// The D flat keys the body: turned 10 degrees in the land, the body meets the hole's flat.
+else if (check == "gnss_dflat_keys")
+    intersection() { enclosure_lid_closed(); gnss_dbody(gn_land_z0() + 0.2, 2.6, 10); }
+// Outside seat: the washer, lowered 0.05, lands on the lid top ...
+else if (check == "gnss_seat_contact")
+    intersection() { enclosure_lid_closed(); translate([0, 0, -0.05]) gnss_nut_washer_ref(); }
+// ... the whole washer annulus outside the hole is backed by the flat top (0.1 slab under it) ...
+else if (check == "gnss_seat_backed")
+    difference() { gn_ring(3.3, gn_washer_d_mm() / 2, ant_lid_top_z() - 0.1, 0.099); enclosure_lid_closed(); }
+// ... and nothing printed (lid, posts, grips) stands in the 10 mm ring round it (no water dam).
+else if (check == "gnss_no_pool") intersection() {
+    gn_ring(gn_washer_d_mm() / 2, gn_ring_r(), ant_lid_top_z() + 0.01, 8);
+    union() { enclosure_lid_closed(); ant_posts(); ant_grips(25); ant_grips(40); }
+}
+// The mated antenna-cable plug clears the panel nut, washer and lid (thread left for its nut).
+else if (check == "gnss_plug_clear")
+    intersection() { gnss_plug_ref(); union() { enclosure_lid_closed(); gnss_nut_washer_ref(); } }
+// Under the lid the jack envelope (hex, heat-shrink, spanner room) clears the lid's ribs and
+// skirt (sampled 0.01 under the lid's inner face) and the body's walls and flange.
+else if (check == "gnss_underlid_clear")
+    intersection() {
+        translate([0, 0, -0.01]) gnss_lid_keepout();
+        union() { enclosure_lid_closed(); enclosure_body(); }
+    }
+// The GNSS port, outside and under the lid, clears both N stations: antennas (full length,
+// Ø40), posts, grips, bulkheads, pigtails, their under-lid envelopes and spanner rooms.
+else if (check == "gnss_clear_stations") intersection() {
+    union() { gn_outside_room(); gnss_lid_keepout(); }
+    union() {
+        ant_envelope();
+        for (s = [-1, 1]) { antenna_bulkhead_under_ref(s); antenna_pigtail_ref(s); }
+        halow_lid_keepout();
+        ant_n_spanner_room();
+    }
+}
+// The 12 lid screws stay reachable round the GNSS port room.
+else if (check == "gnss_lid_screw_access") intersection() { ant_lid_screw_access(); gn_outside_room(); }
 else assert(false, str("unknown check: ", check));

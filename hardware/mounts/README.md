@@ -48,7 +48,7 @@ but mower clearance and load capacity remain unverified.
 | Camera Module v2.1 | Official drawing: **23.862 × 25 mm** PCB with R2 corners, Ø2.2 holes at (2,2), (14.5,2), (2,23), (14.5,23), **8.5 mm square** lens housing. The PCB is held by its edges in a groove cassette, not by those holes; the open right (CSI) edge is never bent over a lip. PCB thickness, barrel diameter and lens projection are **unknown**: the cassette carries 0.6–3.0 mm PCB-thickness and 2.2–24 mm projection **capacities**, not measurements. |
 | SVPRO stereo board | Dimensional listing image: **80 × 16.5 mm** PCB, two **14 × 13 mm** lens bases and a 9 mm USB-C connector width. Its 16 mm height has an ambiguous datum; barrel diameter, PCB thickness, projection and lens baseline are **unknown**. Each lens has its own independently trimmed insert, so no stereo baseline is assumed. |
 | Opto relays | The linked product images show **one relay/channel per PCB**. The owner confirmed **two** HiLetgo 5 V 30 A single-channel modules on hand (`docs/2026-10-30-user-confirmed-owned-hardware.md`); `control_77603` holds them in strap bays B1/B2. Board outline/hole pitch remains unverified, so the bays grip any box within their range. |
-| Other electronics/sensors | Carrier SKU, outline, terminals and mounting patterns are not established for the bought PCA9685, buck, watchdog perfboard, ZED-F9P, BNO085, VL53L0X/BME280/INA3221 carriers or antenna. Sensor blanks are explicitly drill-to-fit; the enclosure internals are the bolt-free `control_77603` chassis and carriers (`control_77603/README.md`). |
+| Other electronics/sensors | Carrier SKU, outline, terminals and mounting patterns are not established for the bought PCA9685, buck, ZED-F9P, BNO085, VL53L0X/BME280 carriers or antenna. Sensor blanks are explicitly drill-to-fit; the enclosure internals are the bolt-free `control_77603` chassis and carriers (`control_77603/README.md`). The INA3221 module is also unknown, so it has a capacity holder there, `ina_cradle` on the compute tower's clamp: any board 22–32 × 30–38.6 mm (Adafruit #6062 38.354 × 22.86 from its board file, CJMCU-3221 38.3 × 31.7 vendor listing, 30 × 26 breakouts), PCB 1.0–1.6 mm, held flat by plastic lips on its long edges (1.2 mm on the fixed jaw, 0.8 mm under the shoe), each kept ≥ 0.4 mm from the board's parts; the Adafruit fits with its terminal-block edge on the jaw and its header (soldered, Dupont plugged) under the shoe. |
 | Glands, vent, nuts | Ø15.5 PG9 and Ø12.5 M12 cutouts are provisional clearances. Verify actual thread diameter, shoulder, panel-thickness range and locknut access. M4 nut pockets are accessible hex pockets; no unknown heat-set insert geometry. |
 
 Vendor drawings lack manufacturing tolerances. The 0.2–0.5 mm diametral allowances are FDM starting
@@ -102,7 +102,7 @@ CAD files. Never print an assembly view as one fused part.
 | `throttle_servo_mount` | 0 or 1 | Optional stationary-side fixture; four M6 base slots at nominal 76 × 40 pitch with ±4 mm X travel, and the same six-slot photo-derived rear-bracket pattern and Ø13.5 opening as the arm heads, with OD6 washers/AF5 nuts on its free back face. Installer-selected support, not a Toro panel pattern. |
 | `estop_bracket` | 1 | Ø22 mushroom panel with external gussets and two square U-bolts. |
 | `estop_contact_cover` | 1 | Removable rear guard; four M3 ×12 screws/nuts/washers; downward wire opening and tie slots. Not a sealed switch housing. |
-| `enclosure_body`, `enclosure_lid` | 1 each | Tall serviceable electronics box with an integral rear hitch tongue; common dimensions in `enclosure_common.scad`. The body is unchanged; the lid is reprinted with the two HaLow antenna stations (§ HaLow antenna port and mount). The electronics inside sit on the removable `control_77603` chassis. |
+| `enclosure_body`, `enclosure_lid` | 1 each | Tall serviceable electronics box with an integral rear hitch tongue; common dimensions in `enclosure_common.scad`. The body is unchanged; the lid is reprinted with the two HaLow antenna stations and the GNSS SMA port (§ HaLow antenna port and mount). The electronics inside sit on the removable `control_77603` chassis. |
 | `hitch_gauge` | 1 first | Small coupon for the enclosure tongue's hitch hole. The 20 mm hole in that tongue remains unverified; measure before printing the body. |
 | `camera_tower_base`, `camera_tower_segment`, `camera_tower_backing` | 1 base, N segments, 1 backing | Hollow column below the lower camera; N and length derive from the lower lens datum `tower_height`. Backing is a drilling template for a metal strip. |
 | `camera_tower_extension`, `camera_tower_cap` | 1 each | Exact 304.8 mm flange-to-flange tube above the Pi housing; closed terminal cap above the stereo housing. No cap cable slit or camera-foot mount. |
@@ -145,8 +145,9 @@ the legacy tray's thickness) is clamped onto the four floor-boss tops under the 
 box-to-arm-layer M4 bolt heads and washers, exactly where the tray was, so the bolt grip is
 unchanged; the chassis hooks under the base and is held by a detent, with no added fasteners. The
 former electronics tray, relay sleds, utility sleds and their M3 stack columns are removed. The
-two HaLow antennas' N-bulkhead ports and grip posts are on the reprinted lid's back (−Y) edge
-(§ HaLow antenna port and mount).
+two HaLow antennas' N-bulkhead ports and grip posts are on the reprinted lid's back (−Y) edge, its
+GNSS SMA port beside the compute tower; the lid's cables meet the boards at three SMA joints on a
+printed clip on top of the tower (§ HaLow antenna port and mount).
 
 Assembly Z is measured from the enclosure underside:
 
@@ -195,13 +196,27 @@ N-male base, 45 in = 1143 mm tall, fibreglass radome, 60 m/s wind rating, two st
 and a bracket supplied). The body stays exactly as committed: both ports and mounts are on the
 **lid**, which is reprinted. `antenna_mount.scad` holds the stations and `enclosure_lid.scad`
 carries them. The axes are at (±64.5, −48) in body coordinates, 129 mm apart, near the lid's back (−Y)
-corners. The −X antenna feeds the Alta's HaLow and the +X antenna feeds the Pi 5's.
+corners. The −X antenna feeds the Alta's HaLow (a Seeed Studio board) and the +X antenna feeds the
+Pi 5's (a Heltec board). The lid also carries the LC29H's GNSS port, an SMA bulkhead jack beside the
+compute tower (§ GNSS lid port below). The lid's three cables end in SMA-male right-angle plugs that
+screw onto three SMA jacks held by a printed clip on top of the tower (§ SMA service clip below), so
+the lid comes off at three SMA joints and the boards' fragile U.FLs stay mated.
 
 - **Port.** The 5 mm lid plate is the bulkhead panel; the Amphenol 82-369 jack accepts 5.3 mm
   ([bulkhead page](https://www.farnell.com/datasheets/269482.pdf)). Each N-female bulkhead passes
   a D-flat hole, Ø16.3 with 13.9 flats ([Type N catalog](https://www.farnell.com/datasheets/1931349.pdf)).
-  Its pigtail's far end must match the radio it feeds (U.FL on a bare HaLow card, SMA on an
-  HT-HR01 carrier); confirm each before ordering.
+  Each pigtail is **N-female bulkhead → SMA-male RIGHT-ANGLE plug** and ends on the SMA clip
+  (§ SMA service clip): the −X station's on the Alta's joint, the +X station's on the Pi's.
+  - **−X station → Alta.** Seeed Studio Wio-WM6108 mini-PCIe card (Quectel FGH100M-H) on Seeed's
+    required WM1302 Pi HAT. The card's antenna connector is CN1 "CN_IPEX", a Hirose U.FL-R-SMT-1
+    ([card schematic](https://files.seeedstudio.com/wiki/wifi_halow/res/Wio-WM6108_V30_SCH_20241107.pdf));
+    the HAT has no SMA ([HAT board file](https://files.seeedstudio.com/products/113100022/WM1302%20Pi%20Hat%20v1.0.brd)).
+  - **+X station → Pi 5.** Heltec HT-HC01P mini-PCIe card on a Pi carrier HAT, SPI (owner; the
+    repo's `config/limits.yaml` line 17 records "Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi").
+    Its antenna connector is an IPEX (U.FL) on the card, 2.61 mm from the far end and 10.46 mm from
+    the long edge ([drawing](https://heltec.org/wp-content/uploads/2025/05/HC01P_DEMENSION-976x1024.png),
+    [datasheet](https://resource.heltec.cn/download/HT-HC01P/Datasheet/HT-HC01P_Rev.1.0.0.pdf) p.17);
+    the carrier HAT model is TO CONFIRM.
   The hole is inside the cord-seal line and over the box interior, so the nut, jack and pigtail
   hang straight into the box.
   - On the outside, the flange (or nut and washer) and the O-ring seat on the lid's flat top. That
@@ -227,40 +242,96 @@ corners. The −X antenna feeds the Alta's HaLow and the +X antenna feeds the Pi
   and the probes check contact at both 25 and 40. Print the posts with `-D post_side=-1` (−X, Alta)
   and `-D post_side=1` (+X, Pi); the two posts are mirror images. All four grips are the same part.
 
-Install order. Steps 1-2 are bench work with the lid off the box; steps 4-7 are done once the lid
+### GNSS lid port (LC29H)
+
+Owner decision 2026-11-02: the GNSS antenna stays **outside** (the legacy `antenna_deck`, or anywhere
+with sky view) and its SMA-male cable screws onto an **SMA-female bulkhead jack in the lid** at
+**(51, 41.6)** in body coordinates: over the box interior, inside the seal line, in the loft between
+the SMA clip and the +X panel. The jack is the bulkhead end of a purchased **SMA-female-bulkhead →
+SMA-male right-angle jumper** whose plug screws onto the GNSS joint of the SMA clip; the LC29H's
+own U.FL lead ends in that joint's jack. `antenna_mount.scad` (`gnss_lid_cut()`,
+`gnss_lid_keepout()`, `gnss_jack_ref()`, and the shared `sma_land_cut()` / `sma_jack_ref()` the
+clip uses too) holds it; `enclosure_body.scad` is unchanged.
+
+- **Jack (published SMA-F D-flat bulkhead drawings: [Taoglas CAB.011](https://www.taoglas.com/datasheets/CAB.011.pdf)
+  p.7, [Linx/TE CSH-SGFB](https://docs.rs-online.com/3709/A700000010108438.pdf),
+  [MIL-STD-348A](https://www.takitek.co.jp/Datasheets/MIL-STD-348RevA.pdf) Fig. 310-1/2).**
+  1/4-36 UNS thread with a D-flat (5.8 across, Taoglas), 11.4 mm from the body hex face to the
+  mating face, 8 mm body hex 3.4 thick, 8 mm panel nut 1.8 thick, toothed lock washer Ø10.2,
+  heat-shrink 17 ± 5 mm under the hex. **Maximum panel 3.175 mm** (Linx note 12). These are the
+  U.FL pigtails' bulkhead ends; the jumper's bulkhead end is the same SMA-F D-flat bulkhead form, so
+  the lid hole and land are unchanged; its panel range covering 3.0 mm is TO CONFIRM on the part
+  bought.
+- **Hole and land.** The 5 mm lid plate is too thick, so a Ø14 × 2 mm counterbore under the lid
+  leaves a **3.0 mm land** (the rest of the lid stays 5 mm). Through it: the Linx recommended
+  panel hole, **Ø6.5 with a flat 6.0 from the opposite arc**; the D-flat keys the body (the probe
+  turns it 10° and it meets the flat), so no spanner is needed on the hex under the lid. Above the
+  nut 6.1 mm of thread remains; the mating plug's coupling nut needs 5.54 (MIL-STD-348A).
+- **Seats.** The washer seats on the flat lid top (every point of its annulus is backed); nothing
+  printed stands within 10 mm of it, so no water ring forms; tape the SMA joint with self-fusing
+  tape as the N joints. The body hex bears on the land inside the counterbore; under the lid a
+  Ø16 column to z 160 (hex + heat-shrink) is kept free: it is in `antenna_lid_keepout()`, which the
+  `control_77603` probes use. It stands 0.4 mm off the lid's y 52 rib and the Pi PCA9685's servo
+  plugs.
+- **Why there.** The jumper leaves the bulkhead straight down (heat-shrink end z 161.1), below the
+  clip's plug barrels (z ~176), so it must U-turn (R7; 6.8 mm published minimum for 1.13 mm cable)
+  and hang its 100 mm lid-lift slack under the jack: the loft right of the clip (x 49.5..52.5,
+  y 26.1..44.6, down to z 98) has that room; over the clip plate there is none.
+
+### SMA service clip (lid separation, owner decision 2026-11-02)
+
+A printed clip (`control_77603/sma_clip.scad`, piece `sma_clip`, one print, no fasteners) snaps onto
+the compute tower's clamp at its front-right corner and rides with it. It holds three SMA-female
+D-flat bulkhead jacks face-up on 3.0 mm lands (the GNSS port's hole, land and data): **JA (25, 3.2)
+Pi HaLow, JB (33.2, 27.6) GNSS, JC (37, 44.5) Alta HaLow**. Each is the end of a short U.FL →
+SMA-female-bulkhead lead mated once to its board when the stack is built and never unplugged in
+service; the lid's two HaLow pigtails and the GNSS jumper end in SMA-male right-angle plugs screwed
+onto them (barrels +Y, +X, −X). Jaws over both clamp finger bands and a snap leaf under the clamp
+crossbar key it; the jacks' D-flats key them in the clip, so the plugs' mating torque
+(7-10 in-lb, Amphenol RF) never turns a U.FL. Each joint has an 8 mm open-end spanner's swing room
+(±15° within 56 mm, from above) with the lid lifted 100 mm or off. Details, cable routes and the
+purchase list: `control_77603/README.md` § RF service joints.
+
+### Installing, opening and service
+
+Install order. Steps 1-2 are bench work with the lid off the box; steps 4-8 are done once the lid
 is on the box:
 
 1. Lid top up: push each post's spigot into its socket until the snap clicks.
-2. Feed each pigtail's U.FL end down through its D-hole. Seat the bulkhead's O-ring and flange on
-   the lid top, key the D-flat, and fit the nut and lock washer on the inner face. Tighten to the
-   connector maker's torque. If the bulkhead has its hex shoulder at the cable end, it goes in
-   from the inside and its nut sits on the lid top instead; both faces are lands.
-3. With the boards loaded (INSTALL step 3), hold the lid top up about 100 mm above the seal line.
-   Route each pigtail along the `control_77603` corridors to its HaLow card and plug it in (U.FL,
-   or the SMA on an HT-HR01 carrier); `antenna_lid_keepout()` is the under-lid envelope, and the
-   1.13 mm cable's minimum bend radius is not published (~6 mm is an estimate). Keep at least
-   100 mm of slack, then lower the lid onto the seal cord and fit the 12 M4.
+2. Feed each HaLow pigtail's plug end down through its D-hole. Seat the bulkhead's O-ring and
+   flange on the lid top, key the D-flat, and fit the nut and lock washer on the inner face.
+   Tighten to the connector maker's torque. If the bulkhead has its hex shoulder at the cable end,
+   it goes in from the inside and its nut sits on the lid top instead; both faces are lands.
+   GNSS: from under the lid, push the jumper's SMA bulkhead thread up through the GNSS D-hole until
+   its body hex sits in the counterbore on the land, flat keyed; fit the lock washer and nut on the
+   lid top and tighten with an 8 mm spanner.
+3. With the boards loaded and the SMA clip on the tower (INSTALL step 3, `control_77603/README.md`
+   assembly steps 5-6), hold the lid top up about 100 mm above the seal line. Screw the three
+   plugs onto the clip by hand, then snug them with an 8 mm spanner: the +X pigtail onto JA, the GNSS
+   jumper onto JB, the −X pigtail onto JC. `antenna_lid_keepout()` is the under-lid envelope. Lay
+   each pigtail's slack in its zone and let the GNSS jumper's slack hang in its U in the loft, then
+   lower the lid onto the seal cord and fit the 12 M4.
 4. Slide each lower grip into the gap between its post's rail segments, then down onto the lower
    ledge. Slide each upper grip onto its upper rail from the top.
 5. Lower each antenna through its two band loops onto its bulkhead and screw the N-male coupling
    nut on by hand.
 6. Pull each grip's tab until the band draws the tube onto the crush ribs and the pawl holds. To
    release, press the pawl finger outward and push the tab back.
-7. Wrap each N joint, from the coupling nut down onto the bulkhead flange, with self-fusing
-   silicone tape.
+7. Screw the outside GNSS antenna cable's SMA-male plug onto the lid jack by hand.
+8. Wrap each N joint, from the coupling nut down onto the bulkhead flange, and the SMA joint,
+   from the plug down onto the panel nut and washer, with self-fusing silicone tape.
 
-**Opening the box.** The lid lifts with both antennas, posts and bulkheads on it, and the pigtails
-tie it to the radios.
+**Opening the box.** The lid lifts with both antennas, posts, bulkheads, the GNSS jack and the
+lid's three cables on it; the three SMA joints on the clip tie it to the boards.
 
-1. Cut the tape, unscrew both coupling nuts, release the four bands and lift both antennas out.
-   A 1.1 m whip on a lid that is being lifted is unmanageable.
-2. Remove the 12 M4 and lift the lid straight up.
-3. Each pigtail needs at least 100 mm of slack beyond its closed route so the lid can rise about
-   100 mm. In that gap, unplug both pigtails at their HaLow cards (U.FL, or the SMA on an HT-HR01
-   carrier), then set the lid aside.
-4. `control_77603` routes 400 mm pigtails. U.FL connectors are rated for few mating cycles, so
-   open the box no more often than needed.
-5. Reverse the steps to close.
+1. Cut the tape, unscrew both N coupling nuts and the GNSS cable's SMA plug, release the four bands
+   and lift both antennas out. A 1.1 m whip on a lid that is being lifted is unmanageable.
+2. Remove the 12 M4 and lift the lid straight up about 100 mm.
+3. In that gap unscrew the three SMA plugs at the clip with an 8 mm spanner (JA, JB, JC), then set
+   the lid aside. Nothing else is unplugged: the U.FLs stay mated. Each lid cable is bought at
+   least 100 mm longer than its shortest closed route for this (Pi 250, Alta 300, GNSS jumper
+   150 mm).
+4. Reverse the steps to close.
 
 **Fallback: the supplied U-bolts.** If a band slips or creeps, use the horizontal oblong slots
 (9 mm wide, legs 18-25 mm either side of the axis) that run through each post and grip at the grip's
@@ -290,9 +361,17 @@ mid-height.
 - the antenna's base-tube OD and length, coupling-nut height and mass;
 - the purchased bulkhead's hole, flange, O-ring, nut thickness, body length and which end its hex
   shoulder is on;
-- which RF connector each HaLow card or carrier has (U.FL or SMA), and the pigtail's length and
-  bend radius;
+- the HaLow boards actually fitted: the Pi 5's Heltec carrier HAT (model, outline, card height in
+  its socket); the WM1302 HAT's card height and the Wio-WM6108's U.FL position;
+- the purchased SMA parts against the published drawings: the GNSS jumper's bulkhead and the three
+  tower-side leads' jacks (thread from the hex face to the mating face, D-flat, panel range covering
+  the 3.0 mm lands, body hex, heat-shrink length), the right-angle plugs' size, the outside GNSS
+  antenna cable's plug length; the 8 mm spanner's swing at the clip (56 mm available);
 - the U-bolt size.
+
+**To confirm (owner).** The Heltec carrier HAT model on the Pi 5 and its SPI chip-select pin
+(GPIO4/9/10/11 per `config/limits.yaml`; the ultrasonics are already disabled for it); whether the
+Waveshare kit's IPEX-to-SMA cable has the D-flat and thread the clip needs (`control_77603/README.md`).
 
 ## Hitch sandwich layer and drive arms
 

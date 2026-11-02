@@ -392,6 +392,27 @@ CONTROL_PIECES = (
         note="print-in-place strap bar for the automotive harness bundle, 8-26 mm",
         bodies=2,
     ),
+    Piece(
+        "ina_cradle",
+        f"{CONTROL}/board_carriers.scad",
+        _carrier("ina_cradle"),
+        orientation="upside down, jaw lips and bar top on the bed",
+        note="snaps onto the tower clamp frame; print-in-place ratchet jaw holds an INA3221 "
+        "board flat (22-32 x 30-38.6, PCB 1.0-1.6: Adafruit #6062, CJMCU-3221, 30 x 26 "
+        "breakouts) on 1.2 / 0.8 mm plastic lips kept >= 0.4 mm from its parts; holding "
+        "force and vibration retention unqualified",
+        bodies=2,
+    ),
+    Piece(
+        "sma_clip",
+        f"{CONTROL}/board_carriers.scad",
+        _carrier("sma_clip"),
+        orientation="upside down, plate top on the bed",
+        note="snaps onto the tower clamp's front-right corner (jaws over both finger bands, leaf "
+        "under the crossbar); holds the three tower-side SMA-F D-flat bulkhead jacks face-up for "
+        "the lid's plugs (8 mm spanner); clamping force, torque capacity and vibration "
+        "retention unqualified",
+    ),
 )
 
 # Two HaLow antenna stations on the reprinted lid (the body is unchanged): the lid carries the
@@ -560,8 +581,8 @@ VIEWS_77603: tuple[Scene, ...] = (
         "assemblies.scad",
         {"assembly": "lid_antennas"},
         "0,-40,230,62,0,330,650",
-        note="lid cut on the -X station plane: both antenna stations and the antennas' lower "
-        "300 mm",
+        note="lid cut on the -X station plane: both antenna stations, the GNSS SMA jack and the "
+        "antennas' lower 300 mm",
     ),
     *_scene_variants(),
 )
@@ -728,6 +749,30 @@ ANTENNA_PROBES: tuple[Probe, ...] = (
         timeout_s=900,
         source=_ANT,
     ),
+    Probe("gnss_jack_fit", "empty", ({"check": "gnss_jack_fit"},),
+          note="GNSS SMA jack, D body, hex, washer and nut fit the land and D hole", source=_ANT),
+    Probe("gnss_hex_bears", "contact", ({"check": "gnss_hex_bears"},),
+          note="GNSS body hex bears on the 3 mm land in the under-lid counterbore", source=_ANT),
+    Probe("gnss_land_backed", "empty", ({"check": "gnss_land_backed"},),
+          note="the hex top face outside the hole is fully backed by the land", source=_ANT),
+    Probe("gnss_dflat_keys", "contact", ({"check": "gnss_dflat_keys"},),
+          note="turned 10 degrees, the GNSS D body meets the hole's flat (anti-rotation)",
+          source=_ANT),
+    Probe("gnss_seat_contact", "contact", ({"check": "gnss_seat_contact"},),
+          note="GNSS lock washer lands on the lid top", source=_ANT),
+    Probe("gnss_seat_backed", "empty", ({"check": "gnss_seat_backed"},),
+          note="the whole washer annulus is backed by the flat lid top", source=_ANT),
+    Probe("gnss_no_pool", "empty", ({"check": "gnss_no_pool"},),
+          note="nothing printed within 10 mm of the GNSS washer", source=_ANT),
+    Probe("gnss_plug_clear", "empty", ({"check": "gnss_plug_clear"},),
+          note="mated antenna-cable plug clears the panel nut, washer and lid", source=_ANT),
+    Probe("gnss_underlid_clear", "empty", ({"check": "gnss_underlid_clear"},),
+          note="GNSS under-lid envelope clears the lid ribs/skirt and the body", source=_ANT),
+    Probe("gnss_clear_stations", "empty", ({"check": "gnss_clear_stations"},),
+          note="GNSS port clears both N stations, their envelopes and spanner rooms",
+          source=_ANT),
+    Probe("gnss_lid_screw_access", "empty", ({"check": "gnss_lid_screw_access"},),
+          note="all 12 lid-screw driver paths clear the GNSS port room", source=_ANT),
     Probe(
         "env_vs_tower",
         "empty",
@@ -764,11 +809,18 @@ _CTL_EMPTY = (
     "patch_clear",
     "pigtails_clear",
     "lid_bulkheads_clear",
+    "tower_leads_clear",
+    "gnss_jack_clear",
     "port_room_clear",
     "tower_clear_chassis",
     "tower_lowered_clear",
     "boards_clear_tower",
     "signal_boards_clear",
+    "ina_cradle_clear_clamp",
+    "ina_clear_others",
+    "ina_access_clear",
+    "sc_clip_clear_clamp",
+    "sc_clip_clear_tower",
 )
 _CTL_CONTACT = (
     "base_seats_on_bosses",
@@ -780,14 +832,26 @@ _CTL_CONTACT = (
     "tower_lock_blocks",
     "stack_on_bosses",
     "clamp_pads_bear",
+    "ina_cradle_seats",
+    "ina_hooks_hold",
+    "sc_clip_seats",
+    "sc_clip_retained",
 )
 # (check, expect, number of `idx` stations): carriers 0-6 are the six strap bays and the harness
 # clamp; bays/harness 0-1 are the minimum and maximum box or bundle; boards 0-2 the PCA9685s and
 # the Pololu; headers 0-3 the stack's header joints; patch plugs 0-1 the Pi and Alta RJ45 ends
-# of the Ethernet patch; pigtails 0-1 the Alta (-X antenna) and Pi (+X antenna) HaLow leads.
+# of the Ethernet patch; INA3221 cradle: boards 0-1 the smallest and largest board of its
+# capacity, saddle 0-1 the +x and -x stops, clamp travel 0-2 the -12 / 0 / +3 mm stack range,
+# lift 0-1 the seated and the slid (tower-removal) pose; Adafruit #6062 0-1 the frame (jaw) and
+# the bar (shoe). RF service joints (joint 0 Pi HaLow, 1 GNSS, 2 Alta HaLow): lead/cable reaches
+# 0-5 = 2 x joint + end (0 board or lid end, 1 clip jack or plug barrel); SMA clip keyed 0-5 the
+# +x/-x/+y/-y shifts and +-1 degree turns; jack probes 0-2 the joints; clip travel 0-2 the
+# -12 / 0 / +3 mm range; spanner sweeps 0-2 lid off, 3-5 lid lifted 100 mm; lift 0-1 seated
+# and slid.
 _CTL_INDEXED = (
     ("patch_plug_seats", "contact", 2),
-    ("pigtail_reaches_hat", "contact", 2),
+    ("lid_cable_reaches", "contact", 6),
+    ("tower_lead_reaches", "contact", 6),
     ("header_engages", "contact", 4),
     ("carrier_hook_seats", "contact", 7),
     ("carrier_latch_under_land", "contact", 7),
@@ -801,6 +865,27 @@ _CTL_INDEXED = (
     ("bay_box_clear_frame", "empty", 2),
     ("harness_strap_clear", "empty", 2),
     ("signal_board_captured", "contact", 3),
+    ("ina_saddle_locates", "contact", 2),
+    ("ina_board_clear_frame", "empty", 2),
+    ("ina_board_clear_bar", "empty", 2),
+    ("ina_jaw_holds", "contact", 2),
+    ("ina_shoe_holds", "contact", 2),
+    ("ina_bar_preloads", "contact", 2),
+    ("ina_bar_clear", "empty", 2),
+    ("ina_pawls_bear", "contact", 2),
+    ("ina_travel_clear", "empty", 3),
+    ("ina_lift_clear", "empty", 2),
+    ("ina_adafruit_clear", "empty", 2),
+    ("ina_adafruit_held", "contact", 2),
+    ("sc_clip_keyed", "contact", 6),
+    ("sc_jack_fit", "empty", 3),
+    ("sc_hex_bears", "contact", 3),
+    ("sc_dflat_keys", "contact", 3),
+    ("sc_seat_contact", "contact", 3),
+    ("sc_seat_backed", "empty", 3),
+    ("sc_clip_clear", "empty", 3),
+    ("sc_sweep_clear", "empty", 6),
+    ("sc_lift_clear", "empty", 2),
 )
 CONTROL_PROBES: tuple[Probe, ...] = (
     *(Probe(c, "empty", ({"check": c},), source=_CTL) for c in _CTL_EMPTY),

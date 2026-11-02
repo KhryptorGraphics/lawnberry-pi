@@ -2,8 +2,8 @@
 
 **PROTOTYPE — FIT / LOAD / ELECTRICAL VALIDATION REQUIRED.**
 **Geometry generated, not physically qualified.** The published STL/3MF files, previews, views,
-drawings and `generated_77603/validation.json` are regenerated from the current sources: all 50
-catalogued pieces pass the mesh and print-envelope gate, and all 355 CSG probe runs (143 named
+drawings and `generated_77603/validation.json` are regenerated from the current sources: all 52
+catalogued pieces pass the mesh and print-envelope gate, and all 444 CSG probe runs (187 named
 checks across the station, rod, electronics and antenna probe files; linkage probes run for each
 variant A-E) match their expected result. A probe proves
 geometric clearance or material presence at the demonstration pose only. Keeper retention,
@@ -306,9 +306,15 @@ obsolete profile-only exports are deleted at publish time. The default (no-argum
 regenerates every legacy export in place; after the station raise it changes the `arm_*` heads
 and both steering pushrods and must be rerun whenever `servo_station_raise_mm` changes.
 
-**STEP export is unavailable**: OpenSCAD 2021.01 has no STEP writer and no FreeCAD/CadQuery is
-installed. SCAD is the editable CAD deliverable; STL/3MF/PNG/SVG are generated. No STEP will be faked
-by renaming a tessellated file.
+**STEP export is not produced** (re-checked 2026-11-02). OpenSCAD 2021.01 has no STEP writer.
+FreeCAD 26.3 (conda-forge `freecad 2026.09.16`, aarch64) was installed and tried as the converter:
+its OpenSCAD importer builds every `hull()` and `minkowski()` through OpenSCAD/CGAL meshes
+(`importCSG.py`: `p_hull_action` and `p_minkowski_action` return `CGALFeatureObj`), so a part that
+contains a hull comes back as a faceted solid, not editable B-rep. A CSG survey of all 127 published
+parts found 51 with at least one `hull()` (the shared `plate()` and `slot()` in `common.scad` are
+hulls); only 72 use nothing beyond primitives, booleans and `linear_extrude`. A STEP set for 72 of
+127 parts behind a 3.5 GB FreeCAD dependency was not adopted. SCAD is the editable CAD deliverable;
+STL/3MF/PNG/SVG are generated. No STEP will be faked by renaming a tessellated file.
 
 ## Revision note: where the throttle servo is carried (2026-11-01)
 

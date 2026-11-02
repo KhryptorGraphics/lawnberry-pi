@@ -866,7 +866,10 @@ def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
         "tool": run(["openscad", "--version"]).strip(),
         "build_volume_mm": list(BUILD_VOLUME_MM),
         "usable_envelope_mm": list(USABLE_VOLUME_MM),
-        "step_status": "UNAVAILABLE: OpenSCAD 2021.01 has no STEP writer; no BREP exported",
+        "step_status": (
+            "UNAVAILABLE: OpenSCAD 2021.01 has no STEP writer, and FreeCAD's CSG import"
+            " meshes hull()/minkowski() (used by common.scad plate()/slot()); no BREP exported"
+        ),
         "sources_sha256": {
             source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest()
             for source in sources

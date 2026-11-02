@@ -10,6 +10,8 @@ use <board_carriers.scad>
 use <compute_tower.scad>
 use <chassis.scad>
 use <board_refs.scad>
+use <ina_holder.scad>
+use <sma_clip.scad>
 use <../enclosure_body.scad>
 use <../enclosure_lid.scad>
 use <../antenna_mount.scad>
@@ -69,7 +71,8 @@ module ec_tower(dx = 0, dz = 0) {
 module ec_board(level) {
     ctw_to_body() ctw_at_board(ctw_level_w(level)) {
         if (level == "alta") rb_alta();
-        else if (level == "hra" || level == "hrp") rb_halow();
+        else if (level == "hra") rb_halow_wm1302();
+        else if (level == "hrp") rb_halow_hc01p();
         else if (level == "pi") rb_pi5();
         else if (level == "ai") rb_aihat();
         else if (level == "lc") rb_lc29h();
@@ -132,14 +135,107 @@ module ec_patch() {
     color([0.85, 0.85, 0.30, 0.5]) ec_box(patch_channel);
 }
 
-// ---- HaLow pigtails from the lid bulkheads ------------------------------------------------------
-// AntennaMount's authoritative under-lid envelope (bulkhead stations + lid post-socket bosses).
+// ---- RF service joints: SMA clip, tower-side leads, lid-side cables -----------------------------
+// AntennaMount's authoritative under-lid envelope (HaLow bulkhead stations, lid post-socket bosses
+// and the GNSS SMA jack).
 module ec_lid_bulkheads() { antenna_lid_keepout(); }
-module ec_pigtails() { color([0.10, 0.10, 0.10, 0.6]) for (r = pig_route) ec_box(r); }
-// A 1 mm stub from the descent envelope toward pigtail i's HAT RF end.
-module ec_pigtail_end(i) {
-    e = pig_route[len(pig_route) - 1];
-    translate([e[0][0] - 1, e[0][1], pig_end_z[i][0]]) cube([1.01, e[1][1] - e[0][1], pig_end_z[i][1] - pig_end_z[i][0]]);
+module ec_lid_halow_keepout() { halow_lid_keepout(); }
+module ec_lid_gnss_keepout() { gnss_lid_keepout(); }
+// Body z of the clamp frame's top at travel t (the clip frame's z = 0).
+function ec_zc(t = 0) = ctw_shelf_z() + ctw_clamp_top_w(t);
+// The SMA clip (clamp-borne) at clamp travel t, with the tower moved by (dx, dz).
+module ec_sc_clip(t = 0, dx = 0, dz = 0) { color([0.95, 0.45, 0.10]) sc_at_clamp(t, dx, dz) sma_clip(); }
+// Joint i's mated right-angle SMA plug (clip frame): coupling nut from its open end (past the jack
+// face by the MIL-STD-348A overhang) over the thread, the body above it, the crimp barrel along
+// sc_dir(i) at the cable axis. The body square is aligned with the barrel.
+module ec_sc_plug_local(i) {
+    j = sc_joints[i];
+    n0 = sc_nut0_z();
+    translate([j[0], j[1], 0]) rotate([0, 0, sc_barrel_dir[i]]) {
+        translate([0, 0, n0]) cylinder(d = ra_w / cos(30), h = ra_nut_len, $fn = 6);
+        translate([-ra_w / 2, -ra_w / 2, n0 + ra_nut_len - 0.01]) cube([ra_w, ra_w, ra_len - ra_nut_len + 0.01]);
+        translate([0, 0, sc_barrel_z()]) rotate([0, 90, 0]) cylinder(d = ra_barrel_d, h = ra_barrel, $fn = 24);
+    }
+}
+// Joint i's tower-side jack (clip frame): D body, hex, heat-shrink, lock washer and nut.
+module ec_sc_jack_local(i) { sma_jack_ref(sc_joints[i], sc_plate_z[1]); }
+// The clip's three jacks and (plugs = true) the lid cables' mated plugs, at clamp travel t.
+module ec_sc_hardware(t = 0, dx = 0, dz = 0, plugs = true) {
+    sc_at_clamp(t, dx, dz) {
+        color([0.75, 0.76, 0.78]) for (i = [0 : 2]) ec_sc_jack_local(i);
+        if (plugs) color([0.85, 0.75, 0.2]) for (i = [0 : 2]) ec_sc_plug_local(i);
+    }
+}
+module ec_sc_jack(i, t = 0) { sc_at_clamp(t) ec_sc_jack_local(i); }
+module ec_sc_plug(i, t = 0) { sc_at_clamp(t) ec_sc_plug_local(i); }
+// Tower-side U.FL -> SMA-F leads (tower-borne, drawn at the nominal stack like the boards) and
+// their 1 mm reach stubs: e = 0 onto the board's U.FL, e = 1 into the jack's heat-shrink.
+module ec_tower_leads() { color([0.10, 0.10, 0.10, 0.6]) for (r = tl_route) ec_box(r[1]); }
+module ec_tower_lead_end(i, e) { ec_box(tl_stub[i][e]); }
+// Lid-side cable corridors (lid-borne, lid closed, clip at nominal travel): the HaLow pigtails
+// with their slack loops and the GNSS jumper's U; reach stubs e = 0 into the lid end's envelope,
+// e = 1 onto the plug barrel's end.
+module ec_pigtails() { color([0.10, 0.10, 0.10, 0.6]) for (r = ll_route) ec_box(r[1]); }
+module ec_lid_cable_end(i, e) { ec_box(ll_stub[i][e]); }
+// Lid lifted lid_lift_slack: each lid cable (except `except`) leaves its plug barrel, turns up on
+// its bend radius and rises toward the lifted lid (3 mm envelope; only the part over the clip).
+module ec_lid_cables_lifted(except = -1) {
+    z = ec_zc() + sc_barrel_z();
+    for (i = [0 : 2]) if (i != except) {
+        b = sc_barrel_end(i);
+        q = b + ll_bend_r[i] * sc_dir(i);
+        color([0.10, 0.10, 0.10, 0.6]) {
+            hull() { translate([b[0], b[1], z]) sphere(d = 3, $fn = 12); translate([q[0], q[1], z + ll_bend_r[i]]) sphere(d = 3, $fn = 12); }
+            translate([q[0] - 1.5, q[1] - 1.5, z]) cube([3, 3, box_top + lid_lift_slack - 20 - z]);
+        }
+    }
+}
+// The INA3221's I2C lead envelope (agreed 2026-11-02), riding the clamp at travel t.
+module ec_ina_i2c_run(t = 0) { color([0.2, 0.6, 0.9, 0.4]) ina_at_clamp(t) for (b = ina_i2c_run) ec_box(b); }
+// 8 mm spanner room for joint j at clamp travel t: the sector and the head's ring round the plug
+// nut in the slab, then the column over the sector beyond the head ring up to sc_hand_top above
+// the rim (the spanner comes down there and slides onto the nut).
+module ec_sector2(r, a, h) {
+    polygon(concat([[0, 0]], [for (k = [0 : 8]) r * [cos(a - h + 2 * h * k / 8), sin(a - h + 2 * h * k / 8)]]));
+}
+module ec_sc_sweep(j, t = 0) {
+    c = sc_joints[j];
+    a = sc_sweep_dir[j];
+    z0 = ec_zc(t) + sc_sw_slab[0];
+    z1 = ec_zc(t) + sc_sw_slab[1];
+    translate([c[0], c[1], 0]) {
+        translate([0, 0, z0]) linear_extrude(height = z1 - z0) difference() {
+            union() { circle(r = sc_head_r, $fn = 48); ec_sector2(sc_sw_r, a, sc_sw_half); }
+            circle(r = ra_w / cos(30) / 2 + 0.4, $fn = 24);
+        }
+        translate([0, 0, z1 - 0.01]) linear_extrude(height = box_top + sc_hand_top - z1) difference() {
+            ec_sector2(sc_sw_r, a, sc_sw_half);
+            circle(r = sc_head_r, $fn = 48);
+        }
+    }
+}
+// The lid's purchased radio hardware (N bulkheads, GNSS jack + the outside antenna cable's plug),
+// drawn at the closed-lid position.
+module ec_lid_radio_refs() {
+    color([0.75, 0.76, 0.78]) { for (s = [-1, 1]) antenna_bulkhead_ref(s); gnss_jack_ref(); }
+    color([0.10, 0.10, 0.10]) gnss_plug_ref();
+}
+
+// ---- INA3221 cradle on the tower clamp (ina_holder.scad) --------------------------------------
+// Scene board: the largest common outline (CJMCU-3221, 31.7 across x 38.3 along). The bar sits
+// at its ratchet stop for that board; its leaf is drawn undeflected, so the shoe overlaps the
+// board edge by the preload (as the strap bays' leaves overlap their boxes).
+module ec_ina(dz = 0, b = ina_board_cjmcu, travel = 0, dx = 0) {
+    color([0.82, 0.82, 0.84]) ina_at_clamp(travel, dx, dz) ina_cradle("frame");
+    color([0.62, 0.64, 0.68]) ina_at_clamp(travel, dx, dz) ina_cradle("bar", ina_stop(b[0]));
+}
+module ec_ina_board(dz = 0, b = ina_board_cjmcu, travel = 0, dx = 0) {
+    ina_at_clamp(travel, dx, dz) translate(ina_board_origin(b)) rb_ina3221(b[0], b[1]);
+}
+// The Adafruit #6062 (the board whose header carries the I2C) in its required orientation, header
+// soldered and a Dupont housing plugged (ESTIMATE envelope; the housing top is the highest point).
+module ec_ina_adafruit(dz = 0, travel = 0, dx = 0, grow = 0) {
+    ina_at_clamp(travel, dx, dz) translate(ina_board_origin(ina_board_adafruit)) rb_ina3221_adafruit(grow);
 }
 
 // ---- Whole contents -----------------------------------------------------------------------------
@@ -152,16 +248,25 @@ module electronics_contents(exploded_mm = 0) {
     ec_tower(0, 2.6 * e);
     ec_boards(2.6 * e);
     translate([0, 0, 2.6 * e]) ec_patch();
-    if (e == 0) ec_pigtails();
+    ec_ina(2.6 * e);
+    ec_ina_board(2.6 * e);
+    ec_sc_clip(0, 0, 2.6 * e);
+    ec_sc_hardware(0, 0, 2.6 * e, e == 0);
+    if (e == 0) ec_tower_leads();
     translate([0, 0, e]) {
         ec_carriers(0.4 * e);
         ec_signal_boards(0.4 * e);
     }
 }
 
+// The lid-side cables are drawn closed (corridors) or, with the lid lifted, rising to the lid.
 module electronics_packaging(exploded_mm = 0, lid_lift_mm = 0, body = true) {
     if (body) color([0.75, 0.75, 0.78, 0.30]) enclosure_body();
     electronics_contents(exploded_mm);
+    if (exploded_mm == 0) {
+        translate([0, 0, lid_lift_mm]) ec_lid_radio_refs();
+        if (lid_lift_mm > 0) ec_lid_cables_lifted(); else ec_pigtails();
+    }
     if (lid_lift_mm > 0) color([0.75, 0.75, 0.78, 0.30]) translate([0, 0, lid_lift_mm]) enclosure_lid_closed();
 }
 
@@ -171,5 +276,5 @@ assembly = "electronics_packaging";
 if (assembly == "electronics_packaging") electronics_packaging(0, 0);
 else if (assembly == "electronics_contents") electronics_contents(0);
 else if (assembly == "electronics_exploded") electronics_packaging(60, 0, false);
-else if (assembly == "electronics_lid_lifted") electronics_packaging(0, 120);
+else if (assembly == "electronics_lid_lifted") electronics_packaging(0, lid_lift_slack);
 else assert(false, str("unknown control assembly: ", assembly));

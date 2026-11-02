@@ -1,5 +1,6 @@
 // HaLow antenna ports and mounts on the enclosure LID's back (-Y) edge: two purchased Rokland
-// 10 dBi "Backcountry" 915 MHz omnis, one per HaLow radio (-X station: Alta, +X station: Pi 5).
+// 10 dBi "Backcountry" 915 MHz omnis, one per HaLow radio (-X station: Alta, +X station: Pi 5),
+// and the LC29H's GNSS port (an SMA bulkhead jack) near the compute tower.
 // The body is unchanged; enclosure_lid.scad carries the ports and post sockets.
 // PROTOTYPE GEOMETRY: no ingress (IP), wind, vibration, UV or load rating is claimed.
 //
@@ -24,6 +25,20 @@
 // Load path: antenna -> grips -> post rails -> post column -> column foot bearing on the lid top
 // + spigot bearing in the socket boss -> lid plate -> 12 x M4 -> body flange.
 // U-bolt FALLBACK: horizontal slots through the post and grips take the supplied U-bolts.
+//
+// GNSS PORT (owner decisions 2026-11-02): one SMA-female bulkhead jack through the lid, at gn_xy
+// over the box interior, inside the seal line. It is the bulkhead end of a purchased
+// SMA-female-bulkhead-to-SMA-male-right-angle jumper: the jumper's plug screws onto the GNSS jack
+// held by the tower's printed SMA clip (control_77603/sma_clip.scad), whose own U.FL (IPEX MHF I)
+// lead stays mated to the LC29H(DA) HAT. The GNSS antenna stays OUTSIDE (legacy antenna_deck or
+// anywhere with sky view) and its SMA-male cable screws onto the jack. The jack's body hex sits
+// under the lid in a local counterbore that leaves a gn_land_t land (the 5 mm plate exceeds the
+// bulkhead's 3.175 mm maximum panel); the D-flat hole keys the body (so no spanner reaches under
+// the lid), and a lock washer + nut sit on the flat lid top. Nothing printed stands within 10 mm
+// of the washer; tape the SMA joint as the N joints.
+// The jumper leaves the bulkhead straight down (heat-shrink end z 161.1), below the clip's plug
+// barrels (z ~176), so it needs a U-turn plus its 100 mm lid-lift slack under the jack: gn_xy sits
+// over the free loft between the clip and the +X panel's PCA9685 plugs, not over the clip.
 //
 // Frames: BODY coordinates with the lid CLOSED (z = 0 body floor bottom, +Y forward). Station
 // frame: origin on the antenna axis at the lid top, +Y toward the post; the -X station is the
@@ -55,6 +70,41 @@ ant_ay = -48;                 // nut/jack inside the -Y inner wall; hole inside 
 ant_rib_clear_r = 20;         // HEAD lid ribs cut back round each bulkhead (nut spanner)
 ant_keepout_d = 30;           // under-lid station envelope agreed with control_77603
 ant_keepout_z0 = 162;
+
+// ---- GNSS sky-view port: SMA-female bulkhead (body coordinates) ----
+// Published SMA-F D-flat bulkhead drawings (U.FL pigtails T and L share the bulkhead end with the
+// SMA-F-bulkhead -> SMA-M jumper; the purchased jumper and leads are TO MEASURE against them).
+// The same data size the three jacks on the tower's SMA clip (sma_bulkhead_* modules below):
+//   T = Taoglas CAB.011, https://www.taoglas.com/datasheets/CAB.011.pdf p.7
+//   L = Linx/TE CSH-SGFB, https://docs.rs-online.com/3709/A700000010108438.pdf and
+//       https://www.farnell.com/datasheets/3970976.pdf p.2
+//   M = MIL-STD-348A Fig. 310-1/310-2, https://www.takitek.co.jp/Datasheets/MIL-STD-348RevA.pdf
+gn_xy = [51, 41.6];           // DESIGN: loft +X of the SMA clip; envelope 0.4 off the y 50 rib and the PCA9685 plugs
+gn_thread_d = 6.35;           // 1/4-36 UNS-2A (T, L, M)
+gn_body_flat = 5.8;           // T: across the body's D-flat (L 5.9)
+gn_hole_d = 6.5;              // L recommended panel hole
+gn_hole_flat = 6.0;           // L: flat to the opposite arc
+gn_panel_max = 3.175;         // L note 12 (T: about 3.5, from M's plug-nut clearance)
+gn_land_t = 3;                // DESIGN land left by the under-lid counterbore
+gn_cbore_d = 14;              // DESIGN: body hex corners 9.24 + 2.4 a side
+gn_thread_len = 11.4;         // T, L: body hex face to the jack (mating) face
+gn_hex_af = 8;                // T, L body hex (under the land)
+gn_hex_t = 3.4;               // T (L 2.6)
+gn_nut_af = 8;                // T, L panel nut
+gn_nut_t = 1.8;               // T (L 1.7)
+gn_washer_d = 10.2;           // T, L toothed lock washer OD
+gn_washer_t = 0.5;            // L
+gn_shrink_len = 22;           // T heat-shrink 17 +-5 under the hex (maximum)
+gn_shrink_d = 4.3;            // T: 3.8 +-0.5 at the hex (maximum)
+gn_plug_nut_clear = 5.54;     // M Fig. 310-2: thread behind the jack face the mating plug nut needs
+gn_plug_overhang = 3.43;      // M Fig. 310-1: plug nut past the mating plane (max)
+gn_plug_d = 10;               // ESTIMATE straight SMA-male plug of the antenna cable (5/16 hex 9.2 A/C)
+gn_plug_len = 25;             // ESTIMATE plug + boot above the jack face; then the cable leaves
+gn_keepout_d = 16;            // under-lid envelope round the hex and heat-shrink
+gn_keepout_z0 = 160;          // below the heat-shrink end (worst case z 161.1)
+function gn_land_z0() = sma_land_z0(ant_lid_top());          // land underside (hex face)
+function gn_jack_face_z() = sma_face_z(ant_lid_top());
+function gn_shrink_z0() = sma_shrink_z0(ant_lid_top());
 function ant_lid_top() = box_top + lid_thickness;
 
 // ---- Antenna reference (ESTIMATES except the 1143 mm height) ----
@@ -141,6 +191,14 @@ assert(grip_z[1] - grip_ledge_h - 9 - (grip_z[0] + grip_h) >= grip_h + 4,
 assert(snap_slit > snap_tooth + sock_clear, "Snap leaf cannot deflect clear of the socket wall");
 assert(ant_lid_top() - ant_panel_t - ant_jack_below - ant_cable_bend_r - ant_cable_d / 2
        >= ant_keepout_z0, "Pigtail bend drops below the station floor");
+assert(gn_land_t <= gn_panel_max, "GNSS land exceeds the SMA bulkhead's maximum panel");
+assert(gn_thread_len - gn_land_t - gn_washer_t - gn_nut_t >= gn_plug_nut_clear,
+       "Too little SMA thread above the nut for the mating plug's coupling nut");
+assert(gn_cbore_d >= gn_hex_af / cos(30) + 2, "GNSS counterbore does not clear the body hex");
+assert(abs(gn_xy[0]) + gn_keepout_d / 2 <= box_inner_l / 2 - 2
+       && abs(gn_xy[1]) + gn_keepout_d / 2 <= box_inner_w / 2 - 2,
+       "GNSS jack must hang inside the box's inner walls");
+assert(gn_shrink_z0() >= gn_keepout_z0, "GNSS heat-shrink drops below its envelope");
 
 // Accessors (`use` shares functions, never variables).
 function ant_axis_xy(side) = [side * ant_ax, ant_ay];
@@ -152,6 +210,14 @@ function ant_snap_deflect_mm() = snap_tooth + sock_clear;
 function ant_snap_free_z() = snap_root_z + 0.5;   // leaf free above its root block
 function ant_top_d_mm() = ant_top_d;
 function ant_top_t_mm() = ant_top_t;
+function gn_xy_mm() = gn_xy;
+function gn_washer_d_mm() = gn_washer_d;
+function gn_top_h_mm() = gn_jack_face_z() + gn_plug_len - ant_lid_top();
+function gn_nut_top_z() = sma_nut_top_z(ant_lid_top());
+// SMA bulkhead data for control_77603 (the SMA clip's lands and jack heights).
+function gn_land_t_mm() = gn_land_t;
+function gn_thread_len_mm() = gn_thread_len;
+function gn_plug_overhang_mm() = gn_plug_overhang;
 
 module ant_mirror(side) { if (side < 0) mirror([1, 0, 0]) children(); else children(); }
 // Station frame -> body coordinates (mirrored for the -X station).
@@ -191,15 +257,45 @@ module antenna_lid_cut() {
         box3([sock_x()[0], sock_y()[0], sock_z0()], [sock_x()[1], sock_y()[1], 1]);
         ant_snap_recess();
     }
+    gnss_lid_cut();
 }
-// Under-lid envelope agreed with control_77603: jack, nut, pigtail bend and the socket boss.
-module antenna_lid_keepout() {
+// GNSS D profile (2D, axis at the origin): circle d cut by a flat flat_c from the centre, +X.
+module gn_d2(d, flat_c) {
+    intersection() { circle(d = d, $fn = 48); translate([-d, -d]) square([d + flat_c, 2 * d]); }
+}
+// SMA-F D-flat bulkhead on a printed land: the lid's GNSS port and the three jacks of the tower's
+// SMA clip (control_77603/sma_clip.scad) share these. xy = jack axis (body); top = the land's top
+// face (outside face of the panel). The land is gn_land_t thick; the body hex bears on its
+// underside inside a gn_cbore_d counterbore that starts at z cb0.
+function sma_land_z0(top) = top - gn_land_t;                  // land underside (hex face)
+function sma_face_z(top) = sma_land_z0(top) + gn_thread_len;   // jack (mating) face
+function sma_shrink_z0(top) = sma_land_z0(top) - gn_hex_t - gn_shrink_len;
+function sma_nut_top_z(top) = top + gn_washer_t + gn_nut_t;
+// D-flat hole through the land and the counterbore under it that makes the land.
+module sma_land_cut(xy, top, cb0) {
+    translate([xy[0], xy[1], 0]) {
+        translate([0, 0, sma_land_z0(top) - 0.5]) linear_extrude(height = gn_land_t + 1.5)
+            gn_d2(gn_hole_d, gn_hole_flat - gn_hole_d / 2);
+        translate([0, 0, cb0]) cylinder(d = gn_cbore_d, h = sma_land_z0(top) - cb0, $fn = 72);
+    }
+}
+module gnss_lid_cut() { sma_land_cut(gn_xy, ant_lid_top(), box_top - 1); }
+// Under-lid envelopes agreed with control_77603 (the control probes call antenna_lid_keepout()).
+// HaLow stations: jack, nut, pigtail bend and the socket boss.
+module halow_lid_keepout() {
     for (s = [-1, 1]) {
         translate([s * ant_ax, ant_ay, ant_keepout_z0])
             cylinder(d = ant_keepout_d, h = box_top - ant_keepout_z0, $fn = 72);
         antenna_socket_boss(s);
     }
 }
+// GNSS jack: body hex and heat-shrink (gn_keepout_d). The D-flat keys the body, so no spanner
+// room is kept round the hex.
+module gnss_lid_keepout() {
+    translate([gn_xy[0], gn_xy[1], gn_keepout_z0])
+        cylinder(d = gn_keepout_d, h = box_top - gn_keepout_z0, $fn = 48);
+}
+module antenna_lid_keepout() { halow_lid_keepout(); gnss_lid_keepout(); }
 
 // ---- Post (station frame; printed lying on its back face, see antenna_post_print) ----
 module ant_rail_profile() {
@@ -355,6 +451,44 @@ module antenna_ref(side, tube_d = ant_tube_d_mm, env = false) {
         }
     }
 }
+// ---- SMA bulkhead jack references (body coordinates; xy, top as sma_land_cut) ----
+// D-flat threaded body (the flat runs along the thread), keyed in the land's D hole.
+module sma_dbody(xy, z0, h, turn = 0) {
+    translate([xy[0], xy[1], z0]) rotate([0, 0, turn]) linear_extrude(height = h)
+        gn_d2(gn_thread_d, gn_body_flat - gn_thread_d / 2);
+}
+// Under the land: D body through it, body hex under it, heat-shrink below.
+module sma_jack_under_ref(xy, top) {
+    sma_dbody(xy, sma_land_z0(top), gn_land_t);
+    translate([xy[0], xy[1], 0]) {
+        translate([0, 0, sma_land_z0(top) - gn_hex_t]) cylinder(d = gn_hex_af / cos(30), h = gn_hex_t, $fn = 6);
+        translate([0, 0, sma_shrink_z0(top)]) cylinder(d = gn_shrink_d, h = gn_shrink_len + 0.01, $fn = 24);
+    }
+}
+// On the land's top face: lock washer and nut ...
+module sma_nut_washer_ref(xy, top) {
+    translate([xy[0], xy[1], top]) {
+        cylinder(d = gn_washer_d, h = gn_washer_t, $fn = 48);
+        translate([0, 0, gn_washer_t - 0.01]) cylinder(d = gn_nut_af / cos(30), h = gn_nut_t + 0.01, $fn = 6);
+    }
+}
+// ... and the threaded body up to the jack (mating) face.
+module sma_jack_top_ref(xy, top) {
+    sma_dbody(xy, top, sma_face_z(top) - top);
+    sma_nut_washer_ref(xy, top);
+}
+module sma_jack_ref(xy, top) { sma_jack_top_ref(xy, top); sma_jack_under_ref(xy, top); }
+// The lid's GNSS jack.
+module gnss_dbody(z0, h, turn = 0) { sma_dbody(gn_xy, z0, h, turn); }
+module gnss_jack_under_ref() { sma_jack_under_ref(gn_xy, ant_lid_top()); }
+module gnss_nut_washer_ref() { sma_nut_washer_ref(gn_xy, ant_lid_top()); }
+module gnss_jack_top_ref() { sma_jack_top_ref(gn_xy, ant_lid_top()); }
+// The outside antenna cable's straight SMA-male plug, mated (its nut overhangs the jack face).
+module gnss_plug_ref() {
+    translate([gn_xy[0], gn_xy[1], gn_jack_face_z() - gn_plug_overhang])
+        cylinder(d = gn_plug_d, h = gn_plug_overhang + gn_plug_len, $fn = 36);
+}
+module gnss_jack_ref() { gnss_jack_top_ref(); gnss_jack_under_ref(); }
 // Both stations' purchased and printed hardware above and under the closed lid (views).
 module antenna_lid_hardware(d = ant_tube_d_mm, antenna_len = 0) {
     for (s = [-1, 1]) {
@@ -376,6 +510,8 @@ module antenna_lid_hardware(d = ant_tube_d_mm, antenna_len = 0) {
             } else antenna_ref(s, d);
         }
     }
+    color([0.75, 0.76, 0.78]) gnss_jack_ref();
+    color([0.1, 0.1, 0.1]) gnss_plug_ref();
 }
 
 if (antenna_part == "grip") antenna_grip();
