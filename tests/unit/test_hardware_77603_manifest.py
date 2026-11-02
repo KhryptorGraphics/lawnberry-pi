@@ -339,13 +339,22 @@ def test_printed_pin_has_captured_keeper_band(tmp_path, region, expect_empty):
 
 
 def test_manifest_pip_pairs_meet_mesh_release_gates(manifest):
-    """The four co-printed joints must publish their captive bodies within the PIP limits."""
-    # Body count per print-in-place export: the rod set is sleeve + slider + collet nut.
+    """Every co-printed set must publish its captive bodies within the PIP limits."""
+    # Body count per print-in-place export. The rod's capture set is sleeve + slider + cam lever;
+    # its sections carry a joint lever each and the fork a thumbwheel. The electronics strap
+    # bars print captive in their bays.
     expected = {
+        "rod_segment_lower": 2,
+        "rod_segment_middle": 2,
         "rod_capture_assembly": 3,
+        "rod_fork_assembly": 2,
+        "rod_cam_coupon": 3,
+        "rod_joint_coupon": 2,
         "throttle_u_fitting": 2,
         "variant_c_pip": 2,
         "variant_d_pip": 2,
+        "strap_bay": 2,
+        "harness_clamp": 2,
     }
     parts = manifest["parts"]
     actual = {

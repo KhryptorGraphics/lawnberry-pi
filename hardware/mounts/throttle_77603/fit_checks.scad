@@ -6,7 +6,6 @@
 // agrees with the model whether or not the model is right.
 include <parameters.scad>
 use <mg995_throttle_mount.scad>
-use <throttle_pushrod.scad>
 use <throttle_u_fitting.scad>
 use <throttle_horn_variants.scad>
 use <printed_joints.scad>
@@ -17,16 +16,9 @@ use <../pushrod.scad>           // legacy steering rod geometry, for the linkage
 use <assemblies.scad>          // scene placements, reused by the linkage probes
 
 check = "u_lever_passes";
-rod_capture_length_mm = rods_nominal_span_mm;
 link_variant = "E";
 link_sweep_deg = 0;     // horn sweep about the neutral pose, degrees
 clevis_ear_side = 1;     // clevis_double_shear: +1 upper ear, -1 lower ear
-splice_joint = 0;        // splice probes: 0 servo/chain, 1 chain/chain, 2 chain/sleeve
-splice_shift_mm = 1;     // splice_bar_holds_joint: displacement along the rod axis
-rod_collet_advance_mm = 1.2;  // rod_collet_nut_runs_free: helical nut advance, mm (- = back)
-rod_collet_shift_mm = 1;      // rod_collet_nut_captive: pure axial push of the nut, mm
-rod_eye_target = "body";      // rod_body_bar_holds: "body" or "slider"
-rod_eye_shift_mm = 1;         // rod_body_bar_holds: bar displacement along the rod, mm
 u_yoke_angle = 30;       // u_yoke_pitch_range: yoke pitch about the hinge axis, degrees
 u_yoke_shift = [0, 0, 1];  // u_yoke_captive: displacement of the yoke, mm
 d_ball_angle_deg = 10;      // d_ball_range_clear: prototype articulation angle
@@ -34,11 +26,8 @@ d_ball_shift_mm = [0, 0, 3]; // d_ball_captive: forced translation of the ball
 c_radius_mm = horn_radius_default_mm;  // c_shoe_*: tested continuous radius
 c_shoe_shift_mm = [0, 0, 1];           // c_shoe_*: forced movement of the shoe
 c_lock_stage = 1;  // c_lock_*/c_key_*: fraction of the dovetail lift the wedge key has driven
-pin_ring_kind = "shared";  // pin_ring_*: shared, index, a_post, e_hinge or cross
-// Plan unit vector of the rod's run for the selected variant.
-function link_run_mm() =
-    [cos(run_angle_deg(link_variant)), sin(run_angle_deg(link_variant)), 0];
-
+pin_ring_kind = "shared";  // pin_ring_*: shared, index, a_post or e_hinge
+keeper_station = 0;     // keeper_snap_fingers_pass: 0 at the wall top, 1 mid-wall, 2 near home
 // ---- Helpers -----------------------------------------------------------------------
 module at_servo() { translate(throttle_servo_base_mm()) children(); }
 // The derivative right head as built, in world coordinates.
@@ -109,18 +98,24 @@ module throttle_linkage_at(letter, sweep) {
 
 // ---- Pin keeper pairs (pin_ring_* probes) ------------------------------------------------
 // The shared printed_pin primitive and the real pins that use its lip-and-groove relief, each
-// with its ring as installed. The shared and cross pins are drawn in their own frames.
+// with its ring as installed. The shared pin is drawn in its own frame. (The servo keeper's
+// cross pins and rings were retired with the one-piece snap keeper.)
 module pin_ring_pin(kind) {
     if (kind == "shared") printed_pin(24);
-    else if (kind == "cross") cross_pin(keeper_cross_pin_len_mm);
     else keeper_probe_pin(kind);
 }
 
 module pin_ring_ring(kind) {
     if (kind == "shared") translate([0, 0, keeper_ring_seat_z()]) printed_keeper();
-    else if (kind == "cross") translate([0, 0, cross_ring_seat_mm]) cross_keeper();
     else keeper_probe_ring(kind);
 }
+
+// ---- Snap keeper (keeper_* probes) ---------------------------------------------------------
+// Insertion stations for the keeper, as lifts above its seated pose: barbs at the wall top,
+// halfway down the wall, and just above their windows.
+function keeper_station_lift(station) =
+    let(top = cradle_wall_h_mm - keeper_barb_z0_mm)
+    [top - 0.5, top / 2, keeper_barb_d_mm + keeper_barb_land_mm + 0.5][station];
 
 // ---- Dispatch ----------------------------------------------------------------------
 if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
@@ -213,33 +208,6 @@ if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
         }
         steering_envelope();
     }
-} else if (check == "linkage_vs_steering") {
-    // EMPTY, per variant and horn sweep: the throttle horn interface and the rod's servo
-    // section stay clear of the steering servo, its adapter and its pushrod sweep.
-    intersection() {
-        throttle_linkage_at(link_variant, link_sweep_deg);
-        steering_envelope();
-    }
-} else if (check == "linkage_vs_head") {
-    // EMPTY, per variant and horn sweep: the throttle horn interface and the rod's servo
-    // section stay clear of the head's rib, land, shelf and cradle walls.
-    intersection() {
-        throttle_linkage_at(link_variant, link_sweep_deg);
-        head_world();
-    }
-} else if (check == "rod_vs_steering") {
- // EMPTY, per variant: the WHOLE throttle rod, servo eye to throttle eye, stays clear of
- // the raised steering servo, its adapter and its pushrod sweep. The steering rod now falls
- // from the raised crank toward the lap bar while the throttle rod runs level below it, and
- // their plan paths cross; this is the probe that measures that crossing.
- // The real rod is intersected, threads included; that takes several minutes per variant,
- // so the catalog gives this probe its own timeout. A convex hull of the rod was tried and
- // rejected: it cost as much (building both operands dominates), and for variant E its
- // corners met a steering rod that the real rod clears, so it could not prove clearance.
- intersection() {
- rod_run(link_variant);
- steering_envelope();
- }
 } else if (check == "servo_lifts_out") {
     // EMPTY: with its horn removed, the MG995 rises straight out of the cradle (base past the
     // wall tops) without meeting the head or the steering servo above it, so the throttle
@@ -258,7 +226,7 @@ if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
         }
     }
 } else if (check == "keeper_lifts_out") {
-    // EMPTY: with its pins drawn, the keeper rises until its legs clear the cradle walls
+    // EMPTY: released, the one-piece keeper rises until its fingers clear the cradle walls
     // without meeting the steering servo or its pushrods above it.
     intersection() {
         at_servo() translate([0, 0, service_lift_mm]) mg995_throttle_mount("keeper_installed");
@@ -278,228 +246,39 @@ if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
                       - joint_clearance_mm - 0.1, 0.5]);
     }
 } else if (check == "keeper_fits_cradle") {
-    // EMPTY: the installed keeper does not interfere with the head's cradle walls.
+    // EMPTY: the seated keeper -- frame, fingers and barbs in their windows -- does not
+    // interfere with the head's cradle walls.
     intersection() {
         head_world();
         at_servo() mg995_throttle_mount("keeper_installed");
     }
-} else if (check == "keeper_pins_fit") {
-    // EMPTY: the installed keeper pins and rings clear the head and the keeper.
+} else if (check == "keeper_ribs_preload_lugs") {
+    // CONTACT: seated (frame on the provisional ear tops), the crush ribs overlap the ears:
+    // the designed 0.4 mm interference that presses the ears onto the wall tops. The ears
+    // are lowered 0.05 mm so the frame's coplanar bearing face drops out and only the ribs'
+    // overlap remains. A geometric overlap only; crush force and retention are bench items.
     intersection() {
-        at_servo() mg995_throttle_mount("keeper_pins_installed");
-        union() {
-            head_world();
-            at_servo() mg995_throttle_mount("keeper_installed");
-        }
+        mg995_throttle_mount("keeper_installed");
+        translate([0, 0, -0.05]) mg995_throttle_mount("flange_envelope");
     }
-} else if (check == "keeper_pins_block_liftoff") {
-    // CONTACT: lifting the keeper 1 mm drives both legs into the installed pins.
+} else if (check == "keeper_snap_blocks_liftoff") {
+    // CONTACT: lifted 0.5 mm (past the 0.2 mm catch play), every barb's catch face meets
+    // its window's roof in the head's side wall.
     intersection() {
-        mg995_throttle_mount("keeper_pins_installed");
-        translate([0, 0, 1]) mg995_throttle_mount("keeper_installed");
-    }
-} else if (check == "keeper_pins_engage_cradle") {
-    // CONTACT: lifting the pins 1 mm drives them into the head's side-wall bores.
-    intersection() {
-        at_servo() translate([0, 0, 1]) mg995_throttle_mount("keeper_pins_installed");
+        at_servo() translate([0, 0, keeper_catch_play_mm + 0.3])
+            mg995_throttle_mount("keeper_installed");
         head_world();
     }
-} else if (check == "linkage_servo_end_fit") {
-    // EMPTY: the rod's servo section clears the horn interface, the mount stack and the
-    // servo envelope at this horn sweep (rod direction held at neutral).
+} else if (check == "keeper_snap_fingers_pass") {
+    // EMPTY, at each station: with every finger opened by keeper_snap_spread_mm at its
+    // barb, the keeper slides down the walls -- barbs at the wall top, mid-wall and just
+    // above their windows -- without meeting the head or the provisional ears.
     intersection() {
-        rod_servo_end(link_variant, link_sweep_deg);
+        at_servo() translate([0, 0, keeper_station_lift(keeper_station)])
+            keeper_installed(spread = keeper_snap_spread_mm);
         union() {
-            horn_interface(link_variant, link_sweep_deg);
-            mg995_throttle_mount("assembly");
-            mg995_reference();
-        }
-    }
-} else if (check == "linkage_servo_eye_lift") {
-    // CONTACT: lifting the servo eye 1 mm meets its cap or upper clevis ear.
-    intersection() {
-        translate([0, 0, 1]) rod_servo_end(link_variant);
-        horn_interface(link_variant);
-    }
-} else if (check == "linkage_servo_eye_pull") {
-    // CONTACT: pulling the servo eye 1 mm along the run meets its pivot.
-    intersection() {
-        translate(link_run_mm()) rod_servo_end(link_variant);
-        horn_interface(link_variant);
-    }
-} else if (check == "linkage_throttle_end_fit") {
-    // EMPTY: the rod's moving end clears the U fitting on its post.
-    intersection() {
-        rod_throttle_end_placed(link_variant);
-        throttle_end(link_variant);
-    }
-} else if (check == "linkage_throttle_eye_lift") {
-    // CONTACT: lifting the throttle eye 1 mm meets the U post's cap.
-    intersection() {
-        translate([0, 0, 1]) rod_throttle_end_placed(link_variant);
-        throttle_end(link_variant);
-    }
-} else if (check == "linkage_throttle_eye_pull") {
-    // CONTACT: pulling the throttle eye 1 mm back along the run meets the U post.
-    intersection() {
-        translate(-link_run_mm()) rod_throttle_end_placed(link_variant);
-        throttle_end(link_variant);
-    }
-} else if (check == "rod_capture_pip_fit") {
-    // EMPTY: the sleeve and slider, as printed collet end down, leave the bed as separate
-    // bodies; the mesh gap is measured by the catalogue's print-in-place gate.
-    intersection() {
-        rod_nose_place() rod_receiver_sleeve();
-        rod_nose_place() rod_slider_print_pose();
-    }
-} else if (check == "rod_collet_nut_clear") {
-    // EMPTY: the captive collet nut, as printed, clears both the sleeve and the slider.
-    intersection() {
-        rod_collet_nut();
-        rod_nose_place() {
-            rod_receiver_sleeve();
-            rod_slider_print_pose();
-        }
-    }
-} else if (check == "rod_collet_nut_captive") {
-    // CONTACT, +/-1 mm: pushed straight along the axis without turning, the nut meets the
-    // band's thread flanks (0.64 mm axial clearance) in either direction.
-    intersection() {
-        translate([0, 0, rod_collet_shift_mm]) rod_collet_nut();
-        rod_nose_place() rod_receiver_sleeve();
-    }
-} else if (check == "rod_collet_nut_runs_free") {
-    // EMPTY: screwed along its own thread (turn and advance together) by up to 1.2 mm
-    // toward the tip or back toward the shoulder, the nut still clears the sleeve: the
-    // threads are co-helical, the cone meets the flare only after
-    // rod_collet_contact_advance() (1.46 mm) and the shoulder after about 1.45 mm back.
-    intersection() {
-        rod_collet_nut_at(rod_collet_advance_mm);
-        rod_nose_place() rod_receiver_sleeve();
-    }
-} else if (check == "rod_collet_nut_drives_fingers") {
-    // CONTACT: screwed forward by the clamp advance (3.61 mm: contact plus the 0.4 mm
-    // slider clearance and 0.3 mm preload over tan 18 deg), the nut's cone overlaps the
-    // UNDEFLECTED fingers, i.e. it must close them. The asserts in throttle_pushrod.scad
-    // prove the reserved 6 mm advance closes 1.48 mm radially, more than the 0.7 needed.
-    intersection() {
-        rod_collet_nut_at(rod_collet_clamp_advance());
-        intersection() {
-            rod_nose_place() rod_receiver_sleeve();
-            rod_collet_finger_zone();
-        }
-    }
-} else if (check == "rod_capture_range_clear") {
-    // EMPTY at each setting: the sleeve (lug in the groove) and the as-printed nut clear
-    // the slider.
-    intersection() {
-        union() {
-            rod_receiver_sleeve();
-            rod_nose_place() rod_collet_nut();
-        }
-        translate([0, 0, rod_slider_start_in_sleeve_mm(rod_capture_length_mm)])
-            rod_slider();
-    }
-} else if (check == "rod_capture_clear") {
-    // At the selected setting, the closed groove shoulder clears the sleeve's integral lug.
-    intersection() {
-        rod_overstop_lug(rod_capture_length_mm);
-        rod_overstop_stop();
-    }
-} else if (check == "rod_overlap_capture") {
-    // Slide the slider along the rod until its closed groove end reaches the sleeve's
-    // integral lug and 1 mm past it. The lug sits INSIDE the groove at the declared
-    // settings, so the closed ends are overtravel catches, not length stops: contact
-    // needs about 245 mm of extension at the 940 mm setting and about 5 mm at the
-    // 1200 mm setting. Contact proves the catch exists, not that it holds load or that
-    // the collet holds length.
-    intersection() {
-        translate([0, 0, rod_capture_lug_z()
-                   - rod_capture_shoulder_end_z(rod_capture_length_mm) + 1])
-            rod_overstop_lug(rod_capture_length_mm);
-        rod_overstop_stop();
-    }
-} else if (check == "rod_overlap_capture_reverse") {
-    // CONTACT: the same catch in reverse, reached after about 83 mm of reverse travel at
-    // the 940 mm setting, plus 1 mm past it.
-    intersection() {
-        translate([0, 0, rod_capture_lug_z()
-                   - rod_capture_upper_shoulder_z(rod_capture_length_mm) - 1])
-            rod_overstop_reverse_shoulder(rod_capture_length_mm);
-        rod_overstop_stop();
-    }
-} else if (check == "rod_body_fit") {
-    // EMPTY: the throttle-end body, its bar and keeper, the fine screw and jam collar, the
-    // fork and its nut (at both ends of the fine travel) clear the slider and each other.
-    // Frame: relative to the slider tip.
-    union() {
-        intersection() {
-            rod_slider_from_tip();
-            union() {
-                rod_throttle_body();
-                rod_body_bar();
-                rod_fine_jam_collar();
-                for (f = [0, rods_fine_travel_mm])
-                    rod_fork_at(f);
-            }
-        }
-        intersection() {
-            rod_throttle_body();
-            union() {
-                rod_body_bar();
-                rod_fine_screw();
-                rod_fine_jam_collar();
-                for (f = [0, rods_fine_travel_mm])
-                    rod_fork_at(f);
-            }
-        }
-        for (f = [0, rods_fine_travel_mm])
-            intersection() {
-                rod_fork_at(f, with_nut = true);
-                union() {
-                    rod_body_bar();
-                    rod_fine_jam_collar();
-                }
-            }
-    }
-} else if (check == "rod_body_bar_holds") {
-    // CONTACT, per target and direction: the bar moved 1 mm along the rod meets the
-    // body's slot (body) or the slider's window (slider), so the bar ties the two.
-    intersection() {
-        translate([0, 0, rod_eye_shift_mm]) rod_body_bar();
-        if (rod_eye_target == "body") rod_throttle_body();
-        else rod_slider_from_tip();
-    }
-} else if (check == "rod_body_keeper_stops_inward") {
-    // CONTACT: pushing the bar 1 mm inward drives its keeper into the body's +Y face.
-    intersection() {
-        rod_throttle_body();
-        translate([0, -1, 0]) rod_body_bar();
-    }
-} else if (check == "rod_fine_screw_engages") {
-    // CONTACT: the fine screw's flange bears on the boss's rear face and the jam collar on
-    // its front face (each moved 1 mm into the boss), so the screw is axially held.
-    intersection() {
-        rod_throttle_body();
-        union() {
-            translate([0, 0, 1]) rod_fine_screw();
-            translate([0, 0, -1]) rod_fine_jam_collar();
-        }
-    }
-} else if (check == "rod_body_clears_collet") {
-    // EMPTY at each setting: the throttle-end body set, fork and fine nut clear the
-    // sleeve and the collet nut at its full reserved advance (6 mm, past any clamp pose).
-    intersection() {
-        union() {
-            translate([0, 0, rod_slider_tip_z(rod_capture_length_mm)]) rod_body_set();
-            translate([0, 0, rod_throttle_pin_z(rod_capture_length_mm)]) {
-                rod_throttle_fork();
-                rod_fine_carriage_nut();
-            }
-        }
-        union() {
-            rod_sleeve_installed();
-            rod_collet_nut_installed(collet_nut_max_advance_mm);
+            head_world();
+            at_servo() mg995_throttle_mount("flange_envelope");
         }
     }
 } else if (check == "clevis_double_shear") {
@@ -516,26 +295,6 @@ if (check == "u_lever_passes" || check == "u_lever_passes_nominal") {
                 cylinder(d = bushing_od_mm + 3, h = ear - 0.6);
                 translate([0, 0, -1]) cylinder(d = bushing_od_mm + 0.6, h = ear + 1);
             }
-    }
-} else if (check == "splice_bars_fit") {
-    // EMPTY: every joint's bar and keeper clear the installed fixed chain.
-    intersection() {
-        rod_fixed_chain();
-        rod_splices();
-    }
-} else if (check == "splice_bar_holds_joint") {
-    // CONTACT, per joint and direction: moving that joint's bar 1 mm along the rod meets
-    // the slot faces in the boss and spigot, so the bar holds the two sections together.
-    intersection() {
-        rod_fixed_chain();
-        translate([0, 0, splice_shift_mm]) rod_splice(rod_splice_bases()[splice_joint]);
-    }
-} else if (check == "splice_keeper_stops_inward") {
-    // CONTACT, per joint: pushing that joint's bar 1 mm toward the slider drives its keeper
-    // into the boss face before the bar can reach the slider passage.
-    intersection() {
-        rod_fixed_chain();
-        translate([0, -1, 0]) rod_splice(rod_splice_bases()[splice_joint]);
     }
 } else if (check == "d_ball_pip_fit") {
     // EMPTY: the truncated ball and carrier-integral socket print as separate bodies.

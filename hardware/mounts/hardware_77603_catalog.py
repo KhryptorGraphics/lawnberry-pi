@@ -69,6 +69,8 @@ class Probe:
     # Per-run openscad cap in seconds; None keeps the runner's default. Set only for a probe
     # whose real solids are genuinely slow to build, never to hide a hung render.
     timeout_s: int | None = None
+    # OpenSCAD file, relative to hardware/mounts, that implements `check`.
+    source: str = f"{THROTTLE}/fit_checks.scad"
 
 
 def _t(part: str) -> dict[str, object]:
@@ -112,113 +114,89 @@ MOUNT_PIECES = (
         f"{THROTTLE}/throttle_arm_head.scad",
         {},
         orientation="mating face down, as the legacy arm head prints",
-        note="derivative of arm_head_right; integral shelf and cradle walls carry the "
-        "throttle MG995 below the raised steering servo; fit and joint strength unverified",
-    ),
-    Piece("servo_keeper", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("keeper")),
-    Piece(
-        "servo_keeper_pin",
-        f"{THROTTLE}/mg995_throttle_mount.scad",
-        _mount("keeper_pin"),
-        quantity=2,
-        orientation="upright on its head",
-        note="transverse pins through the keeper legs and cradle side walls; fit, clip "
-        "retention and vibration life unverified",
+        note="derivative of arm_head_right; integral shelf and cradle walls (four snap "
+        "windows) carry the throttle MG995 below the raised steering servo; fit and joint "
+        "strength unverified",
     ),
     Piece(
-        "servo_pin_keeper",
+        "servo_keeper",
         f"{THROTTLE}/mg995_throttle_mount.scad",
-        _mount("pin_keeper"),
-        quantity=2,
-        orientation="flat",
-        note="split ring for each keeper pin; fatigue unverified",
+        _mount("keeper"),
+        orientation="frame on the bed, fingers up (as exported)",
+        note="one-piece snap keeper: four spring fingers snap into the cradle windows and "
+        "crush ribs press the ears; snap force, rib crush and vibration hold-down unverified",
     ),
     Piece("mg995_lug_gauge", f"{THROTTLE}/mg995_throttle_mount.scad", _mount("gauge")),
 )
 
 
 ROD_PIECES = (
-    # Selector names match throttle_pushrod.scad's dispatcher. The slider, the receiver
-    # sleeve and its threaded collet nut are one print-in-place export with three captive
-    # bodies; all other rod parts are separately printed components required by the
-    # assembly.
+    # Print-in-place throttle pushrod; its probes live in throttle_77603/rod_checks.scad. Four
+    # prints carry nine captive bodies: two sections with joint levers, the capture set
+    # (sleeve, slider, over-centre cam lever) and the fork with its detented thumbwheel. No
+    # bars, keepers, screws or nuts. Clamp/holding force (185 N target) is unqualified: the
+    # two coupons below are the bench test.
     Piece(
         "rod_segment_lower",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("segment_lower"),
-        orientation="upright, servo eye end on the bed",
-        note="servo section: integral eye plate 16 mm below the tube axis, fused to the "
-        "tube wall; the tube's first face over the plate needs support",
+        orientation="upright, socket mouth down: boss mouth and joint lever on the bed; servo "
+        "eye at the top",
+        note="servo eye, 30 mm tube, 42 mm socket boss, print-in-place joint lever (open as "
+        "printed)",
+        bodies=2,
     ),
     Piece(
         "rod_segment_middle",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("segment_middle"),
-        orientation="lying flat, long axis on the bed X",
-    ),
-    Piece(
-        "rod_segment_upper",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("segment_upper"),
-        orientation="lying flat, long axis on the bed X",
+        orientation="upright, socket mouth down: boss mouth and joint lever on the bed; spigot "
+        "at the top",
+        note="34 mm square spigot with tooth pocket into rod_segment_lower; print-in-place "
+        "joint lever on its own boss",
+        bodies=2,
     ),
     Piece(
         "rod_capture_assembly",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("capture_assembly"),
-        orientation="upright, COLLET END DOWN: finger tips, nut front face and slider tip "
-        "on the bed",
-        note="print-in-place set: integral 45-degree sleeve lug rides in the slider groove; "
-        "the captive threaded collet nut is hand-tightened to clamp the slider (no bolts, "
-        "no tools); clamp force and vibration resistance unqualified",
+        orientation="upright, sleeve tip down: sleeve tip, slider tip and cam lever on the bed",
+        note="sleeve (spigot, tube, cam housing, overtravel lug), slider (ticks, threaded tip), "
+        "over-centre cam lever; holding unqualified (185 N target)",
         bodies=3,
     ),
     Piece(
-        "splice_wedge",
+        "rod_fork_assembly",
         f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("splice_wedge"),
-        quantity=4,
-        note="one bar per section joint (servo section, two chain sections, sleeve) and "
-        "one through the throttle-end body and the slider's window",
+        _rod("fork_assembly"),
+        orientation="upright, wheel down; eye plate up",
+        note="throttle-eye fork with captive detented thumbwheel: 0.25 mm per click, 20 mm "
+        "range; screws onto the slider's thread",
+        bodies=2,
     ),
     Piece(
-        "splice_keeper",
+        "rod_cam_coupon",
         f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("splice_keeper"),
-        quantity=4,
-        note="one keeper per transverse bar: three section joints and the throttle-end body",
+        _rod("cam_coupon"),
+        orientation="upright, tip down",
+        note="bench coupon: 50 mm of the real cam housing, its lever and a square slider stub; "
+        "pull to 185 N",
+        bodies=3,
     ),
     Piece(
-        "rod_throttle_body",
+        "rod_joint_coupon",
         f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("throttle_body"),
-        orientation="upright, rear face on the bed",
-        note="sockets over the slider tip behind the fork, retained by a splice bar and "
-        "keeper; its boss journals the fine screw",
+        _rod("joint_coupon"),
+        orientation="upright, socket mouth down",
+        note="bench coupon: 50 mm of the servo section's socket boss and its joint lever",
+        bodies=2,
     ),
     Piece(
-        "rod_fine_screw",
+        "rod_joint_coupon_spigot",
         f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("fine_screw"),
-        orientation="upright on its flange",
-    ),
-    Piece(
-        "rod_fine_carriage_nut",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("fine_carriage_nut"),
-        orientation="upright",
-    ),
-    Piece(
-        "rod_fine_jam_collar",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("fine_jam_collar"),
-        orientation="upright",
-    ),
-    Piece(
-        "rod_throttle_fork",
-        f"{THROTTLE}/throttle_pushrod.scad",
-        _rod("throttle_fork"),
-        note="throttle eye plate, side web, fine-nut lug; the eye drops over the U post",
+        _rod("joint_coupon_spigot"),
+        orientation="upright, tube end down, spigot up",
+        note="mating spigot slice with tooth pocket for rod_joint_coupon",
     ),
     Piece(
         "rod_fit_gauge",
@@ -362,25 +340,91 @@ VARIANT_PIECES = (
 )
 
 CONTROL_PIECES = (
+    # Everything inside the legacy enclosure body (box and lid unchanged). A removable chassis
+    # is clamped under the box's four existing M4 bolt heads; every carrier hangs on its molded
+    # cleats. No fasteners are added. Probes: control_77603/control_checks.scad.
     Piece(
-        "control_enclosure_body",
-        f"{CONTROL}/electronics_enclosure.scad",
-        {"enclosure_part": "body"},
-        orientation="open side up",
-        note="printed in two stacked shells if taller than the usable Z",
+        "chassis_base",
+        f"{CONTROL}/board_carriers.scad",
+        _carrier("chassis_base"),
+        orientation="flat, hooks up",
+        note="clamped on the four boss tops under the existing M4 bolt heads; 3.5 mm, as the "
+        "legacy tray, so bolt grip length is unchanged",
     ),
     Piece(
-        "control_enclosure_lid", f"{CONTROL}/electronics_enclosure.scad", {"enclosure_part": "lid"}
+        "chassis",
+        f"{CONTROL}/board_carriers.scad",
+        _carrier("chassis"),
+        orientation="plate on the bed, panels vertical",
+        note="167 x 120.5 x 151 rack with molded cleats; slides 6 mm -Y onto the base hooks "
+        "and snaps a detent nub (press it with a pen tip to release)",
     ),
-    Piece("control_gasket", f"{CONTROL}/electronics_enclosure.scad", {"enclosure_part": "gasket"}),
-    Piece("carrier_pi5", f"{CONTROL}/board_carriers.scad", _carrier("pi5")),
-    Piece("carrier_alta", f"{CONTROL}/board_carriers.scad", _carrier("alta")),
-    Piece("carrier_pca9685", f"{CONTROL}/board_carriers.scad", _carrier("pca9685"), quantity=2),
-    Piece("carrier_pololu_2806", f"{CONTROL}/board_carriers.scad", _carrier("pololu_2806")),
-    Piece("carrier_hiletgo", f"{CONTROL}/board_carriers.scad", _carrier("hiletgo"), quantity=2),
-    Piece("carrier_converter", f"{CONTROL}/board_carriers.scad", _carrier("converter"), quantity=4),
-    Piece("carrier_harness_clamp", f"{CONTROL}/board_carriers.scad", _carrier("harness_clamp")),
+    Piece(
+        "tower_rack",
+        f"{CONTROL}/board_carriers.scad",
+        _carrier("tower_rack"),
+        orientation="shelf on the bed",
+        note="Pi 5 stack (Active Cooler, AI HAT+, LC29H, HaLow HAT) below the Alta stack; "
+        "locks on two mushroom studs plus a sprung nub",
+    ),
+    Piece(
+        "tower_clamp",
+        f"{CONTROL}/board_carriers.scad",
+        _carrier("tower_clamp"),
+        orientation="upside down, frame top on the bed",
+        note="clamp frame pressing the stacks onto the rack; kit standoffs act as spacers only",
+    ),
+    Piece(
+        "strap_bay",
+        f"{CONTROL}/board_carriers.scad",
+        _carrier("strap_bay"),
+        quantity=6,
+        orientation="upright as installed",
+        note="print-in-place strap bar for the converters and relays (sizes unknown): box "
+        "18-43.6 wide x 16.5-26.5 deep; strap and pawl holding unqualified",
+        bodies=2,
+    ),
+    Piece(
+        "harness_clamp",
+        f"{CONTROL}/board_carriers.scad",
+        _carrier("harness_clamp"),
+        orientation="upright as installed",
+        note="print-in-place strap bar for the automotive harness bundle, 8-26 mm",
+        bodies=2,
+    ),
 )
+
+# Two HaLow antenna stations on the reprinted lid (the body is unchanged): the lid carries the
+# bulkhead holes and blind post sockets; each post drops in and snaps, two grips per antenna.
+# Print the grips for the MEASURED base-tube OD (25-40 mm).
+ANTENNA_PIECES = (
+    Piece(
+        "antenna_post_left",
+        "antenna_mount.scad",
+        {"antenna_part": "post", "post_side": -1},
+        orientation="lying on its back face, rails up, column along +Y",
+        note="-X (Alta) station; spigot + flexure snap into the lid socket; mirror of the right "
+        "post; snap retention, socket load and creep unqualified",
+    ),
+    Piece(
+        "antenna_post_right",
+        "antenna_mount.scad",
+        {"antenna_part": "post", "post_side": 1},
+        orientation="lying on its back face, rails up, column along +Y",
+        note="+X (Pi) station; spigot + flexure snap into the lid socket; snap retention, socket "
+        "load and creep unqualified",
+    ),
+    Piece(
+        "antenna_grip",
+        "antenna_mount.scad",
+        {"antenna_part": "grip", "ant_tube_d_mm": 32},
+        quantity=4,
+        orientation="upright, bottom face on the bed (pull tab up)",
+        note="print with ant_tube_d_mm = MEASURED base-tube OD (25-40; 32 is a photo estimate); "
+        "same part at both stations; band/pawl retention, creep, vibration and UV unqualified",
+    ),
+)
+
 
 PARTS_77603: tuple[Piece, ...] = (
     MOUNT_PIECES
@@ -388,6 +432,7 @@ PARTS_77603: tuple[Piece, ...] = (
     + U_PIECES
     + VARIANT_PIECES
     + CONTROL_PIECES
+    + ANTENNA_PIECES
 )
 
 # ---- Scene list ----------------------------------------------------------------------
@@ -467,14 +512,19 @@ VIEWS_77603: tuple[Scene, ...] = (
         f"{_anchor()[0]:.0f},{_anchor()[1] - 60:.0f},{_anchor()[2] - 60:.0f},62,0,18,600",
     ),
     Scene(
-        "rod_collet",
+        "rod_locks",
         f"{THROTTLE}/throttle_pushrod.scad",
         _rod("assembly"),
-        "16,0,832,60,0,35,260",
+        "16,0,900,70,0,145,260",
+        note="cam lever and coarse ticks on the capture set",
     ),
-    # The collet camera aims at the threaded collet station measured from the rendered
-    # assembly: tube axis at rod-local x = 16, nut and nose between z = 801 and 859 (the
-    # finger tips at 857); the rod's origin is the servo eye, about 830 mm away.
+    Scene(
+        "rod_joint",
+        f"{THROTTLE}/throttle_pushrod.scad",
+        _rod("assembly"),
+        "16,0,585,70,0,145,240",
+        note="middle-to-sleeve joint lever and tooth",
+    ),
     Scene(
         "throttle_u_fitting",
         f"{THROTTLE}/throttle_u_fitting.scad",
@@ -485,19 +535,285 @@ VIEWS_77603: tuple[Scene, ...] = (
         "electronics_packaging",
         f"{CONTROL}/assemblies.scad",
         {"assembly": "electronics_packaging"},
-        "0,0,0,55,0,30,1400",
+        "0,0,95,58,0,35,560",
+    ),
+    Scene(
+        "electronics_contents",
+        f"{CONTROL}/assemblies.scad",
+        {"assembly": "electronics_contents"},
+        "0,0,95,60,0,215,560",
     ),
     Scene(
         "electronics_exploded",
         f"{CONTROL}/assemblies.scad",
-        {"assembly": "electronics_packaging", "exploded_mm": 120},
-        "0,0,0,55,0,30,1600",
+        {"assembly": "electronics_exploded"},
+        "0,0,170,65,0,215,900",
+    ),
+    Scene(
+        "electronics_lid_lifted",
+        f"{CONTROL}/assemblies.scad",
+        {"assembly": "electronics_lid_lifted"},
+        "0,0,185,58,0,35,1080",
+    ),
+    Scene(
+        "lid_antennas",
+        "assemblies.scad",
+        {"assembly": "lid_antennas"},
+        "0,-40,230,62,0,330,650",
+        note="lid cut on the -X station plane: both antenna stations and the antennas' lower "
+        "300 mm",
     ),
     *_scene_variants(),
 )
 
 # ---- CSG probes ---------------------------------------------------------------------
+_ANT = "antenna_checks.scad"
+ANTENNA_PROBES: tuple[Probe, ...] = (
+    Probe(
+        "grip_contact",
+        "contact",
+        tuple({"check": "grip_contact", "probe_tube_d": d} for d in (25, 40)),
+        note="crush ribs land on the tube, all four grips",
+        source=_ANT,
+    ),
+    Probe(
+        "grip_insertion_clear",
+        "empty",
+        tuple({"check": "grip_insertion_clear", "probe_tube_d": d} for d in (25, 40)),
+        note="the tube slides through the band loops",
+        source=_ANT,
+    ),
+    Probe(
+        "grip_post_clear",
+        "empty",
+        ({"check": "grip_post_clear"},),
+        note="grips (25 and 40) clear the post rails",
+        source=_ANT,
+    ),
+    Probe(
+        "grip_ledge_contact",
+        "contact",
+        ({"check": "grip_ledge_contact"},),
+        note="lower grips seat on their ledges",
+        source=_ANT,
+    ),
+    Probe(
+        "grip_upper_ledge_contact",
+        "contact",
+        ({"check": "grip_upper_ledge_contact"},),
+        note="upper grips seat on their ledges",
+        source=_ANT,
+    ),
+    Probe(
+        "post_socket_clear",
+        "empty",
+        ({"check": "post_socket_clear"},),
+        note="the seated post clears its socket, recess and the lid",
+        source=_ANT,
+    ),
+    Probe(
+        "post_seat_contact",
+        "contact",
+        ({"check": "post_seat_contact"},),
+        note="the column foot bears on the lid top",
+        source=_ANT,
+    ),
+    Probe(
+        "post_lock_retains",
+        "contact",
+        ({"check": "post_lock_retains"},),
+        note="lifted 0.5 mm, the snap tooth meets the recess top",
+        source=_ANT,
+    ),
+    Probe(
+        "post_snap_deflect_clear",
+        "empty",
+        ({"check": "post_snap_deflect_clear"},),
+        note="the leaf pressed in 1.2 mm clears socket wall and core",
+        source=_ANT,
+    ),
+    Probe(
+        "bulkhead_land_contact",
+        "contact",
+        ({"check": "bulkhead_land_contact"},),
+        note="outer seal land under the flange/nut",
+        source=_ANT,
+    ),
+    Probe(
+        "bulkhead_inner_land_contact",
+        "contact",
+        ({"check": "bulkhead_inner_land_contact"},),
+        note="inner land under the nut/shoulder",
+        source=_ANT,
+    ),
+    Probe(
+        "bulkhead_fit",
+        "empty",
+        ({"check": "bulkhead_fit"},),
+        note="jack, D-body and nut fit the lid",
+        source=_ANT,
+    ),
+    Probe(
+        "pigtail_clear_lid",
+        "empty",
+        ({"check": "pigtail_clear_lid"},),
+        note="pigtails clear the lid ribs and bosses",
+        source=_ANT,
+    ),
+    Probe(
+        "port_clear_body",
+        "empty",
+        ({"check": "port_clear_body"},),
+        note="nuts, jacks, pigtails and bosses clear the body walls, flange and seal",
+        source=_ANT,
+    ),
+    Probe(
+        "underlid_in_keepout",
+        "empty",
+        ({"check": "underlid_in_keepout"},),
+        note="under-lid parts stay inside antenna_lid_keepout()",
+        source=_ANT,
+    ),
+    Probe(
+        "no_pool_ring",
+        "empty",
+        ({"check": "no_pool_ring"},),
+        note="nothing printed within 10 mm of either flange",
+        source=_ANT,
+    ),
+    Probe(
+        "lid_screw_access",
+        "empty",
+        ({"check": "lid_screw_access"},),
+        note="all 12 lid-screw driver paths stay clear",
+        source=_ANT,
+    ),
+    Probe(
+        "antenna_vs_antenna",
+        "empty",
+        ({"check": "antenna_vs_antenna"},),
+        note="the two stations (envelope, post, grips, bulkhead) clear each other",
+        source=_ANT,
+    ),
+    Probe(
+        "env_vs_body",
+        "empty",
+        ({"check": "env_vs_body"},),
+        note="the two stations' full-length 40 mm envelopes, posts and grips clear the body",
+        timeout_s=900,
+        source=_ANT,
+    ),
+    Probe(
+        "env_vs_arm_layer",
+        "empty",
+        ({"check": "env_vs_arm_layer"},),
+        note="both full-length antenna stations on the lid clear the arm layer, arms and heads",
+        timeout_s=900,
+        source=_ANT,
+    ),
+    Probe(
+        "env_vs_steering",
+        "empty",
+        ({"check": "env_vs_steering"},),
+        note="both full-length antenna stations on the lid clear the steering servos, adapters "
+        "and rods at faces 0-90 deg",
+        timeout_s=900,
+        source=_ANT,
+    ),
+    Probe(
+        "env_vs_throttle",
+        "empty",
+        ({"check": "env_vs_throttle"},),
+        note="both full-length antenna stations on the lid clear the throttle station",
+        timeout_s=900,
+        source=_ANT,
+    ),
+    Probe(
+        "env_vs_tower",
+        "empty",
+        ({"check": "env_vs_tower"},),
+        note="both full-length antenna stations on the lid clear the camera tower stack",
+        timeout_s=900,
+        source=_ANT,
+    ),
+    Probe(
+        "env_vs_hitch_plate",
+        "empty",
+        ({"check": "env_vs_hitch_plate"},),
+        note="both full-length antenna stations on the lid clear the schematic hitch plate",
+        timeout_s=900,
+        source=_ANT,
+    ),
+)
+
+_ROD = f"{THROTTLE}/rod_checks.scad"
+_SPANS = (940, 1066.8, 1200)
+_SHIFTS = ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1.5], [0, 0, -1.5])
+
+_CTL = f"{CONTROL}/control_checks.scad"
+# Single-run checks inside the enclosure: chassis, tower, boards and keep-outs.
+_CTL_EMPTY = (
+    "base_clear_body",
+    "chassis_clear_body",
+    "chassis_clear_base",
+    "chassis_lowered_clear",
+    "chassis_clear_bolt_heads",
+    "contents_clear_keepouts",
+    "contents_clear_body",
+    "contents_clear_lid",
+    "patch_clear",
+    "pigtails_clear",
+    "lid_bulkheads_clear",
+    "port_room_clear",
+    "tower_clear_chassis",
+    "tower_lowered_clear",
+    "boards_clear_tower",
+    "signal_boards_clear",
+)
+_CTL_CONTACT = (
+    "base_seats_on_bosses",
+    "chassis_seats_on_base",
+    "chassis_hooks_hold",
+    "chassis_detent_blocks",
+    "tower_seats_on_chassis",
+    "tower_studs_hold",
+    "tower_lock_blocks",
+    "stack_on_bosses",
+    "clamp_pads_bear",
+)
+# (check, expect, number of `idx` stations): carriers 0-6 are the six strap bays and the harness
+# clamp; bays/harness 0-1 are the minimum and maximum box or bundle; boards 0-2 the PCA9685s and
+# the Pololu; headers 0-3 the stack's header joints; patch plugs 0-1 the Pi and Alta RJ45 ends
+# of the Ethernet patch; pigtails 0-1 the Alta (-X antenna) and Pi (+X antenna) HaLow leads.
+_CTL_INDEXED = (
+    ("patch_plug_seats", "contact", 2),
+    ("pigtail_reaches_hat", "contact", 2),
+    ("header_engages", "contact", 4),
+    ("carrier_hook_seats", "contact", 7),
+    ("carrier_latch_under_land", "contact", 7),
+    ("carrier_nominal_clear", "empty", 7),
+    ("carrier_clear_others", "empty", 7),
+    ("bay_holds_box", "contact", 2),
+    ("bay_pawls_bear", "contact", 2),
+    ("harness_holds_bundle", "contact", 2),
+    ("harness_pawls_bear", "contact", 2),
+    ("bay_strap_clear", "empty", 2),
+    ("bay_box_clear_frame", "empty", 2),
+    ("harness_strap_clear", "empty", 2),
+    ("signal_board_captured", "contact", 3),
+)
+CONTROL_PROBES: tuple[Probe, ...] = (
+    *(Probe(c, "empty", ({"check": c},), source=_CTL) for c in _CTL_EMPTY),
+    *(Probe(c, "contact", ({"check": c},), source=_CTL) for c in _CTL_CONTACT),
+    *(
+        Probe(c, e, tuple({"check": c, "idx": i} for i in range(n)), source=_CTL)
+        for c, e, n in _CTL_INDEXED
+    ),
+)
+
 PROBES_77603: tuple[Probe, ...] = (
+    *ANTENNA_PROBES,
+    *CONTROL_PROBES,
     # Each entry names a branch that ACTUALLY EXISTS in throttle_77603/fit_checks.scad.
     # A label that matches no branch renders nothing, so the expectation would be tested
     # against an empty scene -- a false pass. Keep this list in lockstep with the file.
@@ -589,38 +905,6 @@ PROBES_77603: tuple[Probe, ...] = (
         "moving bracket and adapter at 0/45/90 deg and its pushrod sweep",
     ),
     Probe(
-        "linkage_vs_steering",
-        "empty",
-        tuple(
-            {"check": "linkage_vs_steering", "link_variant": v, "link_sweep_deg": s}
-            for v in "ABCDE"
-            for s in (-30, 0, 30)
-        ),
-        note="each horn interface and rod servo section, swept +/-30 deg, clears the "
-        "steering servo, its adapter and its pushrod sweep",
-    ),
-    Probe(
-        "linkage_vs_head",
-        "empty",
-        tuple(
-            {"check": "linkage_vs_head", "link_variant": v, "link_sweep_deg": s}
-            for v in "ABCDE"
-            for s in (-30, 0, 30)
-        ),
-        note="each horn interface and rod servo section, swept +/-30 deg, clears the "
-        "head's rib, land, shelf and cradle walls",
-    ),
-    Probe(
-        "rod_vs_steering",
-        "empty",
-        tuple({"check": "rod_vs_steering", "link_variant": v} for v in "ABCDE"),
-        note="each variant's whole throttle rod, servo eye to throttle eye, clears the raised "
-        "steering servo, its adapter and the falling steering pushrod it crosses in plan",
-        # Builds the whole threaded rod and three full steering pushrods per variant: about
-        # seven minutes single-threaded, longer under the build's concurrent renders.
-        timeout_s=1800,
-    ),
-    Probe(
         "servo_lifts_out",
         "empty",
         ({"check": "servo_lifts_out"},),
@@ -631,11 +915,11 @@ PROBES_77603: tuple[Probe, ...] = (
         "keeper_lifts_out",
         "empty",
         ({"check": "keeper_lifts_out"},),
-        note="with its pins drawn, the keeper rises clear of the walls below the steering "
-        "servo",
+        note="with its fingers sprung free, the keeper rises clear of the walls below the "
+        "steering servo",
     ),
-    # Servo retention geometry. Contact probes prove geometric interference only: printed
-    # pin strength, clip retention and vibration resistance remain bench-test items.
+    # Servo retention geometry. Contact probes prove geometric interference only: snap force,
+    # rib crush and vibration hold-down remain bench-test items.
     Probe(
         "keeper_bears_on_lugs",
         "contact",
@@ -649,166 +933,31 @@ PROBES_77603: tuple[Probe, ...] = (
         note="installed keeper does not interfere with the head's cradle walls",
     ),
     Probe(
-        "keeper_pins_fit",
+        "keeper_ribs_preload_lugs",
+        "contact",
+        ({"check": "keeper_ribs_preload_lugs"},),
+        note="seated, the crush ribs overlap the provisional ears (designed 0.4 mm "
+        "interference)",
+    ),
+    Probe(
+        "keeper_snap_blocks_liftoff",
+        "contact",
+        ({"check": "keeper_snap_blocks_liftoff"},),
+        note="lifted 0.5 mm, every barb meets its window roof",
+    ),
+    Probe(
+        "keeper_snap_fingers_pass",
         "empty",
-        ({"check": "keeper_pins_fit"},),
-        note="installed keeper pins and rings clear the head and keeper",
+        tuple({"check": "keeper_snap_fingers_pass", "keeper_station": s} for s in (0, 1, 2)),
+        note="fingers opened 0.7 mm slide down the walls past the ears at three stations",
     ),
-    Probe(
-        "keeper_pins_block_liftoff",
-        "contact",
-        ({"check": "keeper_pins_block_liftoff"},),
-        note="lifting the keeper 1 mm meets both transverse pins",
-    ),
-    Probe(
-        "keeper_pins_engage_cradle",
-        "contact",
-        ({"check": "keeper_pins_engage_cradle"},),
-        note="the keeper pins bear in the head's side-wall bores",
-    ),
-    # Rod, collet, throttle-end body and joints.
-    Probe(
-        "rod_capture_pip_fit",
-        "empty",
-        ({"check": "rod_capture_pip_fit"},),
-        note="as printed collet end down, the slider and sleeve are separate bodies with "
-        "the integral lug inside the groove",
-    ),
-    Probe(
-        "rod_collet_nut_clear",
-        "empty",
-        ({"check": "rod_collet_nut_clear"},),
-        note="the captive collet nut clears the sleeve and the slider as printed",
-    ),
-    Probe(
-        "rod_collet_nut_captive",
-        "contact",
-        tuple({"check": "rod_collet_nut_captive", "rod_collet_shift_mm": s} for s in (1, -1)),
-        note="pushed 1 mm along the axis either way without turning, the nut meets the "
-        "band's thread flanks",
-    ),
-    Probe(
-        "rod_collet_nut_runs_free",
-        "empty",
-        tuple(
-            {"check": "rod_collet_nut_runs_free", "rod_collet_advance_mm": a}
-            for a in (1.2, -1.2)
-        ),
-        note="screwed 1.2 mm toward the tip or back, the nut still clears the sleeve: "
-        "co-helical threads, cone contact only after 1.46 mm",
-    ),
-    Probe(
-        "rod_collet_nut_drives_fingers",
-        "contact",
-        ({"check": "rod_collet_nut_drives_fingers"},),
-        note="screwed forward by the clamp advance, the nut's cone overlaps the undeflected "
-        "fingers, so it must close them onto the slider",
-    ),
-    Probe(
-        "rod_capture_range_clear",
-        "empty",
-        tuple(
-            {"check": "rod_capture_range_clear", "rod_capture_length_mm": length}
-            for length in (940, 1066.8, 1200)
-        ),
-        note="the sleeve, its lug and the collet nut clear the slider through minimum, "
-        "nominal and maximum settings",
-    ),
-    Probe(
-        "rod_capture_clear",
-        "empty",
-        tuple(
-            {"check": "rod_capture_clear", "rod_capture_length_mm": length}
-            for length in (940, 1066.8, 1200)
-        ),
-        note="closed groove shoulder clears the sleeve lug at minimum, nominal and maximum",
-    ),
-    Probe(
-        "rod_overlap_capture",
-        "contact",
-        tuple(
-            {"check": "rod_overlap_capture", "rod_capture_length_mm": length}
-            for length in (940, 1066.8, 1200)
-        ),
-        note="forced overtravel drives the groove shoulder into the integral sleeve lug",
-    ),
-    Probe(
-        "rod_overlap_capture_reverse",
-        "contact",
-        ({"check": "rod_overlap_capture_reverse", "rod_capture_length_mm": 940},),
-        note="reverse overtravel at minimum span drives the upper closed groove end into "
-        "the sleeve's integral lug",
-    ),
-    Probe(
-        "rod_body_fit",
-        "empty",
-        ({"check": "rod_body_fit"},),
-        note="throttle-end body, bar, keeper, fine screw, jam collar, fork and fine nut "
-        "clear the slider and each other at both ends of the fine travel",
-    ),
-    Probe(
-        "rod_body_bar_holds",
-        "contact",
-        tuple(
-            {"check": "rod_body_bar_holds", "rod_eye_target": t, "rod_eye_shift_mm": s}
-            for t in ("body", "slider")
-            for s in (1, -1)
-        ),
-        note="moving the body's bar 1 mm along the rod meets the body slot and the slider "
-        "window, so the bar ties the body to the slider",
-    ),
-    Probe(
-        "rod_body_keeper_stops_inward",
-        "contact",
-        ({"check": "rod_body_keeper_stops_inward"},),
-        note="the keeper meets the body's face before the bar can walk inward",
-    ),
-    Probe(
-        "rod_fine_screw_engages",
-        "contact",
-        ({"check": "rod_fine_screw_engages"},),
-        note="the fine screw's flange and jam collar bear on the boss's two faces",
-    ),
-    Probe(
-        "rod_body_clears_collet",
-        "empty",
-        tuple(
-            {"check": "rod_body_clears_collet", "rod_capture_length_mm": length}
-            for length in (940, 1066.8, 1200)
-        ),
-        note="the throttle-end body, fork and fine nut clear the sleeve and the fully "
-        "advanced collet nut at minimum, nominal and maximum settings",
-    ),
+    # Variant E: the clevis keeps material round the hinge pin in each ear.
     Probe(
         "clevis_double_shear",
         "contact",
         tuple({"check": "clevis_double_shear", "clevis_ear_side": s} for s in (1, -1)),
         note="variant E's clevis has material around the hinge pin in each ear separately",
     ),
-    # Section splices: the three section joints are retained by transverse bars.
-    Probe(
-        "splice_bars_fit",
-        "empty",
-        ({"check": "splice_bars_fit"},),
-        note="every joint's bar and keeper clear the installed fixed chain",
-    ),
-    Probe(
-        "splice_bar_holds_joint",
-        "contact",
-        tuple(
-            {"check": "splice_bar_holds_joint", "splice_joint": j, "splice_shift_mm": s}
-            for j in range(3)
-            for s in (1, -1)
-        ),
-        note="moving a joint's bar 1 mm along the rod meets its boss and spigot slots",
-    ),
-    Probe(
-        "splice_keeper_stops_inward",
-        "contact",
-        tuple({"check": "splice_keeper_stops_inward", "splice_joint": j} for j in range(3)),
-        note="the keeper meets the boss before the bar can reach the slider passage",
-    ),
-
     # Variant D: co-printed ball/socket clearance, angular travel and both socket mouths.
     Probe("d_ball_pip_fit", "empty", ({"check": "d_ball_pip_fit"},)),
     Probe(
@@ -875,7 +1024,7 @@ PROBES_77603: tuple[Probe, ...] = (
         "empty",
         tuple(
             {"check": "pin_ring_seated_clear", "pin_ring_kind": k}
-            for k in ("shared", "index", "a_post", "e_hinge", "cross")
+            for k in ("shared", "index", "a_post", "e_hinge")
         ),
         note="each installed keeper ring clears its pin's groove, lip and shoulder",
     ),
@@ -884,7 +1033,7 @@ PROBES_77603: tuple[Probe, ...] = (
         "contact",
         tuple(
             {"check": "pin_ring_held_by_lip", "pin_ring_kind": k}
-            for k in ("shared", "index", "a_post", "e_hinge", "cross")
+            for k in ("shared", "index", "a_post", "e_hinge")
         ),
         note="pushing each installed ring 1 mm toward its pin's free end meets the end lip",
     ),
@@ -945,41 +1094,269 @@ PROBES_77603: tuple[Probe, ...] = (
     # Linkage joints, at each variant's demonstration pose. EMPTY probes prove the placed
     # parts clear; CONTACT probes prove a 1 mm displacement meets the retaining geometry.
     # Neither proves strength, wear or the real lever's arc.
+    # ---- Throttle pushrod and linkage: throttle_77603/rod_checks.scad ----
     Probe(
-        "linkage_servo_end_fit",
+        "rod_capture_pip_fit",
         "empty",
-        tuple({"check": "linkage_servo_end_fit", "link_variant": v} for v in "ABCDE"),
-        note="rod servo section clears the horn interface, mount and servo",
+        ({"check": "rod_capture_pip_fit"},),
+        note="sleeve and slider separate as printed",
+        source=_ROD,
     ),
     Probe(
-        "linkage_servo_eye_lift",
-        "contact",
-        tuple({"check": "linkage_servo_eye_lift", "link_variant": v} for v in "ABCDE"),
-        note="lifting the servo eye 1 mm meets its cap or clevis",
-    ),
-    Probe(
-        "linkage_servo_eye_pull",
-        "contact",
-        tuple({"check": "linkage_servo_eye_pull", "link_variant": v} for v in "ABCDE"),
-        note="pulling the servo eye 1 mm along the run meets its pivot",
-    ),
-    Probe(
-        "linkage_throttle_end_fit",
+        "rod_cam_pip_fit",
         "empty",
-        tuple({"check": "linkage_throttle_end_fit", "link_variant": v} for v in "ABCDE"),
-        note="rod moving end clears the U fitting on its pivot post",
+        ({"check": "rod_cam_pip_fit"},),
+        note="cam lever clears sleeve and slider as printed",
+        source=_ROD,
     ),
     Probe(
-        "linkage_throttle_eye_lift",
+        "rod_cam_captive",
         "contact",
-        tuple({"check": "linkage_throttle_eye_lift", "link_variant": v} for v in "ABCDE"),
-        note="lifting the throttle eye 1 mm meets the U post's cap",
+        tuple({"check": "rod_cam_captive", "rod_shift": s} for s in _SHIFTS),
+        note="cam lever cannot leave the sleeve",
+        source=_ROD,
     ),
     Probe(
-        "linkage_throttle_eye_pull",
+        "rod_cam_swing_clear",
+        "empty",
+        tuple({"check": "rod_cam_swing_clear", "rod_phi": a} for a in (30, 60, 89)),
+        note="lever swings without meeting its housing",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_cam_open_clear",
+        "empty",
+        tuple({"check": "rod_cam_open_clear", "rod_setting": v} for v in _SPANS),
+        note="open cam frees the slide",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_cam_clamps",
         "contact",
-        tuple({"check": "linkage_throttle_eye_pull", "link_variant": v} for v in "ABCDE"),
-        note="pulling the throttle eye 1 mm back along the run meets the U post",
+        tuple({"check": "rod_cam_clamps", "rod_setting": v} for v in _SPANS),
+        note="closed cam overlaps the seated slider by the preload after full pin play",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_cam_overcentre",
+        "contact",
+        ({"check": "rod_cam_overcentre"},),
+        note="the corner reaches past the closed flat",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_cam_rest",
+        "empty",
+        ({"check": "rod_cam_rest"},),
+        note="the closed flat stops short: over-centre valley",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_capture_range_clear",
+        "empty",
+        tuple({"check": "rod_capture_range_clear", "rod_setting": v} for v in _SPANS),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_overlap_capture",
+        "contact",
+        tuple({"check": "rod_overlap_capture", "rod_setting": v} for v in _SPANS),
+        note="overtravel catch",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_overlap_capture_reverse",
+        "contact",
+        ({"check": "rod_overlap_capture_reverse", "rod_setting": 940},),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_fork_clears_sleeve",
+        "empty",
+        tuple({"check": "rod_fork_clears_sleeve", "rod_setting": v} for v in _SPANS),
+        source=_ROD,
+    ),
+    Probe("rod_wheel_pip_fit", "empty", ({"check": "rod_wheel_pip_fit"},), source=_ROD),
+    Probe(
+        "rod_wheel_captive",
+        "contact",
+        tuple(
+            {"check": "rod_wheel_captive", "rod_shift": s}
+            for s in ([0, 0, 1], [0, 0, -1], [2, 0, 0], [-2, 0, 0], [0, 2, 0], [0, -2, 0])
+        ),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_wheel_detent_click",
+        "contact",
+        tuple({"check": "rod_wheel_detent_click", "rod_phi": a} for a in (11.25, -11.25)),
+        note="half a notch: pawls must flex",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_wheel_detent_seat",
+        "empty",
+        tuple({"check": "rod_wheel_detent_seat", "rod_phi": a} for a in (22.5, -22.5)),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_wheel_runs_free",
+        "empty",
+        tuple({"check": "rod_wheel_runs_free", "rod_fine": f} for f in (0, 10, 20)),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_wheel_drives",
+        "contact",
+        tuple(
+            {"check": "rod_wheel_drives", "rod_fine": f, "rod_shift": s}
+            for f in (0, 20)
+            for s in ([0, 0, 0.8], [0, 0, -0.8])
+        ),
+        note="thread carries the fork at both fine limits",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_fork_clear",
+        "empty",
+        tuple({"check": "rod_fork_clear", "rod_fine": f} for f in (0, 20)),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_pip_fit",
+        "empty",
+        tuple({"check": "rod_joint_pip_fit", "rod_joint": j} for j in (0, 1)),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_captive",
+        "contact",
+        tuple(
+            {"check": "rod_joint_captive", "rod_joint": j, "rod_shift": s}
+            for j in (0, 1)
+            for s in _SHIFTS
+        ),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_swing_clear",
+        "empty",
+        tuple(
+            {"check": "rod_joint_swing_clear", "rod_joint": j, "rod_phi": a}
+            for j in (0, 1)
+            for a in (30, 60, 89)
+        ),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_insert_clear",
+        "empty",
+        tuple({"check": "rod_joint_insert_clear", "rod_joint": j} for j in (0, 1)),
+        note="spigot passes the open lever",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_clamps",
+        "contact",
+        tuple({"check": "rod_joint_clamps", "rod_joint": j} for j in (0, 1)),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_tooth_engages",
+        "contact",
+        tuple({"check": "rod_joint_tooth_engages", "rod_joint": j} for j in (0, 1)),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_tooth_clear",
+        "empty",
+        tuple({"check": "rod_joint_tooth_clear", "rod_joint": j} for j in (0, 1)),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_blocks_withdrawal",
+        "contact",
+        tuple(
+            {"check": "rod_joint_blocks_withdrawal", "rod_joint": j, "rod_shift": s}
+            for j in (0, 1)
+            for s in ([0, 0, 0], [0, 0, 0.4])
+        ),
+        note="positive lock at +1 mm pull",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_blocks_rotation",
+        "contact",
+        tuple(
+            {"check": "rod_joint_blocks_rotation", "rod_joint": j, "rod_phi": a}
+            for j in (0, 1)
+            for a in (3, -3)
+        ),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_joint_tooth_bears_on_boss",
+        "contact",
+        tuple({"check": "rod_joint_tooth_bears_on_boss", "rod_joint": j} for j in (0, 1)),
+        note="withdrawal load goes to the boss wall, not the pins",
+        source=_ROD,
+    ),
+    Probe(
+        "rod_span_reachable",
+        "empty",
+        tuple({"check": "rod_span_reachable", "rod_setting": v} for v in (940, 1200)),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_span_eye_located",
+        "contact",
+        tuple({"check": "rod_span_eye_located", "rod_setting": v} for v in (940, 1200)),
+        source=_ROD,
+    ),
+    *(
+        Probe(
+            check,
+            expect,
+            tuple({"check": check, "link_variant": v} for v in "ABCDE"),
+            source=_ROD,
+        )
+        for check, expect in (
+            ("linkage_servo_end_fit", "empty"),
+            ("linkage_servo_eye_lift", "contact"),
+            ("linkage_servo_eye_pull", "contact"),
+            ("linkage_throttle_end_fit", "empty"),
+            ("linkage_throttle_eye_lift", "contact"),
+            ("linkage_throttle_eye_pull", "contact"),
+        )
+    ),
+    Probe(
+        "linkage_vs_steering",
+        "empty",
+        tuple(
+            {"check": "linkage_vs_steering", "link_variant": v, "link_sweep_deg": s}
+            for v in "ABCDE"
+            for s in (-30, 0, 30)
+        ),
+        timeout_s=900,
+        source=_ROD,
+    ),
+    Probe(
+        "linkage_vs_head",
+        "empty",
+        tuple(
+            {"check": "linkage_vs_head", "link_variant": v, "link_sweep_deg": s}
+            for v in "ABCDE"
+            for s in (-30, 0, 30)
+        ),
+        source=_ROD,
+    ),
+    Probe(
+        "rod_vs_steering",
+        "empty",
+        tuple({"check": "rod_vs_steering", "link_variant": v} for v in "ABCDE"),
+        # Builds the whole rod and three full steering pushrods per variant.
+        timeout_s=1800,
+        source=_ROD,
     ),
 )
 

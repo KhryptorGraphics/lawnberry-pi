@@ -1,6 +1,6 @@
 // One enclosure dimensional contract, mm. ASA, 0.2 mm FDM; NOT IP-rated.
-// Pi5 RP-008347-DS-1: 85x56 PCB, holes58x49 at3.5 edge offsets (reference drawing).
-// All other PCB envelopes below are DESIGN CAPACITIES, not inferred vendor dimensions.
+// The electronics inside the box (Pi 5 + Alta tower and interface carriers) live on the
+// removable chassis in control_77603/; it locates on the four floor bosses below.
 // Printer: 420 x 420 x 500 (user-stated). Body prints bed-down at ~211 x 285 x 185.
 include <common.scad>
 box_inner_l = 169;
@@ -38,13 +38,13 @@ lid_screw_points = concat(
     [for (x = [-70, -24, 24, 70], s = [-1, 1]) [x, s * (box_outer_w / 2 + lid_screw_offset)]],
     [for (y = [-26, 26], s = [-1, 1]) [s * (box_outer_l / 2 + lid_screw_offset), y]]
 );
-tray_length = 167;
-tray_width = 120;
-tray_thickness = 3.5;
-tray_lift = 10;
-tray_bottom_z = box_floor + tray_lift;
-tray_top_z = tray_bottom_z + tray_thickness;
-tray_support_d = 12;
+// Floor bosses and the four box-to-arm_layer_center M4 bolts. Legacy tray_* names are kept
+// (hitch_arm_layer.scad and enclosure_body.scad read them); the electronics tray itself is
+// gone. Head and washer sit on each boss top (tray_bottom_z) inside the box, nut under the
+// layer; the control_77603 chassis locates on these bosses and bolt heads.
+tray_lift = 10;                    // boss height above the floor top
+tray_bottom_z = box_floor + tray_lift;   // boss top: M4 washer land
+tray_support_d = 12;               // boss diameter
 tray_fixing_d = m4_clear;
 tray_fixings = [[-62,-52], [62,-52], [-62,52], [62,52]];
 // ---- Rear hitch tongue (integral to enclosure_body.scad) ----
@@ -336,39 +336,27 @@ assert(tower_base_w + 2 * tongue_gusset_t + 4 <= tongue_w, "Tower base does not 
 assert(box_flange_w / 2 + tongue_end_y() <= 420 && box_flange_l <= 420, "Body exceeds the 420 bed");
 gland_cutout_d = 15.5;              // PG9 provisional print clearance; verify actual thread/locknut
 vent_cutout_d = 12.5;               // M12 provisional print clearance; verify purchased fitting
-// Front cable corridor, kept outside Pi PCB and between supports.
+// Floor cable glands along the -Y side, pointing DOWN with drip loops.
 gland_centres = [[-40,-49], [0,-49], [40,-49]];
-pi_pos = [-45,3];                  // PCB long axis rotated into Y
-pi_screw_d = 2.9;                  // M2.5, never M3 through the Pi PCB
-pi_post_h = 8;
-pi_post_d = 6;
-// Rotate the published lower-left-coordinate hole pattern 90deg about PCB centre.
-pi_holes = [for (u = [3.5,61.5], v = [3.5,52.5])
-    [pi_pos[0] - (v - 28), pi_pos[1] + (u - 42.5)]];
-pi_pcb_z = tray_top_z + pi_post_h;
-pi_hardware_top = pi_pcb_z + 54;    // reserved Pi+cooler+Hailo envelope, not actual stack measurement
-utility_pos = [-45,3];
-relay_pos = [47,3];
-relay_sled_l = 62;
-relay_sled_w = 100;
-utility_sled_l = 77;
-utility_sled_w = 100;
-sled_t = 3;
-relay_anchors = [for(x=[-25,25],y=[-42,42]) [relay_pos[0]+x,relay_pos[1]+y]];
-utility_anchors = [for(x=[-33.5,33.5],y=[-40,40]) [utility_pos[0]+x,utility_pos[1]+y]];
-utility_deck_z = [90,130];          // absolute assembly z; threaded rods OUTSIDE Pi PCB
-relay_deck_z = [tray_top_z, tray_top_z+40, tray_top_z+80, tray_top_z+120];
-// Four printed relay sleds, one PCB per level; 8mm insulating spacers + PCB/component envelope25mm.
-relay_payload_height = 25;
-utility_payload_height = 26;
 assert(lid_length <= 420 && lid_width <= 420, "Lid exceeds the 420 bed");
 assert(seal_fill_ratio < 0.85 && seal_fill_ratio > 0.7);
 assert(lid_screw_offset - seal_offset - seal_width/2 - lid_nut_pocket_d/2 >= 1,
        "Nut pocket/gasket ligament too thin");
 assert(box_flange - lid_screw_offset - lid_nut_pocket_d/2 >= 0.7);
-assert(pi_hardware_top + 8 <= utility_deck_z[0], "Pi stack collides with utility deck");
-assert(utility_deck_z[1]+sled_t+8+utility_payload_height < box_top-lid_rib_h);
-assert(relay_deck_z[3]+sled_t+8+relay_payload_height < box_top-lid_rib_h);
+// ---- Keep-outs that the chassis leaves free (DESIGN CAPACITIES) ----
+gland_keepout_d = 26;              // ESTIMATE: PG9 locknut across corners + spanner
+gland_keepout_h = 26;              // above the floor top: locknut + cable bend start
+box_mount_access_d = 10;           // DESIGN: M4 washer + driver corridor above each boss
+module gland_keepout() {
+    for (p = gland_centres) translate([p[0], p[1], box_floor - 0.01])
+        cylinder(d = gland_keepout_d, h = gland_keepout_h);
+}
+// Washer + driver corridors above the four box-mounting bolts (a removable chassis may
+// cover them; bolt service = lift the chassis out).
+module box_mount_access() {
+    for (p = tray_fixings) translate([p[0], p[1], tray_bottom_z])
+        cylinder(d = box_mount_access_d, h = box_top - tray_bottom_z);
+}
 
 module enclosure_rounded_prism(l,w,h,r) { plate(l,w,h,r); }
 module enclosure_seal_path(h, width=seal_width) {

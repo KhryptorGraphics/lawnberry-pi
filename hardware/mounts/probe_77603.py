@@ -18,18 +18,22 @@ sys.path.insert(0, str(HERE))
 
 from hardware_77603_catalog import PROBES_77603  # noqa: E402
 
-PROBE_SOURCE = HERE / "throttle_77603" / "fit_checks.scad"
 TIMEOUT_S = 300
 
 
 def run_probe(
-    name: str, check: str, expect: str, params: dict, timeout_s: int | None = None
+    name: str,
+    check: str,
+    expect: str,
+    params: dict,
+    source: str,
+    timeout_s: int | None = None,
 ) -> tuple[str, bool, str]:
     args = ["openscad", "--export-format", "binstl", "-o", "/dev/null"]
     merged = {"check": check, **params}
     for key, value in merged.items():
         args += ["-D", f'{key}="{value}"' if isinstance(value, str) else f"{key}={value}"]
-    args.append(str(PROBE_SOURCE))
+    args.append(str(HERE / source))
     try:
         result = subprocess.run(
             args,
@@ -63,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         for params in probe.parameter_sets:
             total += 1
             name, ok, detail = run_probe(
-                probe.check, probe.check, probe.expect, params, probe.timeout_s
+                probe.check, probe.check, probe.expect, params, probe.source, probe.timeout_s
             )
             status = "PASS" if ok else "FAIL"
             if not ok:

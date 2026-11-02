@@ -55,13 +55,20 @@ PARTS = [
         )
         for index in range(CLAMP_INSERT_COUNT)
     ],
+    # Steering pushrods: three prints per rod, print two sets. servo_end and sleeve are
+    # print-in-place (tube + captive lever); see LEGACY_BODIES.
     *[
         (f"pushrod_{piece}", "pushrod", {"rod_part": piece})
-        for piece in ("servo_end", "middle_a", "middle_b", "sleeve", "inner")
+        for piece in ("servo_end", "sleeve", "inner")
     ],
     *[
         (f"pushrod_gauge_{index}", "pushrod", {"rod_part": "gauge", "rod_gauge_index": index})
         for index in range(3)
+    ],
+    # Bench coupons for the lock holding test (one each).
+    *[
+        (f"pushrod_{piece}", "pushrod", {"rod_part": piece})
+        for piece in ("joint_coupon", "joint_coupon_spigot", "rack_coupon", "rack_coupon_bar")
     ],
     ("throttle_servo_mount", "throttle_servo_mount", {}),
     ("estop_bracket", "estop_bracket", {}),
@@ -74,9 +81,6 @@ PARTS = [
     ("camera_tower_cap", "camera_tower", {"tower_part": "cap"}),
     ("camera_tower_backing", "camera_tower", {"tower_part": "backing"}),
     ("enclosure_lid", "enclosure_lid", {}),
-    ("electronics_tray", "electronics_tray", {}),
-    ("relay_board_sled", "enclosure_board_sled", {"sled_type": "relay"}),
-    ("utility_board_sled", "enclosure_board_sled", {"sled_type": "utility"}),
     *[
         (f"camera_{dispatch}", "camera_mount", {"camera_part": dispatch})
         for dispatch in (
@@ -121,6 +125,15 @@ PARTS = [
     ("equipment_saddle", "accessory_mounts", {"accessory_part": "equipment_saddle"}),
     ("antenna_deck", "accessory_mounts", {"accessory_part": "antenna_deck"}),
 ]
+# Print-in-place legacy pieces publish several captive bodies in one print. PARTS stays a list of
+# (name, source, parameters); a name listed here is gated by mesh_report with that body count (and
+# so by the PIP release gate); every other legacy piece must be a single solid.
+LEGACY_BODIES: dict[str, int] = {
+    "pushrod_servo_end": 2,
+    "pushrod_sleeve": 2,
+    "pushrod_joint_coupon": 2,
+    "pushrod_rack_coupon": 2,
+}
 # Coloured OpenCSG previews of assemblies.scad scenes for INSTALL.md.
 # (name, assembly, full OpenSCAD camera, automatic fit).
 # Large CSG clipping solids distort --viewall for the arm scenes; their default
@@ -146,13 +159,7 @@ VIEWS = [
 ]
 CHECKS = [
     "body_lid",
-    "body_tray",
-    "sled_clearance",
-    "pi_bores",
-    "tray_fixings",
-    "pi_keepout",
-    "stack_columns",
-    "stack_payloads",
+    "box_mount_bores",
     "lid_nut_access",
     "throttle_bores",
     "frame_bores",
@@ -174,14 +181,16 @@ CHECKS = [
     "clamp_four_bolts",
     "arm_layer_gland_paths",
     "arm_layer_box_fasteners",
-    "arm_layer_tray_clearance",
+    "arm_layer_box_clearance",
     "clamp_tube_fit",
     "clamp_insert_clear",
     "clamp_pin_bore",
-    "rod_lock_bores",
-    "rod_splice_bores",
     "rod_end_bores",
-    "rod_lock_bores_max",
+    "rod_joint_fit",
+    "rod_rack_fit",
+    "rod_lever_open_clear",
+    "rod_lever_closed_clear",
+    "rod_tooth_sweep",
     "rod_clamp_interface",
     "rod_clamp_sweep",
     "rod_servo_sweep",
@@ -242,6 +251,12 @@ CONTACT_CHECKS = [
     *(("arm_servo_washer_land_contact", index) for index in range(12)),
     *(("servo_adapter_seat_contact", index) for index in range(2)),
     *(("servo_adapter_washer_land_contact", index) for index in range(12)),
+    *(("rod_lever_captive", index) for index in range(4)),
+    *(("rod_tooth_engaged", index) for index in range(4)),
+    *(("rod_withdraw_blocked", index) for index in range(8)),
+    *(("rod_lever_clamp_contact", index) for index in range(2)),
+    *(("rod_span_pin_contact", index) for index in range(4)),
+    *(("box_mount_boss_land_contact", index) for index in range(4)),
 ]
 
 
@@ -676,7 +691,7 @@ def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
                 # The parameter set carries the implemented check name; Probe.check is
                 # only a human-facing label, so the parameter set must win the merge.
                 *defines({"check": probe.check, **params}),
-                str(ROOT / "throttle_77603" / "fit_checks.scad"),
+                str(ROOT / probe.source),
             ],
             empty=True,
             timeout_s=probe.timeout_s,
@@ -802,15 +817,35 @@ def _build_hardware_77603(staging_root: Path, output_dir: Path | None) -> int:
             "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
         }
 
+    # Every file a 77603 piece, scene or probe reads, directly or through include/use, so a
+    # change anywhere in that closure marks the manifest stale.
     sources = sorted(
         {
             *(p.source for p in PARTS_77603),
             *(v.source for v in VIEWS_77603),
-            "throttle_77603/fit_checks.scad",
+            *(p.source for p in PROBES_77603),
             "throttle_77603/parameters.scad",
             "throttle_77603/printed_joints.scad",
+            "pip_rod_joints.scad",
             "control_77603/parameters.scad",
             "control_77603/board_carriers.scad",
+            "control_77603/chassis.scad",
+            "control_77603/compute_tower.scad",
+            "control_77603/cleat_carrier.scad",
+            "control_77603/board_refs.scad",
+            "electronics_rail.scad",
+            "enclosure_body.scad",
+            "enclosure_lid.scad",
+            "arm_support.scad",
+            "assemblies.scad",
+            "camera_mount.scad",
+            "camera_stack.scad",
+            "camera_tower.scad",
+            "estop_bracket.scad",
+            "estop_contact_cover.scad",
+            "lapbar_four_bolt_clamp.scad",
+            "sensor_carrier.scad",
+            "servo_pushrod_adapter.scad",
             "build_printables.py",
             "pip_gate.py",
             "hardware_77603_catalog.py",
@@ -898,7 +933,7 @@ def main() -> None:
                     str(ROOT / f"{source}.scad"),
                 ]
             )
-            report = mesh_report(target)
+            report = mesh_report(target, LEGACY_BODIES.get(name, 1))
             report.update(source=f"{source}.scad", parameters=parameters)
             print(f"PASS mesh {name}: {report['size_mm']}", flush=True)
             return name, report

@@ -83,33 +83,33 @@ rods_bore_mm = rods_w_mm - 2 * rods_wall_mm;      // 22
 rods_slider_mm = rods_bore_mm - 2 * sliding_clearance_mm; // 21.2
 // Illustrative only: the owner's endpoint-distance datums and the actual lever arc are unknown.
 rods_min_overlap_mm = 60;
-rods_coarse_travel_mm = 240;      // continuous slide, held by the print-in-place collet
-rods_fine_travel_mm = 20;         // printed lead-screw trim on the throttle-end body
+rods_coarse_travel_mm = 240;      // continuous slide, held by the print-in-place cam lever
+rods_fine_travel_mm = 20;         // print-in-place thumbwheel trim on the throttle fork
 rods_nominal_span_mm = 1066.8;
 rods_span_min_mm = 940;
 rods_span_max_mm = 1200;
 
-// Print-in-place threaded split collet at the receiver sleeve's throttle end (capacities,
-// not qualified values). 45-degree thread flanks so neither printed thread has a flat
-// overhang; every PIP gap is collet_gap_mm measured perpendicular to the surfaces.
-collet_gap_mm = 0.45;              // 0.4 nominal + 0.05 for facet chords on helices/cones
-collet_thread_pitch_mm = 4;
-collet_thread_depth_mm = 1.35;     // 45-degree flanks; leaves 0.65 mm root and crest flats
-collet_thread_root_r_mm = 18.6;    // >= 3 mm wall over the 22 mm bore's corners (r 15.56)
-collet_cone_half_angle_deg = 18;   // finger flare and nut cone
-collet_flare_len_mm = 12;
-collet_finger_len_mm = 30;         // slotted length from the tip to the unslotted band
-collet_finger_r_mm = 16.5;         // finger shank outside radius, flare root
-collet_slot_w_mm = 2;              // finger slots, centred on the bore's corners
-collet_preload_mm = 0.3;           // radial finger closure beyond the slider clearance
-collet_nut_max_advance_mm = 6;     // nut travel toward the tip that the layout reserves
+// Print-in-place locks (design capacities, NOT qualified values). One lever design serves
+// the coarse cam lock and both section joints: its flat lands rod_lock_preload_mm past
+// seating the clamped member, and its corner reaches rod_lock_bump_mm further (the
+// over-centre bump that keeps it shut).
+rod_lock_preload_mm = 0.3;
+rod_lock_bump_mm = 0.3;
+// Axial holding each lock should reach: 2 x the MG995 stall force at the 12 mm minimum horn
+// radius (assignment estimate ~1.1 N*m at 6 V -> ~92 N; datasheet value TO VERIFY).
+// DESIGN TARGET ONLY: unqualified until the bench coupons are pulled.
+rod_holding_target_n = 185;
+// Thumbwheel fine trim: a 45-degree-flank thread on the slider's tip; the wheel clicks
+// rod_thread_pitch_mm / rod_wheel_detents = 0.25 mm per detent.
+rod_thread_pitch_mm = 4;
+rod_wheel_detents = 16;
+rod_helix_gap_mm = 0.45;           // 0.4 nominal + 0.05 for facet chords on helices
 
-// Fine-trim printed screw (fully printed; fractional turns give continuous adjustment).
+// printed_joints.scad's thread primitives read these defaults; the rod no longer uses them.
 fine_screw_d_mm = 16;
 fine_screw_pitch_mm = 2;
 fine_nut_height_mm = 10;
 fine_nut_window_mm = 8;           // the printed nut's four relief windows
-fine_jam_collar_h_mm = 6;
 
 // ---- Printed-joint capacities ------------------------------------------------------
 pin_d_mm = 5;                      // captive printed hinge pin
@@ -210,38 +210,36 @@ cradle_len_mm = 68;           // capacity around the 50.80 mm MG995 lug pitch; T
 cradle_flange_z0_mm = mg995_mount_height_mm;                        // 28.575: underside
 cradle_flange_z1_mm = cradle_flange_z0_mm + mg995_lug_thickness_mm; // 30.575: top face
 
-// (3) The keeper and its transverse pins ------------------------------------------------
-// The keeper is a printed crossbar bearing on the MG995's ears, with full-length legs that
-// drop beside the cradle's side walls; two transverse printed pins pass through both legs
-// and both walls beyond the servo's ends and below its lugs, so it cannot lift off. Fit,
-// clip retention and vibration life are unverified.
-cross_pin_d_mm = 3.2;
-cross_hole_d_mm = 3.6;
-cross_band_d_mm = 2.4;
-cross_ring_bore_d_mm = 2.6;
-cross_ring_d_mm = 5.8;
-cross_ring_t_mm = 1.8;
-// Pin-local layout from the ring end: a full-diameter lip, then the groove (0.1 mm clearance
-// at the lip, the ring, 0.5 mm slack toward the leg), so the ring is trapped both ways.
-cross_lip_t_mm = 1;
-cross_ring_seat_mm = cross_lip_t_mm + 0.1;   // the installed ring's face nearest the lip
-cross_groove_t_mm = 0.1 + cross_ring_t_mm + 0.5;
-keeper_pin_d_mm = 4;            // the keeper's own locating pins, into the wall tops
-keeper_pin_depth_mm = 6;
-keeper_pin_clearance_mm = 0.2;
-keeper_pin_x_offset_mm = (cradle_w_mm - cradle_wall_mm) / 2; // side-wall centres
-keeper_pin_y_offset_mm = 0;
-keeper_leg_t_mm = 2;            // leg thickness, in X, beside the cradle's side walls
-keeper_leg_drop_mm = cradle_len_mm;   // full-length legs carry the transverse pins
-// The horn variants use these provisional index-pin diameters.
+// (3) The snap keeper -------------------------------------------------------------------
+// ONE printed keeper, no pin, ring or purchased fastener: a frame bears on the MG995's ears
+// and four spring fingers drop beside the cradle's side walls; each finger's barb snaps into
+// a window in the wall's outer face, under the window's flat roof. Two crush ribs per ear
+// row stand proud of the frame's underside, so the seated keeper presses the ears onto the
+// wall tops instead of rattling. Prying the four finger tails outward releases it.
+// DESIGN CAPACITIES on the provisional ear geometry: fit, snap force, rib crush, hold-down
+// against vibration and fatigue are bench/coupon items, not established.
+keeper_finger_t_mm = 2;       // finger thickness, in X, beside the side wall
+keeper_finger_w_mm = 10;      // finger width, in Y
+// Finger centres: inside the end walls, over the ear rows (25.4 mm), so the pull is local.
+keeper_finger_y_mm = cradle_len_mm / 2 - cradle_wall_mm - keeper_finger_w_mm / 2;   // 24
+keeper_finger_x_mm = cradle_w_mm / 2 + joint_clearance_mm;   // finger inner face: 12.15
+keeper_barb_d_mm = 1.0;       // barb protrusion past the finger's inner face
+keeper_barb_land_mm = 0.5;   // flat land under the catch face
+keeper_catch_play_mm = 0.2;   // seated (pads on the ears): catch face below the roof
+keeper_window_depth_mm = 1.2; // window depth into the wall's outer face
+keeper_window_roof_mm = 10;   // cradle frame: the window's flat roof
+keeper_finger_tail_mm = 2.5; // finger below the barb, to pry it free
+keeper_rib_h_mm = 0.4;        // crush ribs: designed interference with the ear tops
+keeper_rib_x0_mm = mg995_body_width_mm / 2 + joint_clearance_mm + 0.6; // clear of the body
+// Probe pose: each finger opened this far at its barb, so the barb tip stands 0.1 mm
+// outside the wall's outer face.
+keeper_snap_spread_mm = keeper_barb_d_mm - joint_clearance_mm + 0.1;
+// Cradle frame heights of the barb: the catch face (seated) and the barb's lowest point.
+keeper_catch_z_mm = keeper_window_roof_mm - keeper_catch_play_mm;
+keeper_barb_z0_mm = keeper_catch_z_mm - keeper_barb_land_mm - keeper_barb_d_mm;
+// The horn variants use these provisional index-pin diameters (unchanged by the snap keeper).
 keeper_post_pin_d_mm = 2.4;
 keeper_post_pin_bore_d_mm = 2.8;
-keeper_cross_pin_y_mm = (cradle_end_y0_mm + cradle_len_mm / 2 - cradle_wall_mm) / 2;
-keeper_cross_pin_z_mm = 8;      // cradle frame: through the walls, below the lugs
-keeper_cross_pin_x0_mm = -(cradle_w_mm / 2 + joint_clearance_mm + keeper_leg_t_mm + 0.5
-                           + cross_ring_t_mm + cross_ring_seat_mm);
-keeper_cross_pin_len_mm = 2 * (cradle_w_mm / 2 + joint_clearance_mm + keeper_leg_t_mm
-                               + 0.5) + cross_ring_t_mm + cross_ring_seat_mm + 2;
 
 // (4) The shelf and its corbel, sized from the cradle --------------------------------------
 // The shelf reaches back 1 mm into the RIB (x 0..rib face): that is where it fuses with the
@@ -262,8 +260,8 @@ shelf_wing_drop_mm = shelf_y1_local_mm - throttle_seat_y_local_mm - corbel_half_
 // ---- Parse-time consistency ---------------------------------------------------------
 assert(is_num(shelf_x1_local_mm) && is_num(shelf_y0_local_mm) && is_num(shelf_y1_local_mm),
        "the shelf's footprint must be defined");
-assert(is_num(corbel_z0_local_mm) && is_num(keeper_cross_pin_len_mm),
-       "the corbel and the keeper pins must be defined");
+assert(is_num(corbel_z0_local_mm) && is_num(keeper_barb_z0_mm),
+       "the corbel and the keeper's barbs must be defined");
 assert(corbel_z0_local_mm > arm_joint_flange_t,
        "the corbel must root on the rib above the joint flange");
 assert(throttle_seat_x_local_mm - cradle_w_mm / 2 > rib_face_local_mm,
@@ -277,3 +275,12 @@ assert(mg995_flange_ear_out_mm < cradle_w_mm / 2,
 assert(throttle_seat_local_mm + mg995_body_height_mm < servo_station_z - arm_joint_z
        - servo_case_axis_offset_z_mm - servo_case_l / 2,
        "the throttle servo must stand below the steering servo's case");
+assert(mg995_flange_ear_out_mm < keeper_finger_x_mm - keeper_barb_d_mm,
+       "the keeper's barb tips must pass outside the MG995's provisional ears");
+assert(keeper_window_depth_mm - (keeper_barb_d_mm - joint_clearance_mm) >= joint_clearance_mm,
+       "the seated barb must clear its window's floor");
+assert(keeper_barb_z0_mm - keeper_finger_tail_mm > 1,
+       "the keeper's finger tails must stand clear of the shelf");
+assert(keeper_finger_y_mm + keeper_finger_w_mm / 2 + joint_clearance_mm
+       < cradle_len_mm / 2 - cradle_wall_mm / 2,
+       "the keeper's fingers must stay inside the cradle's ends");

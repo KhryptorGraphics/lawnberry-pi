@@ -1,11 +1,11 @@
 // Inspection/install views only. The mower is schematic; no Toro geometry or locations are known.
 // Grey = schematic mower parts; amber = measured-interface placeholders; teal = printed parts;
-// silver = steel fasteners; red = E-stop; blue = tray/lid. Views communicate arrangement, not fit.
+// silver = steel fasteners; red = E-stop; blue = lid/covers. Views communicate arrangement, not fit.
 include <enclosure_common.scad>
 use <enclosure_body.scad>
 use <enclosure_lid.scad>
-use <electronics_tray.scad>
-use <enclosure_board_sled.scad>
+use <antenna_mount.scad>
+use <control_77603/chassis.scad>
 use <hitch_arm_layer.scad>
 use <lapbar_four_bolt_clamp.scad>
 use <pushrod.scad>
@@ -19,8 +19,8 @@ use <sensor_carrier.scad>
 use <arm_support.scad>
 assembly = "steering_arms";
 // Scenes: steering_arms, arm_layer, servo_adapter, lapbar_connector, rod_adjustment,
-// enclosure_mounted, enclosure, tower, tower_base, estop_station, estop, camera, camera_stack,
-// camera_pi_exploded, camera_stereo_exploded, sensor, overview.
+// enclosure_mounted, enclosure, enclosure_latch, tower, tower_base, estop_station, estop, camera,
+// camera_stack, camera_pi_exploded, camera_stereo_exploded, sensor, overview, lid_antennas.
 
 c_print  = [0.16, 0.55, 0.60];
 c_steel  = [0.75, 0.76, 0.78];
@@ -126,9 +126,12 @@ module ref_bars_and_clamps() {
 }
 // Both rods run FORWARD from their servo crank to the drive lever. The left rod is the
 // same printed rod turned 180 degrees about its own axis by rod_between_points().
+// The print-in-place rod (levers, teeth, 19 rack pockets) overflows OpenCSG's 100000-element
+// normalization in preview, so scenes draw it through render(): one CGAL mesh per rod.
 module steering_linkages() {
     for(side=[-1,1])
-        rod_between_points(servo_crank_pin(side),lapbar_pin(side),rod_nominal_setting());
+        render(convexity=6)
+            rod_between_points(servo_crank_pin(side),lapbar_pin(side),rod_nominal_setting());
 }
 module hitch_layer_arms() {
     color(c_print) arm_layer_assembly();
@@ -195,6 +198,18 @@ module enclosure_mounted() {
     for(side=[-1,1]) ref_clamp_pivot_pin(side);
     color(c_print) steering_linkages();
     camera_stack_assembly();
+    // Two HaLow antennas (purchased, 1143 mm) on the lid's back corners: bulkheads, posts, grips.
+    antenna_lid_hardware();
+}
+// The reprinted lid's two antenna stations: the lid cut on the -X station's axis plane (x <
+// -64.5 removed) so the -X socket, snap, bulkhead and pigtail show in section; the lower 300 mm
+// of each antenna.
+module lid_antennas() {
+    color(c_frame) difference() {
+        enclosure_lid_closed();
+        translate([-200,-150,box_top-30]) cube([200-64.5,300,60]);
+    }
+    antenna_lid_hardware(antenna_len=300);
 }
 module estop_station() {
     ref_rail(-120,120);
@@ -225,13 +240,13 @@ else if (assembly == "lapbar_connector") {
     clamp_on_bar(-1);
     ref_clamp_pivot_pin(-1);
     color(c_print) intersection() {
-        rod_between_points(servo_crank_pin(-1),p,rod_nominal_setting());
+        render(convexity=6) rod_between_points(servo_crank_pin(-1),p,rod_nominal_setting());
         translate(p+[0,-60,0]) cube([120,140,120],center=true);
     }
 }
 else if (assembly == "rod_adjustment") {
-    translate([0,-45,0]) color(c_print) rod_assembly(0);
-    translate([0,45,0]) color(c_print) rod_assembly(rod_last_setting());
+    translate([0,-45,0]) color(c_print) render(convexity=6) rod_assembly(0);
+    translate([0,45,0]) color(c_print) render(convexity=6) rod_assembly(rod_last_setting());
 }
 else if (assembly == "estop_station") estop_station();
 else if (assembly == "enclosure_mounted") enclosure_mounted();
@@ -246,13 +261,15 @@ else if (assembly == "tower_base") {
     color(c_frame) translate([-tongue_w/2,box_inner_w/2,0]) cube([tongue_w,tongue_end_y()-box_inner_w/2,tongue_t]);
 }
 else if (assembly == "overview") enclosure_mounted();
+else if (assembly == "lid_antennas") lid_antennas();
 else if (assembly == "enclosure") {
+    // -Y half cut away: the control_77603 chassis base clamped on the floor bosses by the
+    // box-to-arm-layer M4 bolts, the removable chassis seated on it, and the lid lifted 45 mm.
+    // The boards and carriers are drawn by control_77603/assemblies.scad.
     color(c_frame) difference() { enclosure_body(); translate([-150,-150,box_floor+0.1]) cube([300,150,box_top+10]); }
-    color(c_blue) enclosure_tray_assembly();
-    color(c_print) enclosure_sleds_assembly();
-    color(c_hold) translate([-73,-39.5,pi_pcb_z]) cube([56,85,54]);
-    for(p=utility_anchors) color(c_steel) translate([p[0],p[1],tray_top_z]) cylinder(d=3,h=118);
-    for(p=relay_anchors) color(c_steel) translate([p[0],p[1],tray_top_z]) cylinder(d=3,h=128);
+    for(p=tray_fixings) color(c_steel) translate([p[0],p[1],-layer_t-2]) cylinder(d=4,h=tray_bottom_z+layer_t+6);
+    color(c_blue) chassis_base();
+    color(c_print) chassis();
     color(c_frame) translate([0,0,45]) enclosure_lid_closed();
 }
 else if (assembly == "estop") { color(c_print) estop_bracket(); color(c_blue) estop_cover_placed(); }

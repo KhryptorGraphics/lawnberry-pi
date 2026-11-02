@@ -164,7 +164,7 @@ module station_context(alpha = 0.35) {
 
 // ---- Complete throttle station -----------------------------------------------------
 module throttle_station() {
-    // The keeper and its pins are SELF-PLACED on the head's cradle: no extra transform.
+    // The one-piece snap keeper is SELF-PLACED on the head's cradle: no extra transform.
     mg995_throttle_mount("assembly");
     mg995_reference();
     station_context();
@@ -176,8 +176,10 @@ module throttle_station() {
     throttle_lever_reference("E");
 }
 
+// Service view: the snap keeper lifted to the height that clears the cradle walls (the
+// keeper_lifts_out probe's pose), so the four finger windows and the servo are exposed.
 module throttle_mount_service() {
-    mg995_throttle_mount("assembly");
+    translate([0, 0, cradle_wall_h_mm + 2]) mg995_throttle_mount("assembly");
     mg995_reference();
     station_context(0.5);
 }

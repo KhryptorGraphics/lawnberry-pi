@@ -20,9 +20,10 @@ without lap-bar or hitch coordinates. Measure the lap-bar values below before pr
 | Built rod skew | **4.10°** | follows the offset |
 | Rod fall, servo to lap bar | **101.6 mm** (≈ 6.2°) | follows `servo_station_raise_mm` |
 
-The CAD default uses the estimate. The rod adjusts **210 mm in 15 mm steps** across its two
-multi-position joints, so the clamp point stays a choice inside the estimated band rather than a
-reading; re-enter measured values only if the band itself turns out to be wrong.
+The CAD default uses the estimate. The rod adjusts **216 mm in 12 mm steps** (833.9–1049.9 mm,
+19 pockets on the inner bar's print-in-place rack lock), so the clamp point stays a choice inside
+the estimated band rather than a reading; re-enter measured values only if the band itself turns
+out to be wrong. Between pockets, trim with the servo's software centre offset (at most ±6 mm).
 
 ## Basis
 
@@ -127,14 +128,17 @@ about Ø30 mm that the drawing does not dimension, and the **photo-derived six-h
 | Problem in the 500–650 mm rod | Change |
 |---|---|
 | About 300 mm too short for this machine | 941.9 mm default pin length from the estimate above (936.4 mm before both servo stations were raised 101.6 mm) |
-| Stretched to ~937 mm, the 32 mm tube / 21.1 mm inner bar buckles below the 540 N stall force at a 30 mm horn (margin 0.77) | 40 mm × 5 mm square tube in **four** bolted pieces plus a 29.1 mm inner bar: Euler load ≈ 1.96 kN at E = 1.5 GPa |
+| Stretched to ~937 mm, the 32 mm tube / 21.1 mm inner bar buckles below the 540 N stall force at a 30 mm horn (margin 0.77) | 40 mm × 5 mm square tube in **two** pieces plus a 29.1 mm inner bar, joined and locked by print-in-place levers with positive teeth (no rod bolts): stepped-section Euler estimate at E = 1.5 GPa **2.18 kN at 941.9 mm, 2.79 kN at 833.9 mm, 1.59 kN at 1049.9 mm**. The bolted four-piece rod it replaces gave 1.85 kN at 941.9 mm and 1.57 kN at 1046.9 mm in the same model (quoted earlier as ≈ 1.96 kN) |
 | Horn pointed along the rod at neutral, so the servo started near dead centre | Printed adapter's clevis holds the M6 pin **up** at neutral face45, within 6.2° of square to the rod (which falls 101.6 mm to the lap bar) |
 | Servo fork prongs would collide with the disc and the case | Single eye in the printed adapter's 12 mm clevis gap on an M6 pin in **double shear**; `rod_servo_sweep` sweeps the eye against case, disc and adapter over 0–90° face |
 | Planar YZ placement required the lap bar directly in front of the servo | Both pins remain global X; the eye fittings carry a 4.10° built skew |
 
 At the 55 mm **printed adapter design radius**, the stall force is
-16.2 N·m / 0.055 m ≈ **295 N**, giving an Euler margin of about **6.7**. The buckling check
-treats the splices as continuous and uses a modulus assumption; it is not a strength rating.
+16.2 N·m / 0.055 m ≈ **295 N**, giving an Euler margin of about **7.4** at the nominal length
+and **5.4** at the longest rack setting (about 4.0 and 2.9 against 540 N at a 30 mm horn). The
+buckling check counts the inner bar inside the sleeve with the tube, treats the spigot socket as the tube alone, and uses a modulus
+assumption; it is not a strength rating. Each lock's holding target is **1080 N** axially in both
+directions (2 × 540 N), UNQUALIFIED until the `pushrod_*_coupon` pairs pass a bench pull/push test.
 The skew adds an axial thrust of about 0.072 × rod force on each pin. The clevis ears and
 shims carry that thrust.
 

@@ -1,21 +1,32 @@
-// MG995 throttle servo mount for the Toro 77603 RIGHT arm head: cradle walls, keeper, pins.
+// MG995 throttle servo mount for the Toro 77603 RIGHT arm head: cradle walls and ONE snap
+// keeper.
 //
 // STRUCTURE
 // The throttle servo stands BELOW the raised right steering servo, on a shelf grown from the
 // rib of the derivative head (throttle_arm_head.scad). The head prints the shelf AND the
 // cradle walls as one piece: the shelf's top face is the cradle's floor, and the servo's base
 // rests on it. THIS file supplies the cradle walls (built into the head), the keeper that
-// bears on the servo's ears, its two transverse printed pins with split rings, the lug gauge,
-// and the world datums the scenes and probes place everything with.
+// holds the servo's ears down, the lug gauge, and the world datums the scenes and probes
+// place everything with.
+//
+// THE KEEPER IS ONE PART. A frame bears on the MG995's ears from above; four spring fingers
+// drop beside the cradle's side walls, and each finger's barb snaps into a window in the
+// wall's outer face, under the window's flat roof. Two crush ribs per ear row stand 0.4 mm
+// proud of the frame's underside: the keeper must be pressed down past them for the barbs to
+// pass the roofs, so once seated the ribs keep the ears pressed onto the wall tops instead of
+// leaving the servo free to rattle in the catch play. Service: pry the four finger tails
+// outward (fingernail or a small flat blade between tail and wall) and lift the keeper off;
+// then the MG995 lifts straight out (servo_lifts_out). The previous keeper needed a crossbar,
+// two transverse printed pins and two split rings: five loose parts, now one.
 //
 // Nothing here modifies the steering servo, its six-hole fixture, its pushrods or its steel
-// hardware, and no purchased fastener is used: the keeper is retained by printed pins.
+// hardware, and no purchased fastener is used.
 //
 // All dimensions derive from the legacy datum in ../enclosure_common.scad via parameters.scad.
 // MG995 body, lug and horn dimensions remain TO MEASURE, so the cradle and keeper are
-// capacities, not verified fits, and nothing here is load-qualified.
+// capacities, not verified fits; snap force, rib crush, hold-down against vibration and
+// fatigue are unqualified.
 include <parameters.scad>
-use <printed_joints.scad>   // pin_band_relief: the cross pins' lip and keeper groove
 
 // ---- Datums ----------------------------------------------------------------------------
 // The cradle frame's origin in WORLD coordinates: the servo's base plane at the cradle's
@@ -33,7 +44,16 @@ function throttle_horn_base_mm() =
 // ---- Cradle walls ----------------------------------------------------------------------
 // Side and end walls in the cradle frame. They reach `root` below the base plane so the head
 // fuses them into its shelf. The body recess between them is the servo's drop-in pocket;
-// lug size and shape remain TO MEASURE.
+// lug size and shape remain TO MEASURE. Each side wall carries two snap WINDOWS in its outer
+// face: a pocket keeper_window_depth_mm deep whose flat roof is the barb's catch.
+module keeper_window(sx, sy) {
+    translate([sx > 0 ? cradle_w_mm / 2 - keeper_window_depth_mm : -cradle_w_mm / 2 - 1,
+               sy * keeper_finger_y_mm - keeper_finger_w_mm / 2 - joint_clearance_mm,
+               keeper_barb_z0_mm - joint_clearance_mm])
+        cube([keeper_window_depth_mm + 1, keeper_finger_w_mm + 2 * joint_clearance_mm,
+              keeper_window_roof_mm - keeper_barb_z0_mm + joint_clearance_mm]);
+}
+
 module cradle_walls(root = 1) {
     difference() {
         union() {
@@ -47,120 +67,109 @@ module cradle_walls(root = 1) {
                     cube([cradle_w_mm, cradle_wall_mm, cradle_wall_h_mm + root]);
             }
         }
-        // Transverse keeper-pin bores through both side walls, beyond the servo's ends.
-        for (s = [-1, 1])
-            translate([0, s * keeper_cross_pin_y_mm, keeper_cross_pin_z_mm])
-                rotate([0, 90, 0])
-                    cylinder(d = cross_hole_d_mm, h = cradle_w_mm + 2, center = true);
-        // Blind holes in the side-wall tops for the keeper's vertical locating pins.
-        for (dx = [-keeper_pin_x_offset_mm, keeper_pin_x_offset_mm])
-            translate([dx, keeper_pin_y_offset_mm, cradle_wall_h_mm - keeper_pin_depth_mm])
-                cylinder(d = keeper_pin_d_mm + 2 * keeper_pin_clearance_mm,
-                         h = keeper_pin_depth_mm + 1);
+        for (sx = [-1, 1], sy = [-1, 1]) keeper_window(sx, sy);
     }
+}
+
+// ---- The MG995's provisional flange --------------------------------------------------
+// Four ears at the owner's 50.80 mm front-back pitch, reaching mg995_flange_ear_out_mm to
+// each side and resting on the side-wall tops. DESIGN CAPACITY for the keeper probes: the
+// real flange outline is TO MEASURE. Cradle frame.
+module mg995_flange_envelope() {
+    for (sy = [-1, 1])
+        translate([-mg995_flange_ear_out_mm, sy * mg995_flange_ear_offset_mm
+                   - mg995_flange_ear_w_mm / 2, cradle_flange_z0_mm])
+            cube([2 * mg995_flange_ear_out_mm, mg995_flange_ear_w_mm, mg995_lug_thickness_mm]);
 }
 
 // ---- Keeper --------------------------------------------------------------------------
-// An open frame bears on the provisional lugs from above. Its full-length legs drop
-// outside the side walls and are pinned to them by two transverse printed pins.
-module keeper_crossbar() {
+// Built in the INSTALLED pose, cradle frame: the frame's underside lies on the provisional
+// ear tops (cradle_flange_z1_mm) and the fingers hang down beside the side walls.
+// `spread` opens every finger outward by that much at its barb, rotating it about its root
+// at the frame's underside: the pose the snap probes slide down the walls.
+keeper_frame_x_mm = keeper_finger_x_mm + keeper_finger_t_mm;   // the frame's half width
+keeper_finger_z1_mm = cradle_flange_z1_mm;                       // the fingers' root
+keeper_tail_z_mm = keeper_barb_z0_mm - keeper_finger_tail_mm;   // the fingers' tips
+
+module keeper_frame() {
     difference() {
-        union() {
-            translate([-cradle_w_mm / 2 - joint_clearance_mm - keeper_leg_t_mm,
-                       -cradle_len_mm / 2, 0])
-                cube([cradle_w_mm + 2 * (joint_clearance_mm + keeper_leg_t_mm),
-                      cradle_len_mm, keeper_t_mm]);
-            for (dx = [-keeper_pin_x_offset_mm, keeper_pin_x_offset_mm])
-                translate([dx, keeper_pin_y_offset_mm, keeper_t_mm])
-                    cylinder(d = keeper_pin_d_mm, h = keeper_pin_depth_mm);
-            for (s = [-1, 1])
-                translate([s < 0 ? -cradle_w_mm / 2 - joint_clearance_mm - keeper_leg_t_mm
-                                 : cradle_w_mm / 2 + joint_clearance_mm,
-                           -keeper_leg_drop_mm / 2, keeper_t_mm])
-                    cube([keeper_leg_t_mm, keeper_leg_drop_mm, cradle_wall_h_mm]);
-        }
+        translate([-keeper_frame_x_mm, -cradle_len_mm / 2, cradle_flange_z1_mm])
+            cube([2 * keeper_frame_x_mm, cradle_len_mm, keeper_t_mm]);
+        // The servo body passes up through the frame.
         translate([-mg995_body_width_mm / 2 - joint_clearance_mm,
-                   -mg995_body_length_mm / 2 - joint_clearance_mm, -1])
+                   -mg995_body_length_mm / 2 - joint_clearance_mm, cradle_flange_z1_mm - 1])
             cube([mg995_body_width_mm + 2 * joint_clearance_mm,
                   mg995_body_length_mm + 2 * joint_clearance_mm, keeper_t_mm + 2]);
-        // Transverse pin bores through both legs, in the keeper's printed frame.
-        for (s = [-1, 1])
-            translate([0, s * keeper_cross_pin_y_mm,
-                       cradle_flange_z1_mm + keeper_t_mm - keeper_cross_pin_z_mm])
-                rotate([0, 90, 0])
-                    cylinder(d = cross_hole_d_mm, h = 2 * cradle_w_mm, center = true);
     }
+    // Crush ribs over each ear row: a 45-degree ridge rib_h tall along X on each side of the
+    // body, centred on the ear row.
+    for (sx = [-1, 1], sy = [-1, 1])
+        translate([sx > 0 ? keeper_rib_x0_mm : -mg995_flange_ear_out_mm + 0.2,
+                   sy * mg995_flange_ear_offset_mm, cradle_flange_z1_mm + 0.01])
+            rotate([0, 90, 0])
+                linear_extrude(height = mg995_flange_ear_out_mm - 0.2 - keeper_rib_x0_mm)
+                    polygon([[0, -keeper_rib_h_mm], [keeper_rib_h_mm + 0.01, 0],
+                             [0, keeper_rib_h_mm]]);
 }
 
-// A printed cross pin and split keeper ring. The pin's free end (z = 0) carries a full-
-// diameter lip, then the keeper groove; the ring's bore is smaller than both the shaft and
-// the lip, so once snapped into the groove it cannot leave either way. Fit, snap force,
-// clip retention and fatigue life are unverified.
-module cross_pin(len) {
-    difference() {
-        union() {
-            cylinder(d = cross_pin_d_mm, h = len);
-            translate([0, 0, len - 2])
-                cylinder(d = cross_ring_d_mm, h = 2);
-        }
-        pin_band_relief(d = cross_pin_d_mm, band_d = cross_band_d_mm,
-                        band_t = cross_groove_t_mm, lip_t = cross_lip_t_mm);
-    }
+// One finger with its barb, on side sx (+1 / -1 in X), at Y centre sy * finger_y.
+module keeper_finger(sx, sy) {
+    y0 = sy * keeper_finger_y_mm - keeper_finger_w_mm / 2;
+    // The finger plate, from its tail up into the frame.
+    translate([sx > 0 ? keeper_finger_x_mm : -keeper_frame_x_mm, y0, keeper_tail_z_mm])
+        cube([keeper_finger_t_mm, keeper_finger_w_mm,
+              keeper_finger_z1_mm - keeper_tail_z_mm + 0.5]);
+    // The barb: a 45-degree lead-in from its lowest point to the tip, a land, then the flat
+    // catch face at keeper_catch_z_mm (facing up, under the window's roof).
+    translate([0, y0, 0]) rotate([90, 0, 0]) mirror([0, 0, 1])
+        linear_extrude(height = keeper_finger_w_mm)
+            polygon([for (p = [[keeper_finger_x_mm + 0.01, keeper_barb_z0_mm],
+                               [keeper_finger_x_mm - keeper_barb_d_mm,
+                                keeper_barb_z0_mm + keeper_barb_d_mm],
+                               [keeper_finger_x_mm - keeper_barb_d_mm, keeper_catch_z_mm],
+                               [keeper_finger_x_mm + 0.01, keeper_catch_z_mm]])
+                         [sx * p[0], p[1]]]);
 }
 
-module cross_keeper() {
-    difference() {
-        cylinder(d = cross_ring_d_mm, h = cross_ring_t_mm);
-        translate([0, 0, -1])
-            cylinder(d = cross_ring_bore_d_mm, h = cross_ring_t_mm + 2, $fn = 48);
-        translate([0, -0.5, -1])
-            cube([cross_ring_d_mm, 1, cross_ring_t_mm + 2]);
-    }
+module keeper_installed(spread = 0) {
+    arm = keeper_finger_z1_mm - (keeper_barb_z0_mm + keeper_catch_z_mm) / 2;
+    angle = spread == 0 ? 0 : asin(spread / arm);
+    keeper_frame();
+    for (sx = [-1, 1], sy = [-1, 1])
+        // Each finger opens about its root line at the frame's underside, inner face.
+        translate([sx * keeper_finger_x_mm, 0, keeper_finger_z1_mm])
+            rotate([0, -sx * angle, 0])
+                translate([-sx * keeper_finger_x_mm, 0, -keeper_finger_z1_mm])
+                    keeper_finger(sx, sy);
 }
 
-// Installed keeper pins and rings, in the cradle frame.
-module keeper_cross_pins_installed() {
-    for (s = [-1, 1])
-        translate([keeper_cross_pin_x0_mm, s * keeper_cross_pin_y_mm, keeper_cross_pin_z_mm])
-            rotate([0, 90, 0]) {
-                cross_pin(keeper_cross_pin_len_mm);
-                translate([0, 0, cross_ring_seat_mm]) cross_keeper();
-            }
-}
-
-// The keeper as installed, in the cradle frame.
-module keeper_installed() {
-    translate([0, 0, cradle_flange_z1_mm + keeper_t_mm])
-        rotate([180, 0, 0]) keeper_crossbar();
+// The keeper's print pose: frame on the bed, fingers up. The barbs' 1 mm catch faces are the
+// only downward faces off the bed.
+module keeper_print() {
+    translate([0, 0, cradle_flange_z1_mm + keeper_t_mm]) rotate([180, 0, 0])
+        keeper_installed();
 }
 
 // ---- Placement ----------------------------------------------------------------------
-// The keeper and its pins, in world coordinates. The cradle walls belong to the head.
+// The keeper in world coordinates. The cradle walls belong to the head.
 module throttle_stack_installed() {
-    translate(throttle_servo_base_mm()) {
-        keeper_installed();
-        keeper_cross_pins_installed();
-    }
+    translate(throttle_servo_base_mm()) keeper_installed();
 }
 
 // ---- Entry points --------------------------------------------------------------------
 mount_part = "assembly";
 
 module mg995_throttle_mount(part = mount_part) {
-    if (part == "assembly") {
+    if (part == "assembly" || part == "stack_installed") {
         throttle_stack_installed();
     } else if (part == "cradle_walls") {
         cradle_walls();
     } else if (part == "keeper") {
-        keeper_crossbar();
+        keeper_print();
     } else if (part == "keeper_installed") {
         keeper_installed();
-    } else if (part == "keeper_pin") {
-        cross_pin(keeper_cross_pin_len_mm);
-    } else if (part == "keeper_pins_installed") {
-        keeper_cross_pins_installed();
-    } else if (part == "pin_keeper") {
-        cross_keeper();
+    } else if (part == "flange_envelope") {
+        mg995_flange_envelope();
     } else if (part == "gauge") {
         difference() {
             translate([-30, -mg995_mount_pitch_fb_mm / 2 - 8, 0]) cube([60, 30, 3]);

@@ -39,12 +39,12 @@ Regenerate all views and parts with `python3 hardware/mounts/build_printables.py
 | `fit_gauge_2` | RDS51150SG stationary-holder side | Six M2.5 screws pass its photo-derived slots and Ø13.5 opening |
 | `lapbar_clamp_insert_0`–`_4` | Actual steering-bar tube | Sleeve set spanning 20 / 22.2 / 25.4 / 28.6 / 30 mm bar OD. The sleeve that slips over the bar is the one to fit; the clamp halves do not change with the bar |
 | `pushrod_gauge_0`–`_2` | 40 mm sleeve and 29.1 mm inner bar | Inner bar slides without binding at the chosen fit |
+| `pushrod_joint_coupon` + `_spigot`, `pushrod_rack_coupon` + `_bar` | Each other, locked, pulled and pushed axially on Ø6.6 test pins | Lever closes by hand with the tooth fully home; each pair holds **1080 N** (2 × the ~540 N servo stall) in tension and in compression with no tooth shear, pocket tear-out, lever opening or lasting slip. Until both pairs pass, the rod locks are unqualified |
 
 Measure the real hitch plate edges and edit `hitch_plate_width_mm`, depth and thickness in
 `enclosure_common.scad` before printing the layer. Arm roots start 2 mm outboard of the schematic
 plate edge; a wider plate may exceed the side-ear bolt land and intentionally fail the layer assert.
 Measure each lap-bar clamp point and crank before changing `lapbar_pin_*`/`servo_crank_r`; never print
-rods from the default estimate without that check.
 rods from the default estimate without that check.
 
 ---
@@ -154,44 +154,80 @@ slip and inspect for whitening/cracks before any powered test.
 
 ## 4. Positively locked rods
 
-![rod at shortest and longest lock settings](view_rod_adjustment.png)
+![rod at shortest and longest rack settings](view_rod_adjustment.png)
 
-**Parts per side:** `pushrod_servo_end`, `pushrod_middle_a`, `pushrod_middle_b`, `pushrod_sleeve` and `pushrod_inner`
-(print two sets; the left rod is the same set turned 180° about its own axis). Hardware per rod:
-four M6 ×55 splice bolts, two M6 ×55 lock bolts, one M6 ×55 clamp-yoke pin, and one M6 ×35–40
-adapter clevis pin (spans the 6 + 12 + 6 mm ear-gap-ear grip plus washers and a lock nut; verify
-actual stack), each with washers and a locking nut. Verify actual stacks before ordering.
-The 40 mm square tube has 5 mm walls; the 29.1 mm inner bar slides with 0.45 mm clearance per side.
+**Prints per side:** `pushrod_servo_end` (2 bodies: tube + joint lever), `pushrod_sleeve` (2 bodies:
+tube + rack lever) and `pushrod_inner` (print two sets; the left rod is the same set turned 180° about
+its own axis, so both rods' levers face outboard). **The rod itself needs no purchased fasteners.**
+The only steel at the rod is what the mating parts already use: one M6 ×55 clamp-yoke pin and one
+M6 ×35–40 adapter clevis pin (spans the 6 + 12 + 6 mm ear-gap-ear grip plus washers and a lock nut;
+verify the actual stack), each with washers and a locking nut. The bolted rod's four M6 ×55 splice
+bolts and two M6 ×55 lock bolts per rod are gone. The 40 mm square tube has 5 mm walls; the 29.1 mm
+inner bar slides with 0.45 mm clearance per side.
+
+**Printing.** `pushrod_servo_end` (446 mm) and `pushrod_sleeve` (406 mm) print upright with the
+lever mouth on the bed; each lever prints open, lying on the bed beside the mouth, captive on two
+cheek pins with 0.4 mm gaps. Use a brim on both tall prints. After printing, work each lever through
+its 90° swing until it moves freely; never cut or drill it free. `pushrod_inner` prints lying flat
+(its rack pockets are slots in a side face).
 
 The default **941.9 mm** pin length is the Toro TimeCutter MAX 50 in MyRIDE estimate in
 `TORO_77502_LINKAGE.md`, not a measurement, with both servo stations raised 101.6 mm (the rod
-falls that far to the lap bar). The three lock settings give 926.9/941.9/956.9 mm.
-The rod length is set on the bench by choosing a joint position; set the clamp-pin and crank
-values in `enclosure_common.scad` only if the estimated band turns out to be wrong.
+falls that far to the lap bar). The rack has **19 settings, 12 mm apart: 833.9 to 1049.9 mm**
+(setting 9 = 941.9 mm), covering the estimate's ±101.6 mm fore-aft uncertainty. The rod length is
+set on the bench by choosing a pocket; set the clamp-pin and crank values in `enclosure_common.scad`
+only if the estimated band turns out to be wrong.
 
-1. Select the loose/nominal/tight square-fit coupon. Join the four outer pieces spigot-first with
-   two M6 bolts per splice. Both lock bolts must pass through the sleeve and the matching inner-bar
-   holes at one setting. Friction alone is not the lock.
-2. Fit the servo crank **up** at neutral, square to a level rod. The servo-end eye sits in the
+**The locks are positive; the clamp is extra.** Each lever is an over-centre cam whose lobe clamps
+the member, and it also swings a tooth through a window in the tube wall into a pocket. Tooth,
+window and pocket are arcs about the lever pivot, so a push or pull on the rod presses through the
+pivot and cannot open the lever. A lever that is not fully home, or closed on the bar between
+pockets, is NOT a lock: friction alone near the ~540 N stall is unqualified, and a slipping rod
+silently changes the steering trim.
+
+1. Select the loose/nominal/tight square-fit coupon, and pass both lock-coupon pull/push tests in
+   section 1 before fitting a rod to the mower.
+2. **Section joint.** Open the servo end's joint lever. Push the sleeve's square spigot into the
+   servo end's mouth, both levers on the same face, until the shoulder seats on the mouth. Swing the
+   lever flat onto the tube: it passes a firm over-centre point and its tooth drops into the
+   spigot's pocket. A lever that will not close flat means the spigot is not seated or is turned;
+   never force it.
+3. **Length.** Open the rack lever and slide the inner bar into the sleeve mouth, rack pockets
+   toward the lever (turned any other way, the lever cannot close). Count pockets from the eye end:
+   the pocket under the tooth is the setting (first = setting 0, 833.9 mm; tenth = setting 9,
+   941.9 mm; last = setting 18, 1049.9 mm). With the servo at its 45° neutral face and the lap bar
+   at neutral, choose the pocket that puts the lap-bar eye nearest its clamp pin and close the
+   lever flat with the tooth home. Take out the remainder, at most ±6 mm (half a step), with the
+   servo's software centre trim, never with a lever left partly closed.
+4. Fit the servo crank **up** at neutral, square to a level rod. The servo-end eye sits in the
    printed adapter's 12 mm clevis gap (2 mm shim/trim space each side of the 8 mm eye) on the
    M6 pin in double shear. Fit the inner eye between the clamp's paired yoke ears (9 mm gap).
-   Both bores are Ø6.6 mm. Changing one lock step moves the servo eye about 1.1 mm along its pin;
+   Both bores are Ø6.6 mm. Changing one rack step moves the servo eye about 0.86 mm along its pin;
    correct it with shims inside the clevis gap.
-3. Both pin axes must stay parallel to the mower's left-right axis. The rod's 4.12° skew carries the
+5. Both pin axes must stay parallel to the mower's left-right axis. The rod's 4.10° skew carries the
    lap bar's extra outboard offset; it does not permit out-of-plane articulation. Do not bend the
    clamp, force a tilted pin, or use loose pins to hide a mismatch.
-4. With servos unpowered, hand-cycle the 45° neutral face, the 90° full-reverse face and outboard
+6. With servos unpowered, hand-cycle the 45° neutral face, the 90° full-reverse face and outboard
    PARK. Remove a pin to verify manual release. Any binding, slip, interference or failure to
    self-centre is a stop-work condition; do not compensate with force.
-5. While someone rides normally, check that the MyRIDE platform does not move the clamp pins
+7. Before every session, check all four levers: flat on the tube, tooth home. A lifted lever, a
+   tooth not home, or whitening at a tooth, window or pocket is a stop-work condition.
+8. While someone rides normally, check that the MyRIDE platform does not move the clamp pins
    fore-and-aft relative to the hitch plate. Such motion becomes an unintended lever command.
-6. Route both rods clear of the engine, muffler, belts and seat platform. ASA must stay well away
-   from exhaust heat.
+9. Route both rods clear of the engine, muffler, belts and seat platform. ASA must stay well away
+   from exhaust heat. A closed lever stands about 14 mm proud of the rod's outboard face (44 mm
+   open); check that it clears grip, fender and the PARK swing.
 
-The 12 V stall rating is 165 kg·cm (about 16.2 N·m): roughly 295 N at the 55 mm adapter pin
-radius. That is a hazard/load estimate, **not** a permitted operating force and not proof for any
-printed part or mower mounting. No material fatigue/creep, impact, root-bolt, clamp-slip or
-hitch-plate qualification is claimed.
+**Removing a rod:** unpowered, pull the two end pins, then lift each lever arm away from the tube
+past its over-centre point and slide the pieces apart. There is nothing to unbolt.
+
+**Unqualified:** lever holding force (target ≥ 1080 N each way per lock), tooth and pocket shear,
+clamp preload, over-centre retention under vibration, creep and wear of the printed pins, and
+print-to-print PIP release. The 12 V stall rating is 165 kg·cm (about 16.2 N·m): roughly 295 N at
+the 55 mm adapter pin radius and about 540 N at a 30 mm horn. That is a hazard/load estimate,
+**not** a permitted operating force and not proof for any printed part or mower mounting. No
+material fatigue/creep, impact, root-bolt, clamp-slip or hitch-plate qualification is claimed.
+
 ## 5. E-stop
 
 ![E-stop on the rail](view_estop_station.png)
@@ -225,9 +261,14 @@ before committing to a full box or powering steering.
 **Stack and sequence:**
 
 1. Fit glands/breather in the body; confirm their locknuts clear the layer's 24 mm pass-throughs.
-2. Fit the electronics tray and seal its four floor bolts; choose bolts long enough for the added
-   8 mm layer and check nut/thread engagement.
-3. Fit the Pi, boards, insulating spacers and sleds. Drill only the actual PCB patterns.
+   The two HaLow antenna ports and posts are on the reprinted lid (README § HaLow antenna port and
+   mount): fit the bulkheads and posts on the lid before closing the box, and route each pigtail
+   along the `control_77603` corridors with at least 100 mm of service slack.
+2. Fit the four box-to-arm-layer M4 bolts through the floor bosses, head and washer clamping the
+   `control_77603` `chassis_base` (3.5 mm, the legacy tray's thickness), and seal them; choose bolts
+   long enough for the added 8 mm layer and check nut/thread engagement.
+3. Lower the `control_77603` chassis 6 mm +Y of its seat, push it −Y until the base detent clicks,
+   and load the boards as `control_77603/README.md` describes. No tray, sleds or stack columns remain.
 4. Fit the camera-tower wall flange, backing strip and foot. Its M5 foot bolts also pass the layer;
    check their grip length with the extra 8 mm.
 5. Fit the 3 mm seal cord, lid and twelve M4 fasteners.
@@ -376,7 +417,7 @@ For the enclosed cameras, use the bottom-loading steps and exploded views in §7
 | Part | Where | Notes |
 |---|---|---|
 | `camera_pi_housing` / `camera_stereo_housing` | Pi at the lower station; stereo above the 12-inch extension | Bottom-loaded tray/cassette/retainer/inserts, gaskets, service screws (§7). CSI for Pi; USB for stereo. |
-| `sensor_carrier` (+ `camera_foot` if tilt is appropriate) | ToF: front corners, aimed forward, apertures unobstructed. BME280: shaded, ventilated, away from exhaust. IMU: rigid on the chassis near the middle of the machine, away from servos and high-current wiring. INA3221: inside the enclosure on a utility sled | Blank carrier: drill for the real board, board on insulating spacers, then fix the carrier |
+| `sensor_carrier` (+ `camera_foot` if tilt is appropriate) | ToF: front corners, aimed forward, apertures unobstructed. BME280: shaded, ventilated, away from exhaust. IMU: rigid on the chassis near the middle of the machine, away from servos and high-current wiring. INA3221: inside the enclosure, but the bolt-free `control_77603` chassis has no carrier for it yet (the retired utility sled held it) — add a bay before fitting it | Blank carrier: drill for the real board, board on insulating spacers, then fix the carrier |
 | `antenna_deck` | Highest practical point with a clear sky view — behind/above the seat or on a mast | Strap the antenna through the edge slots; add a ≥100 mm metal ground plane under a patch antenna. Keep the RTK antenna away from the engine ignition lead |
 
 ## 9. Cables

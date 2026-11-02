@@ -3,8 +3,6 @@
 include <enclosure_common.scad>
 use <enclosure_body.scad>
 use <enclosure_lid.scad>
-use <electronics_tray.scad>
-use <enclosure_board_sled.scad>
 use <hitch_arm_layer.scad>
 use <throttle_servo_mount.scad>
 use <lapbar_four_bolt_clamp.scad>
@@ -32,6 +30,12 @@ module fit_rod_servo_end(side, face, crank_r=servo_crank_r) {
         translate(servo_crank_pin(side)+[0,60,0]) cube([200,260,200],center=true);
     }
 }
+// Steering-rod rack settings probed: shortest, nominal, longest.
+function fit_rod_settings() = [0,rod_nominal_setting(),rod_last_setting()];
+// A Ø6.0 pin along the global X pin axis at rod x, offset dy in the probe layout.
+module fit_rod_pin(x, dy) {
+    translate([x,dy,0]) rotate([0,0,-rod_skew()]) rotate([90,0,0]) cylinder(d=6.0,h=60,center=true);
+}
 // The sway pads AS BUILT, not a re-derived slab. A probe re-derived from the same
 // formula as the bar agrees with the bar whether or not that formula matches the real
 // pad, which is how a bar could run straight through a pad (or stop short of it) while
@@ -47,9 +51,7 @@ module arm_brace_pads_real() {
 module arm_brace_pad_at(dz) {
     arm_pose() arm_column_brace_pad(arm_brace_t(dz));
 }
-module check_enclosure_prints() {
-    enclosure_body(); enclosure_lid_closed(); enclosure_tray_assembly(); enclosure_sleds_assembly();
-}
+module check_enclosure_prints() { enclosure_body(); enclosure_lid_closed(); }
 // Use the SAME assembled frame for the head and independent fastener gauges.
 module fit_servo_pose(side) {
     if(side>0) translate(arm_point(arm_joint_t)) children();
@@ -146,42 +148,23 @@ module fit_camera_fov_lens(kind,p) {
     }
 }
 if(check == "body_lid") intersection() { enclosure_body(); translate([0,0,0.02]) enclosure_lid_closed(); }
-else if(check == "body_tray") intersection() { enclosure_body(); translate([0,0,0.02]) enclosure_tray_assembly(); }
-else if(check == "sled_clearance") intersection() {
-    enclosure_sleds_assembly();
-    union() { enclosure_body(); enclosure_lid_closed(); }
-}
-else if(check == "pi_bores") intersection() {
-    electronics_tray();
-    // Independent expected transformed 58x49 pattern, M2.5 fasteners.
-    union() for(x=[-69.5,-20.5],y=[-36,22]) translate([x,y,-1]) cylinder(d=2.5,h=14);
-}
-else if(check == "tray_fixings") intersection() {
-    union() { enclosure_body(); enclosure_tray_assembly(); }
+// The four box-to-arm-layer M4 bolts pass the floor and its bosses (hardcoded pattern;
+// formerly tray_fixings, when the bores also passed the removed electronics tray).
+else if(check == "box_mount_bores") intersection() {
+    enclosure_body();
     union() for(x=[-62,62],y=[-52,52]) translate([x,y,-1]) cylinder(d=4,h=22);
-}
-else if(check == "pi_keepout") intersection() {
-    check_enclosure_prints();
-    translate([-73,-39.5,pi_pcb_z+0.05]) cube([56,85,53.95]);
-}
-else if(check == "stack_columns") intersection() {
-    union() { enclosure_tray_assembly(); enclosure_sleds_assembly(); }
-    union() {
-        for(p=utility_anchors) translate([p[0],p[1],tray_bottom_z-1]) cylinder(d=3,h=120);
-        for(p=relay_anchors) translate([p[0],p[1],tray_bottom_z-1]) cylinder(d=3,h=130);
-    }
-}
-else if(check == "stack_payloads") intersection() {
-    check_enclosure_prints();
-    union() {
-        for(z=relay_deck_z) translate([relay_pos[0]-23,relay_pos[1]-38,z+sled_t+8]) cube([46,76,25]);
-        for(z=utility_deck_z) translate([utility_pos[0]-30,utility_pos[1]-37,z+sled_t+8]) cube([60,74,26]);
-    }
 }
 else if(check == "lid_nut_access") intersection() {
     enclosure_body();
     union() for(p=lid_screw_points)
         translate([p[0],p[1],box_top-box_flange_t-20]) cylinder(d=8.2,h=20+3.5,$fn=6);
+}
+// CONTACT: each box-mount boss top is a washer land (ISO 7089 M4 washer, 9 mm OD); the
+// control_77603 chassis locates on these bosses and bolt heads.
+else if(check == "box_mount_boss_land_contact") intersection() {
+    p = tray_fixings[contact_station];
+    enclosure_body();
+    translate([p[0],p[1],tray_bottom_z-0.3]) fit_ring(9,4.8,0.3);
 }
 else if(check == "throttle_bores") intersection() {
     throttle_servo_mount();
@@ -213,7 +196,7 @@ else if(check == "arm_layer_gauge_bores") union() {
     }
 }
 // Sandwich plate matches the box flange floor footprint and preserves the
-// independent pass-throughs for tray fasteners, glands and tower feet.
+// independent pass-throughs for the box-mount bolts, glands and tower feet.
 else if(check == "arm_layer_gland_paths") intersection() {
     arm_layer_center();
     union() for(x=[-40,0,40]) translate([x,-49,-1]) cylinder(d=18,h=10);
@@ -222,7 +205,7 @@ else if(check == "arm_layer_box_fasteners") intersection() {
     arm_layer_center();
     union() for(x=[-62,62],y=[-52,52]) translate([x,y,-1]) cylinder(d=3.8,h=10);
 }
-else if(check == "arm_layer_tray_clearance") intersection() {
+else if(check == "arm_layer_box_clearance") intersection() {
     arm_layer_assembly();
     translate([0,0,0.02]) enclosure_body();
 }
@@ -509,22 +492,94 @@ else if(check == "tower_cap_socket") intersection() {
     tower_cap();
     translate([0,0,-15]) tower_spigot();
 }
-// Both pin bores stay open along the global pin axis at every lock setting.
+// ---- Steering pushrods (pushrod.scad): print-in-place joint and rack levers, no rod bolts.
+// Members are probed in their LOCKED pose (on the rod axis, pressed off the lever); phi is the
+// lever angle, 0 open as printed and 90 closed. Rack settings: shortest, nominal, longest.
+// Both pin bores stay open along the global pin axis at those settings.
 else if(check == "rod_end_bores") intersection() {
-    union() for(i=[0:rod_last_setting()]) translate([0,i*80,0]) rod_assembly(i);
-    union() for(i=[0:rod_last_setting()], x=[0,rod_pin_length(i)])
-        translate([x,i*80,0]) rotate([0,0,-rod_skew()]) rotate([90,0,0])
-            cylinder(d=6.0,h=60,center=true);
+    union() {
+        rod_servo_end();
+        for(n=[0:2]) translate([0,n*80,0]) rod_inner_at(fit_rod_settings()[n]);
+    }
+    union() {
+        fit_rod_pin(0,0);
+        for(n=[0:2]) fit_rod_pin(rod_pin_length(fit_rod_settings()[n]),n*80);
+    }
 }
-// Both steel M6 lock bolts pass through sleeve and matching inner-bar holes at the
-// shortest and longest settings, and all splice bolts pass tube and spigot.
-else if(check == "rod_lock_bores") intersection() {
-    rod_assembly(0);
-    for(s=[0:1]) translate([rod_lock_x(s),0,-25]) cylinder(d=5.8,h=50);
+// The seated spigot fits its socket. Seated, its shoulder rests on the mouth face and its side
+// on the bore wall, so the probe lifts it 0.02 mm off both (the box_lid convention).
+else if(check == "rod_joint_fit") intersection() { rod_servo_end(); translate([0.02,0.02,0]) rod_sleeve(); }
+// The bar slides in the sleeve at every probed setting; at the shortest its tip clears the roof.
+// Locked, the bar rests on the bore wall away from the lever: lifted 0.02 mm off it here.
+else if(check == "rod_rack_fit") union() for(i=fit_rod_settings())
+    intersection() { rod_sleeve(); translate([0,0.02,0]) rod_inner_at(i); }
+// Open (as printed), each lever clears its housing and the inserted member, so the member
+// slides in and out with the lever up.
+else if(check == "rod_lever_open_clear") union() {
+    intersection() { rod_joint_lever(0); union() { rod_servo_end(); rod_sleeve(); } }
+    for(i=fit_rod_settings())
+        intersection() { rod_rack_lever(0); union() { rod_sleeve(); rod_inner_at(i); } }
 }
-else if(check == "rod_lock_bores_max") intersection() {
-    rod_assembly(rod_last_setting());
-    union() for(s=[0:1]) translate([rod_lock_x(s),0,-25]) cylinder(d=5.8,h=50);
+// Closed, each lever clears its housing and each tooth clears its pocket and window: the
+// lobe's clamp on the member is the only intended overlap (rod_lever_clamp_contact). A closed
+// arm rests on its housing face, so the levers are lifted 0.02 mm off it.
+else if(check == "rod_lever_closed_clear") union() {
+    intersection() { translate([0,0.02,0]) rod_joint_lever(90); rod_servo_end(); }
+    intersection() { translate([0,0.02,0]) rod_rack_lever(90); rod_sleeve(); }
+    intersection() { rod_joint_tooth(90); rod_sleeve(); }
+    for(i=fit_rod_settings()) intersection() { rod_rack_tooth(90); rod_inner_at(i); }
+}
+// Closing: through the swing each lever clears its housing and each tooth its member.
+else if(check == "rod_tooth_sweep") union() for(phi=[15:15:75]) {
+    intersection() { rod_joint_lever(phi); rod_servo_end(); }
+    intersection() { rod_joint_tooth(phi); rod_sleeve(); }
+    intersection() { rod_rack_lever(phi); rod_sleeve(); }
+    intersection() { rod_rack_tooth(phi); rod_inner_at(rod_nominal_setting()); }
+}
+// CONTACT 0-3: an open lever pushed 1 mm along its pivot axis (0 joint, 2 rack) or outward
+// (1 joint, 3 rack) meets its cheeks or pins: the lever is captive.
+else if(check == "rod_lever_captive") {
+    shift = contact_station % 2 == 0 ? [0,0,1] : [0,1,0];
+    if(contact_station < 2) intersection() { translate(shift) rod_joint_lever(0); rod_servo_end(); }
+    else intersection() { translate(shift) rod_rack_lever(0); rod_sleeve(); }
+}
+// CONTACT 0-3: the closed tooth occupies a REAL pocket void (member envelope minus the member):
+// 0 the joint's spigot pocket; 1-3 the rack pocket at the shortest, nominal and longest setting.
+else if(check == "rod_tooth_engaged") {
+    i = fit_rod_settings()[max(0,contact_station-1)];
+    if(contact_station == 0) intersection() {
+        rod_joint_tooth(90);
+        difference() { rod_joint_member_envelope(); rod_sleeve(); }
+    }
+    else intersection() {
+        rod_rack_tooth(90);
+        difference() { rod_rack_member_envelope(i); rod_inner_at(i); }
+    }
+}
+// CONTACT 0-7: positive axial locks. The member moved 1 mm out (+X) or in (-X) meets the closed
+// tooth (0/1 joint spigot, 2/3 rack bar at nominal), and the tooth carried 1 mm either way meets
+// the window wall in its housing (4/5 joint, 6/7 rack): spigot/bar -> tooth -> housing wall.
+else if(check == "rod_withdraw_blocked") {
+    d = [contact_station % 2 == 0 ? 1 : -1, 0, 0];
+    if(contact_station < 2) intersection() { rod_joint_tooth(90); translate(d) rod_sleeve(); }
+    else if(contact_station < 4) intersection() {
+        rod_rack_tooth(90); translate(d) rod_inner_at(rod_nominal_setting());
+    }
+    else if(contact_station < 6) intersection() { translate(d) rod_joint_tooth(90); rod_servo_end(); }
+    else intersection() { translate(d) rod_rack_tooth(90); rod_sleeve(); }
+}
+// CONTACT 0-1: the closed lobe clamps its member (0 joint spigot, 1 rack bar at nominal):
+// the friction addition on top of the tooth.
+else if(check == "rod_lever_clamp_contact") {
+    if(contact_station == 0) intersection() { rod_joint_lever(90); rod_sleeve(); }
+    else intersection() { rod_rack_lever(90); rod_inner_at(rod_nominal_setting()); }
+}
+// CONTACT 0-3: the eye material surrounds each pin at the span ends: 0 the servo pin, 1-3 the
+// lap-bar pin at the shortest, nominal and longest rack setting.
+else if(check == "rod_span_pin_contact") {
+    i = fit_rod_settings()[max(0,contact_station-1)];
+    if(contact_station == 0) intersection() { rod_servo_end(); rod_pin_ring(0); }
+    else intersection() { rod_inner_at(i); rod_pin_ring(rod_pin_length(i)); }
 }
 // Paired clamp yoke ears and the rod eye share the X pin axis at the estimated
 // lap-bar point without solid-on-solid contact, on both sides.
@@ -605,23 +660,6 @@ else if(check == "servo_adapter_eye_fit") intersection() {
     translate([servo_adapter_ear_inner_mm+1,pin[1]-10,pin[2]-10])
         cube([servo_adapter_gap_mm-2,20,20]);
 }
-// Every splice position must be BOLT-ABLE: at each ROW joint, the bolt pair has to pass through both
-// pieces once the joint is shifted to that position. Probed at both extremes rather than every step -
-// the row is one uniform pitch, so a mis-cut row shows at its ends, and all 28 combinations cost
-// minutes of CSG per build for no extra discrimination. The inner-feeding joint is single-position
-// and is covered at j=0, which is also why rod_lock_bores no longer probes splices: it was using one
-// bolt list for every joint, and the two joints now have different offsets.
-else if(check == "rod_splice_bores") {
-    for(k=[0:rod_outer_count()-3],
-        j=[0, rod_splice_positions_count()-1],
-        s=rod_splice_offsets())
-        intersection() {
-            rod_outer_piece(k);
-            translate([j*rod_splice_step_mm(),0,0]) rod_outer_piece(k+1);
-            translate([rod_outer_boundary(k+1)+s+j*rod_splice_step_mm(),0,-60])
-                cylinder(d=rod_bolt_bore_mm(),h=120);
-        }
-}
 // The sway bars' M4 screws must pass through the COMPLETE column, both walls, at every brace
 // station, so a collar pair and the column are one bolted joint rather than a collar gripping
 // nothing. Stations land on the base (station 0) and inside the first segment (the rest).
@@ -643,7 +681,7 @@ else if(check == "tower_brace_bores") union() {
                 cylinder(d = m4_clear - 0.6, h = tower_od + 4);
     }
 }
-// Exclude the intended coplanar mounting contact, as with the tray/lid checks.
+// Exclude the intended coplanar mounting contact, as with the body/lid check.
 else if(check == "estop_cover") intersection() { estop_bracket(); translate([0,0.02,0]) estop_cover_placed(); }
 else if(check == "estop_contacts") intersection() {
     union() { estop_bracket(); estop_cover_placed(); }
@@ -721,19 +759,15 @@ else if(check == "camera_usb_housing_bends") union() for(kind=["pi","stereo"]) i
     camera_stack_structure();
     translate([0,tower_y,fit_camera_z(kind)]) fit_camera_usb_port_path();
 }
+// The plug path clears the built structure. The removed tray's stack columns and payload
+// envelopes are gone; the control_77603 chassis carries its own camera-cable probe.
 else if(check == "camera_usb_base_bend") intersection() {
     union() {
         camera_stack_structure(); check_enclosure_prints();
         translate([0,box_inner_w/2,90]) rotate([90,0,0]) tower_backing();
-        for(p=concat(utility_anchors,relay_anchors))
-            translate([p[0],p[1],tray_bottom_z]) cylinder(d=3,h=160-tray_bottom_z);
         for(y=[-14,14])
             translate([-arm_brace_collar_od/2,tower_y+y,110]) rotate([0,90,0])
                 cylinder(d=4,h=arm_brace_collar_od);
-        for(z=relay_deck_z)
-            translate([relay_pos[0]-23,relay_pos[1]-38,z+sled_t+8]) cube([46,76,25]);
-        for(z=utility_deck_z)
-            translate([utility_pos[0]-30,utility_pos[1]-37,z+sled_t+8]) cube([60,74,26]);
     }
     translate([0,tower_y,0]) fit_camera_usb_base_path();
 }

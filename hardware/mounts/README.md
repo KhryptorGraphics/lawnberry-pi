@@ -15,7 +15,7 @@ There are no replacement drive-motor mounts in this package.
    `lapbar_clamp_insert_0`–`_4` sleeve set, and all three `pushrod_gauge_*` coupons. Try the sleeves on
    the steering tubes, lay `fit_gauge_2` on the stationary rear bracket and `servo_adapter_gauge` on the
    moving crossplate of each purchased servo.
-3. The rods are generated from an **estimate** (`TORO_77502_LINKAGE.md`): 936.4 mm pin-to-pin.
+3. The rods are generated from an **estimate** (`TORO_77502_LINKAGE.md`): 941.9 mm pin-to-pin.
    Measure the lap-bar clamp point and lever travel; set `lapbar_pin_*` in `enclosure_common.scad`
    and rebuild before printing rods.
 4. The printed center layer, arms, clamps and rods are **fit/load-test prototypes**, not qualified
@@ -27,7 +27,8 @@ There are no replacement drive-motor mounts in this package.
 
 The enclosure body prints bed-down at 211 × 285 × 185 mm including its tongue;
 the separate sandwich-layer center panel is 295 × 285 × 8 mm. The longest
-arm and rod members fit a 420 mm bed at the selected print orientations,
+arm members fit a 420 mm bed and the rod pieces the 400 × 400 × 490 mm usable volume (the two
+print-in-place rod pieces stand 446 and 406 mm tall) at the selected print orientations,
 but mower clearance and load capacity remain unverified.
 
 ## Dimensional evidence
@@ -40,14 +41,14 @@ but mower clearance and load capacity remain unverified.
 | Splayed servo arm | **MEASURED** station: servo face **209.55 mm** left/right of the ball-hole centre, **457.2 mm** from its plate-top datum, splayed **12.58°** from vertical. Both heads now carry the servo **101.6 mm (4 in) higher** than that datum (`servo_station_raise_mm`, 2026-11-01) so the throttle MG995 fits below the right one; the station X is unchanged. The axis extrapolates to x=±110, while the solid 60 × 70 × 50 mm root seats on the center layer **top** at z=0 and y=123. Four M6 per root enter upward into side-access steel nuts; the hollow 50 × 70 mm column has a through-channel and 6 mm walls/web. Lower arm joint at local t=355 mm; printed head retains a four-M6 flanged/spigoted lap and the lateral six-hole rear-bracket land. Neither fit nor strength on the real mower is established. |
 | Arm sway bars | Three handed first-article braces per side land at z=110/190/250 mm. Each left/right half-jaw occupies its own side of the tower; the pair forms a rear-open U with a 0.4 mm centre gap. Fit from **+Y toward the box**, never from -Y or over a flange. Two top-loaded M4 nuts per half retain short screws bearing **outside** the USB-cable tube. Two M5 bores meet each arm pad's side-entry nuts, with 0.2 mm face clearance. These are **not steering-load parts**; test slip, creep, nut pullout and pad damage unpowered. The column arrives drilled **right through** at each station for the collars' M4 screws — one bolt per station passes both walls, so the collar pair and the column are a single bolted joint; the base carries station 0, the shared segment the rest. |
 | Lap-bar connector | Fully printed two-piece split clamp with a **set of interchangeable split sleeves that set the bar size**: the body, bolts, yoke and pin serve every bar in the set, and the size is chosen by *trying the sleeves on the bar* — no calipers. The bore is fixed (`clamp_body_bore_mm`, Ø36.4); the set spans **20–30 mm** (`clamp_bar_od_mm`: 20 / 22.2 / 25.4 / 28.6 / 30), and a bar between entries needs one more sleeve printed, never a new clamp. A sleeve-wall assert refuses an entry too near the bore. Paired clamp yoke ears capture one 32 × 20 × 8 mm rod eye in double shear with an M6 through-pin. Clamp preload, coating, slip and print strength need physical testing. |
-| Pushrods | Toro 77502 **estimate**: 941.9 mm pin-to-pin, 939.5 mm span in the fore-and-aft plane (the rod falls 101.6 mm from the raised servo crank to the lap-bar clamp estimate), lap-bar pin 67.3 mm outboard of the adapter's M6 pin (4.10° built skew). 40 mm square tube, 5 mm walls, in **four** bolted pieces plus a 29.1 mm solid inner bar, with **multi-position spigot joints: 210 mm of length adjustment in 15 mm steps** (two row joints × 6 steps × 15 mm, plus ±15 mm on the lock row), so the clamp point stays a constrained choice along the lever instead of a tape reading. Both ends are 32 × 20 × 8 mm eyes on Ø6.6 bores. The servo-end eye sits in the printed adapter's 12 mm clevis gap, 78.75 mm outboard of the measured servo face; at the 45° neutral face the pin is straight above the shaft. `rod_servo_sweep` and `rod_servo_sweep_band` check the eye and rod transition against the servo body, moving crossplate and adapter over the 0–90° face range. See [`TORO_77502_LINKAGE.md`](TORO_77502_LINKAGE.md). |
+| Pushrods | Toro 77502 **estimate**: 941.9 mm pin-to-pin, 939.5 mm span in the fore-and-aft plane (the rod falls 101.6 mm from the raised servo crank to the lap-bar clamp estimate), lap-bar pin 67.3 mm outboard of the adapter's M6 pin (4.10° built skew). **No purchased fasteners in the rod.** 40 mm square tube, 5 mm walls, in **two** pieces plus a 29.1 mm solid inner bar: three prints per rod. The servo end's mouth is the socket for the sleeve's 29.6 mm square spigot (70 mm deep, keyed by the square); a **print-in-place joint lever** clamps the spigot and drops a tooth into a pocket in it. A second print-in-place lever on the sleeve's mouth drops its tooth into one of **19 pockets on the inner bar: 216 mm of length in 12 mm steps** (833.9–1049.9 mm), so the clamp point stays a constrained choice along the lever instead of a tape reading. Teeth, windows and pockets are arcs about each lever's pivot, so a push or pull cannot open a lever: both locks are **positive** and the lobe's clamp is friction on top, never the lock. Holding ≥ 1080 N each way (2 × the ~540 N stall at a 30 mm horn) is **unqualified** until the `pushrod_*_coupon` pairs pass a bench test. Euler estimate (E = 1.5 GPa, stepped section) 2.2 kN at 941.9 mm, 1.6 kN at the longest setting, at or above the bolted rod at the same lengths. Both ends are 32 × 20 × 8 mm eyes on Ø6.6 bores carried by the mating parts' M6 pins (servo adapter clevis, clamp yoke). The servo-end eye sits in the printed adapter's 12 mm clevis gap, 78.75 mm outboard of the measured servo face; at the 45° neutral face the pin is straight above the shaft. `rod_servo_sweep` and `rod_servo_sweep_band` check the eye and rod transition against the servo body, moving crossplate and adapter over the 0–90° face range. See [`TORO_77502_LINKAGE.md`](TORO_77502_LINKAGE.md). |
 | E-stop rail U-bolts | Selected BOM 40 mm inside + 8 mm leg = 48 mm centre pitch, printed Ø9. Used only by the E-stop fixture; the 76.2 × 38.1 mm rail remains unverified. |
 | E-stop HB2-ES545 | Listing drawing: Ø22 panel opening, Ø40 mushroom, 42 mm rear projection, 30 × 29 mm contact envelope. Print bore Ø22.5; 3 mm panel is a design choice, not a vendor maximum thickness. No guessed anti-rotation notch. |
-| Pi 5 | Official reference drawing: **85 × 56 mm PCB**, **58 × 49 mm** mounting pitch, 3.5 mm edge offsets, Ø2.7 PCB holes. Tray uses M2.5 with Ø2.9 through-bores. Pattern centre is offset 10 mm from board centre. |
+| Pi 5 | Official reference drawing: **85 × 56 mm PCB**, **58 × 49 mm** mounting pitch, 3.5 mm edge offsets, Ø2.7 PCB holes. Held without screws in the `control_77603` compute tower (`tower_rack` + `tower_clamp`; kit standoffs act as spacers only). |
 | Camera Module v2.1 | Official drawing: **23.862 × 25 mm** PCB with R2 corners, Ø2.2 holes at (2,2), (14.5,2), (2,23), (14.5,23), **8.5 mm square** lens housing. The PCB is held by its edges in a groove cassette, not by those holes; the open right (CSI) edge is never bent over a lip. PCB thickness, barrel diameter and lens projection are **unknown**: the cassette carries 0.6–3.0 mm PCB-thickness and 2.2–24 mm projection **capacities**, not measurements. |
 | SVPRO stereo board | Dimensional listing image: **80 × 16.5 mm** PCB, two **14 × 13 mm** lens bases and a 9 mm USB-C connector width. Its 16 mm height has an ambiguous datum; barrel diameter, PCB thickness, projection and lens baseline are **unknown**. Each lens has its own independently trimmed insert, so no stereo baseline is assumed. |
-| Opto relays | The linked product images show **one relay/channel per PCB**. Two 2-packs provide four boards, of which starter/PTO/watchdog use three. Four separate stack levels are retained; no channel is deleted. Board outline/hole pitch remains unverified. |
-| Other electronics/sensors | Carrier SKU, outline, terminals and mounting patterns are not established for the bought PCA9685, buck, watchdog perfboard, ZED-F9P, BNO085, VL53L0X/BME280/INA3221 carriers or antenna. Sleds and sensor blanks are explicitly drill-to-fit. |
+| Opto relays | The linked product images show **one relay/channel per PCB**. The owner confirmed **two** HiLetgo 5 V 30 A single-channel modules on hand (`docs/2026-10-30-user-confirmed-owned-hardware.md`); `control_77603` holds them in strap bays B1/B2. Board outline/hole pitch remains unverified, so the bays grip any box within their range. |
+| Other electronics/sensors | Carrier SKU, outline, terminals and mounting patterns are not established for the bought PCA9685, buck, watchdog perfboard, ZED-F9P, BNO085, VL53L0X/BME280/INA3221 carriers or antenna. Sensor blanks are explicitly drill-to-fit; the enclosure internals are the bolt-free `control_77603` chassis and carriers (`control_77603/README.md`). |
 | Glands, vent, nuts | Ø15.5 PG9 and Ø12.5 M12 cutouts are provisional clearances. Verify actual thread diameter, shoulder, panel-thickness range and locknut access. M4 nut pockets are accessible hex pockets; no unknown heat-set insert geometry. |
 
 Vendor drawings lack manufacturing tolerances. The 0.2–0.5 mm diametral allowances are FDM starting
@@ -85,27 +86,26 @@ CAD files. Never print an assembly view as one fused part.
 
 | STL | Qty | Use / hardware |
 |---|---:|---|
-| `arm_layer_center` | 1 | Sandwich panel matching the box flange and tongue, with hitch/auxiliary holes, four M4 tray holes, three provisional gland passages, camera-tower foot holes and side-arm bolt ears. Measure the actual hitch plate; current dimensions are schematic. |
+| `arm_layer_center` | 1 | Sandwich panel matching the box flange and tongue, with hitch/auxiliary holes, four M4 box-mount holes (those bolts also clamp the `control_77603` chassis base), three provisional gland passages, camera-tower foot holes and side-arm bolt ears. Measure the actual hitch plate; current dimensions are schematic. |
 | `arm_layer_left`, `arm_layer_right` | 1 each | 50 × 70 mm hollow columns with three inboard pads, a 60 × 70 mm solid root with four side-loaded M6 steel nuts, and a flanged/spigoted head joint at local t=355 mm. Print lying flat; inspect nut access. |
 | `arm_head_left`, `arm_head_right` | 1 each | Heads carrying the **lateral** six-hole land for the RDS51150 stationary rear bracket on a rib raised 101.6 mm above the measured station; four-M6 flanged joint. All six photo-derived Ø2.9 slots (±0.4 mm trim) and the Ø13.5 rear opening pass through the **whole** rib and 6 mm land, so each M2.5 through-bolt's washer and nut sit on the exposed flat **inboard X=0 face**. Print mating-face down; keep every slot open. Heads printed before 2026-11-01 sit 4 in lower: do not mix them with the raised ones. |
-| `throttle_arm_head` | 1 | **Replaces `arm_head_right` for the throttle build; do not print both.** The raised right arm head — joint flange, upright rib, servo-face land, six photo-derived Ø2.9 slots (±0.4 mm trim), Ø13.5 rear opening and spigot pocket kept — plus a **shelf under the steering servo** carried by a 45° corbel and 45° wings, with the MG995 **cradle walls printed on the shelf**. Print **mating-face down** like the other arm heads, without support, and keep every slot open. The MG995 drops into the cradle and the keeper crossbar is retained by two printed pins with split rings; **no new purchased fastener** is specified for this mount. Fit, joint strength and the load path into the mower are **not qualified** — treat the throttle station as an unproven fit prototype. Source: `throttle_77603/throttle_arm_head.scad`. |
+| `throttle_arm_head` | 1 | **Replaces `arm_head_right` for the throttle build; do not print both.** The raised right arm head — joint flange, upright rib, servo-face land, six photo-derived Ø2.9 slots (±0.4 mm trim), Ø13.5 rear opening and spigot pocket kept — plus a **shelf under the steering servo** carried by a 45° corbel and 45° wings, with the MG995 **cradle walls printed on the shelf**. Print **mating-face down** like the other arm heads, without support, and keep every slot open. The MG995 drops into the cradle and a one-piece snap keeper clips into windows in the cradle walls; **no new purchased fastener** is specified for this mount. Fit, joint strength and the load path into the mower are **not qualified** — treat the throttle station as an unproven fit prototype. Source: `throttle_77603/throttle_arm_head.scad`. |
 | `arm_brace_bar_left_0`–`_2`, `arm_brace_bar_right_0`–`_2` | 1 each | Six handed half-jaw braces at z=110/190/250. Print the labelled left/right variants; do not substitute two identical copies. Fit each pair from +Y after tower assembly. Each half has two top-loaded M4 nuts, outside-bearing screws and two M5 bores for its arm pad. Prints flat; sway only, not a qualified steering load path. |
 | `arm_layer_gauge` | 1 first | Coupon for the enclosure tongue's ball-hole/auxiliary-hole pattern. It is not a Toro hitch gauge. |
 | `lapbar_clamp_anchor`, `lapbar_clamp_cap` | 1 each per side | The size-independent half: its Ø36.4 bore takes any sleeve, so print it once per side whatever the bar measures. Paired yoke ears; four M5 through-bolts per side. The clamp pin passes through both ears and the single rod eye in double shear. |
 | `lapbar_clamp_insert_0`–`_4` | 2 per side of the chosen size | Split sleeve that sets the bar size. The set spans 20 / 22.2 / 25.4 / 28.6 / 30 mm bar OD (`clamp_bar_od_mm`), and each bore is a slip fit over its own bar, so a sleeve doubles as its own coupon: try them on the bar, then print two more per side of whichever fits. One printed half serves both clamp halves (turn it 180° about the bar axis). End flanges trap it against the clamp's end faces; they are retention, not structure. |
-| `pushrod_servo_end`, `pushrod_middle_a`, `pushrod_middle_b`, `pushrod_sleeve`, `pushrod_inner` | 1 each per side (2 sets) | One 941.9 mm nominal rod per side with **210 mm of adjustment**; the same set serves both sides, turned 180° about its own axis on the left. It falls 101.6 mm from the raised servo crank to the lap-bar clamp estimate. Four joint bolts per row splice and two lock bolts on the inner row. The servo end has a 5 mm vent; keep it clear. |
+| `pushrod_servo_end`, `pushrod_sleeve`, `pushrod_inner` | 1 each per side (2 sets) | One 941.9 mm nominal rod per side with **216 mm of adjustment in 12 mm rack steps**; the same set serves both sides, turned 180° about its own axis on the left (levers outboard on both). It falls 101.6 mm from the raised servo crank to the lap-bar clamp estimate. `pushrod_servo_end` (446 mm) and `pushrod_sleeve` (406 mm) are **print-in-place, 2 bodies each**: they print upright, lever mouth on the bed, the lever printed open beside it; work each lever free through its 90° swing before assembly. `pushrod_inner` prints lying flat. No bolts in the rod. |
 | `pushrod_gauge_0`–`_2` | 1 each | Sliding-fit coupons (tight/nominal/loose) for the 29.1 mm inner bar in the 40 mm sleeve. |
+| `pushrod_joint_coupon` + `pushrod_joint_coupon_spigot`, `pushrod_rack_coupon` + `pushrod_rack_coupon_bar` | 1 each | Holding-test coupons cut from the rod's own lock geometry, each with a Ø6.6 test-pin bore in a solid grip (test-rig pins only). Lock each pair and load it axially to ≥ 1080 N in tension and compression before trusting a rod on the mower. The two `*_coupon` housings are print-in-place (2 bodies). |
 | `servo_adapter_right`, `servo_adapter_left` | 1 each | Printed adapter from the RDS51150 **moving crossplate** to the rod eye, with the arm heads' **six-hole** M2.5 pattern and Ø13.5 opening. 10 mm pad, two 9 mm full-length ear webs with Ø24 pivot bosses, a clevis floor and an inboard gusset; six M2.5 steel through-bolts, OD6 washers and AF5 nuts on the flat pad top. The 12 mm clevis carries the rod eye on an M6 pin in **double shear**. Printed handed; do not mirror one copy in the slicer. Fit/load-test prototype only. |
 | `servo_adapter_gauge` | 1 first | 3 mm coupon with the adapter's six slotted passages, Ø13.5 opening and orientation arrow; lay it on each purchased moving crossplate before printing adapters. |
 | `throttle_servo_mount` | 0 or 1 | Optional stationary-side fixture; four M6 base slots at nominal 76 × 40 pitch with ±4 mm X travel, and the same six-slot photo-derived rear-bracket pattern and Ø13.5 opening as the arm heads, with OD6 washers/AF5 nuts on its free back face. Installer-selected support, not a Toro panel pattern. |
 | `estop_bracket` | 1 | Ø22 mushroom panel with external gussets and two square U-bolts. |
 | `estop_contact_cover` | 1 | Removable rear guard; four M3 ×12 screws/nuts/washers; downward wire opening and tie slots. Not a sealed switch housing. |
-| `enclosure_body`, `enclosure_lid`, `electronics_tray` | 1 each | Tall serviceable electronics box with an integral rear hitch tongue; common dimensions in `enclosure_common.scad`. |
+| `enclosure_body`, `enclosure_lid` | 1 each | Tall serviceable electronics box with an integral rear hitch tongue; common dimensions in `enclosure_common.scad`. The body is unchanged; the lid is reprinted with the two HaLow antenna stations (§ HaLow antenna port and mount). The electronics inside sit on the removable `control_77603` chassis. |
 | `hitch_gauge` | 1 first | Small coupon for the enclosure tongue's hitch hole. The 20 mm hole in that tongue remains unverified; measure before printing the body. |
 | `camera_tower_base`, `camera_tower_segment`, `camera_tower_backing` | 1 base, N segments, 1 backing | Hollow column below the lower camera; N and length derive from the lower lens datum `tower_height`. Backing is a drilling template for a metal strip. |
 | `camera_tower_extension`, `camera_tower_cap` | 1 each | Exact 304.8 mm flange-to-flange tube above the Pi housing; closed terminal cap above the stereo housing. No cap cable slit or camera-foot mount. |
-| `relay_board_sled` | 4 | One single-channel PCB per deck; four M3 stack columns. |
-| `utility_board_sled` | 2 | PCA9685/buck/watchdog and small internal carriers; four columns outside Pi footprint. |
 | `camera_pi_housing`, `camera_stereo_housing` | 1 each | Lower Pi / upper stereo shell with a bottom-open broad PCB/lens key and narrow upper-nut keys; four M3 tray fixings into side-access steel nuts. Prints on its rear flange (exported orientation). |
 | `camera_pi_bottom`, `camera_stereo_bottom` | 1 each | Removable tray with the **opaque closing face integral** to it, so camera and face travel together. Face windows carry the inserts; two M3 cassette bolts and the floor-gasket recess. |
 | `camera_pi_carrier`, `camera_stereo_carrier` | 1 each | Groove cassette: shallow top/bottom edge grooves (3.2 mm maximum PCB + pad stack, 0.8 mm edge engagement) with a fixed left stop. Two fore/aft M3 slots give Pi −11.8…+10 / stereo −8…+10 mm board travel. Pi CSI edge and stereo 24 mm upper-centre (USB-C) gap stay open. |
@@ -136,54 +136,46 @@ establish an ingress rating.
 
 **Interior: 169 × 128 × 180.** Body flange 211 × 170; with the hitch tongue the print is
 **211 × 285 × 184.5** (tongue extends 132 mm beyond the +Y wall, in the flange's own width).
-Lid: 219 ×178 ×12 in print orientation. Closed height: 189.5.
-The extra height is deliberate: it retains four relay channels and the other boards instead of claiming
-that all of them fit a small two-board bay.
+Lid: 219 × 178 × 19.5 in print orientation (the two antenna post-socket bosses hang 14.5 mm into
+the box). Closed height: 189.5.
+
+**Inside the box.** The Pi 5 + Libre Alta tower and the interface electronics sit on the removable
+chassis in `control_77603/` (see `control_77603/README.md`). Its one-piece `chassis_base` (3.5 mm,
+the legacy tray's thickness) is clamped onto the four floor-boss tops under the existing
+box-to-arm-layer M4 bolt heads and washers, exactly where the tray was, so the bolt grip is
+unchanged; the chassis hooks under the base and is held by a detent, with no added fasteners. The
+former electronics tray, relay sleds, utility sleds and their M3 stack columns are removed. The
+two HaLow antennas' N-bulkhead ports and grip posts are on the reprinted lid's back (−Y) edge
+(§ HaLow antenna port and mount).
 
 Assembly Z is measured from the enclosure underside:
 
-| Item | Z / reserved capacity |
+| Item | Z |
 |---|---|
 | Floor top | 4.5 |
-| Tray underside / top | 14.5 / 18; one 10 mm support lift, no duplicate feet |
-| Pi PCB underside | 26; long board axis along Y; published hole offsets retained |
-| Pi + cooler + Hailo reservation | Up to Z80; actual headers/cables must be checked |
-| Utility sled undersides | Z90 and Z130 |
-| Relay sled undersides | Z18, Z58, Z98, Z138 — four decks, 40 mm pitch |
-| Every sled | 3 mm thick; PCB insulating standoff starting point 8 mm |
-| Relay usable PCB/component reservation | **46 × 76 × 25** above its standoffs, one board per level; terminal/wire overhang must also remain clear |
-| Each utility reservation | **60 × 74 × 26** above its standoffs; split PCA/buck/watchdog between two levels only after actual fit check |
-| Lowest lid ribs | Z180.5; top relay reserved payload ends Z174, leaving 6.5 mm |
+| Floor boss top: M4 washer land; chassis base clamped here | 14.5 |
+| Chassis plate underside (on the base) | 18 |
+| Lowest lid ribs | Z180.5 |
 | Hitch tongue | Z0 to 16, +Y side, gussets to Z106; tower foot sits on it at Z16 |
-
-The conservative payload envelopes are design capacities checked against the printed assembly, **not
-measured sizes of the purchased electronics**. Deck outlines are larger (relay 62 ×100, utility 77 ×100),
-but stack columns, screw heads and wire routes consume space. If actual boards exceed these capacities,
-change the shared layout before printing; do not omit the watchdog or stack components against the lid.
 
 1. Fit PG9 glands and side breather to the body, checking locknuts and seal compression. The 4.5 mm floor
    is not assumed compatible with every gland. Three ports accommodate three round cable jackets/bundles
    only if a suitable gland actually seals them; use proper multi-hole inserts for multiple separate wires.
-2. Fit M4 tray fasteners through the four floor/support bores and center-layer clearance holes.
-   Add the 8 mm adapter thickness when selecting screw length; seal every exterior penetration and
-   verify full nut engagement.
-3. Install four M2.5 Pi fasteners through the tray and 8 mm printed posts; do not force M3 through Pi holes.
-   Select screw length for tray + post + PCB + washers/nut, including the real HAT mounting arrangement.
-4. Install the two four-column M3 stacks. Use straight threaded rods or appropriate spacers/locknuts;
-   nominal deck separation is 40 mm, so the clear spacer gap between 3 mm decks is **37 mm**.
-   Utility column centres are outside the Pi outline. Metal must not touch PCB traces or the HAT.
-5. Drill component fixing holes in the removable sleds against the **actual** boards, preserving outer
-   stack anchors and continuous webs. Existing parallel slots can help only when the real hole pattern
-   matches. Do not assume slots magically fit every PCB. Use eight-millimetre insulating spacers initially.
-6. Leave terminal screw/driver access, connector extraction and cable bend radii. Remove upper decks for
-   service; route wires beside columns, not across the Pi fan or hot regulator. Separate high-current loads
-   from logic; fuse holders and automotive relay housings can use external equipment saddles.
-7. Fit the 3 mm cord to the constant-width 3.8 ×2.4 groove. Nominal compression is 20%, nominal area fill
+2. Fit the four M4 box-to-arm-layer bolts through the floor bosses and center-layer clearance holes, head
+   and washer on each boss inside the box, clamping the `control_77603` `chassis_base` (3.5 mm, the
+   legacy tray's thickness). Add the 8 mm adapter thickness when selecting screw length; seal every
+   exterior penetration and verify full nut engagement.
+3. Lower the `control_77603` chassis 6 mm +Y of its seat, push it −Y until the base detent clicks, and
+   load it as `control_77603/README.md` describes. Leave terminal screw/driver access, connector
+   extraction and cable bend radii; separate high-current loads from logic. To remove it, press the
+   detent nub through the plate hole (x 62, y −9), push the chassis +Y and lift; bolt service means
+   lifting the chassis out, then unbolting the base.
+4. Fit the 3 mm cord to the constant-width 3.8 ×2.4 groove. Nominal compression is 20%, nominal area fill
    about 77.5%; centreline perimeter is about **634 mm**, plus trim allowance. Bond the cord ends properly.
-8. Fit twelve M4 hex nuts from the flange underside and twelve M4 screws with flat washers through the lid
+5. Fit twelve M4 hex nuts from the flange underside and twelve M4 screws with flat washers through the lid
    (M4 ×12 is a starting point; verify actual nut/washer dimensions and projection). Tighten evenly without
    deforming the flange. Underside nut access remains clear of the seal. No heat-set inserts are required.
-9. Fit `arm_layer_center` beneath the box flange/tongue and above the actual hitch plate; align the
+6. Fit `arm_layer_center` beneath the box flange/tongue and above the actual hitch plate; align the
    ball hole and auxiliary pattern only if both match. Fit each bolted arm root, then attach the
    outboard servos. The hitch plate in the assembly view is schematic: no positive anti-rotation
    interface has been verified on this mower, so do not power these arms until one is installed.
@@ -192,8 +184,112 @@ change the shared layout before printing; do not omit the watchdog or stack comp
 The body prints bed-down at 211 × 285 × 185 on the stated 420 × 420 × 500 printer.
 A commercial rated enclosure remains the safer option where a demonstrated ingress rating is required.
 Conformal coating does not make porous print walls certified waterproof. Test ingress unpowered and
-verify Pi/Hailo/regulator temperatures under worst ambient/load; a breather is not a cooling system and
-does not guarantee freedom from condensation.
+verify Pi/Hailo/Alta/regulator temperatures under worst ambient/load; a breather is not a cooling system
+and does not guarantee freedom from condensation.
+
+## HaLow antenna port and mount
+
+The owner bought two purchased Rokland 10 dBi "Backcountry" 915 MHz omnis, one for each HaLow
+radio ([vendor page](https://store.rokland.com/products/10-dbi-backcountry-n-male-omni-outdoor-helium-915-mhz-antenna-48-for-rak-miner-2-nebra-indoor-bobcat-hotspots):
+N-male base, 45 in = 1143 mm tall, fibreglass radome, 60 m/s wind rating, two stainless U-bolts
+and a bracket supplied). The body stays exactly as committed: both ports and mounts are on the
+**lid**, which is reprinted. `antenna_mount.scad` holds the stations and `enclosure_lid.scad`
+carries them. The axes are at (±64.5, −48) in body coordinates, 129 mm apart, near the lid's back (−Y)
+corners. The −X antenna feeds the Alta's HaLow and the +X antenna feeds the Pi 5's.
+
+- **Port.** The 5 mm lid plate is the bulkhead panel; the Amphenol 82-369 jack accepts 5.3 mm
+  ([bulkhead page](https://www.farnell.com/datasheets/269482.pdf)). Each N-female-to-U.FL bulkhead
+  passes a D-flat hole, Ø16.3 with 13.9 flats ([Type N catalog](https://www.farnell.com/datasheets/1931349.pdf)).
+  The hole is inside the cord-seal line and over the box interior, so the nut, jack and pigtail
+  hang straight into the box.
+  - On the outside, the flange (or nut and washer) and the O-ring seat on the lid's flat top. That
+    face prints on the bed and is the smoothest surface on the part.
+  - On the inside, the nut or hex shoulder seats on the flat inner face. The HEAD lid ribs are cut
+    back within 20 mm of each hole for spanner room.
+  - Water: the lid top is flat and level, so water runs off its edges; it is not shed by a slope.
+    No printed feature stands within 10 mm of either flange, so nothing dams a ring of water round
+    the joint. The O-ring is the seal; tape over the N joint is the weather cover.
+- **Mount.** A printed post stands inboard (+Y) of each antenna.
+  - Its 42.6 × 12 × 16 mm spigot drops into a blind socket in a boss under the lid. The boss hangs
+    to z 170 and has a 3 mm floor, so the socket has no path into the box.
+  - A flexure snap on the spigot clicks under a recess in the socket wall. To release it, press
+    the finger tab at the post's inboard foot into the post and lift.
+  - Two band grips per antenna, centres 66 mm apart, slide down the post's dovetail rails onto
+    ledges. They hold the base tube concentric with the bulkhead axis, so the connector carries
+    only the antenna's weight.
+  - Load path: antenna → grips → post rails → post column → the column foot bearing on the lid
+    top, plus the spigot bearing in the socket boss → lid plate → 12 × M4 → body flange.
+  - No fasteners are added. The snap only keeps the post seated; it is not the bending path.
+- **Grip size.** Rokland does not publish the base-tube diameter, length or mass. Measure the tube,
+  then print all four grips with `-D ant_tube_d_mm=<measured OD>`. The design range is 25-40 mm,
+  and the probes check contact at both 25 and 40. Print the posts with `-D post_side=-1` (−X, Alta)
+  and `-D post_side=1` (+X, Pi); the two posts are mirror images. All four grips are the same part.
+
+Install order. Steps 1-2 are bench work with the lid off the box; steps 4-7 are done once the lid
+is on the box:
+
+1. Lid top up: push each post's spigot into its socket until the snap clicks.
+2. Feed each pigtail's U.FL end down through its D-hole. Seat the bulkhead's O-ring and flange on
+   the lid top, key the D-flat, and fit the nut and lock washer on the inner face. Tighten to the
+   connector maker's torque. If the bulkhead has its hex shoulder at the cable end, it goes in
+   from the inside and its nut sits on the lid top instead; both faces are lands.
+3. With the boards loaded (INSTALL step 3), hold the lid top up about 100 mm above the seal line.
+   Route each pigtail along the `control_77603` corridors to its HaLow card and plug it in (U.FL,
+   or the SMA on an HT-HR01 carrier); `antenna_lid_keepout()` is the under-lid envelope, and the
+   1.13 mm cable's minimum bend radius is not published (~6 mm is an estimate). Keep at least
+   100 mm of slack, then lower the lid onto the seal cord and fit the 12 M4.
+4. Slide each lower grip into the gap between its post's rail segments, then down onto the lower
+   ledge. Slide each upper grip onto its upper rail from the top.
+5. Lower each antenna through its two band loops onto its bulkhead and screw the N-male coupling
+   nut on by hand.
+6. Pull each grip's tab until the band draws the tube onto the crush ribs and the pawl holds. To
+   release, press the pawl finger outward and push the tab back.
+7. Wrap each N joint, from the coupling nut down onto the bulkhead flange, with self-fusing
+   silicone tape.
+
+**Opening the box.** The lid lifts with both antennas, posts and bulkheads on it, and the pigtails
+tie it to the radios.
+
+1. Cut the tape, unscrew both coupling nuts, release the four bands and lift both antennas out.
+   A 1.1 m whip on a lid that is being lifted is unmanageable.
+2. Remove the 12 M4 and lift the lid straight up.
+3. Each pigtail needs at least 100 mm of slack beyond its closed route so the lid can rise about
+   100 mm. In that gap, unplug both pigtails at their HaLow cards (U.FL, or the SMA on an HT-HR01
+   carrier), then set the lid aside.
+4. `control_77603` routes 400 mm pigtails. U.FL connectors are rated for few mating cycles, so
+   open the box no more often than needed.
+5. Reverse the steps to close.
+
+**Fallback: the supplied U-bolts.** If a band slips or creeps, use the horizontal oblong slots
+(9 mm wide, legs 18-25 mm either side of the axis) that run through each post and grip at the grip's
+mid-height.
+- Cut the band off and keep the grip as a concentric saddle.
+- Pass the U-bolt round the tube and through the grip and post, and fit the nuts on the post's
+  back face.
+- The U-bolt leg diameter and spacing are not published: check them against the slots first.
+- This costs nothing and changes nothing in normal use.
+
+**RF.**
+- **FCC.** Rokland's notice says conducted output with this 10 dBi antenna should not exceed
+  26 dBm under Part 15.247 unless a qualified installer confirms another limit for the specific
+  FCC-authorised system. Keep each radio at its 24 dBm cap (34 dBm EIRP) and do not raise either.
+- **Coupling between the two antennas.** They stand 129 mm apart, about 0.4 wavelength at 915 MHz.
+  Put the two HaLow links on well-separated channels and expect some coupling and receiver desense
+  between them. Check both links' throughput with both radios transmitting.
+
+**Unqualified.** Nothing here is rated for ingress, wind load, vibration, UV or fatigue.
+- The band, pawl, ribs and post snap are untested on a mower.
+- Each 1143 mm whip's sway loads its post, the socket boss and the 5 mm lid plate. Printed
+  ASA/PETG creeps under a sustained clamp.
+- After the first mowing hours, inspect the grips, the posts and the lid round the bosses; then
+  retension, or fall back to the U-bolts.
+
+**To measure:**
+- the antenna's base-tube OD and length, coupling-nut height and mass;
+- the purchased bulkhead's hole, flange, O-ring, nut thickness, body length and which end its hex
+  shoulder is on;
+- the pigtail's length and bend radius;
+- the U-bolt size.
 
 ## Hitch sandwich layer and drive arms
 
@@ -431,8 +527,9 @@ never tighten by an invented universal torque.
 The layer panel prints flat. The lower arms print **lying flat** along bed X;
 the heads print **mating-face down**, and the handed half-jaw sway bars print **lying flat**
 with the bar along bed Y. Use the exported left/right variants without extra mirroring. Inspect all nut slots
-in the slicer. Rod pieces print lying flat with the rod axis along bed X, so lock and splice
-bolts are vertical and both pin bores are horizontal. Clamp halves and sleeves print
+in the slicer. The print-in-place rod pieces (`pushrod_servo_end`, `pushrod_sleeve`) print upright,
+lever mouth on the bed and lever open beside it; `pushrod_inner` prints lying flat with the rod axis
+along bed X. Both pin bores are horizontal. Clamp halves and sleeves print
 flat; each sleeve prints on its split face with the flanges up and needs no support.
 The build refuses parts that are not bed-zero or exceed 420 × 420 × 500 mm.
 For the half-jaw braces, "lying flat" means the web plane is **parallel** to the bed,
@@ -440,8 +537,8 @@ not that the whole web touches it. The jaw sets bed-zero while the web and end l
 are raised. Add slicer supports beneath those raised sections and the jaw return;
 inspect their first supported layers and clear every nut slot after printing.
 
-Retired exports have been removed: `pushrod_middle` is replaced by `pushrod_middle_a` and
-`pushrod_middle_b`; `fit_gauge_3`/`fit_gauge_4` are obsolete round-U-bolt/V-seat steering gauges.
+Retired exports have been removed: the bolted rod's `pushrod_middle`, `pushrod_middle_a` and
+`pushrod_middle_b` (the print-in-place rod has no middle piece); `fit_gauge_3`/`fit_gauge_4` are obsolete round-U-bolt/V-seat steering gauges.
 Their old previews and the old pushrod 3MF are removed too. Keep `fit_gauge_1`, `fit_gauge_2`
 and `arm_layer_gauge`: the builder now regenerates all three active fit coupons and
 records their STL/3MF outputs in the validated print manifest.
