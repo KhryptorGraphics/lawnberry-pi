@@ -135,8 +135,9 @@ Only the four existing box-to-arm-layer M4 bolts (they carry the box). The base 
 - HaLow carrier owned (HT-HR01 HAT vs other) and its RF connector: an edge SMA + right-angle plug gets
   only 14 mm to the +Y wall; a U.FL pigtail is the safe end. The LC29H GNSS antenna needs a sky-view
   port that is NOT in this enclosure: owner decision.
-- Lid antenna bulkhead, nut and pigtail-exit geometry under the lid (band reserved, not yet checked
-  against the final lid); RJ45 side-angle plug sizes; 1.13 mm coax bend radius.
+- The purchased lid bulkheads, nuts and pigtail exits under the lid: modelled from estimates, and
+  the control probes pass against the final lid's `antenna_lid_keepout()`; RJ45 side-angle plug
+  sizes; 1.13 mm coax bend radius.
 - M4 bolt head + washer envelope (9 x 4.8 ESTIMATE); breather and gland locknut envelopes; camera-tower
   M5 nut and bolt-tail protrusion inside the +Y wall.
 - PETG snap strains are computed with the 1.5 % DESIGN limit (no datasheet): cleat latch 1.44 %, bay pawl

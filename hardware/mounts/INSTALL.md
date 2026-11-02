@@ -262,8 +262,7 @@ before committing to a full box or powering steering.
 
 1. Fit glands/breather in the body; confirm their locknuts clear the layer's 24 mm pass-throughs.
    The two HaLow antenna ports and posts are on the reprinted lid (README § HaLow antenna port and
-   mount): fit the bulkheads and posts on the lid before closing the box, and route each pigtail
-   along the `control_77603` corridors with at least 100 mm of service slack.
+   mount): fit the bulkheads and posts on the lid on the bench (that section's steps 1-2).
 2. Fit the four box-to-arm-layer M4 bolts through the floor bosses, head and washer clamping the
    `control_77603` `chassis_base` (3.5 mm, the legacy tray's thickness), and seal them; choose bolts
    long enough for the added 8 mm layer and check nut/thread engagement.
@@ -271,7 +270,10 @@ before committing to a full box or powering steering.
    and load the boards as `control_77603/README.md` describes. No tray, sleds or stack columns remain.
 4. Fit the camera-tower wall flange, backing strip and foot. Its M5 foot bolts also pass the layer;
    check their grip length with the extra 8 mm.
-5. Fit the 3 mm seal cord, lid and twelve M4 fasteners.
+5. Fit the 3 mm seal cord. Hold the lid about 100 mm above the seal line, route each antenna pigtail
+   along the `control_77603` corridors to its HaLow card and plug it in, keeping at least 100 mm of
+   slack (README § HaLow antenna port and mount, step 3), then lower the lid and fit the twelve M4
+   fasteners.
 6. Place the center layer under the box flange and integral tongue; align the ball-hole and auxiliary
    holes only if measured. Set the stack on the hitch plate and install correctly rated/length hardware
    using the mower's specified hitch-bolt torque.

@@ -198,8 +198,10 @@ carries them. The axes are at (±64.5, −48) in body coordinates, 129 mm apart,
 corners. The −X antenna feeds the Alta's HaLow and the +X antenna feeds the Pi 5's.
 
 - **Port.** The 5 mm lid plate is the bulkhead panel; the Amphenol 82-369 jack accepts 5.3 mm
-  ([bulkhead page](https://www.farnell.com/datasheets/269482.pdf)). Each N-female-to-U.FL bulkhead
-  passes a D-flat hole, Ø16.3 with 13.9 flats ([Type N catalog](https://www.farnell.com/datasheets/1931349.pdf)).
+  ([bulkhead page](https://www.farnell.com/datasheets/269482.pdf)). Each N-female bulkhead passes
+  a D-flat hole, Ø16.3 with 13.9 flats ([Type N catalog](https://www.farnell.com/datasheets/1931349.pdf)).
+  Its pigtail's far end must match the radio it feeds (U.FL on a bare HaLow card, SMA on an
+  HT-HR01 carrier); confirm each before ordering.
   The hole is inside the cord-seal line and over the box interior, so the nut, jack and pigtail
   hang straight into the box.
   - On the outside, the flange (or nut and washer) and the O-ring seat on the lid's flat top. That
@@ -288,7 +290,8 @@ mid-height.
 - the antenna's base-tube OD and length, coupling-nut height and mass;
 - the purchased bulkhead's hole, flange, O-ring, nut thickness, body length and which end its hex
   shoulder is on;
-- the pigtail's length and bend radius;
+- which RF connector each HaLow card or carrier has (U.FL or SMA), and the pigtail's length and
+  bend radius;
 - the U-bolt size.
 
 ## Hitch sandwich layer and drive arms
