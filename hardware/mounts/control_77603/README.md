@@ -65,7 +65,7 @@ stack; 1.5 mm ratchet steps; travel 12 mm shorter / 3 mm taller than nominal wit
   bars, x -32..15.1 (one saddle tab on the -Y rail to x 26.2), y -8.8..52.1, z 117.7..132.7 at
   nominal clamp travel. Board flat, parts up, x -29.5 + 22..32 across, y 21.65 +- 15..19.3,
   PCB underside z 127.7; nothing above it but its own I2C lead and, with the lid on, the lid-borne
-  Alta pigtail and its slack (z >= 168.5) (`ina_access_clear`).
+  Alta pigtail (z >= 162.2) and its slack (z >= 168.5) (`ina_access_clear`).
 - SMA service clip: on the tower clamp's front crossbar and finger bands, riding with it; x 15.6..42.6,
   y -12.5..55.6, z 116.3..158.3 nominal (leaf tab to plate top); its three jacks face up at
   (25, 3.2), (33.2, 27.6), (37, 44.5), mated plugs up to z 180.8 (183.8 at clamp travel +3).
@@ -153,6 +153,12 @@ Spanner room per joint (lid lifted 100 mm or off): an 8 mm open-end spanner (hea
 Zc+40.5..46 on the plug nut, within 56 mm of the axis, and comes down from above over that sector
 beyond 12 mm. 56 mm is all the box gives (bays B4 / B6, the INA board): published 8 mm spanners
 are 90-141 long, so hold one short of its end or use a stubby spanner (TO CONFIRM by trial).
+With the lid lifted the lid cables are modelled as dressed (`ec_lid_cables_lifted()`): each stays
+in its corridors and slack zone, the slack feeding the lift; each HaLow pigtail's drop and the GNSS
+jumper's jack leg extend up to the lifted lid, and the jumper's U rises 50 mm in the loft. No lid
+cable, dressed or lifted, enters any of the three rooms (`sc_sweep_clear` idx 3-5), and the space
+the lift adds clears everything else (`lid_cables_lifted_clear`). A cable pulled out of its
+corridor by hand is not modelled: leave the cables dressed while the spanner is in use.
 
 Kept clear (agreed with the INA3221 cradle, 2026-11-02): the cradle's cross member and inner tab
 (x <= 15.1), its lift path over rail A (x 14.7..26.6, y -6.75..-2.45 above Zc+8.4: the plate starts
@@ -191,10 +197,11 @@ jumper's U-turn is R7 too; all above the 6.8 mm published minimum for 1.13 mm ca
   **buy 250 mm**; its ~145 mm spare loops over the INA descent (x 45.6..72, y 2.4..25.2,
   z 168.5..180).
 - **-X station -> JC (Alta): N-female bulkhead -> SMA-male RIGHT-ANGLE plug, 1.13 mm.** Out of
-  the station +Y over B3, +X along the bays' front under the -X boss, up beside B4's front, +Y
-  over the tower top (x -24..-16, z >= 168.5: above the INA lead's Zc+40 at every travel) and +X
-  along y 41..47 into JC's barrel. Route **176 mm**, needs >= 277 mm: **buy 300 mm**; its ~124 mm
-  spare loops over the tower top (x -31..10, y -9..40.6, z 168.5..180).
+  the station +Y over B3, +X along the bays' front under the -X boss (to x -32), then +Y under the
+  boss and up past it in the band x -42.5..-32 (more than 56 mm from every joint, so outside all
+  three spanner rooms) and +X along y 41.6..47 into JC's barrel. Route **162 mm**, needs >= 262 mm:
+  **buy 300 mm**; its ~138 mm spare loops beside the tower top (x -42.5..-18, y 25..47,
+  z 168.5..180), also outside the rooms.
 - **Lid GNSS jack -> JB: SMA-female D-flat bulkhead (the lid jack) -> SMA-male RIGHT-ANGLE plug,
   1.13 mm.** The jumper leaves the bulkhead straight down (heat-shrink end z 161.1), under JB's
   barrel height, so it U-turns (R7) in the loft right of the clip (x 49.5..52.5, y 26.1..44.6,
@@ -209,12 +216,14 @@ Purchase list (RF):
 | GNSS tower lead | U.FL plug -> SMA-F bulkhead | 1.13 mm | 61 mm | + 20 | kit cable ~170 mm (conditions above) |
 | Alta tower lead | U.FL plug -> SMA-F D-flat bulkhead | 1.13 mm | 181 mm | + 20 | 250 mm |
 | Pi lid pigtail | N-F bulkhead -> SMA-M right-angle plug | 1.13 mm | 105 mm | + 100 | 250 mm |
-| Alta lid pigtail | N-F bulkhead -> SMA-M right-angle plug | 1.13 mm | 176 mm | + 100 | 300 mm |
+| Alta lid pigtail | N-F bulkhead -> SMA-M right-angle plug | 1.13 mm | 162 mm | + 100 | 300 mm |
 | GNSS lid jumper | SMA-F D-flat bulkhead (panel >= 3.0 mm) -> SMA-M right-angle plug | 1.13 mm | 41 mm | + 100 | 150 mm |
 
 Sources: SMA bulkhead data Taoglas CAB.011 p.7 / Linx CSH-SGFB / MIL-STD-348A; right-angle plug
 L-com LCCN45958 / Wellshow C01BA31174008A; N bulkhead Amphenol Type N catalog (82-369 panel
-5.3 mm); routes from `tl_way` / `ll_way` (`parameters.scad`, asserted against these lengths).
+5.3 mm); routes from `tl_way` / `ll_way` (`parameters.scad`). Route is each filleted closed route
+rounded to 1 mm and Buy is `tl_len` / `ll_len`; `tests/unit/test_hardware_77603_manifest.py`
+checks this table against the model.
 
 Each route is a centreline whose corners are filleted at its bend radius (tower leads: Pi and GNSS
 R10, Alta R8; lid cables R7; all above the published 6.8 mm). `parameters.scad` asserts that every

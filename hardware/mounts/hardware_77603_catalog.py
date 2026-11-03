@@ -847,7 +847,7 @@ _CTL_CONTACT = (
 # 0-5 = 2 x joint + end (0 board or lid end, 1 clip jack or plug barrel); SMA clip keyed 0-5 the
 # +x/-x/+y/-y shifts and +-1 degree turns; jack probes 0-2 the joints; clip travel 0-2 the
 # -12 / 0 / +3 mm range; spanner sweeps 0-2 lid off, 3-5 lid lifted 100 mm; lift 0-1 seated
-# and slid.
+# and slid; lid cables lifted 0-2 the cables.
 _CTL_INDEXED = (
     ("patch_plug_seats", "contact", 2),
     ("lid_cable_reaches", "contact", 6),
@@ -885,6 +885,7 @@ _CTL_INDEXED = (
     ("sc_seat_backed", "empty", 3),
     ("sc_clip_clear", "empty", 3),
     ("sc_sweep_clear", "empty", 6),
+    ("lid_cables_lifted_clear", "empty", 3),
     ("sc_lift_clear", "empty", 2),
 )
 CONTROL_PROBES: tuple[Probe, ...] = (

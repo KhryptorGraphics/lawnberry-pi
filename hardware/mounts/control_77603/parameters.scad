@@ -487,8 +487,8 @@ lid_lift_slack = 100;                  // owner rule: the lid lifts ~100 mm befo
 tower_dress_slack = 20;                // DESIGN minimum spare on a tower-side lead
 // Joints [0] Pi HaLow, [1] GNSS, [2] Alta HaLow: jack axes (body x, y; DESIGN), the direction of
 // each mated right-angle plug's cable barrel and of each joint's spanner swing (degrees about +Z
-// from +X). Each barrel points away from its own swing; JA's lid-lifted cable rises outside the
-// others' swings (sc_sweep probes).
+// from +X). Each barrel points away from its own swing; every lid cable, dressed or with the lid
+// lifted, stays out of all three swings (sc_sweep probes).
 sc_joints = [[25, 3.2], [33.2, 27.6], [37, 44.5]];
 sc_names = ["Pi HaLow", "GNSS", "Alta HaLow"];
 sc_barrel_dir = [90, 0, 180];
@@ -597,21 +597,24 @@ ll_route = [
     [0, [[39, -16.4, 162.2], [72, -10.4, 169.5]]],  //   -X along the bays' front (y < -10: INA descent)
     [0, [[39, -16.4, 162.2], [45.6, 7.6, 169.5]]],  //   +Y under the +X boss (z < 170)
     [0, [[39, 2.4, 162.2], [45.6, 7.6, 180]]],      //   up beside the boss and the INA run (y >= 8)
-    [0, [[39, 2.4, 168.5], [45.6, 22, 180]]],       //   +Y over the INA run (Zc+40 <= 167.7)
-    [0, [[23, 18, 168.5], [45.6, 22, 180]]],        //   -X between JA and JB
-    [0, [[23, 14.05, 168.5], [27, 22, 180]]],       //   -Y into JA's barrel
+    [0, [[39, 2.4, 168.5], [45.6, 16.5, 180]]],     //   +Y over the INA run (Zc+40 <= 167.7)
+    [0, [[39, 16, 170.75], [45.6, 22, 180]]],       //   ... above JB's spanner-head slab (Zc+46 = 170.7)
+    [0, [[23.5, 18, 170.75], [45.6, 22, 180]]],     //   -X between JA and JB (x >= 23.5: off JB's room)
+    [0, [[23.5, 14.05, 170.75], [27, 22, 180]]],    //   -Y into JA's barrel
     [0, [[45.6, 2.4, 168.5], [72, 25.2, 180]]],     //   Pi slack loops over the INA descent
     [0, [[62, -50, 162.2], [67, -35, 170.6]]],      //   exit from the bulkhead, inside the envelope
     [1, [[49.5, 38.6, gj_u_floor], [52.5, 44.6, 159.95]]],  // GNSS jumper: down from the lid jack ...
     [1, [[49.5, 26.1, gj_u_floor], [52.5, 44.6, gj_u_floor + 6]]],     //   U-turn (100 mm lift slack hangs here)
     [1, [[49.5, 26.1, gj_u_floor], [52.5, 29.1, 172]]],     //   ... up the loft
-    [1, [[44.05, 25.6, 168.5], [52.5, 29.6, 178.4]]],   //   R7 turn into JB's barrel
+    [1, [[45.3, 25.6, 168.5], [52.5, 29.6, 178.4]]],   //   R7 turn into JB's barrel
+    [1, [[44.05, 25.6, 170.75], [45.6, 29.6, 178.4]]], //   ... its last 1.3 mm above JB's spanner-head slab
     [2, [[-72, -36, 162.2], [-59, -9, 169.5]]],     // Alta: +Y out of the -X station, over B3
-    [2, [[-72, -15, 162.2], [-16, -9, 169.5]]],     //   +X along the bays' front, under the -X boss
-    [2, [[-24, -15, 162.2], [-16, -9, 180]]],       //   up beside B4's front
-    [2, [[-24, -9, 168.5], [-16, 47, 180]]],        //   +Y over the tower top (INA <= Zc+40)
-    [2, [[-24, 41, 168.5], [26.15, 47, 180]]],      //   +X into JC's barrel
-    [2, [[-31, -9, 168.5], [10, 40.6, 180]]],       //   Alta slack loops over the tower top
+    [2, [[-72, -15, 162.2], [-32, -9, 169.5]]],     //   +X along the bays' front, under the -X boss
+    [2, [[-42.5, -15, 162.2], [-32, 7.6, 169.5]]],  //   +Y under the -X boss (z < 170)
+    [2, [[-42.5, 2.4, 162.2], [-32, 47, 180]]],     //   up and +Y past the boss (x < -31: off every spanner room)
+    [2, [[-42.5, 41.6, 168.5], [24.5, 47, 180]]],   //   +X over JA's and JB's rooms (y >= 41.6: off JC's)
+    [2, [[24.5, 41.6, 170.75], [26.15, 47, 180]]],  //   ... into JC's barrel, above its spanner-head slab
+    [2, [[-42.5, 25, 168.5], [-18, 47, 180]]],      //   Alta slack loops beside the tower top, off the rooms
     [2, [[-67, -50, 162.2], [-62, -35, 170.6]]],    //   exit from the bulkhead, inside the envelope
 ];
 // Closed centrelines, shortest path (N jack cable exit / lid GNSS heat-shrink end -> plug barrel
@@ -623,8 +626,8 @@ ll_way = [
      [42.68, -0.01, 168.3], [41.67, 13.71, 171.24], [40.43, 20.46, 176.18], [25, 21.85, 176.4],
      [25, 14, 176.4]],
     [[51, 41.6, 161.1], [51, 41.6, 154.1], [51, 27.6, 154.1], [51, 27.6, 176.4], [44, 27.6, 176.4]],
-    [[-64.5, -48, 170], [-64.5, -48, 162.68], [-65.79, -13.48, 163.6], [-21.46, -10.85, 168.55],
-     [-20.36, 5.31, 175.77], [-17.01, 44.5, 176.4], [26.2, 44.5, 176.4]],
+    [[-64.5, -48, 170], [-64.5, -48, 162.37], [-60.99, -13.19, 164.85], [-40.87, -10.68, 165.88],
+     [-32.96, 25.32, 172.82], [-16.68, 44.5, 176.4], [26.2, 44.5, 176.4]],
 ];
 // Bend radius per lid cable. Each HaLow pigtail leaves its bulkhead straight down at z 170 and
 // must be level above the bays (corridor floor z 162.2): R <= 170 - 162.2 - 1.13 / 2 = 7.2, so R7.
@@ -689,6 +692,18 @@ function gj_u_z() = ll_way[1][1][2] - (ll_len[1] - ll_route_len(1)) / 2;
 function ll_way_installed(i) = i != 1 ? ll_way[i] : [ll_way[1][0],
     [ll_way[1][1][0], ll_way[1][1][1], gj_u_z()], [ll_way[1][2][0], ll_way[1][2][1], gj_u_z()],
     ll_way[1][3], ll_way[1][4]];
+// Lid lifted lid_lift_slack, the lid cables left as dressed (the state the lift slack is sized
+// for): each stays in its corridors, its slack feeding the lift. The lift adds this space
+// [cable, box], at any height up to lid_lift_slack: each HaLow pigtail's drop from its bulkhead
+// and the GNSS jumper's jack leg run up to the lifted lid's envelopes (antenna_lid_keepout():
+// HaLow stations from z 162, the GNSS jack column from z 160; each box ends 0.05 under its
+// envelope raised by the lift), and the jumper's U rises half the lift between its legs.
+ll_lift_ext = [
+    [0, [[62, -50, 162.2], [67, -35, 162 + lid_lift_slack - 0.05]]],     // Pi: drop to the lifted N jack
+    [1, [[49.5, 38.6, 159.9], [52.5, 44.6, 160 + lid_lift_slack - 0.05]]],  // GNSS: jack leg up
+    [1, [[49.5, 26.1, gj_u_floor], [52.5, 44.6, gj_u_z() + lid_lift_slack / 2 + gj_bend_r + coax_d]]],
+    [2, [[-67, -50, 162.2], [-62, -35, 162 + lid_lift_slack - 0.05]]],   // Alta: drop to the lifted N jack
+];
 for (i = [0 : 2]) {
     assert(min(tl_bend_r[i], ll_bend_r[i]) >= coax_min_bend_r,
            str(sc_names[i], " cable bend radius under the published minimum"));

@@ -305,7 +305,7 @@ if (check == "base_seats_on_bosses") {
     // the descent column beyond the head ring up to the hand height) is free. idx 0..2 lid off: of
     // every part, payload, board, the clip and all three jacks, the INA3221 I2C lead, the patch and
     // the body; idx 3..5 lid lifted 100 mm: also of the other two plugs, the lifted lid and its
-    // envelopes and the other cables rising to it.
+    // envelopes, and all three lid cables lifted as dressed (ec_lid_cables_lifted()).
     j = idx % 3;
     intersection() {
         ec_sc_sweep(j);
@@ -317,8 +317,27 @@ if (check == "base_seats_on_bosses") {
             if (idx >= 3) {
                 for (i = [0 : 2]) if (i != j) ec_sc_plug(i);
                 ec_lid_lifted();
-                ec_lid_cables_lifted(j);
+                ec_lid_cables_lifted();
             }
+        }
+    }
+} else if (check == "lid_cables_lifted_clear") {
+    // EMPTY: lid lifted lid_lift_slack, the space cable idx's lift adds (ll_lift_ext: a HaLow drop or
+    // the GNSS jack leg up to the lifted lid, the GNSS U risen) clears every part, payload and board,
+    // the patch, the tower-side leads, the body, the lifted lid and its envelopes, the INA3221
+    // cradle, largest board and I2C lead at clamp travel -12 / 0 / +3, and the other two lid
+    // cables lifted as dressed.
+    intersection() {
+        for (r = ll_lift_ext) if (r[0] == idx) ec_box(r[1]);
+        union() {
+            all_contents(); ec_patch(); ec_tower_leads(); enclosure_body(); ec_lid_lifted();
+            for (t = sc_travels()) {
+                ina_at_clamp(t) ina_cradle("assembly", ina_d_min);
+                ec_ina_board(0, ina_board_probe[1], t);
+                ec_ina_adafruit(0, t);
+                ec_ina_i2c_run(t);
+            }
+            ec_lid_cables_lifted(idx);
         }
     }
 } else if (check == "sc_lift_clear") {

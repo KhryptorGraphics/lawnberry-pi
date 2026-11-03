@@ -3,7 +3,7 @@
 **PROTOTYPE — FIT / LOAD / ELECTRICAL VALIDATION REQUIRED.**
 **Geometry generated, not physically qualified.** The published STL/3MF files, previews, views,
 drawings and `generated_77603/validation.json` are regenerated from the current sources: all 52
-catalogued pieces pass the mesh and print-envelope gate, and all 444 CSG probe runs (187 named
+catalogued pieces pass the mesh and print-envelope gate, and all 447 CSG probe runs (188 named
 checks across the station, rod, electronics and antenna probe files; linkage probes run for each
 variant A-E) match their expected result. A probe proves
 geometric clearance or material presence at the demonstration pose only. Keeper retention,

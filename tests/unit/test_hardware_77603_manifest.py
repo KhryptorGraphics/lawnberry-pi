@@ -391,6 +391,52 @@ def test_readme_quoted_counts_match_the_catalog_and_manifest(manifest):
     assert re.search(rf"all {probe_runs} CSG probe runs \({named_checks} named checks", text)
 
 
+@pytest.mark.skipif(shutil.which("openscad") is None, reason="OpenSCAD is not installed")
+def test_rf_purchase_table_matches_the_model(tmp_path):
+    """The owner buys from this table: Route must be the model's filleted closed route (to 1 mm),
+    Rule its slack and Buy the cable length the model's own asserts were checked against."""
+    import re
+
+    params = MOUNTS / "control_77603" / "parameters.scad"
+    src = tmp_path / "rf.scad"
+    src.write_text(
+        f"include <{params}>\n"
+        'echo(str("RF", [[for (i = [0 : 2]) tl_route_len(i)], [for (i = [0 : 2]) ll_route_len(i)],'
+        " tl_len, ll_len, [tower_dress_slack, lid_lift_slack]]));\n"
+        "cube(1);\n"
+    )
+    result = subprocess.run(
+        ["openscad", "-o", str(tmp_path / "rf.stl"), str(src)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    echoed = re.search(r'ECHO: "RF(\[.*\])"', result.stderr)
+    assert echoed, result.stderr
+    tl_route, ll_route, tl_len, ll_len, (dress, lift) = json.loads(echoed.group(1))
+
+    rows = {}
+    for line in (MOUNTS / "control_77603" / "README.md").read_text().splitlines():
+        cells = [c.strip() for c in line.split("|")[1:-1]]
+        if len(cells) == 6 and cells[3].endswith(" mm"):
+            rows[cells[0]] = cells
+    expected = [
+        ("Pi tower lead", tl_route[0], dress, tl_len[0]),
+        ("GNSS tower lead", tl_route[1], dress, tl_len[1]),
+        ("Alta tower lead", tl_route[2], dress, tl_len[2]),
+        ("Pi lid pigtail", ll_route[0], lift, ll_len[0]),
+        ("GNSS lid jumper", ll_route[1], lift, ll_len[1]),
+        ("Alta lid pigtail", ll_route[2], lift, ll_len[2]),
+    ]
+    for name, route, slack, bought in expected:
+        cells = rows[name]
+        assert cells[3] == f"{round(route)} mm", (name, cells[3], route)
+        assert cells[4] == f"+ {slack:g}", (name, cells[4])
+        assert re.findall(r"(\d+) mm", cells[5])[-1] == f"{bought:g}", (name, cells[5], bought)
+
+
 def test_stale_profile_exports_are_removed_without_touching_current_or_legacy(tmp_path):
     from hardware.mounts.build_printables import _remove_stale_profile_exports
 

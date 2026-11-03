@@ -291,7 +291,8 @@ service; the lid's two HaLow pigtails and the GNSS jumper end in SMA-male right-
 onto them (barrels +Y, +X, −X). Jaws over both clamp finger bands and a snap leaf under the clamp
 crossbar key it; the jacks' D-flats key them in the clip, so the plugs' mating torque
 (7-10 in-lb, Amphenol RF) never turns a U.FL. Each joint has an 8 mm open-end spanner's swing room
-(±15° within 56 mm, from above) with the lid lifted 100 mm or off. Details, cable routes and the
+(±15° within 56 mm, from above) with the lid off, or lifted 100 mm with every lid cable left as
+dressed (no cable enters a room). Details, cable routes and the
 purchase list: `control_77603/README.md` § RF service joints.
 
 ### Installing, opening and service
@@ -328,7 +329,8 @@ lid's three cables on it; the three SMA joints on the clip tie it to the boards.
 
 1. Cut the tape, unscrew both N coupling nuts and the GNSS cable's SMA plug, release the four bands
    and lift both antennas out. A 1.1 m whip on a lid that is being lifted is unmanageable.
-2. Remove the 12 M4 and lift the lid straight up about 100 mm.
+2. Remove the 12 M4 and lift the lid straight up about 100 mm without pulling the cables: they
+   stay as dressed, their slack feeding the lift.
 3. In that gap unscrew the three SMA plugs at the clip with an 8 mm spanner (JA, JB, JC), then set
    the lid aside. Nothing else is unplugged: the U.FLs stay mated. Each lid cable is bought at
    least 100 mm longer than its shortest closed route for this (Pi 250, Alta 300, GNSS jumper

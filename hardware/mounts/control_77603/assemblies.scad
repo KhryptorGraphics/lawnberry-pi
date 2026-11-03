@@ -184,18 +184,12 @@ module ec_pigtails() {
     }
 }
 module ec_lid_cable_end(i, e) { ec_box(ll_stub[i][e]); }
-// Lid lifted lid_lift_slack: each lid cable (except `except`) leaves its plug barrel, turns up on
-// its bend radius and rises toward the lifted lid (3 mm envelope; only the part over the clip).
+// Lid lifted lid_lift_slack, the lid cables left as dressed: each in its corridors and slack zone
+// (the slack feeds the lift; the bulkheads' room under the lid is vacated, so nothing is cut), plus
+// the space the lift adds (ll_lift_ext: the HaLow drops and the GNSS jack leg up to the lifted lid,
+// the GNSS U risen). `except` leaves one cable out.
 module ec_lid_cables_lifted(except = -1) {
-    z = ec_zc() + sc_barrel_z();
-    for (i = [0 : 2]) if (i != except) {
-        b = sc_barrel_end(i);
-        q = b + ll_bend_r[i] * sc_dir(i);
-        color([0.10, 0.10, 0.10, 0.6]) {
-            hull() { translate([b[0], b[1], z]) sphere(d = 3, $fn = 12); translate([q[0], q[1], z + ll_bend_r[i]]) sphere(d = 3, $fn = 12); }
-            translate([q[0] - 1.5, q[1] - 1.5, z]) cube([3, 3, box_top + lid_lift_slack - 20 - z]);
-        }
-    }
+    color([0.10, 0.10, 0.10, 0.6]) for (r = concat(ll_route, ll_lift_ext)) if (r[0] != except) ec_box(r[1]);
 }
 // The INA3221's I2C lead envelope (agreed 2026-11-02), riding the clamp at travel t.
 module ec_ina_i2c_run(t = 0) { color([0.2, 0.6, 0.9, 0.4]) ina_at_clamp(t) for (b = ina_i2c_run) ec_box(b); }
@@ -266,7 +260,8 @@ module electronics_contents(exploded_mm = 0) {
     }
 }
 
-// The lid-side cables are drawn closed (corridors) or, with the lid lifted, rising to the lid.
+// The lid-side cables are drawn closed (corridors) or, with the lid lifted, as dressed (the
+// corridors plus the HaLow drops and GNSS jack leg up to the lifted lid, the GNSS U risen).
 module electronics_packaging(exploded_mm = 0, lid_lift_mm = 0, body = true) {
     if (body) color([0.75, 0.75, 0.78, 0.30]) enclosure_body();
     electronics_contents(exploded_mm);
