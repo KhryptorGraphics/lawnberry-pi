@@ -186,18 +186,23 @@ hailo_xy = [17, 17];
 lc_pcb = [65, 30.5];
 lc_v0 = pi5_pcb[1] - lc_pcb[1];        // sits along the GPIO edge
 lc_ufl_uv = [57, 44.5];                // ESTIMATE GNSS U.FL (image: near the right end)
-// HaLow radios (owner 2026-11-02): a Heltec mini-PCIe card on a Pi carrier HAT on the Pi 5 (top
-// of the stack) and a Seeed card on its Pi HAT on the Alta (under the Pi). Both are 65 x 56 HATs
-// with a female-only 2x20.
+// HaLow radios (owner 2026-11-02): a Heltec mini-PCIe card on a Pi carrier board on the Pi 5 (top
+// of the stack) and a Seeed card on its Pi HAT on the Alta (under the Pi). Both carriers have a
+// female-only 2x20; the Seeed HAT is 65 x 56 (hr_pcb), the Heltec carrier is Pi-size (hcp_pcb).
 hr_pcb = [65, 56];
 hr_top_h = 9;                          // ESTIMATE parts envelope above either HaLow HAT PCB
 hr_ufl_h = 2.5;                        // U.FL mated height max, Hirose U.FL catalog p.4:
                                        // https://media.digikey.com/pdf/Data%20Sheets/Hirose%20PDFs/U.FL_Series.pdf
-// Pi 5: Heltec HT-HC01P mini-PCIe card (MM6108, SPI) on a Pi carrier HAT (owner 2026-11-02; the
-// repo's config/limits.yaml:17 records "Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi"). The
-// carrier model is TO CONFIRM (Heltec sells an "HT-HC01P Raspberry Pi HAT", outline not
-// published: https://heltec.org/project/ht-hc01p-hat/): 65 x 56 envelope and card placement are
-// ESTIMATES (card placed with its far, U.FL end toward the HAT's u = 65 end, fingers at u ~7).
+// Pi 5: Heltec HT-HC01P mini-PCIe card (MM6108, SPI) on a Pi carrier board (owner 2026-11-02;
+// config/limits.yaml:17 records "Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi"). The owner
+// states the carrier is the same size as the Pi 5: modelled as the Pi outline on the Pi hole
+// pattern (hcp_pcb, 85 x 56). Heltec's own carrier, the "HT-HC01P Raspberry Pi HAT"
+// (https://heltec.org/project/ht-hc01p-hat/), is a 65 x 56 HAT in its product photos (four corner
+// holes about 3.5 mm in from BOTH ends, the 2x20 between them): carrier model and length TO MEASURE;
+// the larger owner-stated outline is the one probed. Socket and card placement are ESTIMATES
+// (photos: socket at one short end, card along the long axis to two screw posts; here its far,
+// U.FL end toward u = 65, fingers at u ~7).
+hcp_pcb = pi5_pcb;                     // owner 2026-11-02: "same size as the Pi 5" (85 x 56)
 // Card drawing https://heltec.org/wp-content/uploads/2025/05/HC01P_DEMENSION-976x1024.png and
 // datasheet https://resource.heltec.cn/download/HT-HC01P/Datasheet/HT-HC01P_Rev.1.0.0.pdf p.17:
 // 50.95 x 30 x 3.75; IPEX (U.FL) on the component side, 2.61 from the far (hole) end and 10.46
@@ -542,8 +547,9 @@ assert(sc_leaf_strain() <= 0.015, "SMA clip snap leaf strain exceeds 1.5 %");
 tl_route = [
     [0, [[11.55, 14, 114], [29.2, 20, 117.4]]],    // Pi: +X under the clamp crossbar and INA cradle
     [0, [[24.5, -2.4, 114], [29.2, 20, 129.8]]],   //   outboard of the crossbar, up to JA's heat-shrink
-    [1, [[13.05, 34, 95.2], [37.4, 42, 105]]],     // GNSS: +X under the Pi's HaLow HAT
-    [1, [[27, 22, 95.2], [44, 37.6, 129.8]]],      //   rise and spare coil (kit cable) up to JB
+    [1, [[13.05, 34, 95.2], [41.2, 42, 105]]],     // GNSS: +X under the Pi's HaLow carrier (underside z 106.1)
+    [1, [[39.6, 21.5, 95.2], [45.6, 43.5, 120]]],  //   rise past the carrier's +X edge (x 39) + spare coil
+    [1, [[32.2, 22, 117.2], [45.6, 38, 129.8]]],   //   -X over the carrier (its parts <= z 116.7) to JB
     [2, [[-39.5, 18.05, 54.6], [-33.5, 49.5, 60.2]]],   // Alta: +Y under the Pi from the card U.FL
     [2, [[-39.5, 46, 52], [10, 54.8, 61]]],        //   +X behind the stack (y < 55: clear of the camera nuts)
     [2, [[9, 49.6, 52], [15, 62.5, 61]]],          //   +Y round the tower's +Y post
@@ -555,7 +561,8 @@ tl_route = [
 // Closed centrelines (U.FL centre -> heat-shrink end) for the length; leads to buy.
 tl_way = [
     [[9.99, 16.86, 115.15], [28, 16.86, 115.5], [28, 3.2, 115.5], [25, 3.2, 120], [25, 3.2, 129.9]],
-    [[11, 37.9, 96.3], [33.2, 37.9, 96.3], [33.2, 37.9, 110], [33.2, 27.6, 120], [33.2, 27.6, 129.9]],
+    [[11, 37.9, 96.3], [42.6, 37.9, 96.3], [42.6, 37.9, 119], [42.6, 27.6, 119], [33.2, 27.6, 119],
+     [33.2, 27.6, 129.9]],
     [[-37.2, 16.7, 55.7], [-37.2, 52, 57.4], [12, 52, 57.4], [12, 59.5, 57.4], [29.75, 59.5, 57.4],
      [29.75, 59.5, 123.5], [37, 59.5, 123.5], [37, 44.5, 123.5], [37, 44.5, 129.9]],
 ];

@@ -76,13 +76,14 @@ module rb_lc29h(headers = true) {
 }
 
 // Pi 5 HaLow: Heltec HT-HC01P mini-PCIe card (published 50.95 x 30 x 3.75, U.FL position from the
-// card drawing) on a Pi carrier HAT (model TO CONFIRM: 65 x 56 envelope, carrier parts, socket and
-// card placement ESTIMATE). Fingers in the socket at u ~3..12, card running +u to its far (U.FL)
-// end, shield block on the card top, the U.FL receptacle beside the far-end screw.
+// card drawing) on a Pi carrier board (owner: Pi-size, hcp_pcb 85 x 56 on the Pi outline; carrier
+// model, parts, socket and card placement ESTIMATE). Fingers in the socket at u ~3..12, card
+// running +u to its far (U.FL) end, shield block on the card top, the U.FL receptacle beside the
+// far-end screw.
 module rb_halow_hc01p(headers = true) {
     zc = board_t + hc_card_z;                       // card underside
     cu = hc_card_u();
-    color([0.20, 0.20, 0.55]) rb_slab(hr_pcb[0], hr_pcb[1]);
+    color([0.20, 0.20, 0.55]) rb_slab(hcp_pcb[0], hcp_pcb[1]);
     color([0.25, 0.25, 0.25]) {
         rb_block([hc_socket_u[0], hc_card_v[0] - 1, board_t - 0.01],
             [hc_socket_u[1] - hc_socket_u[0], hc_card_v[1] - hc_card_v[0] + 2, hc_card_z + hc_card_t + 0.01]);

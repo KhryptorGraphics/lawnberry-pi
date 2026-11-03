@@ -42,7 +42,8 @@ Libre Computer Alta -> its HaLow HAT (Seeed WM1302 Pi HAT carrying the Wio-WM610
 standoffs] -> Raspberry Pi 5 + Active Cooler -> AI HAT+ on its supplied 16 mm stacking header ->
 Waveshare LC29H(DA) on ONE purchased 2x20 extra-tall stacking header (it replaces the LC29H's
 female-only header so GPIO passes up) -> the Pi's HaLow on top (Heltec HT-HC01P mini-PCIe card on
-a Pi carrier HAT, SPI; carrier model TO CONFIRM). The SMA service clip snaps onto the clamp's front
+a Pi-size carrier board, 85 x 56 per the owner, SPI; carrier model TO CONFIRM). The SMA service clip
+snaps onto the clamp's front
 corner (§ RF service joints).
 The owner's kit M-F standoffs screw to each other through every board at the Pi hole pattern; they
 are spacers, never anchors. Spacings are ESTIMATES (`s_*` in `parameters.scad`). Alternative (owner
@@ -108,13 +109,14 @@ unscrew the three plugs with an 8 mm spanner, set the lid aside. The U.FLs are n
 service.
 
 **Radios.**
-- **Pi 5 (top of the stack): Heltec HT-HC01P mini-PCIe card (MM6108, SPI) on a Pi carrier HAT**
+- **Pi 5 (top of the stack): Heltec HT-HC01P mini-PCIe card (MM6108, SPI) on a Pi-size carrier**
   (owner; `config/limits.yaml` line 17: "Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi"). Card
   50.95 x 30 x 3.75 with its IPEX (U.FL) 2.61 mm from the far end and 10.46 mm from the long edge
   ([drawing](https://heltec.org/wp-content/uploads/2025/05/HC01P_DEMENSION-976x1024.png),
   [datasheet](https://resource.heltec.cn/download/HT-HC01P/Datasheet/HT-HC01P_Rev.1.0.0.pdf) p.17);
-  the carrier model is TO CONFIRM (65 x 56 envelope, card placement ESTIMATE): U.FL at about
-  (10.0, 16.9, z 115).
+  the owner states the carrier is the same size as the Pi 5, so it is modelled 85 x 56 on the Pi
+  outline and holes (Heltec's own HT-HC01P Raspberry Pi HAT is 65 x 56 in its photos: carrier model
+  and length TO MEASURE); card placement ESTIMATE: U.FL at about (10.0, 16.9, z 115).
 - **Alta: Seeed Wio-WM6108 mini-PCIe card (Quectel FGH100M-H) on Seeed's WM1302 Pi HAT.** Antenna
   connector CN1 "CN_IPEX" = Hirose U.FL-R-SMT-1
   ([schematic](https://files.seeedstudio.com/wiki/wifi_halow/res/Wio-WM6108_V30_SCH_20241107.pdf)),
@@ -163,14 +165,16 @@ purchased jacks and plugs rise above Zc+40, as agreed.
 mated once at stack build; length = closed route + 20 mm dress slack):
 - **Pi:** +X under the clamp crossbar and the INA cradle (z 114..117.4), up outboard of the
   crossbar (x 24.5..29.2) to JA. Route **34 mm**; Taoglas CAB.011 (95 mm per its drawing) fits.
-- **GNSS:** +X under the Pi's HaLow carrier (z 95.2..105), up beside the clip to JB. Route
-  **47 mm**, needs >= 67 mm. **The Waveshare kit's "IPEX 1 to SMA cable ~17cm" can be used** for
-  this lead: its ~123 mm spare coils (about 2 turns of Ø20) in the zone x 27..44, y 22..37.6,
-  z 95..130 under the clip plate. Conditions (TO CONFIRM on the kit cable): its SMA-female bulkhead
+- **GNSS:** +X under the Pi's HaLow carrier (z 95.2..105; the carrier is Pi-size, so it reaches
+  x 39), up past its +X edge (x 39.6..45.6), then -X over it (z >= 117.2, above its 9 mm parts
+  envelope) to JB. Route **68 mm**, needs >= 88 mm. **The Waveshare kit's "IPEX 1 to SMA cable
+  ~17cm" can be used** for this lead: its ~102 mm spare coils vertically (about 1.6 turns of Ø20,
+  in the y-z plane) in the column x 39.6..45.6, y 21.5..43.5, z 95.2..120 beside the carrier's +X
+  edge. Conditions (TO CONFIRM on the kit cable): its SMA-female bulkhead
   has the D-flat (the clip's D hole keys it), a thread long enough for the 3.0 mm land + washer +
   nut with 5.54 mm left for the plug's nut (11.4 mm hex face to mating face per the drawings), and
   an 8 mm hex/nut. If it has no D-flat or less thread, replace it with the same U.FL -> SMA-F
-  D-flat bulkhead 1.13 mm lead as the Pi's (any length >= 70 mm; spare coils in the same zone).
+  D-flat bulkhead 1.13 mm lead as the Pi's (any length >= 90 mm; spare coils in the same column).
 - **Alta:** +Y under the Pi from the card's U.FL, +X behind the stack, round the tower's +Y post,
   up the +Y gap (x 26.5..33) between the camera nuts' z bands, -Y to JC. Route **175 mm**, needs
   >= 195 mm: **buy 250 mm**.
@@ -201,7 +205,7 @@ Purchase list (RF):
 | Cable | Connectors | Cable | Route (closed) | Rule | Buy |
 |---|---|---|---|---|---|
 | Pi tower lead | U.FL (IPEX MHF I) plug -> SMA-F D-flat bulkhead | 1.13 mm | 34 mm | + 20 | Taoglas CAB.011, 95 mm |
-| GNSS tower lead | U.FL plug -> SMA-F bulkhead | 1.13 mm | 47 mm | + 20 | kit cable ~170 mm (conditions above) |
+| GNSS tower lead | U.FL plug -> SMA-F bulkhead | 1.13 mm | 68 mm | + 20 | kit cable ~170 mm (conditions above) |
 | Alta tower lead | U.FL plug -> SMA-F D-flat bulkhead | 1.13 mm | 175 mm | + 20 | 250 mm |
 | Pi lid pigtail | N-F bulkhead -> SMA-M right-angle plug | 1.13 mm | 98 mm | + 100 | 250 mm |
 | Alta lid pigtail | N-F bulkhead -> SMA-M right-angle plug | 1.13 mm | 176 mm | + 100 | 300 mm |
@@ -336,9 +340,9 @@ Only the four existing box-to-arm-layer M4 bolts (they carry the box). The base 
 - Alta hole pattern (Pi pattern ASSUMED), heatsink height (9 ESTIMATE), USB-C position (assumed in the
   same plug room as the Pi's); every stack spacing and PCB thickness; LC29H header gender and standoff.
 - HaLow boards (owner 2026-11-02: Heltec HT-HC01P card on the Pi 5, Seeed Wio-WM6108 card on the
-  Alta). Heltec: the Pi carrier HAT model is TO CONFIRM (65 x 56 envelope, card placement, card
-  height in its socket and the carrier's parts ESTIMATE; the HC01P card and its U.FL position are
-  published). Seeed: card U.FL position from Seeed's CAD (inferred), card height in its socket
+  Alta). Heltec: the Pi carrier is Pi-size per the owner (modelled 85 x 56; Heltec's own HAT is
+  65 x 56 in its photos): model and length TO MEASURE; card placement, card height in its socket
+  and the carrier's parts ESTIMATE; the HC01P card and its U.FL position are published. Seeed: card U.FL position from Seeed's CAD (inferred), card height in its socket
   ESTIMATE. Both U.FLs are mated at stack build and stay mated (the SMA clip is the service joint).
 - RISK, Pi 5 radio electrical fit (owner to confirm; pin assignment is an electrical/software
   decision outside the CAD): the HT-HC01P carrier runs SPI on GPIO4/9/10/11

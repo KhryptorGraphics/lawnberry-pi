@@ -211,12 +211,14 @@ the lid comes off at three SMA joints and the boards' fragile U.FLs stay mated.
     required WM1302 Pi HAT. The card's antenna connector is CN1 "CN_IPEX", a Hirose U.FL-R-SMT-1
     ([card schematic](https://files.seeedstudio.com/wiki/wifi_halow/res/Wio-WM6108_V30_SCH_20241107.pdf));
     the HAT has no SMA ([HAT board file](https://files.seeedstudio.com/products/113100022/WM1302%20Pi%20Hat%20v1.0.brd)).
-  - **+X station → Pi 5.** Heltec HT-HC01P mini-PCIe card on a Pi carrier HAT, SPI (owner; the
+  - **+X station → Pi 5.** Heltec HT-HC01P mini-PCIe card on a Pi-size carrier board, SPI (owner; the
     repo's `config/limits.yaml` line 17 records "Heltec HaLow HAT owns GPIO4/9/10/11 on this Pi").
     Its antenna connector is an IPEX (U.FL) on the card, 2.61 mm from the far end and 10.46 mm from
     the long edge ([drawing](https://heltec.org/wp-content/uploads/2025/05/HC01P_DEMENSION-976x1024.png),
     [datasheet](https://resource.heltec.cn/download/HT-HC01P/Datasheet/HT-HC01P_Rev.1.0.0.pdf) p.17);
-    the carrier HAT model is TO CONFIRM.
+    the owner states the carrier is the same size as the Pi 5 (modelled 85 × 56 on the Pi outline and
+    holes); Heltec's own [HT-HC01P Raspberry Pi HAT](https://heltec.org/project/ht-hc01p-hat/) is a
+    65 × 56 HAT in its photos, so the carrier model and length are TO MEASURE.
   The hole is inside the cord-seal line and over the box interior, so the nut, jack and pigtail
   hang straight into the box.
   - On the outside, the flange (or nut and washer) and the O-ring seat on the lid's flat top. That
@@ -361,15 +363,16 @@ mid-height.
 - the antenna's base-tube OD and length, coupling-nut height and mass;
 - the purchased bulkhead's hole, flange, O-ring, nut thickness, body length and which end its hex
   shoulder is on;
-- the HaLow boards actually fitted: the Pi 5's Heltec carrier HAT (model, outline, card height in
-  its socket); the WM1302 HAT's card height and the Wio-WM6108's U.FL position;
+- the HaLow boards actually fitted: the Pi 5's Heltec carrier (model; length: 85 mm per the owner,
+  65 mm for Heltec's own HAT; card position and height in its socket); the WM1302 HAT's card height
+  and the Wio-WM6108's U.FL position;
 - the purchased SMA parts against the published drawings: the GNSS jumper's bulkhead and the three
   tower-side leads' jacks (thread from the hex face to the mating face, D-flat, panel range covering
   the 3.0 mm lands, body hex, heat-shrink length), the right-angle plugs' size, the outside GNSS
   antenna cable's plug length; the 8 mm spanner's swing at the clip (56 mm available);
 - the U-bolt size.
 
-**To confirm (owner).** The Heltec carrier HAT model on the Pi 5 and its SPI chip-select pin
+**To confirm (owner).** The Heltec carrier's model on the Pi 5 and its SPI chip-select pin
 (GPIO4/9/10/11 per `config/limits.yaml`; the ultrasonics are already disabled for it); whether the
 Waveshare kit's IPEX-to-SMA cable has the D-flat and thread the clip needs (`control_77603/README.md`).
 
