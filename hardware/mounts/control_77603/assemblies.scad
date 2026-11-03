@@ -175,7 +175,14 @@ module ec_tower_lead_end(i, e) { ec_box(tl_stub[i][e]); }
 // Lid-side cable corridors (lid-borne, lid closed, clip at nominal travel): the HaLow pigtails
 // with their slack loops and the GNSS jumper's U; reach stubs e = 0 into the lid end's envelope,
 // e = 1 onto the plug barrel's end.
-module ec_pigtails() { color([0.10, 0.10, 0.10, 0.6]) for (r = ll_route) ec_box(r[1]); }
+// Lid-side cable corridors, less the HaLow station envelopes their pigtails start in (that room is
+// the bulkheads'; the corridors' first boxes and exit boxes run into it so the cable path is continuous).
+module ec_pigtails() {
+    color([0.10, 0.10, 0.10, 0.6]) difference() {
+        for (r = ll_route) ec_box(r[1]);
+        ec_lid_halow_keepout();
+    }
+}
 module ec_lid_cable_end(i, e) { ec_box(ll_stub[i][e]); }
 // Lid lifted lid_lift_slack: each lid cable (except `except`) leaves its plug barrel, turns up on
 // its bend radius and rises toward the lifted lid (3 mm envelope; only the part over the clip).

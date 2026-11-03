@@ -164,35 +164,36 @@ purchased jacks and plugs rise above Zc+40, as agreed.
 **Tower-side leads** (U.FL (IPEX MHF I) plug -> SMA-female D-flat bulkhead, 1.13 mm; tower-borne,
 mated once at stack build; length = closed route + 20 mm dress slack):
 - **Pi:** +X under the clamp crossbar and the INA cradle (z 114..117.4), up outboard of the
-  crossbar (x 24.5..29.2) to JA. Route **34 mm**; Taoglas CAB.011 (95 mm per its drawing) fits.
+  crossbar (x 24.5..29.2) to JA. Route **36 mm** (R10); Taoglas CAB.011 (95 mm per its drawing) fits.
 - **GNSS:** +X under the Pi's HaLow carrier (z 95.2..105; the carrier is Pi-size, so it reaches
   x 39), up past its +X edge (x 39.6..45.6), then -X over it (z >= 117.2, above its 9 mm parts
-  envelope) to JB. Route **68 mm**, needs >= 88 mm. **The Waveshare kit's "IPEX 1 to SMA cable
-  ~17cm" can be used** for this lead: its ~102 mm spare coils vertically (about 1.6 turns of Ø20,
+  envelope) to JB. Route **61 mm** (R10), needs >= 81 mm. **The Waveshare kit's "IPEX 1 to SMA cable
+  ~17cm" can be used** for this lead: its ~109 mm spare coils vertically (about 1.7 turns of Ø20,
   in the y-z plane) in the column x 39.6..45.6, y 21.5..43.5, z 95.2..120 beside the carrier's +X
   edge. Conditions (TO CONFIRM on the kit cable): its SMA-female bulkhead
   has the D-flat (the clip's D hole keys it), a thread long enough for the 3.0 mm land + washer +
   nut with 5.54 mm left for the plug's nut (11.4 mm hex face to mating face per the drawings), and
   an 8 mm hex/nut. If it has no D-flat or less thread, replace it with the same U.FL -> SMA-F
-  D-flat bulkhead 1.13 mm lead as the Pi's (any length >= 90 mm; spare coils in the same column).
+  D-flat bulkhead 1.13 mm lead as the Pi's (any length >= 81 mm; spare coils in the same column).
 - **Alta:** +Y under the Pi from the card's U.FL, +X behind the stack, round the tower's +Y post,
-  up the +Y gap (x 26.5..33) between the camera nuts' z bands, -Y to JC. Route **175 mm**, needs
-  >= 195 mm: **buy 250 mm**.
+  up the +Y gap (x 26.5..33) between the camera nuts' z bands, -Y to JC. Route **181 mm** (R8: its 6 mm corridors
+  take no larger radius), needs >= 201 mm: **buy 250 mm**.
 
 **Lid-side cables** (lid-borne; length = shortest closed route + 100 mm lid-lift slack, the spare
-stowed closed in each cable's slack zone; every corridor junction keeps R10, the GNSS jumper's
-U-turn R7, above the 6.8 mm published minimum for 1.13 mm cable,
+stowed closed in each cable's slack zone; every corner filleted at R7: each HaLow pigtail leaves its
+bulkhead straight down and must be level above the bays, which allows R7.2 at most, and the GNSS
+jumper's U-turn is R7 too; all above the 6.8 mm published minimum for 1.13 mm cable,
 [Taoglas](https://www.taoglas.com/specifications/30021F020000A_Taoglas.pdf)):
 - **+X station -> JA (Pi): N-female bulkhead -> SMA-male RIGHT-ANGLE plug, 1.13 mm.** Out of the
   station +Y over B5, -X along the bays' front (y -16.4..-10.4, under the +X post-socket boss and
   -Y of the INA lead's descent), up beside the boss (x 39..45.6, y 2.4..7.6), +Y over the INA lead
-  at z >= 168.5, -X between JA and JB and -Y into JA's barrel. Route **98 mm**, needs >= 198 mm:
-  **buy 250 mm**; its ~150 mm spare loops over the INA descent (x 45.6..72, y 2.4..25.2,
+  at z >= 168.5, -X between JA and JB and -Y into JA's barrel. Route **105 mm**, needs >= 205 mm:
+  **buy 250 mm**; its ~145 mm spare loops over the INA descent (x 45.6..72, y 2.4..25.2,
   z 168.5..180).
 - **-X station -> JC (Alta): N-female bulkhead -> SMA-male RIGHT-ANGLE plug, 1.13 mm.** Out of
   the station +Y over B3, +X along the bays' front under the -X boss, up beside B4's front, +Y
   over the tower top (x -24..-16, z >= 168.5: above the INA lead's Zc+40 at every travel) and +X
-  along y 41..47 into JC's barrel. Route **176 mm**, needs >= 276 mm: **buy 300 mm**; its ~124 mm
+  along y 41..47 into JC's barrel. Route **176 mm**, needs >= 277 mm: **buy 300 mm**; its ~124 mm
   spare loops over the tower top (x -31..10, y -9..40.6, z 168.5..180).
 - **Lid GNSS jack -> JB: SMA-female D-flat bulkhead (the lid jack) -> SMA-male RIGHT-ANGLE plug,
   1.13 mm.** The jumper leaves the bulkhead straight down (heat-shrink end z 161.1), under JB's
@@ -204,16 +205,22 @@ Purchase list (RF):
 
 | Cable | Connectors | Cable | Route (closed) | Rule | Buy |
 |---|---|---|---|---|---|
-| Pi tower lead | U.FL (IPEX MHF I) plug -> SMA-F D-flat bulkhead | 1.13 mm | 34 mm | + 20 | Taoglas CAB.011, 95 mm |
-| GNSS tower lead | U.FL plug -> SMA-F bulkhead | 1.13 mm | 68 mm | + 20 | kit cable ~170 mm (conditions above) |
-| Alta tower lead | U.FL plug -> SMA-F D-flat bulkhead | 1.13 mm | 175 mm | + 20 | 250 mm |
-| Pi lid pigtail | N-F bulkhead -> SMA-M right-angle plug | 1.13 mm | 98 mm | + 100 | 250 mm |
+| Pi tower lead | U.FL (IPEX MHF I) plug -> SMA-F D-flat bulkhead | 1.13 mm | 36 mm | + 20 | Taoglas CAB.011, 95 mm |
+| GNSS tower lead | U.FL plug -> SMA-F bulkhead | 1.13 mm | 61 mm | + 20 | kit cable ~170 mm (conditions above) |
+| Alta tower lead | U.FL plug -> SMA-F D-flat bulkhead | 1.13 mm | 181 mm | + 20 | 250 mm |
+| Pi lid pigtail | N-F bulkhead -> SMA-M right-angle plug | 1.13 mm | 105 mm | + 100 | 250 mm |
 | Alta lid pigtail | N-F bulkhead -> SMA-M right-angle plug | 1.13 mm | 176 mm | + 100 | 300 mm |
 | GNSS lid jumper | SMA-F D-flat bulkhead (panel >= 3.0 mm) -> SMA-M right-angle plug | 1.13 mm | 41 mm | + 100 | 150 mm |
 
 Sources: SMA bulkhead data Taoglas CAB.011 p.7 / Linx CSH-SGFB / MIL-STD-348A; right-angle plug
 L-com LCCN45958 / Wellshow C01BA31174008A; N bulkhead Amphenol Type N catalog (82-369 panel
 5.3 mm); routes from `tl_way` / `ll_way` (`parameters.scad`, asserted against these lengths).
+
+Each route is a centreline whose corners are filleted at its bend radius (tower leads: Pi and GNSS
+R10, Alta R8; lid cables R7; all above the published 6.8 mm). `parameters.scad` asserts that every
+fillet fits its legs, that the 1.13 mm cable's surface stays inside its corridors (the HaLow
+pigtails' corridors run back into their station envelope, where each leaves its bulkhead) and that
+each cable bought covers its filleted route plus its slack. Lengths above include the fillets.
 
 ## Strap bay capacity (one print, x6)
 

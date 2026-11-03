@@ -200,8 +200,8 @@ hr_ufl_h = 2.5;                        // U.FL mated height max, Hirose U.FL cat
 // (https://heltec.org/project/ht-hc01p-hat/), is a 65 x 56 HAT in its product photos (four corner
 // holes about 3.5 mm in from BOTH ends, the 2x20 between them): carrier model and length TO MEASURE;
 // the larger owner-stated outline is the one probed. Socket and card placement are ESTIMATES
-// (photos: socket at one short end, card along the long axis to two screw posts; here its far,
-// U.FL end toward u = 65, fingers at u ~7).
+// (photos: socket at one short end, card along the long axis to two screw posts; here the card
+// runs +u from its finger edge at u 7.65 to its far, U.FL end at u 58.6, hc_card_u1).
 hcp_pcb = pi5_pcb;                     // owner 2026-11-02: "same size as the Pi 5" (85 x 56)
 // Card drawing https://heltec.org/wp-content/uploads/2025/05/HC01P_DEMENSION-976x1024.png and
 // datasheet https://resource.heltec.cn/download/HT-HC01P/Datasheet/HT-HC01P_Rev.1.0.0.pdf p.17:
@@ -474,12 +474,13 @@ assert(patch_channel[1][0] - patch_channel[0][0] >= 2 * patch_bend_r + patch_cab
 // The clip's three jacks use the lid jack's published SMA-F D-flat bulkhead data (antenna_mount
 // gn_*: Taoglas CAB.011 / Linx CSH-SGFB drawings, MIL-STD-348A), each on a gn_land_t land.
 // 1.13 mm micro-coax everywhere: minimum bend radius 6.8 mm published for Taoglas 1.13 cable
-// (https://www.taoglas.com/specifications/30021F020000A_Taoglas.pdf); corridors keep R10, the
-// GNSS jumper's U-turn R7.
+// (https://www.taoglas.com/specifications/30021F020000A_Taoglas.pdf). Each cable's corners are
+// filleted at its own radius (tl_bend_r, ll_bend_r: R10 where the corridors allow, never under
+// 6.8); the fillets must fit their legs and the cable must stay inside its corridors (asserted).
 // Under-lid envelopes: AntennaMount's antenna_lid_keepout(): per HaLow station (x +-64.5,
 // y -48) a 30 mm cylinder from z 162, the post-socket bosses x +-(31.5..82.5), y -18..2,
 // z >= 170, and the GNSS jack column (16 mm round gn_xy_mm() = (51, 41.6) from z 160).
-pig_bend_r = 10;                       // DESIGN corridor bend radius (published minimum 6.8)
+pig_bend_r = 10;                       // DESIGN preferred bend radius (published minimum 6.8)
 gj_bend_r = 7;                         // DESIGN GNSS jumper U-turn radius (published minimum 6.8)
 gj_u_floor = 98;                       // DESIGN floor of the GNSS jumper's U corridor (ko_plugs top z 90)
 lid_lift_slack = 100;                  // owner rule: the lid lifts ~100 mm before the joints open
@@ -558,14 +559,22 @@ tl_route = [
     [2, [[26.5, 56.5, 120], [40.7, 62.5, 127]]],   //   +X between the camera nuts' z bands
     [2, [[34.3, 41.2, 120], [40.7, 62.5, 129.8]]], //   -Y to JC's heat-shrink
 ];
-// Closed centrelines (U.FL centre -> heat-shrink end) for the length; leads to buy.
+// Closed centrelines (U.FL centre -> heat-shrink end), corners filleted at tl_bend_r. They run
+// diagonally where the corridors allow, so every fillet fits its legs and the cable stays inside its
+// corridors (asserted below; found by a numerical search, rounded to 0.01 mm).
 tl_way = [
-    [[9.99, 16.86, 115.15], [28, 16.86, 115.5], [28, 3.2, 115.5], [25, 3.2, 120], [25, 3.2, 129.9]],
-    [[11, 37.9, 96.3], [42.6, 37.9, 96.3], [42.6, 37.9, 119], [42.6, 27.6, 119], [33.2, 27.6, 119],
-     [33.2, 27.6, 129.9]],
-    [[-37.2, 16.7, 55.7], [-37.2, 52, 57.4], [12, 52, 57.4], [12, 59.5, 57.4], [29.75, 59.5, 57.4],
-     [29.75, 59.5, 123.5], [37, 59.5, 123.5], [37, 44.5, 123.5], [37, 44.5, 129.9]],
+    [[9.99, 16.86, 115.15], [11.85, 16.86, 115.19], [20.03, 18.35, 114.13], [26.68, 12.99, 116.8],
+     [27.72, 5.27, 120.85], [25, 3.2, 127.41], [25, 3.2, 129.9]],
+    [[11, 37.9, 96.3], [12.27, 37.9, 96.3], [26.75, 36.57, 99.58], [45.59, 38.32, 103.26],
+     [40.34, 30.54, 117.33], [33.2, 27.6, 126.01], [33.2, 27.6, 129.9]],
+    [[-37.2, 16.7, 55.7], [-37.2, 47.16, 57.17], [-4.41, 51.05, 57.03], [2.91, 50.03, 56.83],
+     [14.4, 57.57, 58.54], [30.93, 57.82, 59.49], [30.42, 58.76, 92.73], [26.59, 61.99, 114.37],
+     [34.75, 61.32, 123.07], [37, 44.5, 120.46], [37, 44.5, 129.9]],
 ];
+// Bend radius per tower lead: R10 for the Pi and GNSS leads. The Alta lead's 6 mm corridors (short
+// jogs round the tower's +Y post and between the camera nuts) take R8 at most: the search found no
+// R9 or R10 path inside them. All are above the published 6.8.
+tl_bend_r = [pig_bend_r, pig_bend_r, 8];
 // U.FL plug -> SMA-F D-flat bulkhead, 1.13 mm: Pi Taoglas CAB.011 95 mm; GNSS the Waveshare kit
 // cable ("IPEX 1 to SMA cable ~17cm", panel-mount SMA-F with nut and washer per the pack photo
 // https://www.waveshare.com/img/devkit/accBoard/LC29H-AA-GPS-HAT/LC29H-GPS-HAT-details-pack.jpg;
@@ -578,9 +587,13 @@ tl_stub = [
     [[[-38.7, 17.0, 54.6], [-35.7, 18.06, 55.7]], [[36, 43.5, 129.7], [38, 45.5, 130.9]]],
 ];
 // Lid-side cable corridors [cable, [box]] (lid closed, clip at nominal travel). They stay clear
-// of the INA3221 I2C lead's envelope (ina_i2c_run) at every clamp travel.
+// of the INA3221 I2C lead's envelope (ina_i2c_run) at every clamp travel. Each HaLow pigtail leaves
+// its N bulkhead (z 170) inside the station envelope (AntennaMount halow_lid_keepout(), reserved
+// for the bulkhead, its nut and the pigtail's exit): its exit box lies inside that envelope and its
+// first corridor box runs back into it, so the reserved space is continuous. ec_pigtails()
+// subtracts the envelope, so the probed corridors never overlap the bulkhead's room.
 ll_route = [
-    [0, [[59, -32.9, 162.2], [72, -10.4, 169.5]]],  // Pi: +Y out of the +X station, over B5
+    [0, [[59, -36, 162.2], [72, -10.4, 169.5]]],    // Pi: +Y out of the +X station, over B5
     [0, [[39, -16.4, 162.2], [72, -10.4, 169.5]]],  //   -X along the bays' front (y < -10: INA descent)
     [0, [[39, -16.4, 162.2], [45.6, 7.6, 169.5]]],  //   +Y under the +X boss (z < 170)
     [0, [[39, 2.4, 162.2], [45.6, 7.6, 180]]],      //   up beside the boss and the INA run (y >= 8)
@@ -588,27 +601,36 @@ ll_route = [
     [0, [[23, 18, 168.5], [45.6, 22, 180]]],        //   -X between JA and JB
     [0, [[23, 14.05, 168.5], [27, 22, 180]]],       //   -Y into JA's barrel
     [0, [[45.6, 2.4, 168.5], [72, 25.2, 180]]],     //   Pi slack loops over the INA descent
+    [0, [[62, -50, 162.2], [67, -35, 170.6]]],      //   exit from the bulkhead, inside the envelope
     [1, [[49.5, 38.6, gj_u_floor], [52.5, 44.6, 159.95]]],  // GNSS jumper: down from the lid jack ...
     [1, [[49.5, 26.1, gj_u_floor], [52.5, 44.6, gj_u_floor + 6]]],     //   U-turn (100 mm lift slack hangs here)
     [1, [[49.5, 26.1, gj_u_floor], [52.5, 29.1, 172]]],     //   ... up the loft
     [1, [[44.05, 25.6, 168.5], [52.5, 29.6, 178.4]]],   //   R7 turn into JB's barrel
-    [2, [[-72, -32.9, 162.2], [-59, -9, 169.5]]],   // Alta: +Y out of the -X station, over B3
+    [2, [[-72, -36, 162.2], [-59, -9, 169.5]]],     // Alta: +Y out of the -X station, over B3
     [2, [[-72, -15, 162.2], [-16, -9, 169.5]]],     //   +X along the bays' front, under the -X boss
     [2, [[-24, -15, 162.2], [-16, -9, 180]]],       //   up beside B4's front
     [2, [[-24, -9, 168.5], [-16, 47, 180]]],        //   +Y over the tower top (INA <= Zc+40)
     [2, [[-24, 41, 168.5], [26.15, 47, 180]]],      //   +X into JC's barrel
     [2, [[-31, -9, 168.5], [10, 40.6, 180]]],       //   Alta slack loops over the tower top
+    [2, [[-67, -50, 162.2], [-62, -35, 170.6]]],    //   exit from the bulkhead, inside the envelope
 ];
 // Closed centrelines, shortest path (N jack cable exit / lid GNSS heat-shrink end -> plug barrel
-// end): the lift slack is the cable bought beyond these.
+// end), corners filleted at ll_bend_r: the lift slack is the cable bought beyond these. The HaLow
+// pigtails were searched as the tower leads; the GNSS jumper's is its shortest route, and
+// ll_way_installed(1) is the path it takes (its spare hangs in the U).
 ll_way = [
-    [[64.5, -48, 170], [64.5, -48, 165.85], [64.5, -13.4, 165.85], [42.3, -13.4, 165.85],
-     [42.3, 5, 165.85], [42.3, 5, 176.4], [42.3, 20, 176.4], [25, 20, 176.4], [25, 14, 176.4]],
+    [[64.5, -48, 170], [64.5, -48, 162.25], [60.75, -14.37, 165.16], [43.24, -12.14, 167.42],
+     [42.68, -0.01, 168.3], [41.67, 13.71, 171.24], [40.43, 20.46, 176.18], [25, 21.85, 176.4],
+     [25, 14, 176.4]],
     [[51, 41.6, 161.1], [51, 41.6, 154.1], [51, 27.6, 154.1], [51, 27.6, 176.4], [44, 27.6, 176.4]],
-    [[-64.5, -48, 170], [-64.5, -48, 165.85], [-64.5, -12, 165.85], [-20, -12, 165.85],
-     [-20, -12, 176.4], [-20, 44.5, 176.4], [26.2, 44.5, 176.4]],
+    [[-64.5, -48, 170], [-64.5, -48, 162.68], [-65.79, -13.48, 163.6], [-21.46, -10.85, 168.55],
+     [-20.36, 5.31, 175.77], [-17.01, 44.5, 176.4], [26.2, 44.5, 176.4]],
 ];
-ll_bend_r = [pig_bend_r, gj_bend_r, pig_bend_r];
+// Bend radius per lid cable. Each HaLow pigtail leaves its bulkhead straight down at z 170 and
+// must be level above the bays (corridor floor z 162.2): R <= 170 - 162.2 - 1.13 / 2 = 7.2, so R7.
+// The GNSS jumper's U-turn is R7 too (gj_bend_r).
+pig_lid_bend_r = 7;
+ll_bend_r = [pig_lid_bend_r, gj_bend_r, pig_lid_bend_r];
 // Reach stubs [cable][0 = lid end, 1 = plug barrel end] (body boxes, lid closed, nominal).
 ll_stub = [
     [[[63, -34.0, 164], [66, -32.85, 167]], [[24, 13.4, 175.4], [26, 14.1, 177.4]]],
@@ -618,12 +640,66 @@ ll_stub = [
 // N-female bulkhead -> SMA-male right-angle (HaLow) and SMA-F bulkhead -> SMA-M right-angle
 // (GNSS) to buy, 1.13 mm cable (TO BUY).
 ll_len = [250, 150, 300];
-function poly_len(p, i = 0) = i >= len(p) - 1 ? 0 : norm(p[i + 1] - p[i]) + poly_len(p, i + 1);
-// Each 90-degree corner on radius r is (2 - pi/2) r shorter than its two legs.
-function route_len(p, r) = poly_len(p) - (len(p) - 2) * (2 - PI / 2) * r;
-function tl_route_len(i) = route_len(tl_way[i], pig_bend_r);
+
+// ---- Cable centrelines: fillet fit, true length, containment ---------------------------------
+// A route is a polyline whose corners are filleted at its bend radius r: a corner of deflection
+// theta uses r tan(theta / 2) of each leg and shortens the route by 2 r tan(theta / 2) - r theta.
+// The fillets must fit their legs (fillet_slack >= 0) and every point of the cable's surface (8
+// round each centreline sample) must lie in the route's reserved boxes (corridors and connector
+// stubs); the first and last cable_skip mm sit inside the connectors and are not tested.
+coax_d = 1.13;                         // Taoglas 30021FC020000A jacket OD 1.13 +- 0.05 (sheet above)
+coax_min_bend_r = 6.8;                 // published minimum bend radius, same sheet
+cable_skip = 1.5;                      // DESIGN connector body length not tested at each end
+function vsum(v) = len(v) == 0 ? 0 : [for (x = v) 1] * v;
+function seg_len(p, i) = norm(p[i + 1] - p[i]);
+function seg_dir(p, i) = (p[i + 1] - p[i]) / seg_len(p, i);
+function corner_deg(p, k) = k <= 0 || k >= len(p) - 1 ? 0
+    : acos(max(-1, min(1, seg_dir(p, k - 1) * seg_dir(p, k))));
+function fillet_t(p, k, r) = r * tan(corner_deg(p, k) / 2);
+function poly_len(p) = vsum([for (i = [0 : len(p) - 2]) seg_len(p, i)]);
+function route_len(p, r) = poly_len(p)
+    - vsum([for (k = [1 : len(p) - 2]) 2 * fillet_t(p, k, r) - r * corner_deg(p, k) * PI / 180]);
+function fillet_slack(p, r) = min([for (i = [0 : len(p) - 2])
+    seg_len(p, i) - fillet_t(p, i, r) - fillet_t(p, i + 1, r)]);
+function cable_line(a, b) = let(m = max(1, ceil(norm(b - a) / 0.5))) [for (j = [0 : m]) a + (b - a) * j / m];
+function cable_arc(p, k, r) = let(a = seg_dir(p, k - 1), b = seg_dir(p, k), th = corner_deg(p, k),
+        nb = b - (a * b) * a, n = nb / norm(nb), c = p[k] - a * fillet_t(p, k, r) + n * r,
+        m = max(2, ceil(th / 5)))
+    [for (j = [0 : m]) c + r * (-n * cos(th * j / m) + a * sin(th * j / m))];
+function cable_pts(p, r) = [for (k = [0 : len(p) - 2]) let(
+        s = p[k] + seg_dir(p, k) * fillet_t(p, k, r), e = p[k + 1] - seg_dir(p, k) * fillet_t(p, k + 1, r))
+    each concat(cable_line(s, e), corner_deg(p, k + 1) > 1e-6 ? cable_arc(p, k + 1, r) : [])];
+function in_box(q, b) = q[0] >= b[0][0] && q[0] <= b[1][0] && q[1] >= b[0][1] && q[1] <= b[1][1]
+    && q[2] >= b[0][2] && q[2] <= b[1][2];
+// The cable-surface points of route p (bend radius r) outside `boxes`: empty when the cable fits.
+function cable_escapes(p, r, boxes) = let(P = cable_pts(p, r), e = p[len(p) - 1])
+    [for (i = [1 : len(P) - 2]) if (norm(P[i] - p[0]) > cable_skip && norm(P[i] - e) > cable_skip)
+        let(t0 = P[i + 1] - P[i - 1]) if (norm(t0) > 1e-9) let(t = t0 / norm(t0),
+            ref = abs(t[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0], n1 = cross(t, ref) / norm(cross(t, ref)),
+            n2 = cross(t, n1))
+        for (w = [0 : 45 : 315]) let(q = P[i] + coax_d / 2 * (cos(w) * n1 + sin(w) * n2))
+            if (len([for (b = boxes) if (in_box(q, b)) 1]) == 0) q];
+function tl_boxes(i) = concat([for (r = tl_route) if (r[0] == i) r[1]], tl_stub[i]);
+function ll_boxes(i) = concat([for (r = ll_route) if (r[0] == i) r[1]], ll_stub[i]);
+function tl_route_len(i) = route_len(tl_way[i], tl_bend_r[i]);
 function ll_route_len(i) = route_len(ll_way[i], ll_bend_r[i]);
+// The GNSS jumper as installed: its shortest route with the U's floor lowered until the route is
+// the cable bought (both U corners stay square, so the spare adds twice the drop).
+function gj_u_z() = ll_way[1][1][2] - (ll_len[1] - ll_route_len(1)) / 2;
+function ll_way_installed(i) = i != 1 ? ll_way[i] : [ll_way[1][0],
+    [ll_way[1][1][0], ll_way[1][1][1], gj_u_z()], [ll_way[1][2][0], ll_way[1][2][1], gj_u_z()],
+    ll_way[1][3], ll_way[1][4]];
 for (i = [0 : 2]) {
+    assert(min(tl_bend_r[i], ll_bend_r[i]) >= coax_min_bend_r,
+           str(sc_names[i], " cable bend radius under the published minimum"));
+    assert(fillet_slack(tl_way[i], tl_bend_r[i]) >= 0,
+           str(sc_names[i], " tower lead: its R", tl_bend_r[i], " fillets do not fit its legs"));
+    assert(fillet_slack(ll_way_installed(i), ll_bend_r[i]) >= -1e-9,
+           str(sc_names[i], " lid cable: its R", ll_bend_r[i], " fillets do not fit its legs"));
+    let(e = cable_escapes(tl_way[i], tl_bend_r[i], tl_boxes(i)))
+        assert(len(e) == 0, str(sc_names[i], " tower lead leaves its corridors near ", len(e) ? e[0] : ""));
+    let(e = cable_escapes(ll_way_installed(i), ll_bend_r[i], ll_boxes(i)))
+        assert(len(e) == 0, str(sc_names[i], " lid cable leaves its corridors near ", len(e) ? e[0] : ""));
     assert(tl_len[i] >= tl_route_len(i) + tower_dress_slack,
            str(sc_names[i], " tower lead shorter than its route + dress slack"));
     assert(ll_len[i] >= ll_route_len(i) + lid_lift_slack,
@@ -631,8 +707,7 @@ for (i = [0 : 2]) {
 }
 // The GNSS jumper's spare length (bought - shortest closed route) hangs in its U, shared by both
 // legs: the U corridor's floor must reach the depth that length needs.
-assert(ll_way[1][1][2] - (ll_len[1] - ll_route_len(1)) / 2 - 0.565 >= gj_u_floor,
-       "GNSS jumper U corridor too shallow for its spare length");
+assert(gj_u_z() - coax_d / 2 >= gj_u_floor, "GNSS jumper U corridor too shallow for its spare length");
 
 // =====================================================================================
 // INA3221 3-channel power monitor (owner: inside the enclosure). I2C 0x40 on the Pi bus

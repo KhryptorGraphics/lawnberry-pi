@@ -26,14 +26,14 @@
     "camera_stack.scad": "22b95de314e4f9ca7700aabf42d0df4f18247ced61b145137aa6d37b035979f1",
     "camera_tower.scad": "120ff620e5732a45b4f03737139c54646749ecf7f095d53c70f5f62cd6fa74d1",
     "common.scad": "2a0f359d5644435f41328f5b137b85b175e604646dc85bec6dcc45a2b0322648",
-    "control_77603/assemblies.scad": "c211ac9b99d7cee20ced265ef8add4f3b2258bc2843139897282869340540b80",
+    "control_77603/assemblies.scad": "9a21c97697fe9c17267b701474b98ee451d7b428d427dc5fb165a9a297fc0f80",
     "control_77603/board_carriers.scad": "0a385ced72bf51cd15314c9c1acf5cdb2c7390730250a82ebf6f80547971a5df",
     "control_77603/board_refs.scad": "5f25e83421b041b9658fc10ec17f03c7f05df26cbebd924be65f4b5f0793636c",
     "control_77603/chassis.scad": "5dca3ea3cb9a1f2ff1899f94e930752549ab1a48204f6afda511eed87e3c9db2",
     "control_77603/cleat_carrier.scad": "2b4b101a948c77f7089fe8d3ef28ae72c072ba1a5df82d47b30d94041901afbc",
     "control_77603/compute_tower.scad": "184393c0f482aeee8cb79d2861998cb593edc2a2d975409155cfa5cc5c9e9188",
     "control_77603/control_checks.scad": "3a0a87291002a31dd66885ec6f0bdd4e191833f7e8d1f676d71a92eecb2df741",
-    "control_77603/parameters.scad": "90a12830d7d0236105c77478a44716f72ed8a69c7cc7aff2c9175cba2fcf5f5f",
+    "control_77603/parameters.scad": "7295fdcae144c8dfc5c91c87c180674af898505a5ee67a380cb28078dd9e67ff",
     "electronics_rail.scad": "3e136dae020c2bbafd31051c151632bbd2875b0b27fa2fc4bf88a6559355d3b1",
     "enclosure_body.scad": "46e43183eed45114fbe0300311b85611d8dc232990a74224596cb08d39b01be9",
     "enclosure_common.scad": "021d23a573460d9f38605d5258391016a8866dedf25c305c2e9bc7c0ae3518c4",
@@ -84,7 +84,7 @@
         279.443
       ],
       "volume_mm3": 534808.912,
-      "stl_sha256": "80fbf1cc8b3cb7a840b0ae8ae0fa2c0ae49ff1561869b1434a08303722959a4d",
+      "stl_sha256": "65a60fd6917e63a9433f4efba6aeb35b56d5cd01de5bda29323b7a0d6f2ef625",
       "mesh_sha256": "9c97656b4f63178767c6d7004dd107d956adf445897a95c2d79c5a2acb984ad9",
       "source": "throttle_77603/throttle_arm_head.scad",
       "parameters": {},
@@ -214,7 +214,7 @@
         336.0
       ],
       "volume_mm3": 147518.986,
-      "stl_sha256": "982183952190b9dabfa72fcac499d55e2bf99d3efa0b29879e54bae96f78d6e7",
+      "stl_sha256": "50e60c7c9a3e6273f13d8fdde5f05c7e9da9147cc945aa5c9290ddb06d5a6ff1",
       "mesh_sha256": "04e5ba743139f03d6201ac206e06bc89360479c639d72616a2122e37b82bfefc",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.399,
@@ -261,7 +261,7 @@
         303.8
       ],
       "volume_mm3": 150705.546,
-      "stl_sha256": "0432890481469bbf119f12572f23ab6a9aeefc3ff663bf46fb0c6b19951068b5",
+      "stl_sha256": "3d24164e2060053e4b91818f7ebbd6d063af72d6e9c87b7564a96c758f81ae3c",
       "mesh_sha256": "b7f2c7826edca172cee63433230ec7728d97f081b78b52b35c13dccc84cc4415",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.399,
@@ -308,7 +308,7 @@
         360.0
       ],
       "volume_mm3": 300194.09,
-      "stl_sha256": "2d0bb80f6be7e2a617d2298898c78b7f702ff7ed5ccb81d859f5f17c35c7dca9",
+      "stl_sha256": "f699d3b99cce0672a7bc005c3889d87f781c0b37f7066d1987736fad684d2b74",
       "mesh_sha256": "4bebdd5f72260832995a148e168d8e0b1ac021bb2cab00a0d938e880ae881bb7",
       "pip_bodies": 3,
       "pip_min_gap_mm": 0.399,
@@ -355,7 +355,7 @@
         48.0
       ],
       "volume_mm3": 25331.927,
-      "stl_sha256": "74a259079c533d8355a311781ae53b1d68359e8c9474998338d61fa95aedee53",
+      "stl_sha256": "93722b1e6ddb7b78f524cebe4cd69ed93568e71a99727cbf7bc6958106ebf351",
       "mesh_sha256": "bb1112dcf9b58b0e2d6d7e19f0350750b50fbf2ef4ad108e4fb9cc3945e8bcc7",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.397,
@@ -402,7 +402,7 @@
         50.0
       ],
       "volume_mm3": 49042.423,
-      "stl_sha256": "8fccde407f45e2f1307c8ffb40fdd019b9944fcbfb8c0f9ff6e422bb1ac1f5c0",
+      "stl_sha256": "825192e31b834b9df3693adfdf5345c611f2ffea397079badd570c3f9b68a103",
       "mesh_sha256": "84a9f7918aa0d64d98a69263cf8bcedb830972f3163adb59667f144fc3fb6d71",
       "pip_bodies": 3,
       "pip_min_gap_mm": 0.399,
@@ -449,7 +449,7 @@
         50.0
       ],
       "volume_mm3": 36431.443,
-      "stl_sha256": "eae0161723268520523e2766469ef8323510a4674a31c8a7ee1b244ad460c232",
+      "stl_sha256": "e3504b017cca176c0acc92809379ac376d26120844baee472c76790e908afd4b",
       "mesh_sha256": "b9d2623969f17a721deb1b662570e934418d595367e279ab785b4b55143ea974",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.399,
@@ -584,7 +584,7 @@
         49.501
       ],
       "volume_mm3": 20207.279,
-      "stl_sha256": "109b62557c37647c10fdbc573663b22a3d1a82b325e3aa1a28ce8bb5d21a7d91",
+      "stl_sha256": "b84aa5e6e37637d7916254cd3090802122becbbedb3d5220d3553630810ce0cf",
       "mesh_sha256": "9972b3c3bf461028a7c97dee0b5255c35d4d8e5890512f633e560a7c27538438",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.399,
@@ -675,7 +675,7 @@
         4.0
       ],
       "volume_mm3": 127.689,
-      "stl_sha256": "97839d09f5609df2d97ad79429a943f31c7de57fe158060880f52691319b6b4a",
+      "stl_sha256": "ad92bfe09936a2232e1fb89d3215352842b868f07cf6aac9c131ab697d18cc50",
       "mesh_sha256": "9e751242d908982643f9e36d624263e442f5abaa65b1d2529a17d49063fe0426",
       "source": "throttle_77603/throttle_u_fitting.scad",
       "parameters": {
@@ -719,7 +719,7 @@
         16.5
       ],
       "volume_mm3": 481.807,
-      "stl_sha256": "28eab51a794ec66c7f9d597d51ce1ea18db49ac68cadfaf73f13ef9a2fc0efa5",
+      "stl_sha256": "8e04bc73b12b3656e8c7aec22bfe4d34cc25c8002816dbb134222846e64eaf99",
       "mesh_sha256": "e59d40596c62bfcc5ec93c43acec84fac79254415986e229a28959a06fd85180",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -764,7 +764,7 @@
         4.0
       ],
       "volume_mm3": 127.689,
-      "stl_sha256": "fcf31681c412b2f77db116a47be521705b50751565fdf96a9fdb0f60af096ed7",
+      "stl_sha256": "a318f9f575c916c0a625e7b26d4acacffac1ef5e8895c1966170141f37944c34",
       "mesh_sha256": "9e751242d908982643f9e36d624263e442f5abaa65b1d2529a17d49063fe0426",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -854,7 +854,7 @@
         4.0
       ],
       "volume_mm3": 1980.085,
-      "stl_sha256": "69679a7ffe7d1e06f48665724da1a48e0f923a3f585667531aa484a5d769872d",
+      "stl_sha256": "e6a3a4e77f4bc7c3ec2c5ae9da3d41fc4b33f3caf60d33f8f983e94ed90e8a83",
       "mesh_sha256": "db8f89ac77b7a7d02513583f1ed89cc64d1961cbce7b799f01e59d03fc865f00",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -899,7 +899,7 @@
         5.0
       ],
       "volume_mm3": 3462.086,
-      "stl_sha256": "573c6097a2a42abe10597285b210f64e206bfc8d144d4f697126a3994b7c95f1",
+      "stl_sha256": "f4606b3851c722f36d83f67c01d66b752947c43e053f7505f1147f4b62d52e23",
       "mesh_sha256": "06f2052cade74ca75816b1a9944c22643cb9aa8c6be2b4aef9faf03b8779dab4",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -944,7 +944,7 @@
         15.9
       ],
       "volume_mm3": 703.869,
-      "stl_sha256": "54a4ecf7055436210a0cb077b9fd0ba48c03eba52d855e20d36a565852af21e5",
+      "stl_sha256": "c867eb4a572fb6e1a7f9ce7e500cd9f3c69410b8b383775368bef6c24afc7c1b",
       "mesh_sha256": "a5b4765212cd46c660c2c57fde8184b8b2af0a1ef4fc261626d27591e41f80ac",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1034,7 +1034,7 @@
         8.1
       ],
       "volume_mm3": 48.464,
-      "stl_sha256": "7c0d897bb3fe2cf0a8d9e0ca0e13b9e86713f843635b9fdfe45f5b3cfba7e41f",
+      "stl_sha256": "4279ca55c8255e96a39400052f80c63b767ce6e43e20b16d5b9fa5b1f4ef91ac",
       "mesh_sha256": "144d74e61ec3aafdc07287b8d0daff75a2e2dc7433b7c9c4c08bf0ed0a557e0c",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1124,7 +1124,7 @@
         28.8
       ],
       "volume_mm3": 7405.157,
-      "stl_sha256": "431b059969239e57b10174ebcbe5795b19d1e559224091c5c3c5250f6b140317",
+      "stl_sha256": "352ec11821fad4718bd3f5b236e68ffc07328ddf7f0a7c013bb5ec378b8e4485",
       "mesh_sha256": "1e0cb31b966f01fb6b38c34721984b593d43491ca4b7e8e79dbe7257a13e0b54",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.442,
@@ -1218,7 +1218,7 @@
         2.0
       ],
       "volume_mm3": 81.151,
-      "stl_sha256": "0555b0195953161d48f8dcba7ef6a42a4b0a5f075f73e4445a1e5ec4066992ca",
+      "stl_sha256": "8e3ef12c2b1da37c723fddf2f62d2c16254a1154ab85585d4dd7cb802b5f1b91",
       "mesh_sha256": "929e9b77c31ca9ca85098a9d63e84c480ff7ca4683b4e073629e83cdd2f155fd",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1308,7 +1308,7 @@
         8.1
       ],
       "volume_mm3": 48.464,
-      "stl_sha256": "e63cea5f1aa52f95033dcffc3cf4b043c98328e441019744cd58bc76b5922020",
+      "stl_sha256": "ae392766154d4e3257dfb1a7956b833a45af470addfb9a1de02fdb820deafe6e",
       "mesh_sha256": "144d74e61ec3aafdc07287b8d0daff75a2e2dc7433b7c9c4c08bf0ed0a557e0c",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1398,7 +1398,7 @@
         27.4
       ],
       "volume_mm3": 5931.938,
-      "stl_sha256": "26bb2c71cbf9089df67bf305dd92920feb94eb1fa5c939ace45e928608396fd6",
+      "stl_sha256": "13c5575a52fdff2e18a7f4195d58c47c4292fd1c2a0d801559d743ddb01e0995",
       "mesh_sha256": "701421de21576b63fa04cdc28e49f52b6f7cacd39cb66ac897a93ed3485eae30",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.599,
@@ -1446,7 +1446,7 @@
         4.0
       ],
       "volume_mm3": 127.689,
-      "stl_sha256": "bfe1a692a9385b4aae6d177cc7c47a161049c64dd6220462e7b88e200a8fbd36",
+      "stl_sha256": "5c789fb130bf52d87d79f8b64972c05caf5be0aa15c9a9dfce90271a6695e8e7",
       "mesh_sha256": "9e751242d908982643f9e36d624263e442f5abaa65b1d2529a17d49063fe0426",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1491,7 +1491,7 @@
         8.1
       ],
       "volume_mm3": 48.464,
-      "stl_sha256": "130e27818a9059d72e4787463bb468c64a484cb10307769eb4e97df4c1fef7a0",
+      "stl_sha256": "3848270c14f2d6992722adf8fad02d21bf4c580e69516c4d0750f6a1bfac3cf8",
       "mesh_sha256": "144d74e61ec3aafdc07287b8d0daff75a2e2dc7433b7c9c4c08bf0ed0a557e0c",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1581,7 +1581,7 @@
         6.0
       ],
       "volume_mm3": 4702.889,
-      "stl_sha256": "acf338e39f9efcec1bca7f00369c576fa3b08aabcee3221640da0b29765396a1",
+      "stl_sha256": "a993f91e1dc6b11558dd6333e5196fed0867c153ffd839821ccd21407687bc14",
       "mesh_sha256": "bf7e2cd9725066fc80fe346166928166b594f2ba9524aad03404e0cb4fedb7a4",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1626,7 +1626,7 @@
         16.8
       ],
       "volume_mm3": 6441.128,
-      "stl_sha256": "066a076d21654ef96b8b8a13b27695b177afdb2fafe0140f9bcd3e1b856a4827",
+      "stl_sha256": "1460f2d0d47220922b57b2fb785a20dde4d393e21b63818f192e274edf068a4f",
       "mesh_sha256": "b5d5c04f9dff304d7b85cae7146e2e16e9655f67e4e998cbaa09979b0998181c",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1671,7 +1671,7 @@
         2.5
       ],
       "volume_mm3": 99.403,
-      "stl_sha256": "c363cbcacb8a1488fdafaea49dbb7ab0079e254d28670ba7e3bd78a8f9380cf2",
+      "stl_sha256": "111b6f90358c6b9a6eff68d2f500598ddc3732fd524808be8b057755656d0e37",
       "mesh_sha256": "6496441c62cbd5490c065ee87619584a583f77694df4bbb09ea6afd37467f45e",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1716,7 +1716,7 @@
         4.0
       ],
       "volume_mm3": 41.057,
-      "stl_sha256": "0e53c42a5ddb8fbb31172cd5b56d51d818eb8d2e3b038ca41128c267b5a67c56",
+      "stl_sha256": "25897c10880f404e00b0af71ac2baa0122ac5cfaeb7d22ccbd44974cad3ae0f6",
       "mesh_sha256": "1fe00640e7e3695168005151caf7c203b7f2dacf40f65a9f76e5828f6c7c4ca7",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1851,7 +1851,7 @@
         8.1
       ],
       "volume_mm3": 48.464,
-      "stl_sha256": "044db0b642cba9f7ca93e7f307e1d5337dc4d74f3118efc5b25e0a3d4954768a",
+      "stl_sha256": "0f82cd1173fdca47654c06568111e2f3d5801295b1b273672e437122b36a6a07",
       "mesh_sha256": "144d74e61ec3aafdc07287b8d0daff75a2e2dc7433b7c9c4c08bf0ed0a557e0c",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1896,7 +1896,7 @@
         2.0
       ],
       "volume_mm3": 81.724,
-      "stl_sha256": "6dba4ab76375f21b64c8e23c2903cb1eac7da9a52488ba542b4df68592a8c85b",
+      "stl_sha256": "3c9e034dfad15691c200dcf525eeef19344ee50304d8e8069abbb1ae7fa5c6c7",
       "mesh_sha256": "4759e03f9e35553cab5695fd98b8cc69b7be42c3c4f6a3e6de49564c11f5402a",
       "source": "throttle_77603/throttle_horn_variants.scad",
       "parameters": {
@@ -1941,7 +1941,7 @@
         10.5
       ],
       "volume_mm3": 19556.341,
-      "stl_sha256": "81dac2ca81d51f3d7282aaebce14927d7c2b439503766048d7c51902818f53e2",
+      "stl_sha256": "4d90f26c3c5666415f2b7f4c411a9e304ff53d54b3525b53d1f59f6928f60dc9",
       "mesh_sha256": "7ed6027736bd0ab58bffab69ed930fab89f96baf76efc57092ffafa22f37f5c0",
       "source": "control_77603/board_carriers.scad",
       "parameters": {
@@ -1986,7 +1986,7 @@
         151.0
       ],
       "volume_mm3": 217864.916,
-      "stl_sha256": "974aaa22363c8124ce475f4f24989022259dae62d59f86514bd39577b406eb66",
+      "stl_sha256": "db0d8cd32bd9d6b239907ff7964ce9dea6f5a829c9bc8b8b932aca50a7b50bc0",
       "mesh_sha256": "873396caa717fddae7d5a916be466216d1d09942d1e2447d81c6d0ae15f8026b",
       "source": "control_77603/board_carriers.scad",
       "parameters": {
@@ -2031,7 +2031,7 @@
         82.2
       ],
       "volume_mm3": 37899.772,
-      "stl_sha256": "cc468d3bb4dc9da1efc789eb2e98e0314e9f55794a49818051da101368b9789e",
+      "stl_sha256": "6cfdc24c2c2672963ffef369a2df0ee942eb869ed999e29bec7fba3d00a83f1b",
       "mesh_sha256": "5f16bbbaba409d106e2ea13e863be22dff17d1c8bd56b8a7ddd142afbc24e652",
       "source": "control_77603/board_carriers.scad",
       "parameters": {
@@ -2076,7 +2076,7 @@
         37.0
       ],
       "volume_mm3": 11139.268,
-      "stl_sha256": "ed1ea6d334d70d4aca07819a6901faa195d1523471361db0a57bdbb1b563511a",
+      "stl_sha256": "83aeafbe6eb318076e8c65aee7da1949a2cf73ace138fe6d0103b4c1f0d34ddf",
       "mesh_sha256": "db2a2271f9661ff22e7df917c331878eb88f60d21a43119b238014287ad63ca1",
       "source": "control_77603/board_carriers.scad",
       "parameters": {
@@ -2121,7 +2121,7 @@
         36.0
       ],
       "volume_mm3": 24198.361,
-      "stl_sha256": "826bfcac5cec468d66757551874e5367df2ff1f57ddc41f3ee8f2d660f3eeb72",
+      "stl_sha256": "1fede6e82ee512841c1a83c7e3e2cc639891e010cda7191aac567cc4fa6b510f",
       "mesh_sha256": "275dd5e82c4850a2fe992be2b03facd5a4585a15b1e19de8160ce918b6fd2275",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.4,
@@ -2169,7 +2169,7 @@
         36.0
       ],
       "volume_mm3": 17821.654,
-      "stl_sha256": "c223cd68f06bea4abb57c0ba66ae858598b675aa229e58b134dea1a51040891d",
+      "stl_sha256": "26bf18a536d37c004a31d049fc114ffa90d64bda9fec5974bbbdbb59b1b17d1b",
       "mesh_sha256": "ce80a981274dcf570effa0b0e1e32dcdae0fac25aa455ada2c690b8362538324",
       "pip_bodies": 2,
       "pip_min_gap_mm": 0.4,
@@ -2265,7 +2265,7 @@
         42.0
       ],
       "volume_mm3": 12606.065,
-      "stl_sha256": "d78e1edb643ea558176ad5d235bb466c5f6215b5f2997685a0252203ee0f26d2",
+      "stl_sha256": "6f573fe4928a89ae43cfc3ee8e29855745f467c35b9e58b4143a3ddbbf2a2bb1",
       "mesh_sha256": "44796f169e7dc7cc1df8a2686a7b5905006976464af520386ae2afa84b2545fc",
       "source": "control_77603/board_carriers.scad",
       "parameters": {
@@ -2438,15 +2438,15 @@
     },
     "chassis": {
       "path": "3mf/chassis.3mf",
-      "sha256": "bdfd7f49805ffef586453095755c38848f7b1fae99f1b7b624d9398c172c95c6"
+      "sha256": "a67f93cfb794171c4a28a0d6efd2fdf109e25e227d6137bef096d30a0802fcce"
     },
     "chassis_base": {
       "path": "3mf/chassis_base.3mf",
-      "sha256": "ee0e1fcfd8e034b4dd105aef31d60b2edc078af36b5049f69a7fce81b491f748"
+      "sha256": "53b091f6f5e41ad2ee4d7840ad887ac76177665f45e5b5cc334b9612a33f4ad7"
     },
     "harness_clamp": {
       "path": "3mf/harness_clamp.3mf",
-      "sha256": "73e7c5bdb448dde0459a26a617e54e1bacf0974fcf1a2c19edb24cc321868d11"
+      "sha256": "8b629a855d57aa8fd7b4687fc4a68e0e50039bbfa41df906f0b721149ea80576"
     },
     "ina_cradle": {
       "path": "3mf/ina_cradle.3mf",
@@ -2458,11 +2458,11 @@
     },
     "rod_cam_coupon": {
       "path": "3mf/rod_cam_coupon.3mf",
-      "sha256": "e59b8fff1d7f6245cffe23757c30acc387027bd4a0d44e8eb4e13e4f9abc2f27"
+      "sha256": "6beef0671fba5b86ba1ea58b4d369f1ee4129ef624a31044479505a99c61414a"
     },
     "rod_capture_assembly": {
       "path": "3mf/rod_capture_assembly.3mf",
-      "sha256": "fb47f069aa7fa71ca42b9a2a367f67c4649bed50b568094791723de38d8c17d4"
+      "sha256": "7a27efa5ce89443fc7b99fd08906438ccb59edd32c8b81fc55b3abb5461b1baf"
     },
     "rod_fit_gauge": {
       "path": "3mf/rod_fit_gauge.3mf",
@@ -2470,11 +2470,11 @@
     },
     "rod_fork_assembly": {
       "path": "3mf/rod_fork_assembly.3mf",
-      "sha256": "329835ea82d126b21f572702df9b62238bed232dc44569093d41b43bf6cefd04"
+      "sha256": "6d1b81ba3aa6ef8ae788cb193c2d09a39ef093b564becec1621222dccc5d2e90"
     },
     "rod_joint_coupon": {
       "path": "3mf/rod_joint_coupon.3mf",
-      "sha256": "45a41510b6dc77250c87e3759903334dcfa03afd25ebc381a90ec9b7a1538c1e"
+      "sha256": "903d6d81d0797fe5b7bd401b5586ab84ff903c6e8fbe6c41a2a64d2f9cbd4d1f"
     },
     "rod_joint_coupon_spigot": {
       "path": "3mf/rod_joint_coupon_spigot.3mf",
@@ -2482,11 +2482,11 @@
     },
     "rod_segment_lower": {
       "path": "3mf/rod_segment_lower.3mf",
-      "sha256": "a9e58dfe033a56fde6659adb4e012ab7ffb1b2002754b62e42b2e7317493ab59"
+      "sha256": "a1803580898ebcbd4cbf462bf118806303fc2c0223019357fca1ec63e9e13ead"
     },
     "rod_segment_middle": {
       "path": "3mf/rod_segment_middle.3mf",
-      "sha256": "85913d533caae3913813e8b88f9036ce9b703821ebd154a4577744b5017e3d88"
+      "sha256": "71562afe344ca1f370d6d763bd948b03577528f4fc7b96e77346f22e54a63b04"
     },
     "servo_keeper": {
       "path": "3mf/servo_keeper.3mf",
@@ -2494,23 +2494,23 @@
     },
     "sma_clip": {
       "path": "3mf/sma_clip.3mf",
-      "sha256": "9f3e7cf60bdfca8f4b02aebbdb3239ae496a95d4f8d420490e3b113cd7a3a35f"
+      "sha256": "5fe77a548c1831fafc7c130919b09cbf99c830b5c2893584db1a309dfbbf8713"
     },
     "strap_bay": {
       "path": "3mf/strap_bay.3mf",
-      "sha256": "60982e6975e91bbe76886edbd8b5f7a3053facc4213930d9de65e2c85f2ccfd8"
+      "sha256": "0c8e054484f5e46eb53f97327fee40d410772b9dcbaccb124b9bd5891e510e4b"
     },
     "throttle_arm_head": {
       "path": "3mf/throttle_arm_head.3mf",
-      "sha256": "094dd547045185a2c04c1970938f73636ebe56c2b8fe8eb7425a702c92c0ed6a"
+      "sha256": "d6ae2faf7e5f5c0fc9c7c66fcd6fdb304a124598a073e5bf3981c96830ace92b"
     },
     "throttle_u_cap": {
       "path": "3mf/throttle_u_cap.3mf",
-      "sha256": "63fcafefb5919ad8d597b88be97cd27ca7ebb91b0d5d5f3099ed801823083ddd"
+      "sha256": "ffb32a8af39a2c0dd039c185680ac59c9b3e9fe01c230e3aa783024eb7df85d1"
     },
     "throttle_u_fitting": {
       "path": "3mf/throttle_u_fitting.3mf",
-      "sha256": "0b880f403656a4b6d50e05ec4d5d17b33f855b5814e88a29e87fabdedc3d2c25"
+      "sha256": "4094c48867ffaad2321009f639c74b14681180840556adfb78c7b227d78ce493"
     },
     "throttle_u_gauge": {
       "path": "3mf/throttle_u_gauge.3mf",
@@ -2518,15 +2518,15 @@
     },
     "tower_clamp": {
       "path": "3mf/tower_clamp.3mf",
-      "sha256": "bb629bb3729a6f0c192bfc8054410eb207486f4dd6acef0ed43368ab0e9ef511"
+      "sha256": "53b26f882b8cd1958345c9daaa9ad2fd703c807f10551d54c248d10e9e161ca2"
     },
     "tower_rack": {
       "path": "3mf/tower_rack.3mf",
-      "sha256": "c0aafb0f7c381fded920018836be71d8beba1cfd133cf6f02bd04fca00fa1be6"
+      "sha256": "99fa146c7f8f1cc45eb598715b42187fb4244a09421c7fb38be0aab1785a81c8"
     },
     "variant_a_cap": {
       "path": "3mf/variant_a_cap.3mf",
-      "sha256": "2aff543a1d738f9c7c241963c811637da6f125b6117c884985e0beefb5ac2ea2"
+      "sha256": "6afc2316ab642410d76a83109ee45d390d61e2c7593730cbeff8773bdd54facf"
     },
     "variant_a_keeper": {
       "path": "3mf/variant_a_keeper.3mf",
@@ -2534,7 +2534,7 @@
     },
     "variant_a_post": {
       "path": "3mf/variant_a_post.3mf",
-      "sha256": "a7763d9b8b052b27d3bbf09e4ba3630edebe8caa3ff60a733cdaf3a3b3925b1e"
+      "sha256": "c7c777bfb9693fe4173f06c203be9866442c42be8727b2286b04dc02b1466a43"
     },
     "variant_b_cap": {
       "path": "3mf/variant_b_cap.3mf",
@@ -2546,19 +2546,19 @@
     },
     "variant_b_lug": {
       "path": "3mf/variant_b_lug.3mf",
-      "sha256": "443580f999d6f1d61d899172e7863037389041c5937e93135637a32660adbe87"
+      "sha256": "fb0905810bb8d058cf2cb3fcb3efdfd755479435d0c704855694f02d15d3d473"
     },
     "variant_b_pin": {
       "path": "3mf/variant_b_pin.3mf",
-      "sha256": "0e90d0782a322699c800868cdcb7379ffbe70e8e765588791f250d3be20c2b59"
+      "sha256": "9999f7e726cccdd0aad484e5b344fc0e370887234b882e9465621b0a3f61068c"
     },
     "variant_b_shell_a": {
       "path": "3mf/variant_b_shell_a.3mf",
-      "sha256": "7ddd338713edf869b9bd58f68ed87a5b835503fe8cf7a3e30a9690017dd97eb9"
+      "sha256": "d67e7daa81a4036cb0cc704958f779872261cda12243a0e742f91fb8b9df6cc6"
     },
     "variant_b_shell_b": {
       "path": "3mf/variant_b_shell_b.3mf",
-      "sha256": "eb41acabf4305bbb2d5d3e3d082bce3ff281b57cf95b8adcfd83dd74d9a2bae5"
+      "sha256": "f0f7ae6f54b032f8acdab807c4f88924ed2f613a7f42af8abc334a3a67a4334f"
     },
     "variant_c_cap": {
       "path": "3mf/variant_c_cap.3mf",
@@ -2570,15 +2570,15 @@
     },
     "variant_c_pin": {
       "path": "3mf/variant_c_pin.3mf",
-      "sha256": "427e33eb7353e8684edf143899785b92527728a63209dd46955c2746d4361d11"
+      "sha256": "0830bcf3bc3d89e8026076ebed2901d058cce0a6d65bf9fb24eb61460fbf8284"
     },
     "variant_c_pip": {
       "path": "3mf/variant_c_pip.3mf",
-      "sha256": "af363ba67124cbc82bf7de13b5878db54e1b80f7aeeade7c6b3b34ebc707ccb7"
+      "sha256": "cac8c3c58d20c5770c8a306d2f37438c44fdc9e7148ca644a6487c017ae2b3b3"
     },
     "variant_c_wedge_keeper": {
       "path": "3mf/variant_c_wedge_keeper.3mf",
-      "sha256": "39ae74d21ac2ee582a016134169ddc7384715fca37048fd76dda1a7bbbbd098f"
+      "sha256": "68a17af3ca59cc3b4ec4d407e5eb72179f4d5525671b76ccb25de77426daed5c"
     },
     "variant_c_wedge_key": {
       "path": "3mf/variant_c_wedge_key.3mf",
@@ -2586,7 +2586,7 @@
     },
     "variant_d_cap": {
       "path": "3mf/variant_d_cap.3mf",
-      "sha256": "bf43234716bdcca641601f84543d439315491673ee0d909a54546f0c76d481f5"
+      "sha256": "ff2779e5bbb642f76c8af51e54dbaa75179c20037def4e6a4c9b6430a778ed82"
     },
     "variant_d_keeper": {
       "path": "3mf/variant_d_keeper.3mf",
@@ -2594,35 +2594,35 @@
     },
     "variant_d_pin": {
       "path": "3mf/variant_d_pin.3mf",
-      "sha256": "f1c6b8a67070cdacc2d30bf58775a4e7229ff46603c07889ecf3b26246f0298b"
+      "sha256": "e3113ca7dbbe00fd6e72ca1ad87745def55e3096a2a5d6d6925570e7f0df80b7"
     },
     "variant_d_pip": {
       "path": "3mf/variant_d_pip.3mf",
-      "sha256": "cfc529eece61daa75380b6ff7613fc625c9329697ea45ea539957f777c742f94"
+      "sha256": "5afd52fa069b6c43b112ac04d354752ac30f93919fcec7cc6db75bcf2332089c"
     },
     "variant_e_bushing": {
       "path": "3mf/variant_e_bushing.3mf",
-      "sha256": "c35f25aa337c9730893d2c3fa6f3edaa2e02f7b19e42d8295c0700fbb518f8b5"
+      "sha256": "0858d9bf25b2972f3bce73016744322fb452820b745eac45ea2e4b56ee438517"
     },
     "variant_e_carrier": {
       "path": "3mf/variant_e_carrier.3mf",
-      "sha256": "a64a0c521594e80ff62fce595a164e3ca32d20f616bffaf91960b2a8b5857927"
+      "sha256": "016d5fbbfa4f506e31427db717783f0c2a4ea4c6dee20b3d5f79b90f944d0218"
     },
     "variant_e_clevis": {
       "path": "3mf/variant_e_clevis.3mf",
-      "sha256": "db420c82c83a83b87fe8c4fdebb2ba61db47b5c468ce794153598b32202d37f1"
+      "sha256": "a34c45b42b1f8312826684ab32473fe267e65ecd82398496272935008a08587b"
     },
     "variant_e_eye_bushing": {
       "path": "3mf/variant_e_eye_bushing.3mf",
-      "sha256": "e0044c9a0847e2a42c937bfc6cc2ec20e2ac89820d9537a3311e88d224eb3abd"
+      "sha256": "fcad3ee4cb79f04bb5270507703b56d9bbc751597a0b4ef27f153ac24a5455ce"
     },
     "variant_e_index_keeper": {
       "path": "3mf/variant_e_index_keeper.3mf",
-      "sha256": "aa110370634cd2bc20cb95990d111b1ae1ef080a50d0913b5174363bc023be4c"
+      "sha256": "e60a3cf790ba17b54136a0b502fb6a83437a840c246f7193979f98dc3fbe4824"
     },
     "variant_e_index_pin": {
       "path": "3mf/variant_e_index_pin.3mf",
-      "sha256": "10cf523062cfc496978a25b1efe11feda69df20a898c7af0fec93e14c0377458"
+      "sha256": "9f195e31f05878497feddd5f1619d79aa9ca49624462eec8a5bfad9fefbc0f1e"
     },
     "variant_e_keeper": {
       "path": "3mf/variant_e_keeper.3mf",
