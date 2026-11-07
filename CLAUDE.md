@@ -1,4 +1,4 @@
-> **Current hardware decision (2026-11-07):** Do not specify, purchase, or install a separate independent hardware watchdog module for Pi 5 ↔ Libre Alta failover. Use the existing two-controller monitoring/control architecture and electronically controlled servo signal selection, subject to validation. Do not interpret this decision as proof of safe failover: if both computers fail, software-only monitoring cannot guarantee a safe stop; autonomous/blade operation must remain disabled until the failure modes and safety controls are validated.
+> **Current hardware decision (2026-11-07):** Do not specify, purchase, or install a separate independent hardware watchdog module for Pi 5 ↔ Libre Alta failover. Use the existing two-controller monitoring/control architecture and electronically controlled servo signal selection, subject to validation. Do not interpret this decision as proof of safe failover: simultaneous controller failure is an accepted risk; this does not establish a safety guarantee.
 
 # CLAUDE.md
 
